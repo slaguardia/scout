@@ -1,0 +1,28 @@
+# scout taste — structured filter rules for M1/M2.
+# Narrative taste context (for the LLM verdict at M3) will live in taste.md.
+#
+# These rules drive the SQL pre-filter. Anything that survives this gets
+# enriched and then handed to the agent. Be aggressive here — the LLM is
+# expensive, this filter is free.
+
+[location]
+# Lowercased substrings. A company's `location` field matches if it contains any.
+allowed = ["san francisco", "sf", "bay area", "remote"]
+remote_ok = true   # if true, missing or "remote" location passes
+
+[headcount]
+# Both bounds inclusive. 0 means "no bound." NULL headcount passes (we don't
+# punish companies for not exporting the field).
+min = 0
+max = 500
+
+[verticals]
+# If `allowed` is non-empty, the vertical must match one of these.
+# `excluded` always filters out matches even if `allowed` is empty.
+# Match is case-insensitive substring.
+allowed  = []
+excluded = ["law", "legal tech", "voice", "voice ai", "crypto", "blockchain", "web3", "insurance", "insurtech"]
+
+[funding_stage]
+# Empty = allow all.
+allowed = []

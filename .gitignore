@@ -1,0 +1,28 @@
+# Binaries
+/scout
+/bin/
+*.exe
+*.test
+*.out
+
+# Go build cache
+/vendor/
+
+# Local DB + dumps
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/data/
+/dumps/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
