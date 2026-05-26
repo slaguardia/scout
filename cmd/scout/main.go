@@ -75,7 +75,7 @@ Usage:
   scout verdict [--taste-md taste.md] [--brainbot URL] [--model claude-haiku-4-5]
                 [--workers 4] [--force] [--db scout.db]
   scout episodes [--brainbot URL] [--db scout.db]
-  scout serve [--addr :8765] [--db scout.db]
+  scout serve [--addr :8765] [--taste-md taste.md] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
 
 Environment:
@@ -333,6 +333,8 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	addr := fs.String("addr", ":8765", "listen address")
+	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for stats display)")
+	brainbotURL := fs.String("brainbot", "", "brainbot base URL; enables /api/companies/:id/brain")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -342,7 +344,21 @@ func cmdServe(args []string) error {
 	}
 	defer db.Close()
 
-	srv := &web.Server{DB: db}
+	// Best-effort taste load. If the file is missing we still serve, just
+	// without taste-version/source on /api/stats.
+	var tb *taste.Block
+	if t, err := taste.LoadFile(*tasteMD); err == nil {
+		tb = t
+	} else {
+		fmt.Fprintf(os.Stderr, "scout serve: taste load failed (%v); /api/stats will omit taste\n", err)
+	}
+
+	var bc *brainbot.Client
+	if *brainbotURL != "" {
+		bc = brainbot.New(*brainbotURL)
+	}
+
+	srv := &web.Server{DB: db, Brainbot: bc, Taste: tb}
 	server := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),

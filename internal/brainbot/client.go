@@ -250,6 +250,61 @@ func (c *Client) FetchTaste(ctx context.Context) (*taste.Block, error) {
 	}, nil
 }
 
+// Node is a brain entity returned by search_nodes.
+type Node struct {
+	UUID    string   `json:"uuid"`
+	Name    string   `json:"name"`
+	Summary string   `json:"summary,omitempty"`
+	Labels  []string `json:"labels,omitempty"`
+}
+
+// SearchNodes calls the brain's search_nodes MCP tool to find entities
+// matching the query. maxNodes <= 0 defaults to 5.
+//
+// Returns nil, nil if the brain is unreachable or returns no nodes — the
+// brain is an enhancement, not a hard dep. Callers should treat empty
+// results as "nothing known" rather than an error.
+func (c *Client) SearchNodes(ctx context.Context, query string, maxNodes int) ([]Node, error) {
+	if !c.Enabled() {
+		return nil, errors.New("brainbot: not configured")
+	}
+	if maxNodes <= 0 {
+		maxNodes = 5
+	}
+	result, err := c.mcpCall(ctx, "search_nodes", map[string]any{
+		"query":     query,
+		"max_nodes": maxNodes,
+		"group_ids": []string{groupID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	rawNodes, _ := result["nodes"].([]any)
+	out := make([]Node, 0, len(rawNodes))
+	for _, n := range rawNodes {
+		nm, ok := n.(map[string]any)
+		if !ok {
+			continue
+		}
+		var node Node
+		node.UUID, _ = nm["uuid"].(string)
+		node.Name, _ = nm["name"].(string)
+		node.Summary, _ = nm["summary"].(string)
+		if labels, ok := nm["labels"].([]any); ok {
+			for _, l := range labels {
+				if s, ok := l.(string); ok {
+					node.Labels = append(node.Labels, s)
+				}
+			}
+		}
+		if node.Name == "" {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out, nil
+}
+
 // Episode is the payload shape for write-back.
 type Episode struct {
 	Source       string  `json:"source"`
