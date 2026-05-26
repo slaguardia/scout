@@ -57,6 +57,14 @@
   .pill-maybe { background: rgba(229,165,10,0.15); color: var(--maybe); }
   .pill-no    { background: rgba(212,75,75,0.15);  color: var(--no); }
   .pill-none  { background: #2a2f3d; color: var(--mute); }
+  .pill-status { font-size: 11px; }
+  .pill-status-new       { background: #2a2f3d; color: var(--mute); }
+  .pill-status-reviewed  { background: rgba(106,169,255,0.15); color: var(--link); }
+  .pill-status-tracked   { background: rgba(46,194,126,0.15);  color: var(--yes); }
+  .pill-status-dismissed { background: #1d2029; color: var(--mute); }
+
+  tr.row-tracked > td:first-child { border-left: 3px solid var(--yes); padding-left: 7px; }
+  tr.row-dismissed { opacity: 0.45; }
   .reason { color: var(--mute); }
   .empty { padding: 60px 0; text-align: center; color: var(--mute); }
 
@@ -185,6 +193,7 @@
     <thead>
       <tr>
         <th data-k="verdict">verdict</th>
+        <th data-k="state">status</th>
         <th data-k="name">name</th>
         <th data-k="reason">reason</th>
         <th data-k="vertical">vertical</th>
@@ -240,7 +249,24 @@ function compare(a, b, k) {
     const order = { yes: 0, maybe: 1, no: 2, "": 3 };
     return (order[av] ?? 3) - (order[bv] ?? 3);
   }
+  if (k === "state") {
+    const order = { tracked: 0, new: 1, reviewed: 2, dismissed: 3, "": 1 };
+    return (order[av] ?? 1) - (order[bv] ?? 1);
+  }
   return String(av).localeCompare(String(bv));
+}
+
+// Sort comparator that pushes dismissed rows to the bottom of their
+// verdict bucket regardless of the active sort key.
+function sortWithDismissedLast(rows) {
+  return rows.slice().sort((a, b) => {
+    const av = state.sort.dir * compare(a, b, state.sort.k);
+    // Dismissed goes last within whatever group the active sort puts them in.
+    const ad = (a.state === "dismissed") ? 1 : 0;
+    const bd = (b.state === "dismissed") ? 1 : 0;
+    if (ad !== bd) return ad - bd;
+    return av;
+  });
 }
 
 function filtered() {
@@ -262,13 +288,16 @@ function filtered() {
 function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
-  let rows = filtered().slice();
-  rows.sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
+  const rows = sortWithDismissedLast(filtered());
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
   for (const r of rows) {
     const tr = document.createElement("tr");
+    tr.dataset.id = r.company_id;
+    if (r.state === "tracked") tr.classList.add("row-tracked");
+    if (r.state === "dismissed") tr.classList.add("row-dismissed");
     tr.innerHTML = `
       <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
+      <td><span class="pill pill-status pill-status-${escapeHTML(r.state || "new")}">${escapeHTML(r.state || "new")}</span></td>
       <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
       <td class="reason">${escapeHTML(r.reason || "")}</td>
       <td>${escapeHTML(r.vertical || "")}</td>
@@ -279,10 +308,17 @@ function renderList() {
     `;
     tbody.appendChild(tr);
   }
-  // Attach name-click handlers after render (event delegation would also work).
   tbody.querySelectorAll(".row-name").forEach(el => {
     el.addEventListener("click", () => openDetail(parseInt(el.dataset.id, 10)));
   });
+}
+
+// Update a single in-memory row + its rendered <tr> after status change.
+function updateRowState(id, newState) {
+  const row = state.rows.find(r => r.company_id === id);
+  if (row) row.state = newState;
+  // Re-render the whole list so the dismissed-last sort stays accurate.
+  renderList();
 }
 
 // ---- detail pane ----
@@ -371,15 +407,20 @@ function renderDetail(d) {
     </details>
   `;
 
+  // After the body renders, wire status buttons.
   document.getElementById("pane-body").innerHTML = `
     <section class="pane-section">
       <h3>Status</h3>
       <div class="status-btns" id="status-btns">
         ${["reviewed","tracked","dismissed"].map(s =>
-          `<button class="status-btn${d.state === s ? " active" : ""}" data-state="${s}" disabled>Mark ${s}</button>`
+          `<button class="status-btn${d.state === s ? " active" : ""}" data-state="${s}">Mark ${s}</button>`
         ).join("")}
       </div>
-      <div class="small muted" style="margin-top:8px">Status write-back lands in U3.</div>
+      <div class="small muted" style="margin-top:8px">
+        ${d.state === "tracked"
+          ? `Promote command ready — click <em>Mark tracked</em> again to re-copy.`
+          : `<em>Mark tracked</em> also copies <code>tracker.py add</code> to the clipboard.`}
+      </div>
     </section>
 
     <section class="pane-section">
@@ -416,6 +457,65 @@ function renderDetail(d) {
       ${epBlock}
     </section>
   `;
+
+  // Wire status buttons.
+  document.querySelectorAll("#status-btns .status-btn").forEach(btn => {
+    btn.addEventListener("click", () => onStatusClick(d, btn.dataset.state));
+  });
+}
+
+async function onStatusClick(d, newState) {
+  // Disable buttons during the request to prevent double-fires.
+  const btns = document.querySelectorAll("#status-btns .status-btn");
+  btns.forEach(b => b.disabled = true);
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${d.company_id}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: newState }),
+    });
+  } catch (e) {
+    toast(`status update failed: ${e.message}`);
+    btns.forEach(b => b.disabled = false);
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`status update failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    btns.forEach(b => b.disabled = false);
+    return;
+  }
+
+  // Update local state.
+  d.state = newState;
+  updateRowState(d.company_id, newState);
+
+  // Reflect active button.
+  btns.forEach(b => {
+    b.classList.toggle("active", b.dataset.state === newState);
+    b.disabled = false;
+  });
+
+  // Update the header pill.
+  const pills = document.getElementById("pane-pills");
+  pills.innerHTML = `
+    <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
+    <span class="pill pill-none">${escapeHTML(d.state)}</span>
+  `;
+
+  if (newState === "tracked") {
+    const cmd = `tracker.py add "${d.name}"`;
+    try {
+      await navigator.clipboard.writeText(cmd);
+      toast(`copied: ${cmd}`);
+    } catch {
+      // Fallback when clipboard API is blocked (e.g. HTTP, no user gesture).
+      toast(`tracked — copy manually: ${cmd}`);
+    }
+  } else {
+    toast(`marked ${newState}`);
+  }
 }
 
 async function loadBrain(id) {
