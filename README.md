@@ -24,9 +24,26 @@ The handoff is manual by design: scout surfaces candidates, I decide what's wort
 
 ## Status
 
-Pre-architecture. PRD next, then build.
+M1–M6 built. End-to-end pipeline works against a Crunchbase CSV: ingest → filter → enrich → verdict → episodes, plus a read-only triage UI. Brainbot integration is live over MCP JSON-RPC: scout pulls taste via `search_memory_facts` and writes verdicts back via `add_memory` (see [`internal/brainbot/client.go`](./internal/brainbot/client.go) and brainbot's [`docs/consumer-integration.md`](../brainbot/docs/consumer-integration.md)).
 
-See [`PRD.md`](./PRD.md) for the product spec (in progress).
+See [`PRD.md`](./PRD.md) for the product spec and milestone status, and [`docs/`](./docs/) for architecture, pipeline, and operations references.
+
+## Quickstart
+
+```bash
+brew install go
+go mod tidy
+go build ./...
+
+export ANTHROPIC_API_KEY=sk-ant-...
+
+./scout ingest data/crunchbase.csv
+./scout filter
+./scout enrich            # parallel about-page fetch, cached
+./scout verdict           # Haiku scores each survivor
+./scout serve             # http://localhost:8765
+./scout episodes --brainbot http://localhost:8123   # M6, optional
+```
 
 ## Stack (tentative)
 

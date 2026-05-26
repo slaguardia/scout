@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>scout — triage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --fg: #e6e8ee;
+    --mute: #7a8194;
+    --line: #232838;
+    --yes: #2ec27e;
+    --maybe: #e5a50a;
+    --no: #d44b4b;
+    --link: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+  }
+  header {
+    padding: 16px 20px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+  header .stats { color: var(--mute); }
+  header input, header select {
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; font: inherit;
+  }
+  main { padding: 12px 20px 40px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; padding: 8px 10px; font-weight: 600;
+    color: var(--mute); border-bottom: 1px solid var(--line);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  thead th .arrow { color: var(--fg); }
+  tbody td {
+    padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
+  }
+  tbody tr:hover { background: #1a1e2a; }
+  .pill {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; text-transform: lowercase;
+  }
+  .pill-yes   { background: rgba(46,194,126,0.15); color: var(--yes); }
+  .pill-maybe { background: rgba(229,165,10,0.15);  color: var(--maybe); }
+  .pill-no    { background: rgba(212,75,75,0.15);   color: var(--no); }
+  .pill-none  { background: #2a2f3d; color: var(--mute); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .reason { color: var(--mute); }
+  .summary-row td { padding: 0; }
+  .summary-box {
+    padding: 12px 16px; background: #121622; color: var(--mute);
+    border-left: 3px solid var(--line); margin: 0 6px 6px 6px; border-radius: 4px;
+    white-space: pre-wrap;
+  }
+  .empty { padding: 60px 0; text-align: center; color: var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <h1>scout / triage</h1>
+  <span class="stats" id="stats">loading…</span>
+  <span style="flex:1"></span>
+  <input id="q" placeholder="search name / vertical / reason" size="30">
+  <select id="verdict">
+    <option value="">verdict: any</option>
+    <option value="yes">yes</option>
+    <option value="maybe">maybe</option>
+    <option value="no">no</option>
+    <option value="__none__">(unscored)</option>
+  </select>
+  <select id="state">
+    <option value="">status: any</option>
+    <option value="new">new</option>
+    <option value="reviewed">reviewed</option>
+    <option value="tracked">tracked</option>
+    <option value="dismissed">dismissed</option>
+  </select>
+</header>
+<main>
+  <table id="t">
+    <thead>
+      <tr>
+        <th data-k="verdict">verdict</th>
+        <th data-k="name">name</th>
+        <th data-k="reason">reason</th>
+        <th data-k="vertical">vertical</th>
+        <th data-k="location">location</th>
+        <th data-k="headcount">hc</th>
+        <th data-k="stage">stage</th>
+        <th>site</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">No companies match the current filters.</div>
+</main>
+<script>
+const state = { rows: [], sort: { k: "verdict", dir: 1 }, expanded: new Set() };
+
+const pillClass = v => "pill pill-" + (v || "none");
+
+async function load() {
+  const r = await fetch("/api/companies");
+  const data = await r.json();
+  state.rows = data.rows || [];
+  document.getElementById("stats").textContent =
+    state.rows.length + " companies · "
+    + countBy(state.rows, "verdict").map(([k,v]) => (k||"unscored") + "=" + v).join(" · ");
+  render();
+}
+
+function countBy(rows, key) {
+  const m = new Map();
+  for (const r of rows) m.set(r[key] || "", (m.get(r[key]||"") || 0) + 1);
+  return Array.from(m.entries()).sort((a,b) => b[1] - a[1]);
+}
+
+function compare(a, b, k) {
+  const av = a[k] ?? ""; const bv = b[k] ?? "";
+  if (k === "headcount") return (av|0) - (bv|0);
+  if (k === "verdict") {
+    const order = { yes: 0, maybe: 1, no: 2, "": 3 };
+    return (order[av] ?? 3) - (order[bv] ?? 3);
+  }
+  return String(av).localeCompare(String(bv));
+}
+
+function filtered() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const v = document.getElementById("verdict").value;
+  const s = document.getElementById("state").value;
+  return state.rows.filter(r => {
+    if (v === "__none__" && r.verdict) return false;
+    if (v && v !== "__none__" && r.verdict !== v) return false;
+    if (s && r.state !== s) return false;
+    if (q) {
+      const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function render() {
+  const tbody = document.querySelector("#t tbody");
+  tbody.innerHTML = "";
+  let rows = filtered().slice();
+  rows.sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
+  document.getElementById("empty").style.display = rows.length ? "none" : "block";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="${pillClass(r.verdict)}">${r.verdict || "—"}</span></td>
+      <td>${r.domain ? `<a href="https://${r.domain}" target="_blank" rel="noopener">${escape(r.name)}</a>` : escape(r.name)}</td>
+      <td class="reason">${escape(r.reason || "")}</td>
+      <td>${escape(r.vertical || "")}</td>
+      <td>${escape(r.location || "")}</td>
+      <td>${r.headcount || ""}</td>
+      <td>${escape(r.stage || "")}</td>
+      <td>${r.website_url ? `<a href="${escape(r.website_url)}" target="_blank" rel="noopener">about</a>` : ""}</td>
+    `;
+    tr.style.cursor = r.website_summary ? "pointer" : "";
+    tr.onclick = () => {
+      if (!r.website_summary) return;
+      const k = "row-" + r.company_id;
+      if (state.expanded.has(k)) state.expanded.delete(k); else state.expanded.add(k);
+      render();
+    };
+    tbody.appendChild(tr);
+    if (state.expanded.has("row-" + r.company_id) && r.website_summary) {
+      const er = document.createElement("tr");
+      er.className = "summary-row";
+      er.innerHTML = `<td colspan="8"><div class="summary-box">${escape(r.website_summary)}</div></td>`;
+      tbody.appendChild(er);
+    }
+  }
+}
+
+function escape(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+document.querySelectorAll("#t thead th[data-k]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.k;
+    if (state.sort.k === k) state.sort.dir *= -1; else { state.sort.k = k; state.sort.dir = 1; }
+    render();
+  };
+});
+document.getElementById("q").oninput = render;
+document.getElementById("verdict").onchange = render;
+document.getElementById("state").onchange = render;
+load();
+</script>
+</body>
+</html>

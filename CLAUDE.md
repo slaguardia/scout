@@ -42,15 +42,17 @@ Go 1.22 · SQLite (`modernc.org/sqlite`, pure-Go) · BurntSushi/toml · Anthropi
 - Push back if you see something off. Silence is the failure mode.
 - Never invent experience or capability for Alex.
 
-## What's done in M1
+## What's done (M1 → M6)
 
-- Repo scaffolded, `go.mod` declared, schema migration embedded
-- `scout ingest <csv>` — Crunchbase column aliases, raw_json preservation, upsert on `(source, source_id)`
-- `scout filter` — applies `taste.toml`, prints survivors + drop-reason breakdown
-- `scout stats` — row count
+- **M1** — `scout ingest <csv>`, `scout filter`, `scout stats`, schema migrations embedded.
+- **M2** — `scout enrich`: parallel about-page fetch (default 8 workers, 12s timeout), regex HTML strip, ~3000-rune summary cached in `enrichment` table. Idempotent: re-runs skip rows where `enrichment.fetched_at >= companies.ingested_at`.
+- **M3** — `scout verdict`: Haiku via direct Anthropic /v1/messages call (no SDK dep), narrative taste from `taste.md`, JSON output parsed and persisted to `verdicts`. Idempotent by `(company_id, taste_version)`.
+- **M4** — `scout serve`: localhost HTML + `/api/companies` JSON, embedded `index.html` with client-side sort/filter/search.
+- **M5** — `scout verdict --brainbot URL` pulls live taste via the brain's `search_memory_facts` MCP tool, joins fact strings into the verdict prompt's taste block; transparent fallback to `taste.md` on failure.
+- **M6** — `scout episodes --brainbot URL` writes each new verdict as a natural-language episode via the brain's `add_memory` MCP tool, dedup'd locally in `episodes_sent`.
 
-Alex needs to `brew install go && go mod tidy` before first run; Go wasn't installed at scaffold time.
+Scout's brain client is in `internal/brainbot/client.go` — MCP JSON-RPC over HTTP, mirrors brainbot's Python `GraphitiClient`. Brainbot owns the protocol; see its `docs/consumer-integration.md`. Scout-side specifics in `docs/brainbot-contract.md`.
 
 ## What's next
 
-Pick up at **M2 enrichment**. About-page only. Parallel fetch with a worker pool. Cache in SQLite keyed by `company_id`. Re-run is a no-op unless `companies.ingested_at` is newer than `enrichment.fetched_at`.
+Real use. Drop a Crunchbase CSV in, fill in `taste.toml` and `taste.md`, run the pipeline end-to-end, watch where the verdicts disagree with intuition, then tune. Likely follow-ups: careers-page enrichment (PRD §11), drag-to-promote integration with `tracker.py`, write-back UI for `status`.

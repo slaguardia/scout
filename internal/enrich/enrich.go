@@ -1,0 +1,251 @@
+// Package enrich fetches a company's about/landing page and stores a text summary.
+//
+// Strategy: try a small set of candidate URLs (/about, /about-us, /, ...), take the
+// first one that returns 2xx HTML, strip tags, collapse whitespace, truncate. Errors
+// are recorded so we don't retry hot loops on permanently broken sites.
+package enrich
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/stevenlaguardia/scout/internal/store"
+)
+
+const (
+	defaultWorkers    = 8
+	defaultTimeout    = 12 * time.Second
+	maxBodyBytes      = 512 * 1024 // 512 KB read cap
+	maxSummaryRunes   = 3000       // chunk handed to the LLM
+	userAgent         = "scout/0.1 (+https://github.com/stevenlaguardia/scout)"
+)
+
+// candidate URL paths in priority order.
+var candidatePaths = []string{"/about", "/about-us", "/company", "/"}
+
+// Enricher fetches about-pages with bounded concurrency.
+type Enricher struct {
+	DB      *store.DB
+	Workers int
+	Timeout time.Duration
+	Client  *http.Client
+}
+
+// Result reports a run.
+type Result struct {
+	Considered int
+	Fetched    int
+	OK         int
+	Failed     int
+	Skipped    int
+}
+
+// Run enriches every company that needs it. If force, every company with a domain is re-fetched.
+func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
+	if e.Workers <= 0 {
+		e.Workers = defaultWorkers
+	}
+	if e.Timeout <= 0 {
+		e.Timeout = defaultTimeout
+	}
+	if e.Client == nil {
+		e.Client = &http.Client{
+			Timeout: e.Timeout,
+			// Cap redirects so we don't follow forever.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return errors.New("too many redirects")
+				}
+				return nil
+			},
+		}
+	}
+
+	targets, err := e.DB.EnrichmentTargets(force)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{Considered: len(targets)}
+	if len(targets) == 0 {
+		return res, nil
+	}
+
+	jobs := make(chan store.EnrichmentTarget)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i := 0; i < e.Workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range jobs {
+				rec := e.fetchOne(ctx, t)
+				if err := e.DB.UpsertEnrichment(rec); err != nil {
+					// DB failure is bad; surface but keep going.
+					fmt.Println("enrich db error:", err)
+					continue
+				}
+				mu.Lock()
+				res.Fetched++
+				if rec.FetchStatus == "ok" {
+					res.OK++
+				} else {
+					res.Failed++
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+
+	for _, t := range targets {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return res, ctx.Err()
+		case jobs <- t:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return res, nil
+}
+
+func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store.Enrichment {
+	rec := store.Enrichment{CompanyID: t.CompanyID}
+	if t.Domain == "" {
+		rec.FetchStatus = "no_domain"
+		return rec
+	}
+
+	var lastErr string
+	var lastStatus string
+	for _, path := range candidatePaths {
+		url := "https://" + t.Domain + path
+		body, code, err := e.get(ctx, url)
+		if err != nil {
+			lastErr = err.Error()
+			lastStatus = classifyErr(err)
+			continue
+		}
+		if code >= 200 && code < 300 && len(body) > 0 {
+			text := extractText(body)
+			rec.WebsiteURL = store.NullString(url)
+			rec.WebsiteSummary = store.NullString(truncRunes(text, maxSummaryRunes))
+			rec.FetchStatus = "ok"
+			return rec
+		}
+		lastStatus = fmt.Sprintf("http_%d", code)
+	}
+
+	rec.FetchStatus = lastStatus
+	if lastStatus == "" {
+		rec.FetchStatus = "error"
+	}
+	if lastErr != "" {
+		rec.FetchError = sql.NullString{String: lastErr, Valid: true}
+	}
+	return rec
+}
+
+func (e *Enricher) get(ctx context.Context, url string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "html") {
+		return nil, resp.StatusCode, fmt.Errorf("non-html content-type: %s", ct)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return body, resp.StatusCode, nil
+}
+
+func classifyErr(err error) string {
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "context deadline exceeded"), strings.Contains(s, "Client.Timeout"):
+		return "timeout"
+	case strings.Contains(s, "no such host"):
+		return "dns"
+	case strings.Contains(s, "connection refused"):
+		return "refused"
+	default:
+		return "error"
+	}
+}
+
+// --- HTML text extraction (regex-based; cheap, no extra deps) ---
+
+var (
+	reScript = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	reStyle  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	reNoscr  = regexp.MustCompile(`(?is)<noscript[^>]*>.*?</noscript>`)
+	reSvg    = regexp.MustCompile(`(?is)<svg[^>]*>.*?</svg>`)
+	reTag    = regexp.MustCompile(`(?s)<[^>]+>`)
+	reWS     = regexp.MustCompile(`\s+`)
+	reEntity = regexp.MustCompile(`&[a-zA-Z#0-9]+;`)
+)
+
+var entities = map[string]string{
+	"&amp;":   "&",
+	"&lt;":    "<",
+	"&gt;":    ">",
+	"&quot;":  `"`,
+	"&apos;":  "'",
+	"&nbsp;":  " ",
+	"&#39;":   "'",
+	"&#34;":   `"`,
+	"&hellip;": "…",
+	"&mdash;": "—",
+	"&ndash;": "–",
+	"&rsquo;": "'",
+	"&lsquo;": "'",
+	"&rdquo;": `"`,
+	"&ldquo;": `"`,
+}
+
+func extractText(body []byte) string {
+	s := string(body)
+	s = reScript.ReplaceAllString(s, " ")
+	s = reStyle.ReplaceAllString(s, " ")
+	s = reNoscr.ReplaceAllString(s, " ")
+	s = reSvg.ReplaceAllString(s, " ")
+	s = reTag.ReplaceAllString(s, " ")
+	s = reEntity.ReplaceAllStringFunc(s, func(e string) string {
+		if v, ok := entities[strings.ToLower(e)]; ok {
+			return v
+		}
+		return " "
+	})
+	s = reWS.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
+
+func truncRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}

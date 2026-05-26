@@ -3,19 +3,34 @@
 // Subcommands:
 //   scout ingest <csv>        Load a CSV dump into the local DB.
 //   scout filter              Apply taste.toml rules; print survivors.
+//   scout enrich              Fetch about-pages for survivors (parallel).
+//   scout verdict             Score enriched survivors with Haiku.
+//   scout episodes            Ship verdicts to brainbot as episodes (M6).
+//   scout serve               Read-only triage UI on localhost.
 //   scout stats               Show DB row counts.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
 	"sort"
+	"syscall"
 	"text/tabwriter"
+	"time"
 
+	"github.com/stevenlaguardia/scout/internal/anthropic"
+	"github.com/stevenlaguardia/scout/internal/brainbot"
+	"github.com/stevenlaguardia/scout/internal/enrich"
 	"github.com/stevenlaguardia/scout/internal/filter"
 	"github.com/stevenlaguardia/scout/internal/ingest"
 	"github.com/stevenlaguardia/scout/internal/store"
+	"github.com/stevenlaguardia/scout/internal/taste"
+	"github.com/stevenlaguardia/scout/internal/verdict"
+	"github.com/stevenlaguardia/scout/internal/web"
 )
 
 func main() {
@@ -31,6 +46,14 @@ func main() {
 		exit(cmdIngest(args))
 	case "filter":
 		exit(cmdFilter(args))
+	case "enrich":
+		exit(cmdEnrich(args))
+	case "verdict":
+		exit(cmdVerdict(args))
+	case "episodes":
+		exit(cmdEpisodes(args))
+	case "serve":
+		exit(cmdServe(args))
 	case "stats":
 		exit(cmdStats(args))
 	case "-h", "--help", "help":
@@ -48,8 +71,18 @@ func usage() {
 Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
   scout filter [--taste taste.toml] [--db scout.db]
-  scout stats [--db scout.db]`)
+  scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
+  scout verdict [--taste-md taste.md] [--brainbot URL] [--model claude-haiku-4-5]
+                [--workers 4] [--force] [--db scout.db]
+  scout episodes [--brainbot URL] [--db scout.db]
+  scout serve [--addr :8765] [--db scout.db]
+  scout stats [--db scout.db]
+
+Environment:
+  ANTHROPIC_API_KEY   required for `+"`verdict`"+`.`)
 }
+
+// --- ingest ---
 
 func cmdIngest(args []string) error {
 	fs := flag.NewFlagSet("ingest", flag.ExitOnError)
@@ -81,6 +114,8 @@ func cmdIngest(args []string) error {
 	}
 	return nil
 }
+
+// --- filter ---
 
 func cmdFilter(args []string) error {
 	fs := flag.NewFlagSet("filter", flag.ExitOnError)
@@ -128,6 +163,210 @@ func cmdFilter(args []string) error {
 	return nil
 }
 
+// --- enrich ---
+
+func cmdEnrich(args []string) error {
+	fs := flag.NewFlagSet("enrich", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	workers := fs.Int("workers", 8, "parallel fetchers")
+	timeout := fs.Duration("timeout", 12*time.Second, "per-request timeout")
+	force := fs.Bool("force", false, "re-fetch even if cached")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout}
+	res, err := e.Run(ctx, *force)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("considered=%d fetched=%d ok=%d failed=%d\n",
+		res.Considered, res.Fetched, res.OK, res.Failed)
+	return nil
+}
+
+// --- verdict ---
+
+func cmdVerdict(args []string) error {
+	fs := flag.NewFlagSet("verdict", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
+	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
+	brainbotURL := fs.String("brainbot", "", "brainbot base URL; if set, overrides --taste-md")
+	model := fs.String("model", anthropic.DefaultModel, "Anthropic model")
+	workers := fs.Int("workers", 4, "parallel API calls")
+	force := fs.Bool("force", false, "re-score even if taste_version matches")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ft, err := filter.LoadTaste(*tastePath)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	// Resolve narrative taste: brainbot if configured (M5), else local file.
+	var tb *taste.Block
+	if *brainbotURL != "" {
+		bc := brainbot.New(*brainbotURL)
+		tb, err = bc.FetchTaste(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "brainbot taste fetch failed (%v); falling back to %s\n", err, *tasteMD)
+			tb, err = taste.LoadFile(*tasteMD)
+		}
+	} else {
+		tb, err = taste.LoadFile(*tasteMD)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
+
+	s := &verdict.Scorer{
+		DB:      db,
+		Taste:   tb,
+		Filter:  ft,
+		Client:  anthropic.New(""),
+		Model:   *model,
+		Force:   *force,
+		Workers: *workers,
+	}
+	res, err := s.Run(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("considered=%d scored=%d skipped=%d failed=%d\n",
+		res.Considered, res.Scored, res.Skipped, res.Failed)
+	if len(res.ByVerdict) > 0 {
+		keys := make([]string, 0, len(res.ByVerdict))
+		for k := range res.ByVerdict {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Printf("  %-5s %d\n", k, res.ByVerdict[k])
+		}
+	}
+	return nil
+}
+
+// --- episodes (M6) ---
+
+func cmdEpisodes(args []string) error {
+	fs := flag.NewFlagSet("episodes", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	brainbotURL := fs.String("brainbot", os.Getenv("BRAINBOT_URL"), "brainbot base URL")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *brainbotURL == "" {
+		return fmt.Errorf("episodes: --brainbot URL required (or BRAINBOT_URL env)")
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	pending, err := db.PendingEpisodes()
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		fmt.Println("no pending episodes")
+		return nil
+	}
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	bc := brainbot.New(*brainbotURL)
+	sent, failed := 0, 0
+	for _, v := range pending {
+		// Pull name/domain for the payload.
+		var name, domain string
+		row := db.QueryRow(`SELECT name, COALESCE(domain,'') FROM companies WHERE id = ?`, v.CompanyID)
+		if err := row.Scan(&name, &domain); err != nil {
+			failed++
+			fmt.Fprintf(os.Stderr, "  lookup %d: %v\n", v.CompanyID, err)
+			continue
+		}
+		ep := brainbot.EpisodeFromVerdict(v, name, domain)
+		if err := bc.SendEpisode(ctx, ep); err != nil {
+			failed++
+			fmt.Fprintf(os.Stderr, "  send %d (%s): %v\n", v.CompanyID, name, err)
+			continue
+		}
+		if err := db.MarkEpisodeSent(v.CompanyID, v.TasteVersion); err != nil {
+			failed++
+			fmt.Fprintf(os.Stderr, "  mark %d: %v\n", v.CompanyID, err)
+			continue
+		}
+		sent++
+	}
+	fmt.Printf("sent=%d failed=%d\n", sent, failed)
+	return nil
+}
+
+// --- serve ---
+
+func cmdServe(args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	addr := fs.String("addr", ":8765", "listen address")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	srv := &web.Server{DB: db}
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+	go func() {
+		<-ctx.Done()
+		shutCtx, sc := context.WithTimeout(context.Background(), 3*time.Second)
+		defer sc()
+		_ = server.Shutdown(shutCtx)
+	}()
+
+	fmt.Printf("scout triage UI at http://localhost%s\n", *addr)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+// --- stats ---
+
 func cmdStats(args []string) error {
 	fs := flag.NewFlagSet("stats", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
@@ -144,7 +383,29 @@ func cmdStats(args []string) error {
 		return err
 	}
 	fmt.Printf("companies=%d\n", n)
+
+	hist, err := db.CountVerdictsByVerdict()
+	if err != nil {
+		return err
+	}
+	if len(hist) > 0 {
+		keys := make([]string, 0, len(hist))
+		for k := range hist {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fmt.Println("verdicts:")
+		for _, k := range keys {
+			fmt.Printf("  %-5s %d\n", k, hist[k])
+		}
+	}
 	return nil
+}
+
+// --- helpers ---
+
+func signalCtx() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
 func exit(err error) {
