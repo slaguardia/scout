@@ -48,9 +48,36 @@ type Message struct {
 }
 
 // Request mirrors the Anthropic /v1/messages request body.
+//
+// When Cached is true, System is sent as a single text block with
+// `cache_control: {"type": "ephemeral"}` so identical system prompts
+// across calls within ~5 minutes hit the prompt cache. This is how
+// verdict runs amortize the ~3.5 KB taste+rubric block across hundreds
+// of companies.
 type Request struct {
+	Model     string    `json:"-"`
+	System    string    `json:"-"`
+	MaxTokens int       `json:"-"`
+	Messages  []Message `json:"-"`
+	Cached    bool      `json:"-"`
+}
+
+// systemBlock is the structured form for cache_control on the system prompt.
+type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+// wireRequest is the JSON-on-the-wire shape. System can be either a plain
+// string (cache disabled) or an array of structured blocks (cache enabled).
+type wireRequest struct {
 	Model     string    `json:"model"`
-	System    string    `json:"system,omitempty"`
+	System    any       `json:"system,omitempty"`
 	MaxTokens int       `json:"max_tokens"`
 	Messages  []Message `json:"messages"`
 }
@@ -65,8 +92,10 @@ type Response struct {
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens             int `json:"input_tokens"`
+		OutputTokens            int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -96,7 +125,24 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 		req.Model = DefaultModel
 	}
 
-	body, err := json.Marshal(req)
+	wire := wireRequest{
+		Model:     req.Model,
+		MaxTokens: req.MaxTokens,
+		Messages:  req.Messages,
+	}
+	if req.System != "" {
+		if req.Cached {
+			wire.System = []systemBlock{{
+				Type:         "text",
+				Text:         req.System,
+				CacheControl: &cacheControl{Type: "ephemeral"},
+			}}
+		} else {
+			wire.System = req.System
+		}
+	}
+
+	body, err := json.Marshal(wire)
 	if err != nil {
 		return nil, err
 	}

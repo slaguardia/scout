@@ -274,6 +274,10 @@ func cmdVerdict(args []string) error {
 			fmt.Printf("  %-5s %d\n", k, res.ByVerdict[k])
 		}
 	}
+	if res.CacheCreationTokens > 0 || res.CacheReadTokens > 0 {
+		fmt.Printf("cache: created=%d tokens, read=%d tokens\n",
+			res.CacheCreationTokens, res.CacheReadTokens)
+	}
 	return nil
 }
 

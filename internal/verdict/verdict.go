@@ -44,11 +44,13 @@ type Scorer struct {
 
 // Result is the run summary.
 type Result struct {
-	Considered int
-	Scored     int
-	Skipped    int
-	Failed     int
-	ByVerdict  map[string]int
+	Considered          int
+	Scored              int
+	Skipped             int
+	Failed              int
+	ByVerdict           map[string]int
+	CacheCreationTokens int // sum of cache_creation_input_tokens across all calls
+	CacheReadTokens     int // sum of cache_read_input_tokens (the saving)
 }
 
 // Run scores every survivor (per filter rules) that has enrichment and lacks
@@ -82,8 +84,10 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for c := range jobs {
-				v, err := s.scoreOne(ctx, c)
+				v, cacheCreate, cacheRead, err := s.scoreOne(ctx, c)
 				mu.Lock()
+				res.CacheCreationTokens += cacheCreate
+				res.CacheReadTokens += cacheRead
 				if err != nil {
 					res.Failed++
 					fmt.Printf("verdict %d (%s) error: %v\n", c.CompanyID, c.Name, err)
@@ -178,14 +182,17 @@ func buildInQuery(prefix string, ids []int64) (string, []any) {
 	return prefix + "(" + strings.Join(ph, ",") + ")", args
 }
 
-func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, error) {
+// scoreOne returns the upserted verdict (nil if skipped), plus the
+// cache_creation and cache_read input-token counts from the response so
+// Run() can aggregate them.
+func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
 	if !s.Force {
 		existing, err := s.DB.GetVerdict(c.CompanyID)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
 		if existing != nil && existing.TasteVersion == s.Taste.Version {
-			return nil, nil // up to date, skip
+			return nil, 0, 0, nil // up to date, skip
 		}
 	}
 
@@ -202,14 +209,16 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		System:    system,
 		MaxTokens: 256,
 		Messages:  []anthropic.Message{{Role: "user", Content: user}},
+		Cached:    true, // taste + rubric are identical across all calls in a run
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 
 	verdict, reason, err := parseVerdict(resp.Text())
 	if err != nil {
-		return nil, fmt.Errorf("parse: %w (raw=%q)", err, truncate(resp.Text(), 200))
+		return nil, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens,
+			fmt.Errorf("parse: %w (raw=%q)", err, truncate(resp.Text(), 200))
 	}
 
 	v := store.Verdict{
@@ -220,9 +229,9 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		Model:        s.Model,
 	}
 	if err := s.DB.UpsertVerdict(v); err != nil {
-		return nil, err
+		return nil, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, err
 	}
-	return &v, nil
+	return &v, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, nil
 }
 
 func buildSystemPrompt(taste string) string {
