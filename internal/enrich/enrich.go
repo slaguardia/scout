@@ -25,6 +25,7 @@ const (
 	defaultTimeout    = 12 * time.Second
 	maxBodyBytes      = 512 * 1024 // 512 KB read cap
 	maxSummaryRunes   = 3000       // chunk handed to the LLM
+	minContentRunes   = 200        // below this, flag as 'low_content' (JS-SPA likely)
 	userAgent         = "scout/0.1 (+https://github.com/stevenlaguardia/scout)"
 )
 
@@ -140,6 +141,13 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 			text := extractText(body)
 			rec.WebsiteURL = store.NullString(url)
 			rec.WebsiteSummary = store.NullString(truncRunes(text, maxSummaryRunes))
+			// Suspiciously short stripped text suggests a JS-SPA shell.
+			// We still cache the text so it can be inspected, but flag it
+			// so the verdict stage skips this row.
+			if runeCount(text) < minContentRunes {
+				rec.FetchStatus = "low_content"
+				return rec
+			}
 			rec.FetchStatus = "ok"
 			return rec
 		}
@@ -248,4 +256,12 @@ func truncRunes(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+func runeCount(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
 }
