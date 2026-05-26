@@ -224,9 +224,14 @@ func cmdVerdict(args []string) error {
 	defer cancel()
 
 	// Resolve narrative taste: brainbot if configured (M5), else local file.
-	var tb *taste.Block
+	// The same brainbot.Client (when configured) is also reused for per-company
+	// search_nodes lookups during scoring — D1.
+	var (
+		tb *taste.Block
+		bc *brainbot.Client
+	)
 	if *brainbotURL != "" {
-		bc := brainbot.New(*brainbotURL)
+		bc = brainbot.New(*brainbotURL)
 		tb, err = bc.FetchTaste(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "brainbot taste fetch failed (%v); falling back to %s\n", err, *tasteMD)
@@ -239,15 +244,19 @@ func cmdVerdict(args []string) error {
 		return err
 	}
 	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
+	if bc != nil && bc.Enabled() {
+		fmt.Printf("brain context: enabled (%s)\n", *brainbotURL)
+	}
 
 	s := &verdict.Scorer{
-		DB:      db,
-		Taste:   tb,
-		Filter:  ft,
-		Client:  anthropic.New(""),
-		Model:   *model,
-		Force:   *force,
-		Workers: *workers,
+		DB:       db,
+		Taste:    tb,
+		Filter:   ft,
+		Client:   anthropic.New(""),
+		Model:    *model,
+		Force:    *force,
+		Workers:  *workers,
+		Brainbot: bc,
 	}
 	res, err := s.Run(ctx)
 	if err != nil {

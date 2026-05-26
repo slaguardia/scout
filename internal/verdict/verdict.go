@@ -8,12 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/stevenlaguardia/scout/internal/anthropic"
+	"github.com/stevenlaguardia/scout/internal/brainbot"
 	"github.com/stevenlaguardia/scout/internal/filter"
 	"github.com/stevenlaguardia/scout/internal/store"
 	"github.com/stevenlaguardia/scout/internal/taste"
@@ -28,7 +30,16 @@ type Scorer struct {
 	Model  string
 	Force  bool // re-score even if taste_version matches
 
+	// Optional: when set, scoreOne calls search_nodes(query=company.Name)
+	// against the brain and appends "What the brain already knows" to the
+	// user prompt. Cached per-Run via brainCache; brain errors are logged
+	// and ignored so verdict never fails because of a brain miss.
+	Brainbot *brainbot.Client
+
 	Workers int
+
+	brainMu    sync.Mutex
+	brainCache map[string][]brainbot.Node
 }
 
 // Result is the run summary.
@@ -49,6 +60,8 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 	if s.Model == "" {
 		s.Model = anthropic.DefaultModel
 	}
+	// Fresh brain-context cache per Run.
+	s.brainCache = make(map[string][]brainbot.Node)
 
 	cands, err := s.candidates()
 	if err != nil {
@@ -176,8 +189,9 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		}
 	}
 
+	brainNodes := s.lookupBrain(ctx, c.Name)
 	system := buildSystemPrompt(s.Taste.Text)
-	user := buildUserPrompt(c)
+	user := buildUserPrompt(c, brainNodes)
 
 	// Bound per-call latency separately from the global ctx.
 	callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -226,7 +240,7 @@ The reason must be specific — name the vertical, stage, or trait that drove th
 `) + "\n" + strings.TrimSpace(taste)
 }
 
-func buildUserPrompt(c store.VerdictCandidate) string {
+func buildUserPrompt(c store.VerdictCandidate, brainNodes []brainbot.Node) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Company: %s\n", c.Name)
 	if c.Domain != "" {
@@ -247,8 +261,50 @@ func buildUserPrompt(c store.VerdictCandidate) string {
 	if c.WebsiteSummary != "" {
 		fmt.Fprintf(&b, "\nWebsite text (truncated):\n%s\n", c.WebsiteSummary)
 	}
+	if len(brainNodes) > 0 {
+		b.WriteString("\nWhat the brain already knows about this company:\n")
+		for _, n := range brainNodes {
+			fmt.Fprintf(&b, "- %s", n.Name)
+			if len(n.Labels) > 0 {
+				fmt.Fprintf(&b, " (%s)", strings.Join(n.Labels, ", "))
+			}
+			if n.Summary != "" {
+				fmt.Fprintf(&b, ": %s", n.Summary)
+			}
+			b.WriteString("\n")
+		}
+	}
 	b.WriteString("\nReturn the JSON verdict now.")
 	return b.String()
+}
+
+// lookupBrain returns cached nodes for the company name. On brain error,
+// logs to stderr and returns nil — the verdict still runs without brain
+// context. Empty slices are also cached so retries don't re-query.
+func (s *Scorer) lookupBrain(ctx context.Context, name string) []brainbot.Node {
+	if s.Brainbot == nil || !s.Brainbot.Enabled() {
+		return nil
+	}
+	s.brainMu.Lock()
+	if nodes, ok := s.brainCache[name]; ok {
+		s.brainMu.Unlock()
+		return nodes
+	}
+	s.brainMu.Unlock()
+
+	lookupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	nodes, err := s.Brainbot.SearchNodes(lookupCtx, name, 5)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "brain lookup for %q failed: %v\n", name, err)
+		nodes = nil
+	}
+
+	s.brainMu.Lock()
+	s.brainCache[name] = nodes
+	s.brainMu.Unlock()
+	return nodes
 }
 
 // Verdict parsing: tolerant of surrounding noise, fenced code blocks, etc.
