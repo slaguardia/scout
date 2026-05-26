@@ -141,6 +141,12 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 			text := extractText(body)
 			rec.WebsiteURL = store.NullString(url)
 			rec.WebsiteSummary = store.NullString(truncRunes(text, maxSummaryRunes))
+			// Order matters: challenge pages are often short AND match the
+			// challenge keywords, so check the more-specific signal first.
+			if looksLikeChallenge(text) {
+				rec.FetchStatus = "challenge"
+				return rec
+			}
 			// Suspiciously short stripped text suggests a JS-SPA shell.
 			// We still cache the text so it can be inspected, but flag it
 			// so the verdict stage skips this row.
@@ -264,4 +270,35 @@ func runeCount(s string) int {
 		n++
 	}
 	return n
+}
+
+// challengePhrases are case-insensitive substrings that strongly imply the
+// fetched page is a bot-challenge interstitial (Cloudflare, PerimeterX,
+// Akamai, etc.) rather than real content.
+var challengePhrases = []string{
+	"just a moment",
+	"checking your browser",
+	"please enable javascript and cookies to continue",
+	"please turn javascript on and reload the page",
+	"ddos protection by",
+	"attention required",
+	"verify you are human",
+	"performance & security by cloudflare",
+}
+
+// looksLikeChallenge returns true if the stripped text matches any
+// known challenge boilerplate AND is short enough that it's likely
+// the *whole* page is the challenge (not just an incidental footer
+// mention).
+func looksLikeChallenge(text string) bool {
+	if runeCount(text) >= 1000 {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, p := range challengePhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }

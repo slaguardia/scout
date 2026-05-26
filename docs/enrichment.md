@@ -93,6 +93,7 @@ Failure statuses:
 |---|---|
 | `ok` | Got 2xx HTML, summary stored. |
 | `low_content` | Got 2xx HTML but stripped text < 200 runes. Almost always a JS-rendered SPA shell. Summary is still stored for inspection, but the row is excluded from verdict candidates. |
+| `challenge` | Got 2xx HTML but the page matches known bot-challenge boilerplate ("Just a moment...", "Checking your browser", etc.) AND is short. Summary is stored; row is excluded from verdict candidates. |
 | `no_domain` | Company has no domain. Shouldn't be selected, defensive. |
 | `http_<code>` | Last attempted URL returned `<code>` (e.g. `http_404`, `http_403`). |
 | `dns` | DNS resolution failed. Domain typo, dead company, or DNS provider issue. |
@@ -127,8 +128,11 @@ prompt.
   Row is excluded from verdict candidates. Going deeper (headless browser)
   is the v3 escalation if a meaningful slice of survivors hit this.
 - **Bot challenges.** Cloudflare/PerimeterX/Akamai will sometimes serve a
-  challenge page. The status will be `http_403` or `http_429`, OR `ok`
-  with junk content. The latter is the silent failure mode.
+  challenge page. The clean-rejection cases (`http_403`/`http_429`) are
+  obvious. The silent case (200 OK with challenge HTML) is detected by
+  matching known boilerplate ("Just a moment...", "Checking your browser",
+  etc.) on short stripped text → `fetch_status: challenge`. Row is
+  excluded from verdict candidates.
 - **Wrong domain.** Crunchbase sometimes has stale or typo'd domains.
   Manifests as `dns` or `http_404`. No mitigation.
 - **Single-language assumption.** If a company's about page is non-English,
