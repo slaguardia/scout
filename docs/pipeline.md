@@ -118,7 +118,9 @@ strategy and HTML stripping.
 changes the version and triggers re-scoring on the next run.
 
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
-`--brainbot URL`, `--model claude-haiku-4-5`, `--workers 4`, `--force`.
+`--brainbot URL`, `--model claude-haiku-4-5`,
+`--escalate-model claude-sonnet-4-5` (optional second pass on maybes),
+`--workers 4`, `--force`.
 
 **See also:** [verdict.md](./verdict.md) for prompts, parsing, model choice.
 

@@ -73,6 +73,7 @@ Usage:
   scout filter [--taste taste.toml] [--db scout.db]
   scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
   scout verdict [--taste-md taste.md] [--brainbot URL] [--model claude-haiku-4-5]
+                [--escalate-model claude-sonnet-4-5]
                 [--workers 4] [--force] [--db scout.db]
   scout episodes [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--brainbot URL] [--db scout.db]
@@ -202,7 +203,8 @@ func cmdVerdict(args []string) error {
 	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
 	brainbotURL := fs.String("brainbot", "", "brainbot base URL; if set, overrides --taste-md")
-	model := fs.String("model", anthropic.DefaultModel, "Anthropic model")
+	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for the first pass")
+	escalateModel := fs.String("escalate-model", "", "if non-empty, re-score every 'maybe' with this model (e.g. claude-sonnet-4-5)")
 	workers := fs.Int("workers", 4, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
 	if err := fs.Parse(args); err != nil {
@@ -249,14 +251,15 @@ func cmdVerdict(args []string) error {
 	}
 
 	s := &verdict.Scorer{
-		DB:       db,
-		Taste:    tb,
-		Filter:   ft,
-		Client:   anthropic.New(""),
-		Model:    *model,
-		Force:    *force,
-		Workers:  *workers,
-		Brainbot: bc,
+		DB:            db,
+		Taste:         tb,
+		Filter:        ft,
+		Client:        anthropic.New(""),
+		Model:         *model,
+		EscalateModel: *escalateModel,
+		Force:         *force,
+		Workers:       *workers,
+		Brainbot:      bc,
 	}
 	res, err := s.Run(ctx)
 	if err != nil {
@@ -272,6 +275,20 @@ func cmdVerdict(args []string) error {
 		sort.Strings(keys)
 		for _, k := range keys {
 			fmt.Printf("  %-5s %d\n", k, res.ByVerdict[k])
+		}
+	}
+	if *escalateModel != "" {
+		fmt.Printf("escalation (%s): considered=%d scored=%d skipped=%d failed=%d\n",
+			*escalateModel, res.EscalateConsidered, res.EscalateScored, res.EscalateSkipped, res.EscalateFailed)
+		if len(res.EscalateByVerdict) > 0 {
+			keys := make([]string, 0, len(res.EscalateByVerdict))
+			for k := range res.EscalateByVerdict {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %-5s %d\n", k, res.EscalateByVerdict[k])
+			}
 		}
 	}
 	if res.CacheCreationTokens > 0 || res.CacheReadTokens > 0 {

@@ -171,6 +171,46 @@ else's account if scout grows. If you have a higher tier, bump `--workers`.
 | `parse: no valid verdict JSON` | model returned prose | rerun; if persistent, tighten the system prompt |
 | `considered=0` but you expected work | survivors have no `ok` enrichment, or all are scored at current taste_version | check `scout stats`, run `scout enrich`, or use `--force` |
 
+## Sonnet escalation for maybes (optional)
+
+`--escalate-model <model>` adds a second pass: after the first Haiku pass
+finishes, every row still scored `maybe` at the current `taste_version`
+gets re-scored with the escalation model (typically `claude-sonnet-4-5`).
+The new verdict overwrites the old one; the `escalated_model` column
+records which model did the re-score.
+
+```bash
+scout verdict --escalate-model claude-sonnet-4-5
+```
+
+Idempotency: the escalation pass only re-scores rows where
+`escalated_model IS NULL OR escalated_model != <flag value>`. Re-running
+with the same flag is a no-op. Re-running the first pass (which clears
+`escalated_model` on upsert) re-arms the escalation for the next run.
+
+The CLI prints both passes' summaries, and the prompt-caching numbers
+aggregate across both:
+
+```
+considered=87 scored=87 skipped=0 failed=0
+  maybe 18
+  no    35
+  yes   18
+escalation (claude-sonnet-4-5): considered=18 scored=18 skipped=0 failed=0
+  maybe 6
+  no    8
+  yes   4
+cache: created=3500 tokens, read=308000 tokens
+```
+
+When to use it: don't, by default. The first Haiku pass is fine for most
+calls. Reach for escalation when:
+- Real use shows that `maybe` is over-populated and the verdicts feel
+  random.
+- You're at higher scale (hundreds of survivors per run) where the cost
+  of running Sonnet on everything is meaningful but Sonnet-on-maybes is
+  manageable.
+
 ## What this stage deliberately doesn't do
 
 - **No tool use.** The model gets one shot with the data we hand it. If
