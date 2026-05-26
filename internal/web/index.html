@@ -8,6 +8,7 @@
   :root {
     --bg: #0f1115;
     --panel: #161922;
+    --panel2: #1a1e2a;
     --fg: #e6e8ee;
     --mute: #7a8194;
     --line: #232838;
@@ -15,13 +16,17 @@
     --maybe: #e5a50a;
     --no: #d44b4b;
     --link: #6aa9ff;
+    --pane-w: 540px;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0;
     background: var(--bg); color: var(--fg);
-    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
   }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
   header {
     padding: 16px 20px; border-bottom: 1px solid var(--line);
     display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
@@ -33,6 +38,7 @@
     border: 1px solid var(--line); border-radius: 6px;
     padding: 6px 10px; font: inherit;
   }
+
   main { padding: 12px 20px 40px; }
   table { width: 100%; border-collapse: collapse; }
   thead th {
@@ -40,29 +46,116 @@
     color: var(--mute); border-bottom: 1px solid var(--line);
     cursor: pointer; user-select: none; white-space: nowrap;
   }
-  thead th .arrow { color: var(--fg); }
-  tbody td {
-    padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
-  }
-  tbody tr:hover { background: #1a1e2a; }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover { background: var(--panel2); }
+
   .pill {
     display: inline-block; padding: 1px 8px; border-radius: 999px;
     font-size: 12px; font-weight: 600; text-transform: lowercase;
   }
   .pill-yes   { background: rgba(46,194,126,0.15); color: var(--yes); }
-  .pill-maybe { background: rgba(229,165,10,0.15);  color: var(--maybe); }
-  .pill-no    { background: rgba(212,75,75,0.15);   color: var(--no); }
+  .pill-maybe { background: rgba(229,165,10,0.15); color: var(--maybe); }
+  .pill-no    { background: rgba(212,75,75,0.15);  color: var(--no); }
   .pill-none  { background: #2a2f3d; color: var(--mute); }
-  a { color: var(--link); text-decoration: none; }
-  a:hover { text-decoration: underline; }
   .reason { color: var(--mute); }
-  .summary-row td { padding: 0; }
-  .summary-box {
-    padding: 12px 16px; background: #121622; color: var(--mute);
-    border-left: 3px solid var(--line); margin: 0 6px 6px 6px; border-radius: 4px;
-    white-space: pre-wrap;
-  }
   .empty { padding: 60px 0; text-align: center; color: var(--mute); }
+
+  .row-name { cursor: pointer; }
+  .row-name:hover { color: var(--link); }
+
+  /* ---- detail pane ---- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    opacity: 0; pointer-events: none; transition: opacity 120ms ease;
+    z-index: 50;
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+
+  .pane {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: var(--pane-w); max-width: 92vw;
+    background: var(--panel); color: var(--fg);
+    border-left: 1px solid var(--line);
+    box-shadow: -16px 0 32px rgba(0,0,0,0.4);
+    transform: translateX(100%);
+    transition: transform 180ms ease;
+    z-index: 51;
+    display: flex; flex-direction: column;
+  }
+  .pane.open { transform: translateX(0); }
+
+  .pane-head {
+    padding: 16px 20px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .pane-head h2 { margin: 0; font-size: 17px; font-weight: 600; flex: 1; }
+  .pane-head .close-btn {
+    background: none; border: none; color: var(--mute);
+    cursor: pointer; font-size: 22px; line-height: 1; padding: 0 6px;
+  }
+  .pane-head .close-btn:hover { color: var(--fg); }
+
+  .pane-body { overflow-y: auto; padding: 16px 20px 32px; flex: 1; }
+  .pane-section { margin-bottom: 22px; }
+  .pane-section h3 {
+    margin: 0 0 8px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute);
+  }
+
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 14px; }
+  .kv dt { color: var(--mute); font-weight: 500; }
+  .kv dd { margin: 0; }
+
+  .pills-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .status-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .status-btn {
+    background: var(--panel2); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 12px; font: inherit; cursor: pointer;
+  }
+  .status-btn:hover:not(:disabled) { border-color: var(--mute); }
+  .status-btn.active { border-color: var(--link); color: var(--link); }
+  .status-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .summary-box {
+    padding: 12px 14px; background: #121622; color: var(--mute);
+    border-left: 3px solid var(--line); border-radius: 4px;
+    white-space: pre-wrap; max-height: 360px; overflow-y: auto;
+    font-size: 13px; line-height: 1.5;
+  }
+
+  details.raw-json { margin-top: 8px; }
+  details.raw-json summary {
+    cursor: pointer; color: var(--mute); font-size: 12px;
+    padding: 4px 0; user-select: none;
+  }
+  details.raw-json summary:hover { color: var(--fg); }
+  details.raw-json table { font-size: 12px; margin-top: 6px; }
+  details.raw-json td { padding: 3px 8px 3px 0; border: none; vertical-align: top; }
+  details.raw-json td.k { color: var(--mute); white-space: nowrap; }
+
+  .brain-node {
+    padding: 10px 12px; background: #121622; border-radius: 4px;
+    margin-bottom: 8px; border-left: 3px solid var(--link);
+  }
+  .brain-node .n { font-weight: 600; }
+  .brain-node .l { color: var(--mute); font-size: 12px; }
+  .brain-node .s { color: var(--mute); margin-top: 4px; }
+
+  .muted { color: var(--mute); }
+  .small { font-size: 12px; }
+  .tooltip { cursor: help; border-bottom: 1px dotted var(--mute); }
+
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg);
+    padding: 10px 16px; border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 100; opacity: 0; pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+  .toast.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -86,6 +179,7 @@
     <option value="dismissed">dismissed</option>
   </select>
 </header>
+
 <main>
   <table id="t">
     <thead>
@@ -104,19 +198,33 @@
   </table>
   <div id="empty" class="empty" style="display:none">No companies match the current filters.</div>
 </main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="pane" id="pane" aria-hidden="true">
+  <div class="pane-head">
+    <h2 id="pane-title">—</h2>
+    <span id="pane-pills" class="pills-inline"></span>
+    <button class="close-btn" id="pane-close" aria-label="close">×</button>
+  </div>
+  <div class="pane-body" id="pane-body">loading…</div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
 <script>
-const state = { rows: [], sort: { k: "verdict", dir: 1 }, expanded: new Set() };
+const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null };
 
 const pillClass = v => "pill pill-" + (v || "none");
+const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-async function load() {
+async function loadList() {
   const r = await fetch("/api/companies");
   const data = await r.json();
   state.rows = data.rows || [];
   document.getElementById("stats").textContent =
     state.rows.length + " companies · "
     + countBy(state.rows, "verdict").map(([k,v]) => (k||"unscored") + "=" + v).join(" · ");
-  render();
+  renderList();
 }
 
 function countBy(rows, key) {
@@ -151,7 +259,7 @@ function filtered() {
   });
 }
 
-function render() {
+function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
   let rows = filtered().slice();
@@ -160,47 +268,219 @@ function render() {
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><span class="${pillClass(r.verdict)}">${r.verdict || "—"}</span></td>
-      <td>${r.domain ? `<a href="https://${r.domain}" target="_blank" rel="noopener">${escape(r.name)}</a>` : escape(r.name)}</td>
-      <td class="reason">${escape(r.reason || "")}</td>
-      <td>${escape(r.vertical || "")}</td>
-      <td>${escape(r.location || "")}</td>
+      <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
+      <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
+      <td class="reason">${escapeHTML(r.reason || "")}</td>
+      <td>${escapeHTML(r.vertical || "")}</td>
+      <td>${escapeHTML(r.location || "")}</td>
       <td>${r.headcount || ""}</td>
-      <td>${escape(r.stage || "")}</td>
-      <td>${r.website_url ? `<a href="${escape(r.website_url)}" target="_blank" rel="noopener">about</a>` : ""}</td>
+      <td>${escapeHTML(r.stage || "")}</td>
+      <td>${r.website_url ? `<a href="${escapeHTML(r.website_url)}" target="_blank" rel="noopener">about</a>` : ""}</td>
     `;
-    tr.style.cursor = r.website_summary ? "pointer" : "";
-    tr.onclick = () => {
-      if (!r.website_summary) return;
-      const k = "row-" + r.company_id;
-      if (state.expanded.has(k)) state.expanded.delete(k); else state.expanded.add(k);
-      render();
-    };
     tbody.appendChild(tr);
-    if (state.expanded.has("row-" + r.company_id) && r.website_summary) {
-      const er = document.createElement("tr");
-      er.className = "summary-row";
-      er.innerHTML = `<td colspan="8"><div class="summary-box">${escape(r.website_summary)}</div></td>`;
-      tbody.appendChild(er);
-    }
   }
+  // Attach name-click handlers after render (event delegation would also work).
+  tbody.querySelectorAll(".row-name").forEach(el => {
+    el.addEventListener("click", () => openDetail(parseInt(el.dataset.id, 10)));
+  });
 }
 
-function escape(s) {
-  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// ---- detail pane ----
+async function openDetail(id) {
+  state.openId = id;
+  const pane = document.getElementById("pane");
+  const scrim = document.getElementById("scrim");
+  pane.classList.add("open"); scrim.classList.add("open");
+  pane.setAttribute("aria-hidden", "false");
+  document.getElementById("pane-title").textContent = "loading…";
+  document.getElementById("pane-pills").innerHTML = "";
+  document.getElementById("pane-body").innerHTML = '<div class="muted">loading…</div>';
+
+  let d;
+  try {
+    const r = await fetch(`/api/companies/${id}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    d = await r.json();
+  } catch (e) {
+    document.getElementById("pane-body").innerHTML =
+      `<div class="muted">Failed to load detail: ${escapeHTML(e.message)}</div>`;
+    return;
+  }
+  renderDetail(d);
+  // Lazy-load brain context (no-op when --brainbot not set: 404).
+  loadBrain(id);
 }
 
+function closeDetail() {
+  state.openId = null;
+  document.getElementById("pane").classList.remove("open");
+  document.getElementById("scrim").classList.remove("open");
+  document.getElementById("pane").setAttribute("aria-hidden", "true");
+}
+
+function renderDetail(d) {
+  document.getElementById("pane-title").textContent = d.name;
+  document.getElementById("pane-pills").innerHTML = `
+    <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
+    <span class="pill pill-none">${escapeHTML(d.state || "new")}</span>
+  `;
+
+  // Domain link (when present)
+  const domainLine = d.domain
+    ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)}</a>`
+    : '<span class="muted">no domain</span>';
+
+  // Verdict tooltip = first 200 chars of taste; we don't have the taste here,
+  // so the version itself is the tooltip target — clicking will be unhelpful,
+  // hover shows scored_at / model. (Full taste lookup is a v3 nice-to-have.)
+  const verdictBlock = d.has_verdict ? `
+    <dl class="kv">
+      <dt>verdict</dt><dd><span class="${pillClass(d.verdict)}">${escapeHTML(d.verdict)}</span></dd>
+      <dt>reason</dt><dd>${escapeHTML(d.reason || "")}</dd>
+      <dt>model</dt><dd class="small muted">${escapeHTML(d.model || "")}</dd>
+      <dt>taste version</dt><dd class="small muted"><span class="tooltip" title="scored ${escapeHTML(d.scored_at)} · model ${escapeHTML(d.model)}">${escapeHTML(d.taste_version || "")}</span></dd>
+      <dt>scored at</dt><dd class="small muted">${escapeHTML(d.scored_at || "")}</dd>
+    </dl>
+  ` : '<div class="muted">Not yet scored. Run <code>scout verdict</code>.</div>';
+
+  // Enrichment block
+  const enrichBlock = d.has_enrichment ? `
+    <dl class="kv">
+      <dt>url</dt><dd>${d.website_url ? `<a href="${escapeHTML(d.website_url)}" target="_blank" rel="noopener">${escapeHTML(d.website_url)}</a>` : '<span class="muted">—</span>'}</dd>
+      <dt>status</dt><dd class="small">${escapeHTML(d.fetch_status || "")}${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
+      <dt>fetched</dt><dd class="small muted">${escapeHTML(d.fetched_at || "")}</dd>
+    </dl>
+    ${d.website_summary ? `<div class="summary-box" style="margin-top:10px">${escapeHTML(d.website_summary)}</div>` : ""}
+  ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
+
+  // Episode history
+  const epBlock = d.episode_sent
+    ? `<div class="small">Shipped to brain on <strong>${escapeHTML((d.episode_sent_at || "").slice(0,10))}</strong> for taste_version <code>${escapeHTML(d.taste_version)}</code>.</div>`
+    : (d.has_verdict
+        ? '<div class="muted">Not yet shipped to brain. Run <code>scout episodes</code>.</div>'
+        : '<div class="muted">No verdict to ship.</div>');
+
+  // Raw row disclosure
+  const rawRows = Object.keys(d.raw_json || {}).sort();
+  const rawHTML = rawRows.length === 0 ? '' : `
+    <details class="raw-json">
+      <summary>Raw row (${rawRows.length} fields)</summary>
+      <table><tbody>
+        ${rawRows.map(k => `<tr><td class="k">${escapeHTML(k)}</td><td>${escapeHTML(d.raw_json[k])}</td></tr>`).join("")}
+      </tbody></table>
+    </details>
+  `;
+
+  document.getElementById("pane-body").innerHTML = `
+    <section class="pane-section">
+      <h3>Status</h3>
+      <div class="status-btns" id="status-btns">
+        ${["reviewed","tracked","dismissed"].map(s =>
+          `<button class="status-btn${d.state === s ? " active" : ""}" data-state="${s}" disabled>Mark ${s}</button>`
+        ).join("")}
+      </div>
+      <div class="small muted" style="margin-top:8px">Status write-back lands in U3.</div>
+    </section>
+
+    <section class="pane-section">
+      <h3>Crunchbase facts</h3>
+      <dl class="kv">
+        <dt>vertical</dt><dd>${escapeHTML(d.vertical || "—")}</dd>
+        <dt>location</dt><dd>${escapeHTML(d.location || "—")}</dd>
+        <dt>headcount</dt><dd>${d.headcount || "—"}</dd>
+        <dt>stage</dt><dd>${escapeHTML(d.funding_stage || "—")}</dd>
+        <dt>domain</dt><dd>${domainLine}</dd>
+        <dt>source</dt><dd class="small muted">${escapeHTML(d.source)} · ${escapeHTML(d.source_id)}</dd>
+        <dt>ingested</dt><dd class="small muted">${escapeHTML(d.ingested_at)}</dd>
+      </dl>
+      ${rawHTML}
+    </section>
+
+    <section class="pane-section">
+      <h3>Verdict</h3>
+      ${verdictBlock}
+    </section>
+
+    <section class="pane-section">
+      <h3>Enrichment</h3>
+      ${enrichBlock}
+    </section>
+
+    <section class="pane-section" id="brain-section" style="display:none">
+      <h3>Brain context</h3>
+      <div id="brain-body"><div class="muted">loading…</div></div>
+    </section>
+
+    <section class="pane-section">
+      <h3>Episode history</h3>
+      ${epBlock}
+    </section>
+  `;
+}
+
+async function loadBrain(id) {
+  let r;
+  try {
+    r = await fetch(`/api/companies/${id}/brain`);
+  } catch {
+    return; // network — hide section
+  }
+  if (r.status === 404) return; // brainbot not configured — section stays hidden
+  if (!r.ok) {
+    showBrain(`<div class="muted">Brain lookup failed: HTTP ${r.status}.</div>`);
+    return;
+  }
+  const data = await r.json();
+  if (data.error) {
+    showBrain(`<div class="muted">Brain lookup error: ${escapeHTML(data.error)}.</div>`);
+    return;
+  }
+  const nodes = data.nodes || [];
+  if (nodes.length === 0) {
+    showBrain('<div class="muted">Nothing in the brain about this company.</div>');
+    return;
+  }
+  showBrain(nodes.map(n => `
+    <div class="brain-node">
+      <div class="n">${escapeHTML(n.name)}${n.labels && n.labels.length ? ` <span class="l">${escapeHTML(n.labels.join(" · "))}</span>` : ""}</div>
+      ${n.summary ? `<div class="s">${escapeHTML(n.summary)}</div>` : ""}
+    </div>
+  `).join(""));
+}
+
+function showBrain(html) {
+  const sec = document.getElementById("brain-section");
+  if (!sec) return;
+  sec.style.display = "";
+  document.getElementById("brain-body").innerHTML = html;
+}
+
+// ---- toast (placeholder; used by U3) ----
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2000);
+}
+
+// ---- wiring ----
 document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   th.onclick = () => {
     const k = th.dataset.k;
     if (state.sort.k === k) state.sort.dir *= -1; else { state.sort.k = k; state.sort.dir = 1; }
-    render();
+    renderList();
   };
 });
-document.getElementById("q").oninput = render;
-document.getElementById("verdict").onchange = render;
-document.getElementById("state").onchange = render;
-load();
+document.getElementById("q").oninput = renderList;
+document.getElementById("verdict").onchange = renderList;
+document.getElementById("state").onchange = renderList;
+document.getElementById("pane-close").onclick = closeDetail;
+document.getElementById("scrim").onclick = closeDetail;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
+
+loadList();
 </script>
 </body>
 </html>
