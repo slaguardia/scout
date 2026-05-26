@@ -17,6 +17,7 @@
     --no: #d44b4b;
     --link: #6aa9ff;
     --pane-w: 540px;
+    --sidebar-w: 260px;
   }
   * { box-sizing: border-box; }
   body {
@@ -28,16 +29,43 @@
   a:hover { text-decoration: underline; }
 
   header {
-    padding: 16px 20px; border-bottom: 1px solid var(--line);
-    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 12px 20px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 12px; align-items: center;
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
   header .stats { color: var(--mute); }
-  header input, header select {
+
+  .layout { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: calc(100vh - 49px); }
+
+  aside.sidebar {
+    border-right: 1px solid var(--line); background: var(--bg);
+    padding: 16px 16px 32px; overflow-y: auto;
+    position: sticky; top: 0;
+    max-height: 100vh;
+  }
+  aside.sidebar h3 {
+    margin: 0 0 8px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute);
+  }
+  aside.sidebar .block { margin-bottom: 22px; }
+  aside.sidebar input, aside.sidebar select {
     background: var(--panel); color: var(--fg);
     border: 1px solid var(--line); border-radius: 6px;
-    padding: 6px 10px; font: inherit;
+    padding: 6px 10px; font: inherit; width: 100%;
   }
+  aside.sidebar .filter-row { margin-bottom: 8px; }
+  aside.sidebar .stat-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 2px 0; font-size: 13px;
+  }
+  aside.sidebar .stat-row .k { color: var(--mute); }
+  aside.sidebar .stat-row .v { font-variant-numeric: tabular-nums; }
+  aside.sidebar .stale {
+    margin-top: 6px; padding: 6px 8px;
+    background: rgba(229,165,10,0.08); color: var(--maybe);
+    border-radius: 4px; font-size: 12px;
+  }
+  aside.sidebar code { color: var(--fg); }
 
   main { padding: 12px 20px 40px; }
   table { width: 100%; border-collapse: collapse; }
@@ -170,23 +198,58 @@
 <header>
   <h1>scout / triage</h1>
   <span class="stats" id="stats">loading…</span>
-  <span style="flex:1"></span>
-  <input id="q" placeholder="search name / vertical / reason" size="30">
-  <select id="verdict">
-    <option value="">verdict: any</option>
-    <option value="yes">yes</option>
-    <option value="maybe">maybe</option>
-    <option value="no">no</option>
-    <option value="__none__">(unscored)</option>
-  </select>
-  <select id="state">
-    <option value="">status: any</option>
-    <option value="new">new</option>
-    <option value="reviewed">reviewed</option>
-    <option value="tracked">tracked</option>
-    <option value="dismissed">dismissed</option>
-  </select>
 </header>
+
+<div class="layout">
+<aside class="sidebar">
+  <div class="block">
+    <h3>Filter</h3>
+    <div class="filter-row"><input id="q" placeholder="search name / vertical / reason"></div>
+    <div class="filter-row">
+      <select id="verdict">
+        <option value="">verdict: any</option>
+        <option value="yes">yes</option>
+        <option value="maybe">maybe</option>
+        <option value="no">no</option>
+        <option value="__none__">(unscored)</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="state">
+        <option value="">status: any</option>
+        <option value="new">new</option>
+        <option value="reviewed">reviewed</option>
+        <option value="tracked">tracked</option>
+        <option value="dismissed">dismissed</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="block" id="block-pipeline">
+    <h3>Pipeline</h3>
+    <div id="pipeline-stats"><div class="muted small">loading…</div></div>
+  </div>
+
+  <div class="block" id="block-verdicts">
+    <h3>By verdict</h3>
+    <div id="verdict-stats"></div>
+  </div>
+
+  <div class="block" id="block-status">
+    <h3>By status</h3>
+    <div id="status-stats"></div>
+  </div>
+
+  <div class="block" id="block-fetch" style="display:none">
+    <h3>Enrichment failures</h3>
+    <div id="fetch-stats"></div>
+  </div>
+
+  <div class="block" id="block-taste">
+    <h3>Current taste</h3>
+    <div id="taste-stats"><div class="muted small">loading…</div></div>
+  </div>
+</aside>
 
 <main>
   <table id="t">
@@ -207,6 +270,7 @@
   </table>
   <div id="empty" class="empty" style="display:none">No companies match the current filters.</div>
 </main>
+</div>
 
 <div class="scrim" id="scrim"></div>
 <aside class="pane" id="pane" aria-hidden="true">
@@ -221,7 +285,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null };
+const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null };
 
 const pillClass = v => "pill pill-" + (v || "none");
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -234,6 +298,65 @@ async function loadList() {
     state.rows.length + " companies · "
     + countBy(state.rows, "verdict").map(([k,v]) => (k||"unscored") + "=" + v).join(" · ");
   renderList();
+}
+
+async function loadStats() {
+  let s;
+  try {
+    const r = await fetch("/api/stats");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    s = await r.json();
+  } catch (e) {
+    document.getElementById("pipeline-stats").innerHTML =
+      `<div class="muted small">stats failed: ${escapeHTML(e.message)}</div>`;
+    return;
+  }
+  state.stats = s;
+  renderStats();
+}
+
+function statLine(k, v) {
+  return `<div class="stat-row"><span class="k">${escapeHTML(k)}</span><span class="v">${v}</span></div>`;
+}
+
+function renderStats() {
+  const s = state.stats || {};
+  // Survivors = rows matching the current filter view.
+  const survivors = filtered().length;
+  document.getElementById("pipeline-stats").innerHTML =
+    statLine("total", s.total_companies ?? 0) +
+    statLine("survivors (filter)", survivors) +
+    statLine("enriched ok", s.enriched_ok ?? 0) +
+    statLine("scored", s.scored ?? 0) +
+    statLine("unscored", s.unscored ?? 0);
+
+  const v = s.by_verdict || {};
+  document.getElementById("verdict-stats").innerHTML =
+    ["yes","maybe","no"].map(k => statLine(k, v[k] || 0)).join("") +
+    statLine("unscored", s.unscored ?? 0);
+
+  const st = s.by_status || {};
+  document.getElementById("status-stats").innerHTML =
+    ["new","reviewed","tracked","dismissed"].map(k => statLine(k, st[k] || 0)).join("");
+
+  // Fetch failures: show only non-ok statuses.
+  const fs = s.fetch_status || {};
+  const failures = Object.keys(fs).filter(k => k !== "ok").sort();
+  if (failures.length === 0) {
+    document.getElementById("block-fetch").style.display = "none";
+  } else {
+    document.getElementById("block-fetch").style.display = "";
+    document.getElementById("fetch-stats").innerHTML =
+      failures.map(k => statLine(k, fs[k])).join("");
+  }
+
+  // Taste
+  const tasteHTML = s.current_taste
+    ? `<div class="small">source: <code>${escapeHTML(s.taste_source || "")}</code></div>
+       <div class="small" style="margin-top:4px">version: <code>${escapeHTML(s.current_taste)}</code></div>
+       ${s.stale_verdicts > 0 ? `<div class="stale">${s.stale_verdicts} verdicts stale</div>` : ""}`
+    : `<div class="muted small">no taste loaded — start <code>scout serve --taste-md taste.md</code></div>`;
+  document.getElementById("taste-stats").innerHTML = tasteHTML;
 }
 
 function countBy(rows, key) {
@@ -290,6 +413,11 @@ function renderList() {
   tbody.innerHTML = "";
   const rows = sortWithDismissedLast(filtered());
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
+  // Sidebar "survivors (filter)" updates with the current filter.
+  if (state.stats) {
+    const sr = document.querySelector("#pipeline-stats .stat-row:nth-child(2) .v");
+    if (sr) sr.textContent = rows.length;
+  }
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
@@ -581,6 +709,14 @@ document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
 
 loadList();
+loadStats();
+
+// When a status changes via the detail pane, refresh stats so by_status updates.
+const origUpdateRowState = updateRowState;
+updateRowState = function(id, newState) {
+  origUpdateRowState(id, newState);
+  loadStats();
+};
 </script>
 </body>
 </html>
