@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "scout-serve",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/scout", "serve", "--db", "/tmp/scout-test.db", "--addr", ":8765"],
+      "port": 8765
+    }
+  ]
+}
