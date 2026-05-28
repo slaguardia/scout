@@ -49,8 +49,18 @@ type Scorer struct {
 
 	Workers int
 
+	// Progress, if set, receives one line per scored company (both passes).
+	// Called from worker goroutines — must be safe for concurrent use.
+	Progress func(string)
+
 	brainMu    sync.Mutex
 	brainCache map[string][]brainbot.Node
+}
+
+func (s *Scorer) emit(line string) {
+	if s.Progress != nil {
+		s.Progress(line)
+	}
 }
 
 // Result is the run summary.
@@ -108,18 +118,21 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 				res.CacheReadTokens += cacheRead
 				if err != nil {
 					res.Failed++
-					fmt.Printf("verdict %d (%s) error: %v\n", c.CompanyID, c.Name, err)
 					mu.Unlock()
+					fmt.Printf("verdict %d (%s) error: %v\n", c.CompanyID, c.Name, err)
+					s.emit(fmt.Sprintf("%s — error: %v", c.Name, err))
 					continue
 				}
 				if v == nil {
 					res.Skipped++
 					mu.Unlock()
+					s.emit(fmt.Sprintf("%s — skipped (up to date)", c.Name))
 					continue
 				}
 				res.Scored++
 				res.ByVerdict[v.Verdict]++
 				mu.Unlock()
+				s.emit(fmt.Sprintf("%s → %s — %s", c.Name, v.Verdict, v.Reason))
 			}
 		}()
 	}
@@ -186,8 +199,9 @@ func (s *Scorer) runEscalation(ctx context.Context, res *Result) error {
 				res.CacheReadTokens += cacheRead
 				if err != nil {
 					res.EscalateFailed++
-					fmt.Printf("escalate %d (%s) error: %v\n", c.CompanyID, c.Name, err)
 					mu.Unlock()
+					fmt.Printf("escalate %d (%s) error: %v\n", c.CompanyID, c.Name, err)
+					s.emit(fmt.Sprintf("escalate %s — error: %v", c.Name, err))
 					continue
 				}
 				if v == nil {
@@ -198,6 +212,7 @@ func (s *Scorer) runEscalation(ctx context.Context, res *Result) error {
 				res.EscalateScored++
 				res.EscalateByVerdict[v.Verdict]++
 				mu.Unlock()
+				s.emit(fmt.Sprintf("escalated %s → %s", c.Name, v.Verdict))
 			}
 		}()
 	}

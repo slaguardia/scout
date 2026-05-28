@@ -370,3 +370,45 @@ func EpisodeFromVerdict(v store.Verdict, name, domain string) Episode {
 		TasteVersion: v.TasteVersion,
 	}
 }
+
+// ShipEpisodes sends every pending verdict episode to the brain and marks each
+// one sent locally. Shared by `scout episodes` (CLI) and the UI run handler.
+// emit (may be nil) receives one progress line per episode; it may be called
+// from the calling goroutine only (this function is sequential).
+func ShipEpisodes(ctx context.Context, db *store.DB, c *Client, emit func(string)) (sent, failed int, err error) {
+	if emit == nil {
+		emit = func(string) {}
+	}
+	pending, err := db.PendingEpisodes()
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(pending) == 0 {
+		emit("no pending episodes")
+		return 0, 0, nil
+	}
+	for _, v := range pending {
+		if ctx.Err() != nil {
+			return sent, failed, ctx.Err()
+		}
+		name, domain, e := db.GetCompanyName(v.CompanyID)
+		if e != nil {
+			failed++
+			emit(fmt.Sprintf("lookup %d failed: %v", v.CompanyID, e))
+			continue
+		}
+		if e := c.SendEpisode(ctx, EpisodeFromVerdict(v, name, domain)); e != nil {
+			failed++
+			emit(fmt.Sprintf("send %s failed: %v", name, e))
+			continue
+		}
+		if e := db.MarkEpisodeSent(v.CompanyID, v.TasteVersion); e != nil {
+			failed++
+			emit(fmt.Sprintf("mark %s failed: %v", name, e))
+			continue
+		}
+		sent++
+		emit(fmt.Sprintf("shipped %s (%s)", name, v.Verdict))
+	}
+	return sent, failed, nil
+}

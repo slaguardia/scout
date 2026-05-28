@@ -332,41 +332,15 @@ func cmdEpisodes(args []string) error {
 	}
 	defer db.Close()
 
-	pending, err := db.PendingEpisodes()
-	if err != nil {
-		return err
-	}
-	if len(pending) == 0 {
-		fmt.Println("no pending episodes")
-		return nil
-	}
-
 	ctx, cancel := signalCtx()
 	defer cancel()
 
 	bc := brainbot.New(*brainbotURL)
-	sent, failed := 0, 0
-	for _, v := range pending {
-		// Pull name/domain for the payload.
-		var name, domain string
-		row := db.QueryRow(`SELECT name, COALESCE(domain,'') FROM companies WHERE id = ?`, v.CompanyID)
-		if err := row.Scan(&name, &domain); err != nil {
-			failed++
-			fmt.Fprintf(os.Stderr, "  lookup %d: %v\n", v.CompanyID, err)
-			continue
-		}
-		ep := brainbot.EpisodeFromVerdict(v, name, domain)
-		if err := bc.SendEpisode(ctx, ep); err != nil {
-			failed++
-			fmt.Fprintf(os.Stderr, "  send %d (%s): %v\n", v.CompanyID, name, err)
-			continue
-		}
-		if err := db.MarkEpisodeSent(v.CompanyID, v.TasteVersion); err != nil {
-			failed++
-			fmt.Fprintf(os.Stderr, "  mark %d: %v\n", v.CompanyID, err)
-			continue
-		}
-		sent++
+	sent, failed, err := brainbot.ShipEpisodes(ctx, db, bc, func(line string) {
+		fmt.Println(" ", line)
+	})
+	if err != nil {
+		return err
 	}
 	fmt.Printf("sent=%d failed=%d\n", sent, failed)
 	return nil

@@ -38,6 +38,16 @@ type Enricher struct {
 	Workers int
 	Timeout time.Duration
 	Client  *http.Client
+
+	// Progress, if set, receives one line per fetched company. Called from
+	// worker goroutines — must be safe for concurrent use.
+	Progress func(string)
+}
+
+func (e *Enricher) emit(line string) {
+	if e.Progress != nil {
+		e.Progress(line)
+	}
 }
 
 // Result reports a run.
@@ -101,7 +111,9 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 				} else {
 					res.Failed++
 				}
+				done := res.Fetched
 				mu.Unlock()
+				e.emit(fmt.Sprintf("[%d/%d] %s — %s", done, res.Considered, t.Name, rec.FetchStatus))
 			}
 		}()
 	}
