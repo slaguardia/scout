@@ -16,7 +16,8 @@ anyone (mostly future-me) trying to understand or change the implementation.
 | [brainbot-contract.md](./brainbot-contract.md) | How scout talks to the brain (MCP JSON-RPC). Tool calls scout makes, payload shapes, links to brainbot's canonical docs. |
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
 | [limitations.md](./limitations.md) | Known limitations, deferred work, where it'll break first. |
-| [ui-v2-prd.md](./ui-v2-prd.md) | Draft PRD for the v2 triage UI: detail pane, status write-back, stats sidebar, re-run controls. |
+| [ui-v2-prd.md](./ui-v2-prd.md) | PRD for the v2 triage UI: detail pane, status write-back, stats sidebar. (Shipped.) |
+| [ui-v3-control-surface.md](./ui-v3-control-surface.md) | Design for driving the pipeline from the UI (job runner, CSV upload, live progress). Not yet built. |
 
 ## Quick mental model
 
