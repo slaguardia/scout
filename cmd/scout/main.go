@@ -27,6 +27,7 @@ import (
 	"github.com/slaguardia/scout/internal/enrich"
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/ingest"
+	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
 	"github.com/slaguardia/scout/internal/taste"
 	"github.com/slaguardia/scout/internal/verdict"
@@ -72,11 +73,11 @@ Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
   scout filter [--taste taste.toml] [--db scout.db]
   scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
-  scout verdict [--taste-md taste.md] [--brainbot URL] [--model claude-haiku-4-5]
-                [--escalate-model claude-sonnet-4-5]
+  scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
+                [--model claude-haiku-4-5] [--escalate-model claude-sonnet-4-5]
                 [--workers 4] [--force] [--db scout.db]
   scout episodes [--brainbot URL] [--db scout.db]
-  scout serve [--addr :8765] [--taste-md taste.md] [--brainbot URL] [--db scout.db]
+  scout serve [--addr :8765] [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
 
 Environment:
@@ -202,6 +203,7 @@ func cmdVerdict(args []string) error {
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
+	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (how to decide); optional")
 	brainbotURL := fs.String("brainbot", "", "brainbot base URL; if set, overrides --taste-md")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for the first pass")
 	escalateModel := fs.String("escalate-model", "", "if non-empty, re-score every 'maybe' with this model (e.g. claude-sonnet-4-5)")
@@ -245,6 +247,18 @@ func cmdVerdict(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Load the optional playbook (how-to-decide). Folding it into the taste
+	// version means a playbook edit re-scores everything, same as a taste edit.
+	pbText, err := playbook.Load(*playbookPath)
+	if err != nil {
+		return err
+	}
+	if pbText != "" {
+		tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Text)
+		tb.Source = tb.Source + " + " + *playbookPath
+	}
+
 	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
 	if bc != nil && bc.Enabled() {
 		fmt.Printf("brain context: enabled (%s)\n", *brainbotURL)
@@ -257,6 +271,7 @@ func cmdVerdict(args []string) error {
 		Client:        anthropic.New(""),
 		Model:         *model,
 		EscalateModel: *escalateModel,
+		Playbook:      pbText,
 		Force:         *force,
 		Workers:       *workers,
 		Brainbot:      bc,
@@ -364,6 +379,7 @@ func cmdServe(args []string) error {
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	addr := fs.String("addr", ":8765", "listen address")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for stats display)")
+	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual; folded into the taste version for stale-count accuracy")
 	brainbotURL := fs.String("brainbot", "", "brainbot base URL; enables /api/companies/:id/brain")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -375,10 +391,16 @@ func cmdServe(args []string) error {
 	defer db.Close()
 
 	// Best-effort taste load. If the file is missing we still serve, just
-	// without taste-version/source on /api/stats.
+	// without taste-version/source on /api/stats. The playbook is folded into
+	// the version exactly as `scout verdict` does, so the "N stale" hint in
+	// the sidebar matches what verdict actually stored.
 	var tb *taste.Block
 	if t, err := taste.LoadFile(*tasteMD); err == nil {
 		tb = t
+		if pbText, perr := playbook.Load(*playbookPath); perr == nil && pbText != "" {
+			tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Text)
+			tb.Source = tb.Source + " + " + *playbookPath
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "scout serve: taste load failed (%v); /api/stats will omit taste\n", err)
 	}

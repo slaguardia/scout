@@ -118,6 +118,7 @@ strategy and HTML stripping.
 changes the version and triggers re-scoring on the next run.
 
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
+`--playbook playbook.md` (agent operating manual; folded into taste_version),
 `--brainbot URL`, `--model claude-haiku-4-5`,
 `--escalate-model claude-sonnet-4-5` (optional second pass on maybes),
 `--workers 4`, `--force`.

@@ -31,9 +31,28 @@ Workers default to 4 — Anthropic rate limits matter more than local CPU.
 
 ## Prompt shape
 
+The system prompt has **three layers**, assembled in `buildSystemPrompt(playbook, taste)`:
+
+1. **Hard contract** (fixed in Go, `hardContract` const) — the JSON output
+   format. Never editable from a file, because a broken contract breaks the
+   parser.
+2. **Playbook** (`playbook.md`, operator-editable) — *how* to decide:
+   rubric, ambiguity handling, tie-breaking, hard-exclusion procedure. Falls
+   back to a built-in rubric if no `playbook.md` is present. See
+   [playbook.md](../playbook.md).
+3. **Taste** (`taste.md` or brain) — *what* Alex wants: preferences,
+   verticals, exclusions.
+
+This separates the agent's **operating manual** (stable, procedural, repo-local)
+from **taste** (evolving preference) from **memory** (the brain). A playbook
+edit is folded into `taste_version` (`sha256(playbook + taste)[:12]`), so
+changing it re-scores everything on the next run — same semantics as a taste
+edit. When no playbook file exists, the version is taste-only (back-compat: no
+spurious re-score).
+
 ### System prompt
 
-Built in `buildSystemPrompt(taste string)`:
+Built in `buildSystemPrompt(playbook, taste string)`:
 
 ```
 You are Scout's verdict engine. Given a company, decide if it's worth
