@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/stevenlaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/store"
 )
 
 // Taste is the structured rule set loaded from taste.toml.

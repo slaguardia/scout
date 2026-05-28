@@ -22,15 +22,15 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/stevenlaguardia/scout/internal/anthropic"
-	"github.com/stevenlaguardia/scout/internal/brainbot"
-	"github.com/stevenlaguardia/scout/internal/enrich"
-	"github.com/stevenlaguardia/scout/internal/filter"
-	"github.com/stevenlaguardia/scout/internal/ingest"
-	"github.com/stevenlaguardia/scout/internal/store"
-	"github.com/stevenlaguardia/scout/internal/taste"
-	"github.com/stevenlaguardia/scout/internal/verdict"
-	"github.com/stevenlaguardia/scout/internal/web"
+	"github.com/slaguardia/scout/internal/anthropic"
+	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/enrich"
+	"github.com/slaguardia/scout/internal/filter"
+	"github.com/slaguardia/scout/internal/ingest"
+	"github.com/slaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/taste"
+	"github.com/slaguardia/scout/internal/verdict"
+	"github.com/slaguardia/scout/internal/web"
 )
 
 func main() {

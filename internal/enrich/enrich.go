@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stevenlaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/store"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	maxBodyBytes      = 512 * 1024 // 512 KB read cap
 	maxSummaryRunes   = 3000       // chunk handed to the LLM
 	minContentRunes   = 200        // below this, flag as 'low_content' (JS-SPA likely)
-	userAgent         = "scout/0.1 (+https://github.com/stevenlaguardia/scout)"
+	userAgent         = "scout/0.1 (+https://github.com/slaguardia/scout)"
 )
 
 // candidate URL paths in priority order.

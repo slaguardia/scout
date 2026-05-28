@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stevenlaguardia/scout/internal/brainbot"
-	"github.com/stevenlaguardia/scout/internal/store"
-	"github.com/stevenlaguardia/scout/internal/taste"
+	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/taste"
 )
 
 //go:embed index.html

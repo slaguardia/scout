@@ -1,4 +1,4 @@
-module github.com/stevenlaguardia/scout
+module github.com/slaguardia/scout
 
 go 1.22
 

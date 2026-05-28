@@ -28,8 +28,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/stevenlaguardia/scout/internal/store"
-	"github.com/stevenlaguardia/scout/internal/taste"
+	"github.com/slaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/taste"
 )
 
 const (

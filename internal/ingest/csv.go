@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stevenlaguardia/scout/internal/store"
+	"github.com/slaguardia/scout/internal/store"
 )
 
 // columnAliases maps our canonical field -> candidate CSV header names (case-insensitive, normalized).
