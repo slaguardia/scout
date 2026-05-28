@@ -216,6 +216,20 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }
 
+// handleMeta reports capabilities so the UI can gate buttons. GET /api/meta.
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"control": s.Runner != nil,
+		"brain":   s.Brainbot != nil && s.Brainbot.Enabled(),
+		"verdict": s.Anthropic != nil && s.Anthropic.APIKey != "",
+		"source":  s.IngestSource,
+	})
+}
+
 // handleRuns returns durable run history. GET /api/runs.
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

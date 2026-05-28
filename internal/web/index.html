@@ -588,6 +588,132 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* ---- run controls ---- */
+  .run-btns { display: flex; flex-direction: column; gap: 6px; }
+  .run-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer;
+    text-align: left;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .run-btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-2); }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .run-btn svg { width: 13px; height: 13px; flex: none; color: var(--fg-mute); }
+  .run-btn .grow { flex: 1; }
+  .run-opt {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--fg-mute); padding: 2px 2px 4px;
+  }
+  .run-opt input { width: auto; }
+  .run-busy {
+    font-size: 12px; color: var(--maybe);
+    display: flex; align-items: center; gap: 6px; padding: 4px 2px 0;
+  }
+
+  /* ---- runs history ---- */
+  .run-row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 0; font-size: 12.5px;
+    border-bottom: 1px solid var(--line);
+  }
+  .run-row:last-child { border-bottom: none; }
+  .run-row .rstage { font-weight: 600; text-transform: capitalize; }
+  .run-row .rsum { color: var(--fg-mute); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-row .rstatus { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .rstatus-done     { color: var(--yes); }
+  .rstatus-running  { color: var(--maybe); }
+  .rstatus-failed   { color: var(--no); }
+  .rstatus-canceled { color: var(--fg-dim); }
+  .edit-link {
+    font-size: 12px; color: var(--link); cursor: pointer;
+    margin-top: 6px; display: inline-block;
+  }
+  .edit-link:hover { text-decoration: underline; }
+
+  /* ---- progress drawer ---- */
+  .drawer {
+    position: fixed; right: 20px; bottom: 20px;
+    width: 460px; max-width: calc(100vw - 40px);
+    background: var(--panel-2); border: 1px solid var(--line-2);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-md);
+    z-index: 60;
+    transform: translateY(16px); opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+    display: flex; flex-direction: column; max-height: 60vh;
+  }
+  .drawer.open { transform: translateY(0); opacity: 1; pointer-events: auto; }
+  .drawer-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+  }
+  .drawer-head .dtitle { font-weight: 600; font-size: 13px; flex: 1; text-transform: capitalize; }
+  .drawer-head button {
+    background: none; border: 1px solid var(--line); color: var(--fg-mute);
+    border-radius: var(--r-sm); padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .drawer-head button:hover { color: var(--fg); border-color: var(--line-2); }
+  .drawer-log {
+    overflow-y: auto; padding: 10px 14px;
+    font: 12px/1.5 "SF Mono", Menlo, monospace; color: var(--fg-mute);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .drawer-log .ln { padding: 1px 0; }
+  .drawer-log .ln-err { color: var(--no); }
+
+  /* ---- editor modal ---- */
+  .modal-scrim {
+    position: fixed; inset: 0; background: rgba(5,7,10,0.6);
+    backdrop-filter: blur(2px); z-index: 70;
+    opacity: 0; pointer-events: none; transition: opacity var(--dur-base) var(--ease);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-scrim.open { opacity: 1; pointer-events: auto; }
+  .modal {
+    width: 760px; max-width: 92vw; max-height: 86vh;
+    background: var(--bg-2); border: 1px solid var(--line-2);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column;
+    transform: scale(0.98); transition: transform var(--dur-base) var(--ease);
+  }
+  .modal-scrim.open .modal { transform: scale(1); }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 18px; border-bottom: 1px solid var(--line);
+  }
+  .modal-head h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+  .modal-head .ver { font-size: 12px; color: var(--fg-dim); }
+  .modal-body { padding: 14px 18px; overflow-y: auto; flex: 1; }
+  .modal-body textarea {
+    width: 100%; min-height: 380px;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 12px 14px; font: 13px/1.6 "SF Mono", Menlo, monospace;
+    resize: vertical; outline: none;
+  }
+  .modal-body textarea:focus { border-color: var(--link); box-shadow: 0 0 0 3px rgba(122,169,255,0.15); }
+  .modal-note {
+    margin-top: 10px; font-size: 12px; color: var(--fg-dim);
+    display: flex; align-items: flex-start; gap: 6px;
+  }
+  .modal-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 18px; border-top: 1px solid var(--line);
+  }
+  .btn {
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 8px 16px; font: inherit; font-size: 13px; cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .btn:hover { border-color: var(--line-2); background: var(--panel-2); }
+  .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+  .btn-primary:hover { background: rgba(122,169,255,0.2); }
+
   /* responsive: keep sidebar but tighten on smaller laptops */
   @media (max-width: 1100px) {
     :root { --sidebar-w: 240px; }
@@ -610,6 +736,36 @@
 
 <div class="layout">
 <aside class="sidebar">
+  <div class="block" id="block-run">
+    <h3>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
+      Run
+    </h3>
+    <div class="run-btns">
+      <button class="run-btn" id="btn-ingest">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
+        <span class="grow">Ingest CSV…</span>
+      </button>
+      <button class="run-btn" id="btn-enrich">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
+        <span class="grow">Enrich</span>
+      </button>
+      <button class="run-btn" id="btn-verdict">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
+        <span class="grow">Verdict</span>
+      </button>
+      <div class="run-opt"><label><input type="checkbox" id="opt-escalate"> escalate maybes (Sonnet)</label></div>
+      <button class="run-btn" id="btn-episodes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3c-1.5 0-2.5 1-2.5 2.5 0 .5.2 1 .5 1.5-1 .5-1.5 1.5-1.5 2.5 0 1.5 1.5 2.5 3.5 2.5s3.5-1 3.5-2.5c0-1-.5-2-1.5-2.5.3-.5.5-1 .5-1.5C10.5 4 9.5 3 8 3z"/></svg>
+        <span class="grow">Ship episodes</span>
+      </button>
+    </div>
+    <div class="run-busy" id="run-busy" style="display:none">
+      <span class="spinner"></span><span id="run-busy-label">running…</span>
+    </div>
+    <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
+  </div>
+
   <div class="block">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
@@ -679,6 +835,17 @@
       Current taste
     </h3>
     <div id="taste-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+    <span class="edit-link" id="edit-taste">edit taste.md</span>
+    &nbsp;·&nbsp;
+    <span class="edit-link" id="edit-playbook">edit playbook.md</span>
+  </div>
+
+  <div class="block" id="block-runs">
+    <h3>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v4l3 2"/><circle cx="8" cy="8" r="6"/></svg>
+      Recent runs
+    </h3>
+    <div id="runs-list"><div class="muted small">none yet</div></div>
   </div>
 </aside>
 
@@ -724,6 +891,38 @@
   </div>
   <div class="pane-body" id="pane-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
 </aside>
+
+<!-- progress drawer -->
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <span class="spinner" id="drawer-spinner"></span>
+    <span class="dtitle" id="drawer-title">run</span>
+    <button id="drawer-cancel">cancel</button>
+    <button id="drawer-close" style="display:none">close</button>
+  </div>
+  <div class="drawer-log" id="drawer-log"></div>
+</div>
+
+<!-- editor modal -->
+<div class="modal-scrim" id="editor-scrim">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="editor-title">edit</h2>
+      <span class="ver" id="editor-ver"></span>
+    </div>
+    <div class="modal-body">
+      <textarea id="editor-text" spellcheck="false"></textarea>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Edits write the local file only — never the brain. Saving re-scores everything on the next verdict run (the version changes).</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="editor-cancel">Cancel</button>
+      <button class="btn btn-primary" id="editor-save">Save</button>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -1171,6 +1370,185 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
+// ---- control surface: capabilities ----
+state.meta = { control: false, brain: false, verdict: false };
+async function loadMeta() {
+  try {
+    const r = await fetch("/api/meta");
+    if (!r.ok) return;
+    state.meta = await r.json();
+  } catch { return; }
+  // Gate buttons.
+  const ctl = state.meta.control;
+  document.getElementById("btn-ingest").disabled = !ctl;
+  document.getElementById("btn-enrich").disabled = !ctl;
+  const vb = document.getElementById("btn-verdict");
+  vb.disabled = !ctl || !state.meta.verdict;
+  vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  const eb = document.getElementById("btn-episodes");
+  eb.disabled = !ctl || !state.meta.brain;
+  eb.title = state.meta.brain ? "" : "start scout serve --brainbot URL to enable";
+}
+
+// ---- control surface: runs history ----
+async function loadRuns() {
+  let data;
+  try {
+    const r = await fetch("/api/runs");
+    if (!r.ok) return;
+    data = await r.json();
+  } catch { return; }
+  // Busy indicator.
+  const busy = data.busy_stage || "";
+  const busyEl = document.getElementById("run-busy");
+  if (busy) {
+    busyEl.style.display = "";
+    document.getElementById("run-busy-label").textContent = busy + " running…";
+  } else {
+    busyEl.style.display = "none";
+  }
+  const runs = data.runs || [];
+  const el = document.getElementById("runs-list");
+  if (runs.length === 0) { el.innerHTML = '<div class="muted small">none yet</div>'; return; }
+  el.innerHTML = runs.slice(0, 8).map(r => {
+    const sum = summarize(r);
+    return `<div class="run-row">
+      <span class="rstage">${escapeHTML(r.stage)}</span>
+      <span class="rsum">${escapeHTML(sum)}</span>
+      <span class="rstatus rstatus-${escapeHTML(r.status)}">${escapeHTML(r.status)}</span>
+    </div>`;
+  }).join("");
+}
+
+function summarize(r) {
+  const s = r.summary || {};
+  if (r.status === "running") return "…";
+  if (r.status === "failed") return r.error ? r.error.slice(0, 60) : "failed";
+  switch (r.stage) {
+    case "verdict": {
+      const v = s.by_verdict || {};
+      return `${v.yes||0} yes · ${v.maybe||0} maybe · ${v.no||0} no`;
+    }
+    case "enrich":  return `${s.ok||0} ok · ${s.failed||0} failed`;
+    case "ingest":  return `+${s.upserted||0} companies`;
+    case "episodes":return `${s.sent||0} shipped`;
+    default: return "";
+  }
+}
+
+// ---- control surface: run a stage ----
+let activeJob = null;
+async function startRun(stage, opts) {
+  if (state.meta && state.meta.control === false) { toast("control surface disabled"); return; }
+  let resp;
+  try {
+    resp = await fetch(`/api/run/${stage}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opts || {}),
+    });
+  } catch (e) { toast(`run failed: ${e.message}`); return; }
+  if (resp.status === 409) { toast("a job is already running"); return; }
+  if (resp.status === 412) { const t = await resp.text(); toast(t.trim()); return; }
+  if (!resp.ok) { toast(`run failed: HTTP ${resp.status}`); return; }
+  const { job_id } = await resp.json();
+  streamJob(stage, job_id);
+}
+
+async function uploadCSV(file) {
+  const fd = new FormData();
+  fd.append("csv", file);
+  let resp;
+  try {
+    resp = await fetch("/api/ingest", { method: "POST", body: fd });
+  } catch (e) { toast(`upload failed: ${e.message}`); return; }
+  if (resp.status === 409) { toast("a job is already running"); return; }
+  if (!resp.ok) { toast(`upload failed: HTTP ${resp.status}`); return; }
+  const { job_id } = await resp.json();
+  streamJob("ingest", job_id);
+}
+
+function streamJob(stage, jobId) {
+  activeJob = jobId;
+  const drawer = document.getElementById("drawer");
+  const log = document.getElementById("drawer-log");
+  document.getElementById("drawer-title").textContent = stage;
+  document.getElementById("drawer-spinner").style.display = "";
+  document.getElementById("drawer-cancel").style.display = "";
+  document.getElementById("drawer-close").style.display = "none";
+  log.innerHTML = "";
+  drawer.classList.add("open");
+  loadRuns(); // reflect the new running row
+
+  const es = new EventSource(`/api/jobs/${jobId}/stream`);
+  const appendLine = (text, isErr) => {
+    const div = document.createElement("div");
+    div.className = "ln" + (isErr ? " ln-err" : "");
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  };
+  es.addEventListener("line", e => appendLine(e.data, /error|failed/i.test(e.data)));
+  es.addEventListener("end", e => {
+    es.close();
+    activeJob = null;
+    appendLine(`— ${e.data} —`, e.data === "failed");
+    document.getElementById("drawer-spinner").style.display = "none";
+    document.getElementById("drawer-cancel").style.display = "none";
+    document.getElementById("drawer-close").style.display = "";
+    toast(`${stage} ${e.data}`);
+    // Refresh everything the run could have changed.
+    loadList(); loadStats(); loadRuns();
+  });
+  es.onerror = () => { es.close(); }; // server closed or network; 'end' usually fired first
+}
+
+async function cancelActiveJob() {
+  if (!activeJob) return;
+  try { await fetch(`/api/jobs/${activeJob}/cancel`, { method: "POST" }); } catch {}
+}
+
+// ---- control surface: editor ----
+let editorKind = null;
+async function openEditor(kind) {
+  editorKind = kind;
+  const scrim = document.getElementById("editor-scrim");
+  document.getElementById("editor-title").textContent = "edit " + kind + ".md";
+  document.getElementById("editor-text").value = "loading…";
+  document.getElementById("editor-ver").textContent = "";
+  scrim.classList.add("open");
+  try {
+    const r = await fetch(`/api/${kind}`);
+    const d = await r.json();
+    document.getElementById("editor-text").value = d.content || "";
+    if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
+  } catch (e) {
+    document.getElementById("editor-text").value = "failed to load: " + e.message;
+  }
+}
+function closeEditor() {
+  document.getElementById("editor-scrim").classList.remove("open");
+  editorKind = null;
+}
+async function saveEditor() {
+  if (!editorKind) return;
+  const content = document.getElementById("editor-text").value;
+  let resp;
+  try {
+    resp = await fetch(`/api/${editorKind}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`save failed: HTTP ${resp.status}`); return; }
+  const d = await resp.json();
+  if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
+  toast(`${editorKind}.md saved`);
+  closeEditor();
+  loadStats(); // stale-count updates immediately
+}
+
 // ---- wiring ----
 document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   th.onclick = () => {
@@ -1184,10 +1562,39 @@ document.getElementById("verdict").onchange = renderList;
 document.getElementById("state").onchange = renderList;
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  closeDetail();
+  if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
+});
+
+// run controls
+document.getElementById("btn-enrich").onclick = () => startRun("enrich", {});
+document.getElementById("btn-verdict").onclick = () =>
+  startRun("verdict", { escalate_model: document.getElementById("opt-escalate").checked ? "claude-sonnet-4-5" : "" });
+document.getElementById("btn-episodes").onclick = () => startRun("episodes", {});
+document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
+document.getElementById("csv-file").onchange = e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) uploadCSV(f);
+  e.target.value = ""; // allow re-selecting the same file
+};
+document.getElementById("drawer-cancel").onclick = cancelActiveJob;
+document.getElementById("drawer-close").onclick = () => document.getElementById("drawer").classList.remove("open");
+
+// editor
+document.getElementById("edit-taste").onclick = () => openEditor("taste");
+document.getElementById("edit-playbook").onclick = () => openEditor("playbook");
+document.getElementById("editor-cancel").onclick = closeEditor;
+document.getElementById("editor-save").onclick = saveEditor;
+document.getElementById("editor-scrim").onclick = e => {
+  if (e.target.id === "editor-scrim") closeEditor();
+};
 
 loadList();
 loadStats();
+loadMeta();
+loadRuns();
 
 // When a status changes via the detail pane, refresh stats so by_status updates.
 const origUpdateRowState = updateRowState;

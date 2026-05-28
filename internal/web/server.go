@@ -110,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/run/", s.handleRun)      // POST /api/run/{stage}
 	mux.HandleFunc("/api/jobs/", s.handleJob)     // GET {id}/stream, POST {id}/cancel
 	mux.HandleFunc("/api/runs", s.handleRuns)     // GET history
+	mux.HandleFunc("/api/meta", s.handleMeta)     // GET capabilities
 	mux.HandleFunc("/api/ingest", s.handleIngest) // POST multipart CSV
 
 	// editor (local files only — never the brain)

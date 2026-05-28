@@ -1,8 +1,13 @@
-# scout UI v3 — control surface (design)
+# scout UI v3 — control surface
 
-> Status: **design for review, not yet built.** Turns the read-mostly triage
-> UI into the primary way to *drive* the pipeline, so the terminal becomes
-> optional. The CLI stays as a secondary entrypoint (cron, scripting, debug).
+> Status: **built.** The triage UI now drives the pipeline; the terminal is
+> optional. The CLI remains a secondary entrypoint (cron, scripting, debug).
+>
+> Decisions taken at build time: in-UI taste/playbook editing **yes** (local
+> files only, brain-isolated); ingest via **CSV upload**; no export — durable
+> run history in the `runs` table is the "what did this run identify" record;
+> progress via **structured callbacks**. The optional V4 in-UI editor was
+> pulled forward into this build.
 
 ## 1. Goal
 

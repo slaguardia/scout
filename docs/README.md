@@ -17,7 +17,7 @@ anyone (mostly future-me) trying to understand or change the implementation.
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
 | [limitations.md](./limitations.md) | Known limitations, deferred work, where it'll break first. |
 | [ui-v2-prd.md](./ui-v2-prd.md) | PRD for the v2 triage UI: detail pane, status write-back, stats sidebar. (Shipped.) |
-| [ui-v3-control-surface.md](./ui-v3-control-surface.md) | Design for driving the pipeline from the UI (job runner, CSV upload, live progress). Not yet built. |
+| [ui-v3-control-surface.md](./ui-v3-control-surface.md) | Driving the pipeline from the UI: job runner, CSV upload, live SSE progress, run history, brain-isolated taste/playbook editor. (Shipped.) |
 
 ## Quick mental model
 

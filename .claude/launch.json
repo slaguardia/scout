@@ -4,7 +4,7 @@
     {
       "name": "scout-serve",
       "runtimeExecutable": "go",
-      "runtimeArgs": ["run", "./cmd/scout", "serve", "--db", "/tmp/scout-test.db", "--addr", ":8765"],
+      "runtimeArgs": ["run", "./cmd/scout", "serve", "--db", "/tmp/scout-v3ui.db", "--addr", ":8765", "--taste-md", "taste.md", "--playbook", "playbook.md"],
       "port": 8765
     }
   ]
