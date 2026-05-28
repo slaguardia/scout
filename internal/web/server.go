@@ -1,25 +1,32 @@
 // Package web serves the triage UI on localhost.
 //
-// One embedded HTML page, several JSON endpoints, no auth. The page fetches
-// /api/companies on load and renders a sortable/filterable table client-side.
-// Detail pane and status write-back are wired through /api/companies/:id and
-// /api/companies/:id/status. Brain context is proxied through
-// /api/companies/:id/brain when a brainbot Client is configured.
+// An embedded HTML page plus JSON endpoints. Beyond the read/triage surface
+// (companies, detail, status, stats, brain proxy) it also drives the pipeline:
+// /api/run/* and /api/ingest start jobs via an in-process runner, /api/jobs/*
+// stream and cancel them, /api/runs lists durable history, and /api/taste &
+// /api/playbook read/write the local instruction files.
+//
+// Concurrency note: taste/playbook are guarded by mu because /api/stats reads
+// them while a taste/playbook PUT can reload them.
 package web
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	_ "embed"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/jobs"
+	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
 	"github.com/slaguardia/scout/internal/taste"
 )
@@ -27,22 +34,88 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
-// Server holds dependencies. Brainbot and Taste are optional — when unset,
-// the brain proxy returns 404 and stats omit taste version/source.
+// Server holds dependencies. Brainbot is optional. The Runner + paths power
+// the control surface; when Runner is nil the run/ingest/editor routes 503.
 type Server struct {
 	DB       *store.DB
 	Brainbot *brainbot.Client // optional
-	Taste    *taste.Block     // optional; current taste (file or brainbot)
+	Runner   *jobs.Runner     // optional; nil disables the control surface
+
+	// Stage construction inputs (used by the run handlers).
+	Anthropic     *anthropic.Client
+	TasteMDPath   string
+	TasteTOMLPath string
+	PlaybookPath  string
+	IngestSource  string
+
+	mu           sync.RWMutex
+	taste        *taste.Block // current; recomputed by ReloadTaste
+	playbookText string       // current playbook text
 }
 
-// Handler returns the http.Handler for the triage UI.
+// ReloadTaste re-reads taste.md + playbook.md, folds the playbook into the
+// version (matching `scout verdict`), and stores the result. Safe to call
+// concurrently with reads. A missing taste file leaves taste nil.
+func (s *Server) ReloadTaste() {
+	var tb *taste.Block
+	if t, err := taste.LoadFile(s.TasteMDPath); err == nil {
+		tb = t
+	}
+	pb, _ := playbook.Load(s.PlaybookPath)
+	if tb != nil && pb != "" {
+		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Text)
+		tb.Source = tb.Source + " + " + s.PlaybookPath
+	}
+	s.mu.Lock()
+	s.taste = tb
+	s.playbookText = pb
+	s.mu.Unlock()
+}
+
+func (s *Server) currentTaste() *taste.Block {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.taste
+}
+
+func (s *Server) currentPlaybook() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.playbookText
+}
+
+// CurrentTasteVersion returns the effective (playbook-folded) taste version,
+// or "" if no taste is loaded. Exported for the run-history hook.
+func (s *Server) CurrentTasteVersion() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.taste == nil {
+		return ""
+	}
+	return s.taste.Version
+}
+
+// Handler returns the http.Handler for the UI.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
+
+	// read / triage
 	mux.HandleFunc("/api/companies", s.handleCompanies)
-	mux.HandleFunc("/api/companies/", s.handleCompany) // detail, status, brain
+	mux.HandleFunc("/api/companies/", s.handleCompany)
 	mux.HandleFunc("/api/stats", s.handleStats)
+
+	// control surface
+	mux.HandleFunc("/api/run/", s.handleRun)      // POST /api/run/{stage}
+	mux.HandleFunc("/api/jobs/", s.handleJob)     // GET {id}/stream, POST {id}/cancel
+	mux.HandleFunc("/api/runs", s.handleRuns)     // GET history
+	mux.HandleFunc("/api/ingest", s.handleIngest) // POST multipart CSV
+
+	// editor (local files only — never the brain)
+	mux.HandleFunc("/api/taste", s.handleTaste)
+	mux.HandleFunc("/api/playbook", s.handlePlaybook)
+
 	return mux
 }
 
@@ -68,8 +141,6 @@ func (s *Server) handleCompanies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
 }
 
-// handleCompany routes /api/companies/<id>, /api/companies/<id>/status,
-// /api/companies/<id>/brain.
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/companies/")
 	parts := strings.Split(rest, "/")
@@ -82,7 +153,6 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-
 	switch {
 	case len(parts) == 1:
 		s.handleCompanyDetail(w, r, id)
@@ -130,7 +200,6 @@ func (s *Server) handleCompanyStatus(w http.ResponseWriter, r *http.Request, id 
 			http.NotFound(w, r)
 			return
 		}
-		// Validation errors come back as plain error strings; treat as 400.
 		if strings.HasPrefix(err.Error(), "invalid state") {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -163,28 +232,17 @@ func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id i
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-
 	nodes, err := s.Brainbot.SearchNodes(ctx, name, 5)
 	if err != nil {
-		// The brain is an enhancement — surface the error but with 200 + empty
-		// nodes so the UI degrades gracefully.
-		writeJSON(w, http.StatusOK, map[string]any{
-			"nodes": []brainbot.Node{},
-			"error": err.Error(),
-			"query": name,
-		})
+		writeJSON(w, http.StatusOK, map[string]any{"nodes": []brainbot.Node{}, "error": err.Error(), "query": name})
 		return
 	}
 	if nodes == nil {
 		nodes = []brainbot.Node{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"nodes": nodes,
-		"query": name,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "query": name})
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -193,9 +251,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var version, source string
-	if s.Taste != nil {
-		version = s.Taste.Version
-		source = s.Taste.Source
+	if tb := s.currentTaste(); tb != nil {
+		version = tb.Version
+		source = tb.Source
 	}
 	stats, err := s.DB.GetStats(version, source)
 	if err != nil {

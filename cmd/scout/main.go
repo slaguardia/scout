@@ -27,6 +27,7 @@ import (
 	"github.com/slaguardia/scout/internal/enrich"
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/ingest"
+	"github.com/slaguardia/scout/internal/jobs"
 	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
 	"github.com/slaguardia/scout/internal/taste"
@@ -77,7 +78,8 @@ Usage:
                 [--model claude-haiku-4-5] [--escalate-model claude-sonnet-4-5]
                 [--workers 4] [--force] [--db scout.db]
   scout episodes [--brainbot URL] [--db scout.db]
-  scout serve [--addr :8765] [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL] [--db scout.db]
+  scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
+              [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
 
 Environment:
@@ -352,9 +354,11 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	addr := fs.String("addr", ":8765", "listen address")
-	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for stats display)")
-	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual; folded into the taste version for stale-count accuracy")
-	brainbotURL := fs.String("brainbot", "", "brainbot base URL; enables /api/companies/:id/brain")
+	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (editable in the UI)")
+	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
+	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
+	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
+	brainbotURL := fs.String("brainbot", "", "brainbot base URL; enables brain context + episode runs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -364,27 +368,44 @@ func cmdServe(args []string) error {
 	}
 	defer db.Close()
 
-	// Best-effort taste load. If the file is missing we still serve, just
-	// without taste-version/source on /api/stats. The playbook is folded into
-	// the version exactly as `scout verdict` does, so the "N stale" hint in
-	// the sidebar matches what verdict actually stored.
-	var tb *taste.Block
-	if t, err := taste.LoadFile(*tasteMD); err == nil {
-		tb = t
-		if pbText, perr := playbook.Load(*playbookPath); perr == nil && pbText != "" {
-			tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Text)
-			tb.Source = tb.Source + " + " + *playbookPath
-		}
-	} else {
-		fmt.Fprintf(os.Stderr, "scout serve: taste load failed (%v); /api/stats will omit taste\n", err)
-	}
-
 	var bc *brainbot.Client
 	if *brainbotURL != "" {
 		bc = brainbot.New(*brainbotURL)
 	}
 
-	srv := &web.Server{DB: db, Brainbot: bc, Taste: tb}
+	srv := &web.Server{
+		DB:            db,
+		Brainbot:      bc,
+		Anthropic:     anthropic.New(""), // key from ANTHROPIC_API_KEY; verdict runs gated on it
+		TasteMDPath:   *tasteMD,
+		TasteTOMLPath: *tasteTOML,
+		PlaybookPath:  *playbookPath,
+		IngestSource:  *source,
+	}
+	// Load taste + playbook into the server (folds playbook into the version,
+	// matching `scout verdict`). Re-run after every editor PUT.
+	srv.ReloadTaste()
+
+	// Job runner persists each run to the runs table for durable history.
+	runner := jobs.New()
+	runner.OnStart = func(id, stage string) {
+		tasteVer := ""
+		if stage == "verdict" {
+			if tb := srv.CurrentTasteVersion(); tb != "" {
+				tasteVer = tb
+			}
+		}
+		if err := db.InsertRun(id, stage, tasteVer); err != nil {
+			fmt.Fprintln(os.Stderr, "run insert:", err)
+		}
+	}
+	runner.OnFinish = func(id, status string, summary map[string]any, errMsg string) {
+		if err := db.FinishRun(id, status, summary, errMsg); err != nil {
+			fmt.Fprintln(os.Stderr, "run finish:", err)
+		}
+	}
+	srv.Runner = runner
+
 	server := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),
