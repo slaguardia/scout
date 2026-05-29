@@ -1,5 +1,12 @@
 # Architecture
 
+> ⚠️ **Legacy — superseded by [`north-star.md`](./north-star.md).** This doc
+> describes the taste-first build (local `taste.md` as the source of Alex's
+> criteria, MCP brain client). The project is brain-first now: Alex's criteria
+> come from the brain, not a local file. Read `north-star.md` for the canonical
+> architecture; the package-layout notes below are still roughly accurate but
+> the taste/brain framing here is stale.
+
 ## Shape
 
 Single Go binary. SQLite for state. Six subcommands, each one stage of a

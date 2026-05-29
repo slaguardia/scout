@@ -8,7 +8,8 @@ anyone (mostly future-me) trying to understand or change the implementation.
 
 | Doc | What it covers |
 |---|---|
-| [architecture.md](./architecture.md) | The pieces, the three-store split, how data flows end-to-end. |
+| [north-star.md](./north-star.md) | **Canonical.** What scout is, the brain-as-knowledge / scout-as-intelligence split, the four verdict inputs, the stores, invariants. Start here. |
+| [architecture.md](./architecture.md) | Legacy (taste-first); superseded by north-star.md. Package-layout notes still useful. |
 | [pipeline.md](./pipeline.md) | Each subcommand in detail: inputs, behavior, outputs, idempotency rules. |
 | [data-model.md](./data-model.md) | SQLite schema, every table and why it exists. |
 | [verdict.md](./verdict.md) | The LLM call: prompts, parsing, taste versioning, model choice. |
