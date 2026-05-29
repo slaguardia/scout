@@ -15,6 +15,29 @@ the brain.
 It is brainbot's canonical example consumer (brainbot's `value-prop.md` names
 the "job-fit scorer" as its #1 demonstration of the pattern).
 
+## System at a glance
+
+```
+                          ┌─────────┐
+                          │  Alex  │   browses · triages · promotes
+                          └────┬────┘
+                               │ browser @ localhost
+   Crunchbase CSV ──────▶ ┌────┴───────────────────────────┐
+                          │            scout                │
+                          │  ingest → filter → enrich →     │
+                          │  verdict → triage UI            │
+                          │  · SQLite (working set)         │
+                          │  · Haiku (own LLM) + playbook   │
+                          └────┬──────────────────────┬─────┘
+           reads criteria +    │                      │  manual: tracker.py add
+           company memory      │  writes verdicts     │
+                          ┌────▼────────┐        ┌────▼─────────┐
+                          │  the brain  │        │   Notion     │
+                          │  knowledge  │        │  committed   │
+                          │  of Alex   │        │  pipeline    │
+                          └─────────────┘        └──────────────┘
+```
+
 ## The core principle: intelligence vs. knowledge
 
 ```
@@ -63,6 +86,15 @@ A single verdict decision combines four things from three sources:
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
 | **Alex's criteria** | **the brain** (`profile` → episode bodies) | *what* Alex wants + his rules/exclusions |
 | **This company** | scout SQLite + **brain** (`recall(name)`) | Crunchbase fields + enriched site text + brain memory about this specific company |
+
+```
+  output contract (Go, fixed) ─┐
+  playbook — how to decide ────┤
+  Alex's criteria ────────────┼──▶  Haiku  ──▶  { verdict, reason }
+    (brain: profile bodies)    │                       │
+  this company ────────────────┘                       ├─▶ SQLite (verdicts)
+    (SQLite + brain: recall)                            └─▶ brain: capture (loop closes)
+```
 
 The playbook is the *only* "instructions" file scout owns, and it is
 deliberately **not** Alex-data — it's procedure. The brain owns the rest.

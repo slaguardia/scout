@@ -1,72 +1,42 @@
 # scout
 
-A personal job-research pipeline. Ingests company data (Crunchbase + others), filters it against my own taste rules, asks an agent to verdict each survivor using context from [brainbot](https://github.com/stevenlaguardia/brainbot), and surfaces a small triage list. I take it from there.
+A personal **job-fit scorer**. Ingests company dumps (Crunchbase CSV), enriches
+each from its website, and asks: *given everything the brain knows about Alex,
+is this company worth his time?* It reasons with its own LLM and writes the
+verdict back to the brain. Triage happens in a small local web UI; the shortlist
+Alex commits to lives in Notion.
 
-Companion project to brainbot. Brainbot stores *who I am and what I want*. Scout uses that context to evaluate *what's out there*. Committed pipeline lives in Notion (separate Application Tracker).
+Companion to [brainbot](https://github.com/slaguardia/brainbot): **brainbot holds
+the knowledge** (who Alex is, what he wants); **scout brings the intelligence**
+(its LLM + a small playbook for *how* to judge). Scout is brainbot's canonical
+example consumer.
 
-## Why this exists
-
-Job-board scrolling and Crunchbase filtering are search problems with a personal taste function. The taste function is too specific and too evolving to encode as static filters — but it's exactly the kind of thing an LLM with the right context can do well in batch.
-
-Scout is the batch.
-
-## The three-store split
-
-Scout deliberately doesn't try to be a system of record. Data lives where it belongs:
-
-| Store | Role | What lives here |
-|---|---|---|
-| **Scout SQLite** | Working set | Raw ingest, enrichment, agent verdicts. Disposable between runs. |
-| **brainbot graph** | Memory | "Looked at Acme on 2026-05-22, dismissed — vertical exclusion." Episodes for future context. |
-| **Notion Application Tracker** | Committed pipeline | The shortlist of companies I'm actually pursuing. Edited from phone. |
-
-The handoff is manual by design: scout surfaces candidates, I decide what's worth tracking, the Notion tracker is the source of truth for anything past that line. Automating the handoff is a non-goal until I've done it enough times to know what the decision actually feels like.
+→ **Architecture and how it all fits together: [`docs/north-star.md`](./docs/north-star.md).**
 
 ## Status
 
-M1–M6 built. End-to-end pipeline works against a Crunchbase CSV: ingest → filter → enrich → verdict → episodes, plus a read-only triage UI. Brainbot integration is live over MCP JSON-RPC: scout pulls taste via `search_memory_facts` and writes verdicts back via `add_memory` (see [`internal/brainbot/client.go`](./internal/brainbot/client.go) and brainbot's [`docs/consumer-integration.md`](../brainbot/docs/consumer-integration.md)).
-
-See [`PRD.md`](./PRD.md) for the product spec and milestone status, and [`docs/`](./docs/) for architecture, pipeline, and operations references.
+Pipeline + web control surface are built (ingest → filter → enrich → verdict →
+triage, all drivable from the browser). The brain integration is being
+re-pointed at the brain's live contract (`capture`/`recall`/`profile` over plain
+HTTP/JSON) — see [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
 
 ## Quickstart
 
 ```bash
-brew install go
-go mod tidy
-go build ./...
-
+brew install go && go build -o scout ./cmd/scout
 export ANTHROPIC_API_KEY=sk-ant-...
 
-./scout ingest data/crunchbase.csv
-./scout filter
-./scout enrich            # parallel about-page fetch, cached
-./scout verdict           # Haiku scores each survivor
-./scout serve             # http://localhost:8765
-./scout episodes --brainbot http://localhost:8123   # M6, optional
+./scout serve          # the primary interface — drive everything from the browser
+                       #   upload a CSV, enrich, verdict, triage at localhost:8765
 ```
 
-## Stack (tentative)
+The CLI stages (`ingest`, `filter`, `enrich`, `verdict`, `episodes`) still exist
+as a secondary automation/debug surface, but the web UI is the way in.
 
-- **Go** — pipeline, parallel fetches, single binary, typed stages
+## Stack
+
+- **Go** — single binary, typed pipeline stages, parallel fetches
 - **SQLite** — working set (`modernc.org/sqlite`, pure-Go, no CGO)
-- **Anthropic SDK (Go)** — agent verdicts
-- **brainbot HTTP API** — context for "who is Alex"
-- **Read-only web UI** — triage view served by the Go binary
-
-## Repo layout (planned)
-
-```
-scout/
-├── README.md
-├── PRD.md
-├── cmd/
-│   └── scout/                  — CLI entrypoint
-├── internal/
-│   ├── ingest/                 — CSV / API loaders
-│   ├── filter/                 — rule-based pre-filter (SQL)
-│   ├── enrich/                 — parallel web fetch + scrape
-│   ├── verdict/                — agent calls, brainbot context
-│   └── store/                  — SQLite access
-├── web/                        — triage UI (static + JSON endpoint)
-└── migrations/                 — SQLite schema
-```
+- **Anthropic Messages API** — verdicts (direct HTTP, no SDK)
+- **the brain** — `capture`/`recall`/`profile` over HTTP for Alex's criteria
+- **embedded web UI** — triage + control surface served by the Go binary

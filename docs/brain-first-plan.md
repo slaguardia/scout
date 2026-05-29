@@ -318,6 +318,48 @@ truth for the architecture; no functional web gap remains.
 
 ---
 
+## Phase E — Docs audit (do this LAST, once the code matches the north star)
+
+**Goal:** the doc set is lean, skimmable, deduped, and current — no stale
+content, no deprecation notices (delete, don't tombstone).
+
+This is deferred to last on purpose: the reference docs below describe code that
+Phases A–C rewrite. Re-leaning them before then is throwaway work. Once the code
+is brain-first, do the pass once.
+
+**Standard (apply to every doc):**
+- **One source of truth.** `north-star.md` owns the architecture/concept; no
+  other doc restates "what scout is / the stores / the principle" — they link.
+- **Current only.** Delete anything that no longer matches the code. No "was…",
+  no "superseded", no deprecation banners — remove it.
+- **Lean + skimmable.** Tighten prose; a reader should grok each doc by
+  skimming headers + tables + diagrams.
+- **Diagrams.** Keep architecture + logic-flow as diagrams (ASCII is fine), not
+  walls of prose.
+
+**Files to re-lean against the brain-first code:**
+- `pipeline.md` — drop `taste.md`/old-`--brainbot` framing; `verdict` reads
+  criteria from the brain, writes back via `capture`; `filter` is mechanical.
+- `verdict.md` — rewrite the prompt-assembly section: contract + playbook +
+  brain criteria (episode bodies) + per-company recall. Kill "taste versioning"
+  language; it's the criteria version.
+- `enrichment.md` — should be mostly current; verify the fetch-status taxonomy.
+- `data-model.md` — add the `runs` table; update the episode dedup key
+  (content-hash, not taste_version); drop `taste`-named columns if renamed.
+- `operations.md` — current flags/env only; web-first framing; brain HTTP.
+- `limitations.md` — prune to current limits (drop "UI write-back is v2", the
+  retired-MCP item, etc.).
+- Consider folding `PRD.md`'s still-true bits (problem, non-goals) into
+  `north-star.md` and removing `PRD.md` if it's pure duplication by then.
+- Delete `brain-first-plan.md` itself once A–E are done — it's a transient plan,
+  not reference.
+
+**Acceptance:** every doc current; zero duplication of the architecture; zero
+deprecation notices; diagrams present; a cold reader understands the system from
+`north-star.md` alone in a few minutes.
+
+---
+
 ## Cross-cutting rules
 
 - Per phase: `go build ./... && go vet ./... && go test ./...` green; commit with
