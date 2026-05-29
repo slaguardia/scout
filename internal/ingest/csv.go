@@ -18,7 +18,7 @@ import (
 // Crunchbase exports vary; we try multiple known shapes. Unknown headers still get preserved in raw_json.
 var columnAliases = map[string][]string{
 	"name":          {"name", "organization name", "company", "company name"},
-	"source_id":     {"uuid", "id", "cb_id", "crunchbase uuid"},
+	"source_id":     {"uuid", "id", "cb_id", "crunchbase uuid", "organization name url"},
 	"domain":        {"domain", "website", "homepage url", "url"},
 	"headcount":     {"headcount", "employees", "number of employees", "employee count"},
 	"funding_stage": {"funding stage", "last funding type", "stage", "last funding round"},

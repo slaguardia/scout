@@ -16,10 +16,15 @@
 /data/
 /dumps/
 
-# Env
+# Env / secrets
 .env
 .env.local
 .env.*.local
+.anthropic_key
+
+# SQLite WAL sidecars
+*.db-wal
+*.db-shm
 
 # IDE
 .idea/
