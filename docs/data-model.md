@@ -6,7 +6,7 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0006`), are embedded via `//go:embed`,
+`internal/store/migrations/` (`0001`–`0007`), are embedded via `//go:embed`,
 apply in filename order on every `Open()`, and are tracked in
 `schema_migrations`.
 

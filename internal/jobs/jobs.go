@@ -1,5 +1,5 @@
 // Package jobs is a tiny in-process runner for scout's long-running pipeline
-// stages (enrich, verdict, ingest, episodes) triggered from the UI.
+// stages (ingest, enrich, verdict) triggered from the UI.
 //
 // A job runs in a background goroutine; the HTTP layer returns immediately
 // with an id and streams the job's progress lines over SSE. Live state
