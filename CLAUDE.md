@@ -33,12 +33,15 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 - **Built:** the pipeline (ingest → filter → enrich → verdict → triage) and the
   full web control surface — run everything from the browser (CSV upload, live
   progress, run history), plus a brain-isolated playbook editor.
-- **In flight:** re-pointing the brain client at the live contract
-  (`capture`/`recall`/`profile`, HTTP) and making the brain the source of
-  Alex's criteria. This is `docs/brain-first-plan.md`.
+- **Brain-first, done:** scout speaks the brain's live HTTP contract
+  (`profile`/`recall`/`capture`); the brain is the primary source of Alex's
+  criteria (the episode bodies from `profile`), health-gated, with `taste.md` as
+  the offline fallback. Per-company context comes from `recall`; verdicts are
+  written back via `capture`. Default brain URL is `http://127.0.0.1:8100`.
 
 ## What's next
 
-Execute `docs/brain-first-plan.md`: brain-contract rewrite → brain-primary
-intelligence → a real Crunchbase CSV run. `north-star.md` is the target; the
-plan is the path. The CLI stays as a secondary surface; the web UI is primary.
+A real **Crunchbase CSV run** end-to-end (blocked on Alex downloading the
+export — verify ingest column aliases against the real header first). The web UI
+is the primary interface; the CLI is the secondary automation/debug surface.
+`north-star.md` is the canonical architecture.

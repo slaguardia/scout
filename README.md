@@ -16,9 +16,9 @@ example consumer.
 ## Status
 
 Pipeline + web control surface are built (ingest → filter → enrich → verdict →
-triage, all drivable from the browser). The brain integration is being
-re-pointed at the brain's live contract (`capture`/`recall`/`profile` over plain
-HTTP/JSON) — see [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
+triage, all drivable from the browser). The brain is wired as the primary
+source of Alex's criteria over plain HTTP/JSON (`profile`/`recall`/`capture`),
+with `taste.md` as the offline fallback when the brain is unreachable.
 
 ## Quickstart
 
@@ -26,6 +26,8 @@ HTTP/JSON) — see [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
 brew install go && go build -o scout ./cmd/scout
 export ANTHROPIC_API_KEY=sk-ant-...
 
+# The brain runs at http://127.0.0.1:8100 by default (and is on by default).
+# If it's down, scout logs once and falls back to taste.md.
 ./scout serve          # the primary interface — drive everything from the browser
                        #   upload a CSV, enrich, verdict, triage at localhost:8765
 ```
