@@ -43,6 +43,34 @@ scout; MCP is reserved for Claude Code):
 Reference client to mirror: `brainbot/migrate/graphiti_clients.py` (class
 `BrainClient`). Spec: `brainbot/docs/consumer-api.md`.
 
+## ⚠️ Read this before designing the taste block: facts vs. episodes
+
+Brainbot's `consumer-integration.md` (§"What to read back") is explicit, and it
+uses **the job-fit scorer (scout) as its cautionary example**:
+
+- **`facts`** (from `recall`) — extracted graph claims. Scored, deduped,
+  precise — **but a lossy, POSITIVE-ONLY index.** The extractor reliably
+  captures what Alex *does/wants/has* and **systematically drops the
+  negatives and rules**: "avoids fintech", "only A or B counts", "anything
+  outside the set is a hard skip", conditional exceptions.
+- **episode bodies** (the faithful captured text) — **complete.** The
+  gates, avoid-lists, dealbreakers, and exceptions live *only* here.
+
+> **Rule:** use `facts` for fast positive lookups; for anything **rule-bearing**
+> (the taste block that gates verdicts, avoid-lists, dealbreakers) read the
+> **episode bodies**. A scorer built off `facts` alone *will* pursue companies
+> Alex hard-excludes (e.g. fintech). This is the #1 way to get this wrong.
+
+**Implementation caveat to pin at runtime:** brainbot's two docs differ on what
+`GET /profile` returns — `consumer-api.md` describes fact-records
+(`{fact,name,valid_at,invalid_at}`), while `consumer-integration.md` calls
+`profile` the source of "episode bodies (the faithful captured text)." Before
+building the taste block, **make one real `GET /profile` call against Alex's
+brain and inspect the response** to confirm whether it returns extracted facts
+or full episode bodies. If `profile` only yields fact-records, get the bodies
+from `recall(...).episodes` instead. Do NOT assume — verify, because the whole
+correctness of the gate logic depends on it.
+
 ## The intended architecture (from brainbot's own docs)
 
 Brainbot's `value-prop.md` names its #1 roadmap item as the "**job-fit
@@ -65,12 +93,16 @@ brain service ──(profile / recall)──▶ scout: reasons with its own LLM 
 
 ## Locked decisions
 
-1. **Taste block = `GET /profile`** (full picture; brainbot recommends reasoning
-   over the whole profile at current scale). Join the fact strings into the
-   narrative block.
+1. **Taste block = the episode BODIES from `GET /profile`** (the full captured
+   text — the whole picture), **not** the extracted fact strings. The bodies
+   carry the gates/exclusions; the facts don't (see the facts-vs-episodes
+   warning above). Verify profile's actual response shape against the live brain
+   first; if profile returns only fact-records, pull bodies from
+   `recall(...).episodes`.
 2. **Per-company context = `recall(companyName, limit=5)`**, with a **score
    threshold ~0.4** so fresh companies (all-low scores) inject nothing. This is
-   the loop-closer with `capture`.
+   the loop-closer with `capture`. For per-company *rules* (e.g. "Alex already
+   dismissed this one"), prefer the matched episode body over the bare fact.
 3. **`taste.md` stays as fallback only.** Brain is primary. No new UI work for
    the taste editor (already built; leave as-is).
 4. **Plain HTTP/JSON.** Delete scout's MCP handshake/SSE machinery entirely.
@@ -116,10 +148,16 @@ brain service ──(profile / recall)──▶ scout: reasons with its own LLM 
   }
 
   func (c *Client) Health(ctx) error                              // GET  /health
-  func (c *Client) Profile(ctx) ([]Fact, error)                   // GET  /profile  -> .facts
-  func (c *Client) Recall(ctx, query string, limit int) ([]Fact, error) // GET /recall?q=&limit= -> .facts
+  func (c *Client) Profile(ctx) (ProfileResult, error)            // GET  /profile
+  func (c *Client) Recall(ctx, query string, limit int) (RecallResult, error) // GET /recall?q=&limit=
   func (c *Client) Capture(ctx, text string) error                // POST /capture {text}
   ```
+  - **Decode the FULL response shape, not just `.facts`.** Per the
+    facts-vs-episodes warning, `recall` returns both `facts` (scored) and
+    `episodes` (faithful bodies); `profile` is the source of bodies. Model
+    `RecallResult{ Facts []Fact; Episodes []string }` and a `ProfileResult` that
+    exposes whatever profile actually returns (pin against the live API). Don't
+    throw away the episode bodies — the gate logic needs them.
 - Headers: `Accept: application/json`; `Authorization: Bearer <Auth>` when set.
 - Errors: non-2xx → error carrying the body's `{"error":...}` if present.
 
@@ -157,15 +195,28 @@ brain service ──(profile / recall)──▶ scout: reasons with its own LLM 
      and fall back to `taste.md`. ("I only want the brain" → it's on by default;
      fallback only when the brain is genuinely down.)
 
-2. **Taste block from profile.**
-   - New: `taste.FromFacts(facts []string, source string) *Block` →
-     `Text = join("\n", facts)`, `Version = Hash(text)`, `Source = "brain:profile@<url>"`.
-   - `cmdVerdict`/`serve`: if brain healthy → `Profile(ctx)` → `FromFacts`. Else
+2. **Taste block from profile — use the episode BODIES, not the facts.**
+   - First, confirm what `GET /profile` actually returns (fact-records vs
+     bodies) with one live call (see the facts-vs-episodes caveat above). Build
+     the `Client.Profile` return type to expose whatever carries the full text.
+   - New: `taste.FromBrain(text, source string) *Block` →
+     `Version = Hash(text)`, `Source = "brain:profile@<url>"`. `text` is the
+     concatenated **episode bodies** (the complete record with gates/exclusions),
+     NOT a join of extracted fact strings. If profile only yields fact-records,
+     source the bodies from `recall(broad query).episodes` instead.
+   - `cmdVerdict`/`serve`: if brain healthy → pull bodies → `FromBrain`. Else
      `taste.LoadFile`. The playbook still folds into the version exactly as today
      (`Version = Hash(playbook + "\n---taste---\n" + tasteText)`).
    - This means **when the brain learns something new, the profile changes →
      version changes → verdicts re-score next run.** That is the original PRD §6
      bet, finally wired correctly. Expected behavior, not a bug.
+   - **`internal/filter` implication:** the cheap SQL pre-filter (`taste.toml`)
+     still gates on location/headcount/vertical. But per brainbot-contract.md,
+     rule-bearing logic should ultimately come from the episode bodies too. For
+     this plan, keep `taste.toml` as the structured pre-filter and let the
+     episode-body taste block carry the nuanced gates into the verdict prompt;
+     note any divergence between `taste.toml` exclusions and the brain's stated
+     avoid-lists for Alex to reconcile.
 
 3. **Per-company context via recall.**
    - In `verdict.Scorer.lookupBrain(name)`: call `Recall(name, 5)`, **keep only

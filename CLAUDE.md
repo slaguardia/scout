@@ -48,11 +48,11 @@ Go 1.22 · SQLite (`modernc.org/sqlite`, pure-Go) · BurntSushi/toml · Anthropi
 - **M2** — `scout enrich`: parallel about-page fetch (default 8 workers, 12s timeout), regex HTML strip, ~3000-rune summary cached in `enrichment` table. Idempotent: re-runs skip rows where `enrichment.fetched_at >= companies.ingested_at`.
 - **M3** — `scout verdict`: Haiku via direct Anthropic /v1/messages call (no SDK dep), narrative taste from `taste.md`, JSON output parsed and persisted to `verdicts`. Idempotent by `(company_id, taste_version)`.
 - **M4** — `scout serve`: localhost HTML + `/api/companies` JSON, embedded `index.html` with client-side sort/filter/search.
-- **M5** — `scout verdict --brainbot URL` pulls live taste via the brain's `search_memory_facts` MCP tool, joins fact strings into the verdict prompt's taste block; transparent fallback to `taste.md` on failure.
-- **M6** — `scout episodes --brainbot URL` writes each new verdict as a natural-language episode via the brain's `add_memory` MCP tool, dedup'd locally in `episodes_sent`.
+- **M5** — ⚠️ **SUPERSEDED, built against a retired API.** Was brain taste-pull via `search_memory_facts` (MCP). That tool is gone; the brain is now `capture`/`recall`/`profile` over plain HTTP/JSON. Being redone — see `docs/brain-first-plan.md`.
+- **M6** — ⚠️ **SUPERSEDED, built against a retired API.** Was episode write-back via `add_memory` (MCP). `add_memory` is gone (now `capture`). Being redone — see `docs/brain-first-plan.md`.
 
-Scout's brain client is in `internal/brainbot/client.go` — MCP JSON-RPC over HTTP, mirrors brainbot's Python `GraphitiClient`. Brainbot owns the protocol; see its `docs/consumer-integration.md`. Scout-side specifics in `docs/brainbot-contract.md`.
+> ⚠️ Scout's brain client (`internal/brainbot/client.go`) currently speaks the **retired** Graphiti MCP surface and silently fails against the live brain. The live contract (capture/recall/profile, plain HTTP/JSON) and the corrective plan are in `docs/brain-first-plan.md`. Also note: this "What's done" list predates the UI v2/v3 + playbook work — see PRD.md and `docs/` for the current feature set.
 
 ## What's next
 
-Real use. Drop a Crunchbase CSV in, fill in `taste.toml` and `taste.md`, run the pipeline end-to-end, watch where the verdicts disagree with intuition, then tune. Likely follow-ups: careers-page enrichment (PRD §11), drag-to-promote integration with `tracker.py`, write-back UI for `status`.
+**Execute `docs/brain-first-plan.md`** — re-point the brain client to the live contract, make the brain (not `taste.md`) the primary intelligence source, then land a real Crunchbase CSV run. That plan is the source of truth for next steps.
