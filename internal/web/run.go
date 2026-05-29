@@ -99,13 +99,21 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 		if tb == nil {
 			return nil, fmt.Errorf("no taste loaded (check %s)", s.TasteMDPath)
 		}
+		// Health-gate the per-company recall client (mirrors the CLI): a brain
+		// that's down — or worse, listening but hung — must not stall every
+		// company's 15s recall lookup. The criteria source is already
+		// health-gated in ReloadTaste.
+		var bc *brainbot.Client
+		if s.brainHealthy(ctx) {
+			bc = s.Brainbot
+		}
 		sc := &verdict.Scorer{
 			DB:            s.DB,
 			Taste:         tb,
 			Filter:        ft,
 			Client:        s.Anthropic,
 			Playbook:      s.currentPlaybook(),
-			Brainbot:      s.Brainbot, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
+			Brainbot:      bc, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
 			EscalateModel: opts.EscalateModel,
 			Force:         opts.Force,
 			Workers:       4,

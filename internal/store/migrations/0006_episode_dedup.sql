@@ -10,6 +10,10 @@
 -- SQLite can't alter a primary key in place; rebuild the table. Prior sent
 -- markers don't map onto the new key, so they're dropped — at most a one-time
 -- re-capture of existing verdicts (the brain dedups on its side anyway).
+--
+-- MarkEpisodeSent keeps at most one row per company (the LAST captured
+-- decision): a re-score clears the prior hash, so a later revert to an earlier
+-- decision re-captures rather than being silently suppressed.
 
 DROP TABLE IF EXISTS episodes_sent;
 

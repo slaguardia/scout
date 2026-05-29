@@ -116,12 +116,28 @@ WHERE verdict = 'maybe'
 	return out, rows.Err()
 }
 
-// MarkEpisodeSent records that a verdict's decision was captured to the brain,
-// keyed by its content hash (see VerdictHash).
+// MarkEpisodeSent records that a verdict's decision was captured to the brain.
+// episodes_sent holds exactly the LAST captured decision per company: any
+// prior hash is cleared. So if a verdict re-scores to a new decision and later
+// reverts to an earlier one, the revert is treated as new and re-captured —
+// otherwise the brain would keep holding the stale intermediate verdict.
 func (db *DB) MarkEpisodeSent(companyID int64, verdictHash string) error {
-	const q = `INSERT OR IGNORE INTO episodes_sent (company_id, verdict_hash) VALUES (?, ?)`
-	_, err := db.Exec(q, companyID, verdictHash)
-	return err
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`DELETE FROM episodes_sent WHERE company_id = ? AND verdict_hash != ?`,
+		companyID, verdictHash); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO episodes_sent (company_id, verdict_hash) VALUES (?, ?)`,
+		companyID, verdictHash); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // EpisodeSent reports whether a verdict's current decision has been captured.
