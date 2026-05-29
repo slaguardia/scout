@@ -1,17 +1,23 @@
-// Package brainbot is a thin client for the brain over MCP JSON-RPC.
+// Package brainbot is a thin HTTP/JSON client for the brain service.
 //
-// The brain exposes a streamable-HTTP MCP endpoint at {base}/mcp. This
-// client speaks that wire protocol: an initialize handshake that yields
-// an mcp-session-id, followed by tools/call invocations for the named
-// tools (search_memory_facts, add_memory, etc.).
+// The brain exposes three operations — capture, recall, profile — plus a
+// health probe, over plain HTTP/JSON. (An MCP face at /mcp serves the same
+// three operations for Claude Code; typed consumers like scout use the HTTP
+// routes.) This client mirrors brainbot's reference client,
+// migrate/graphiti_clients.py.
 //
-// The authoritative reference for the brain's consumer surface lives at
-// docs/consumer-integration.md in the brainbot repo. The Python reference
-// client is migrate/graphiti_clients.py. This file is a faithful Go port
-// of that handshake + call pattern.
+// Verified against the brain's own service.py (the authoritative contract;
+// brainbot/docs/consumer-api.md is stale on /profile):
 //
-// If the brainbot URL isn't configured, callers should fall back to a
-// local file.
+//	GET  /profile           -> {count, episodes:[{name,body,source}]}
+//	GET  /recall?q=&limit=  -> {query, facts:[{fact,name,score,valid_at,invalid_at}],
+//	                            episodes:[{name,body}], fact_count, episode_count}
+//	POST /capture {text}    -> 202 {mode, episodes, topic}
+//	GET  /health            -> {ok:true}
+//
+// The brain is an enhancement, never a hard dependency: when it is unreachable
+// callers fall back to local criteria (taste.md). If the base URL isn't
+// configured, every call returns a "not configured" error.
 package brainbot
 
 import (
@@ -22,36 +28,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/google/uuid"
-
-	"github.com/slaguardia/scout/internal/store"
-	"github.com/slaguardia/scout/internal/taste"
 )
 
-const (
-	groupID         = "brain"
-	mcpProtocolVer  = "2025-03-26"
-	clientName      = "scout"
-	clientVersion   = "0.1"
-	maxResponseSize = 1 << 20
-)
+const maxResponseSize = 1 << 20
 
-// Client is a brainbot MCP client.
+// criteriaQuery is the broad question used to recover Alex's criteria bodies
+// when /profile yields none (the fallback source of episode bodies).
+const criteriaQuery = "what does Alex want in a job: his preferences, rules, hard exclusions, and dealbreakers"
+
+// Client is a brain HTTP client.
 type Client struct {
 	BaseURL string
-	HTTP    *http.Client
 	// Auth is an optional bearer token (VPS path). Empty for local dev.
 	Auth string
-
-	mu        sync.Mutex
-	sessionID string
+	HTTP *http.Client
 }
 
-// New builds a client. baseURL like "http://127.0.0.1:8000". Empty disables.
+// New builds a client. baseURL like "http://127.0.0.1:8100". Empty disables.
 func New(baseURL string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
@@ -62,353 +59,190 @@ func New(baseURL string) *Client {
 // Enabled reports whether a base URL is configured.
 func (c *Client) Enabled() bool { return c != nil && c.BaseURL != "" }
 
-func (c *Client) endpoint() string { return c.BaseURL + "/mcp" }
+// Fact is an extracted graph claim. Facts are a lossy, POSITIVE-ONLY index:
+// the extractor reliably captures what Alex does/wants/has and systematically
+// drops the negatives and rules. For anything rule-bearing (gates, avoid-lists,
+// dealbreakers) read Episode bodies instead. Score is present on recall, 0 on
+// profile (profile is an unscored dump).
+type Fact struct {
+	Fact      string  `json:"fact"`
+	Name      string  `json:"name"`
+	Score     float64 `json:"score"`
+	ValidAt   string  `json:"valid_at"`
+	InvalidAt string  `json:"invalid_at"`
+}
 
-// mcpCall invokes an MCP tool by name. The session handshake is performed
-// lazily on first call and cached on the Client.
-func (c *Client) mcpCall(ctx context.Context, toolName string, args map[string]any) (map[string]any, error) {
-	if err := c.ensureSession(ctx); err != nil {
+// Episode is a faithful captured body — the complete record, with the
+// negatives/gates/rules the facts drop. /profile returns {name,body,source};
+// /recall returns {name,body}.
+type Episode struct {
+	Name   string `json:"name"`
+	Body   string `json:"body"`
+	Source string `json:"source,omitempty"`
+}
+
+// ProfileResult is GET /profile: every currently-true episode body.
+type ProfileResult struct {
+	Count    int       `json:"count"`
+	Episodes []Episode `json:"episodes"`
+}
+
+// RecallResult is GET /recall: scored facts plus faithful episode bodies.
+type RecallResult struct {
+	Query        string    `json:"query"`
+	Facts        []Fact    `json:"facts"`
+	Episodes     []Episode `json:"episodes"`
+	FactCount    int       `json:"fact_count"`
+	EpisodeCount int       `json:"episode_count"`
+}
+
+// Bodies returns the non-empty episode bodies — the text the criteria block is
+// built from. The gates and exclusions live here, not in the facts.
+func (p ProfileResult) Bodies() []string { return episodeBodies(p.Episodes) }
+
+// Bodies returns the non-empty matched episode bodies for a recall query.
+func (r RecallResult) Bodies() []string { return episodeBodies(r.Episodes) }
+
+func episodeBodies(eps []Episode) []string {
+	out := make([]string, 0, len(eps))
+	for _, e := range eps {
+		if b := strings.TrimSpace(e.Body); b != "" {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// Health probes liveness. A nil error means the brain is up. (The probe is
+// cheap and does not verify graph/LLM connectivity — it's a liveness check.)
+func (c *Client) Health(ctx context.Context) error {
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.getJSON(ctx, "/health", nil, &out); err != nil {
+		return err
+	}
+	if !out.OK {
+		return errors.New("brain health: ok=false")
+	}
+	return nil
+}
+
+// Profile fetches Alex's full current picture as faithful episode bodies.
+func (c *Client) Profile(ctx context.Context) (ProfileResult, error) {
+	var out ProfileResult
+	err := c.getJSON(ctx, "/profile", nil, &out)
+	return out, err
+}
+
+// Recall fetches scored facts + episode bodies for a query. limit <= 0 omits
+// the param (the brain defaults to 20).
+func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallResult, error) {
+	q := url.Values{"q": {query}}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	var out RecallResult
+	err := c.getJSON(ctx, "/recall", q, &out)
+	return out, err
+}
+
+// Capture writes natural-language text to the brain. The brain decomposes and
+// extracts it server-side, so this awaits the pipeline (seconds, ~1¢). Returns
+// nil on success (HTTP 202).
+func (c *Client) Capture(ctx context.Context, text string) error {
+	body, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return err
+	}
+	req, err := c.newRequest(ctx, http.MethodPost, "/capture", nil, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, nil)
+}
+
+// Criteria returns Alex's full criteria as the concatenated faithful episode
+// bodies (the gates/exclusions live in the bodies, NOT the facts — a scorer
+// built off facts alone will pursue companies Alex hard-excludes). It reads
+// /profile first; if profile yields no bodies it falls back to a broad
+// /recall. An empty string with a nil error means the brain genuinely knows
+// nothing yet (the caller should fall back to local criteria).
+func (c *Client) Criteria(ctx context.Context) (string, error) {
+	pr, err := c.Profile(ctx)
+	if err != nil {
+		return "", err
+	}
+	bodies := pr.Bodies()
+	if len(bodies) == 0 {
+		// profile empty (or, on an older brain, returns only facts) — recover
+		// the bodies from a broad recall.
+		if rr, rerr := c.Recall(ctx, criteriaQuery, 50); rerr == nil {
+			bodies = rr.Bodies()
+		}
+	}
+	return strings.Join(bodies, "\n\n"), nil
+}
+
+// --- transport ---
+
+func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
+	req, err := c.newRequest(ctx, http.MethodGet, path, query, nil)
+	if err != nil {
+		return err
+	}
+	return c.do(req, out)
+}
+
+func (c *Client) newRequest(ctx context.Context, method, path string, query url.Values, body io.Reader) (*http.Request, error) {
+	if !c.Enabled() {
+		return nil, errors.New("brainbot: not configured")
+	}
+	u := c.BaseURL + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
 		return nil, err
 	}
-	body := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      uuid.NewString(),
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      toolName,
-			"arguments": args,
-		},
+	req.Header.Set("Accept", "application/json")
+	if c.Auth != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Auth)
 	}
-	resp, err := c.postJSON(ctx, body)
+	return req, nil
+}
+
+// do executes the request, enforces a 2xx status, and (when out != nil)
+// decodes the JSON body into it. A non-2xx response becomes an error carrying
+// the body's {"error":...} message when present.
+func (c *Client) do(req *http.Request, out any) error {
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("brainbot %s: %w", toolName, err)
+		return fmt.Errorf("brain %s %s: %w", req.Method, req.URL.Path, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("brainbot %s HTTP %d: %s", toolName, resp.StatusCode, string(raw))
+		return fmt.Errorf("brain %s %s: HTTP %d: %s", req.Method, req.URL.Path, resp.StatusCode, errorDetail(raw))
 	}
-	return parseMCPResponse(resp.Header.Get("Content-Type"), raw)
-}
-
-func (c *Client) ensureSession(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.sessionID != "" {
-		return nil
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return fmt.Errorf("brain %s %s: decode: %w", req.Method, req.URL.Path, err)
+		}
 	}
-	initBody := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      "init",
-		"method":  "initialize",
-		"params": map[string]any{
-			"protocolVersion": mcpProtocolVer,
-			"capabilities":    map[string]any{},
-			"clientInfo":      map[string]any{"name": clientName, "version": clientVersion},
-		},
-	}
-	resp, err := c.postJSON(ctx, initBody)
-	if err != nil {
-		return fmt.Errorf("brainbot initialize: %w", err)
-	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseSize))
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("brainbot initialize HTTP %d", resp.StatusCode)
-	}
-	sid := resp.Header.Get("Mcp-Session-Id")
-	if sid == "" {
-		sid = resp.Header.Get("mcp-session-id")
-	}
-	if sid == "" {
-		return errors.New("brainbot: no mcp-session-id returned on initialize")
-	}
-	c.sessionID = sid
-
-	// MCP spec requires a notifications/initialized after initialize.
-	notify := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "notifications/initialized",
-		"params":  map[string]any{},
-	}
-	nresp, err := c.postJSON(ctx, notify)
-	if err != nil {
-		c.sessionID = ""
-		return fmt.Errorf("brainbot notifications/initialized: %w", err)
-	}
-	nresp.Body.Close()
 	return nil
 }
 
-func (c *Client) postJSON(ctx context.Context, body any) (*http.Response, error) {
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
+// errorDetail pulls {"error":"..."} out of an error body, falling back to the
+// raw (trimmed) text.
+func errorDetail(raw []byte) string {
+	var e struct {
+		Error string `json:"error"`
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
+	if json.Unmarshal(raw, &e) == nil && e.Error != "" {
+		return e.Error
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	if c.Auth != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Auth)
-	}
-	if c.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", c.sessionID)
-	}
-	return c.HTTP.Do(req)
-}
-
-func parseMCPResponse(contentType string, raw []byte) (map[string]any, error) {
-	var message map[string]any
-	if strings.Contains(contentType, "text/event-stream") {
-		message = extractSSEFinalMessage(raw)
-	} else if err := json.Unmarshal(raw, &message); err != nil {
-		return nil, fmt.Errorf("decode MCP response: %w", err)
-	}
-	if errObj, ok := message["error"]; ok && errObj != nil {
-		return nil, fmt.Errorf("MCP error: %v", errObj)
-	}
-	result, _ := message["result"].(map[string]any)
-	if result == nil {
-		return map[string]any{}, nil
-	}
-	contentBlocks, _ := result["content"].([]any)
-	for _, b := range contentBlocks {
-		block, ok := b.(map[string]any)
-		if !ok {
-			continue
-		}
-		if block["type"] != "text" {
-			continue
-		}
-		text, _ := block["text"].(string)
-		var inner map[string]any
-		if err := json.Unmarshal([]byte(text), &inner); err == nil {
-			return inner, nil
-		}
-		return map[string]any{"text": text}, nil
-	}
-	return result, nil
-}
-
-func extractSSEFinalMessage(raw []byte) map[string]any {
-	var last map[string]any
-	for _, line := range strings.Split(string(raw), "\n") {
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(line[len("data:"):])
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-		var parsed map[string]any
-		if err := json.Unmarshal([]byte(payload), &parsed); err == nil {
-			last = parsed
-		}
-	}
-	if last == nil {
-		return map[string]any{}
-	}
-	return last
-}
-
-// FetchTaste pulls the user's job-search taste by searching the brain for
-// relevant facts and synthesizing them into a narrative block.
-func (c *Client) FetchTaste(ctx context.Context) (*taste.Block, error) {
-	if !c.Enabled() {
-		return nil, errors.New("brainbot: not configured")
-	}
-	result, err := c.mcpCall(ctx, "search_memory_facts", map[string]any{
-		"query":      "job search taste preferences",
-		"max_facts":  20,
-		"group_ids":  []string{groupID},
-	})
-	if err != nil {
-		return nil, err
-	}
-	factsRaw, _ := result["facts"].([]any)
-	var lines []string
-	for _, f := range factsRaw {
-		fact, ok := f.(map[string]any)
-		if !ok {
-			continue
-		}
-		if s, _ := fact["fact"].(string); strings.TrimSpace(s) != "" {
-			lines = append(lines, strings.TrimSpace(s))
-		}
-	}
-	text := strings.TrimSpace(strings.Join(lines, "\n"))
-	if text == "" {
-		return nil, errors.New("brainbot taste: no facts returned")
-	}
-	return &taste.Block{
-		Text:    text,
-		Version: taste.Hash(text),
-		Source:  "brainbot:" + c.BaseURL,
-	}, nil
-}
-
-// Node is a brain entity returned by search_nodes.
-type Node struct {
-	UUID    string   `json:"uuid"`
-	Name    string   `json:"name"`
-	Summary string   `json:"summary,omitempty"`
-	Labels  []string `json:"labels,omitempty"`
-}
-
-// SearchNodes calls the brain's search_nodes MCP tool to find entities
-// matching the query. maxNodes <= 0 defaults to 5.
-//
-// Returns nil, nil if the brain is unreachable or returns no nodes — the
-// brain is an enhancement, not a hard dep. Callers should treat empty
-// results as "nothing known" rather than an error.
-func (c *Client) SearchNodes(ctx context.Context, query string, maxNodes int) ([]Node, error) {
-	if !c.Enabled() {
-		return nil, errors.New("brainbot: not configured")
-	}
-	if maxNodes <= 0 {
-		maxNodes = 5
-	}
-	result, err := c.mcpCall(ctx, "search_nodes", map[string]any{
-		"query":     query,
-		"max_nodes": maxNodes,
-		"group_ids": []string{groupID},
-	})
-	if err != nil {
-		return nil, err
-	}
-	rawNodes, _ := result["nodes"].([]any)
-	out := make([]Node, 0, len(rawNodes))
-	for _, n := range rawNodes {
-		nm, ok := n.(map[string]any)
-		if !ok {
-			continue
-		}
-		var node Node
-		node.UUID, _ = nm["uuid"].(string)
-		node.Name, _ = nm["name"].(string)
-		node.Summary, _ = nm["summary"].(string)
-		if labels, ok := nm["labels"].([]any); ok {
-			for _, l := range labels {
-				if s, ok := l.(string); ok {
-					node.Labels = append(node.Labels, s)
-				}
-			}
-		}
-		if node.Name == "" {
-			continue
-		}
-		out = append(out, node)
-	}
-	return out, nil
-}
-
-// Episode is the payload shape for write-back.
-type Episode struct {
-	Source       string  `json:"source"`
-	Kind         string  `json:"kind"`
-	Company      Company `json:"company"`
-	Verdict      string  `json:"verdict"`
-	Reason       string  `json:"reason"`
-	TasteVersion string  `json:"taste_version"`
-}
-
-// Company is the minimal company identity sent in an episode.
-type Company struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Domain string `json:"domain,omitempty"`
-}
-
-// SendEpisode writes a verdict episode to the brain as natural-language text
-// for asynchronous entity/fact extraction.
-func (c *Client) SendEpisode(ctx context.Context, ep Episode) error {
-	if !c.Enabled() {
-		return errors.New("brainbot: not configured")
-	}
-	name := fmt.Sprintf("Scout verdict: %s", ep.Company.Name)
-	body := formatEpisodeBody(ep)
-	_, err := c.mcpCall(ctx, "add_memory", map[string]any{
-		"name":               name,
-		"episode_body":       body,
-		"source":             "text",
-		"source_description": "scout",
-		"group_id":           groupID,
-	})
-	return err
-}
-
-func formatEpisodeBody(ep Episode) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Scout verdicted %s", ep.Company.Name)
-	if ep.Company.Domain != "" {
-		fmt.Fprintf(&b, " (%s)", ep.Company.Domain)
-	}
-	fmt.Fprintf(&b, " as %q on %s.", ep.Verdict, time.Now().UTC().Format("2006-01-02"))
-	if r := strings.TrimSpace(ep.Reason); r != "" {
-		fmt.Fprintf(&b, " Reason: %s", r)
-		if !strings.HasSuffix(r, ".") {
-			b.WriteString(".")
-		}
-	}
-	if ep.TasteVersion != "" {
-		fmt.Fprintf(&b, " Taste version: %s.", ep.TasteVersion)
-	}
-	return b.String()
-}
-
-// EpisodeFromVerdict builds the wire payload from local rows.
-func EpisodeFromVerdict(v store.Verdict, name, domain string) Episode {
-	return Episode{
-		Source:       "scout",
-		Kind:         "verdict",
-		Company:      Company{ID: v.CompanyID, Name: name, Domain: domain},
-		Verdict:      v.Verdict,
-		Reason:       v.Reason,
-		TasteVersion: v.TasteVersion,
-	}
-}
-
-// ShipEpisodes sends every pending verdict episode to the brain and marks each
-// one sent locally. Shared by `scout episodes` (CLI) and the UI run handler.
-// emit (may be nil) receives one progress line per episode; it may be called
-// from the calling goroutine only (this function is sequential).
-func ShipEpisodes(ctx context.Context, db *store.DB, c *Client, emit func(string)) (sent, failed int, err error) {
-	if emit == nil {
-		emit = func(string) {}
-	}
-	pending, err := db.PendingEpisodes()
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(pending) == 0 {
-		emit("no pending episodes")
-		return 0, 0, nil
-	}
-	for _, v := range pending {
-		if ctx.Err() != nil {
-			return sent, failed, ctx.Err()
-		}
-		name, domain, e := db.GetCompanyName(v.CompanyID)
-		if e != nil {
-			failed++
-			emit(fmt.Sprintf("lookup %d failed: %v", v.CompanyID, e))
-			continue
-		}
-		if e := c.SendEpisode(ctx, EpisodeFromVerdict(v, name, domain)); e != nil {
-			failed++
-			emit(fmt.Sprintf("send %s failed: %v", name, e))
-			continue
-		}
-		if e := db.MarkEpisodeSent(v.CompanyID, v.TasteVersion); e != nil {
-			failed++
-			emit(fmt.Sprintf("mark %s failed: %v", name, e))
-			continue
-		}
-		sent++
-		emit(fmt.Sprintf("shipped %s (%s)", name, v.Verdict))
-	}
-	return sent, failed, nil
+	return strings.TrimSpace(string(raw))
 }
