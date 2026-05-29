@@ -1,5 +1,37 @@
 # Brainbot integration
 
+> ## ⚠️ OUT OF DATE — the brain's interface changed (Phase 2). Re-do M5 against the new contract.
+>
+> Everything below describes the **retired** brain interface (`search_memory_facts`,
+> `add_memory`, `search_nodes`, MCP-JSON-RPC-only). The brain was rebuilt. The
+> current contract:
+>
+> - **Three operations, over HTTP *or* MCP:** `capture` (`POST /capture`),
+>   `recall` (`GET /recall?q=`), `profile` (`GET /profile`). HTTP is the path for
+>   a typed Go consumer — no MCP handshake needed anymore.
+> - The old tool names scout calls (`search_memory_facts`, `add_memory`) **no
+>   longer exist.** `internal/brainbot/client.go` is talking to a dead surface.
+> - Map scout's needs to the new ops: **taste pull → `recall` and/or `profile`;
+>   episode write-back → `capture`.**
+>
+> ### 🚩 The contract that will bite verdict/filter if ignored
+>
+> `recall` returns **two** things: `facts` (scored, structured) and `episodes`
+> (the faithful captured text). **`facts` is a lossy, positive-only index — it
+> drops negatives and rules** (avoid-lists, the vertical *gate*, "outside the set
+> = hard skip", the Secret-level location exception). Those live ONLY in the episode body.
+>
+> **So: for any gate / avoid / dealbreaker / exception logic (i.e. `internal/filter`
+> and `internal/verdict`), read the episode bodies via `profile` (or
+> `recall.episodes`). If you build verdicts off `facts` alone, scout will pursue
+> companies it should hard-skip (e.g. fintech) and mis-handle the Secret-level location
+> exception.** Use `facts` only for fast positive lookups.
+>
+> Authoritative: brainbot's [`docs/consumer-integration.md`](../../brainbot/docs/consumer-integration.md)
+> ("What to read back: facts vs. episodes") and [`brain/ARCHITECTURE.md`](../../brainbot/brain/ARCHITECTURE.md).
+>
+> ---
+
 Scout talks to the brain (brainbot's runtime service) over **MCP JSON-RPC
 over HTTP**. The wire protocol, tool surface, and auth story are all
 defined and maintained by brainbot — this doc describes the scout side of
