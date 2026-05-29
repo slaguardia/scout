@@ -43,12 +43,12 @@ local CPU.
 |---|---|---|---|---|
 | 1 | **Hard contract** | *(none — leads the prompt)* | `hardContract` Go const | No — a broken contract breaks the parser |
 | 2 | **Playbook** (how to decide) | `--- PLAYBOOK (how to decide) ---` | `playbook.md`, else `builtinRubric` | Yes — operator-editable in the UI |
-| 3 | **Criteria** (what Alex wants) | `--- TASTE (what Alex wants) ---` | **the brain**, else `taste.md` | Brain-owned; local file is offline fallback |
+| 3 | **Criteria** (what the user wants) | `--- TASTE (what the user wants) ---` | **the brain**, else `taste.md` | Brain-owned; local file is offline fallback |
 
 The hard contract pins the output shape:
 
 ```
-You are Scout's verdict engine. Given a company, decide if it's worth Alex's
+You are Scout's verdict engine. Given a company, decide if it's worth the user's
 time to investigate further as a job opportunity. Reply ONLY with valid JSON,
 no preamble, no markdown fences. The JSON must have exactly two fields:
   {"verdict": "yes"|"maybe"|"no", "reason": "one-line, specific"}
@@ -143,7 +143,7 @@ if existing != nil && existing.TasteVersion == s.Taste.Version {
 
 The version is global to the run, so any change to the playbook or the brain's
 criteria changes it for **every** company, and the next run re-scores all of
-them. That is intended: when the brain learns something new about what Alex
+them. That is intended: when the brain learns something new about what the user
 wants, every prior verdict is stale. `--force` re-scores regardless of version.
 
 ## Parsing

@@ -547,15 +547,6 @@
     border-bottom: 1px dotted var(--fg-dim);
   }
 
-  /* hint text under status buttons */
-  .hint-line {
-    margin-top: 10px;
-    color: var(--fg-dim);
-    font-size: 12px;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .hint-line svg { width: 12px; height: 12px; flex: none; }
-
   /* ---- toast ---- */
   .toast {
     position: fixed; bottom: 24px; left: 50%;
@@ -1173,10 +1164,6 @@ function renderDetail(d) {
     </details>
   `;
 
-  const trackedHint = d.state === "tracked"
-    ? `Promote command ready — click <em>Mark tracked</em> again to re-copy.`
-    : `<em>Mark tracked</em> also copies <code>tracker.py add</code> to the clipboard.`;
-
   document.getElementById("pane-body").innerHTML = `
     <section class="pane-section">
       <h3>
@@ -1196,10 +1183,6 @@ function renderDetail(d) {
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
           Dismissed
         </button>
-      </div>
-      <div class="hint-line">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>${trackedHint}</span>
       </div>
     </section>
 
@@ -1286,17 +1269,7 @@ async function onStatusClick(d, newState) {
     <span class="pill pill-status pill-status-${escapeHTML(d.state)}">${escapeHTML(d.state)}</span>
   `;
 
-  if (newState === "tracked") {
-    const cmd = `tracker.py add "${d.name}"`;
-    try {
-      await navigator.clipboard.writeText(cmd);
-      toast(`copied: ${cmd}`);
-    } catch {
-      toast(`tracked — copy manually: ${cmd}`);
-    }
-  } else {
-    toast(`marked ${newState}`);
-  }
+  toast(`marked ${newState}`);
 }
 
 async function loadBrain(id) {

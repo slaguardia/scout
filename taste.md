@@ -3,7 +3,7 @@
 > This is the static taste block used at M3. It will be replaced by a live brainbot
 > fetch at M5. Keep it short and concrete — the LLM reads this every call.
 
-## Who Alex is
+## Who the user is
 
 Senior IC / staff-level engineer. Strong at building developer-facing products,
 AI-adjacent infrastructure, and tools where the user is technical. Bay Area based,

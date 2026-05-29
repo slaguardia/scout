@@ -3,9 +3,9 @@ package taste
 import "testing"
 
 func TestFromBrain(t *testing.T) {
-	text := "  Alex wants AI infra roles.\n\nHard no: crypto, legal tech.  "
+	text := "  The user wants AI infra roles.\n\nHard no: crypto, legal tech.  "
 	b := FromBrain(text, "brain:profile@http://127.0.0.1:8100")
-	if b.Text != "Alex wants AI infra roles.\n\nHard no: crypto, legal tech." {
+	if b.Text != "The user wants AI infra roles.\n\nHard no: crypto, legal tech." {
 		t.Fatalf("Text not trimmed: %q", b.Text)
 	}
 	if b.Source != "brain:profile@http://127.0.0.1:8100" {

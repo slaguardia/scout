@@ -2,7 +2,7 @@
 //
 // The playbook is the *how* of triage — procedural instructions for making
 // the call (handling ambiguity, weak signal, tie-breaking) — as opposed to
-// taste (the *what*: Alex's preferences) and the brain (memory). It's a
+// taste (the *what*: the user's preferences) and the brain (memory). It's a
 // repo-local, version-controlled markdown file, editable without recompiling.
 //
 // A missing playbook file is not an error: the verdict stage falls back to a

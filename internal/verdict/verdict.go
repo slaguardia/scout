@@ -31,7 +31,7 @@ type Scorer struct {
 	Force  bool // re-score even if taste_version matches
 
 	// Playbook is the agent's operating manual (how to decide) — distinct from
-	// Taste (what Alex wants). Empty means fall back to the built-in rubric.
+	// Taste (what the user wants). Empty means fall back to the built-in rubric.
 	// The caller is responsible for folding the playbook text into
 	// Taste.Version so verdicts re-score when the playbook changes.
 	Playbook string
@@ -400,13 +400,13 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 
 // hardContract is the one invariant the parser depends on. It is never
 // editable from the playbook — a broken output contract breaks parsing.
-const hardContract = `You are Scout's verdict engine. Given a company, decide if it's worth Alex's time to investigate further as a job opportunity. Reply ONLY with valid JSON, no preamble, no markdown fences. The JSON must have exactly two fields:
+const hardContract = `You are Scout's verdict engine. Given a company, decide if it's worth the user's time to investigate further as a job opportunity. Reply ONLY with valid JSON, no preamble, no markdown fences. The JSON must have exactly two fields:
   {"verdict": "yes"|"maybe"|"no", "reason": "one-line, specific"}`
 
 // builtinRubric is the fallback "how to decide" guidance used only when no
 // playbook.md is supplied. The shipped playbook.md supersedes this.
 const builtinRubric = `Verdict rubric:
-  - "yes":   high-confidence fit. Worth Alex actively investigating.
+  - "yes":   high-confidence fit. Worth the user actively investigating.
   - "maybe": adjacent or uncertain. Worth a skim, not a deep dive.
   - "no":    poor fit or hard exclusion.
 
@@ -414,7 +414,7 @@ The reason must be specific — name the vertical, stage, or trait that drove th
 
 // buildSystemPrompt assembles three layers: the hard JSON contract (fixed),
 // the playbook / how-to-decide (operator-editable, falls back to the builtin
-// rubric), then the taste / what-Alex-wants block.
+// rubric), then the taste / what-the-user-wants block.
 func buildSystemPrompt(playbook, taste string) string {
 	var b strings.Builder
 	b.WriteString(hardContract)
@@ -426,7 +426,7 @@ func buildSystemPrompt(playbook, taste string) string {
 		b.WriteString(builtinRubric)
 	}
 
-	b.WriteString("\n\n--- TASTE (what Alex wants) ---\n")
+	b.WriteString("\n\n--- TASTE (what the user wants) ---\n")
 	b.WriteString(strings.TrimSpace(taste))
 	return b.String()
 }

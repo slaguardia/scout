@@ -2,14 +2,14 @@
 
 > The canonical statement of what scout is and how it's built. If any other
 > doc (or code) disagrees with this, this wins and the other is stale. Written
-> brain-first: **scout has no "taste" of its own — Alex's criteria live in the
-> brain.** The word "taste" is retired; see [Terminology](#terminology).
+> brain-first: **scout has no "taste" of its own — the user's criteria live in
+> the brain.** The word "taste" is retired; see [Terminology](#terminology).
 
 ## What scout is, in one line
 
 A **job-fit scorer**: it ingests company dumps and, for each company, asks the
-brain "who is Alex and what does he want?" then uses its own LLM to decide
-whether the company is worth Alex's time. The brain is read-only for scout —
+brain "who is the user and what do they want?" then uses its own LLM to decide
+whether the company is worth the user's time. The brain is read-only for scout —
 verdicts stay in scout, not the brain.
 
 It is brainbot's canonical example consumer (brainbot's `value-prop.md` names
@@ -25,17 +25,18 @@ a "Solutions Engineer" role is on- or off-target depending on whether it's
 context is real (the brain), the pipeline is cheap to re-run, and the output
 feeds the existing workflow instead of replacing it.
 
-**Non-goals.** Not a replacement for the Notion tracker (the system of record
-for committed pipeline). Not a job-board scraper — scout works on company-level
-data, not listings. Not real-time; it's a batch tool, run on a fresh dump. Not
-auto-applying. Not multi-user — it's Alex's tool.
+**Non-goals.** Not a pipeline tracker — scout surfaces candidates and records a
+triage status; what the user does with a committed candidate is out of scope.
+Not a job-board scraper — scout works on company-level data, not listings. Not
+real-time; it's a batch tool, run on a fresh dump. Not auto-applying. Not
+multi-user — it's the user's tool.
 
 ## System at a glance
 
 ```
-                          ┌─────────┐
-                          │  Alex  │   browses · triages · promotes
-                          └────┬────┘
+                          ┌──────────┐
+                          │ the user │   browses · triages in the UI
+                          └────┬─────┘
                                │ browser @ localhost
    Crunchbase CSV ──────▶ ┌────┴───────────────────────────┐
                           │            scout                │
@@ -43,25 +44,25 @@ auto-applying. Not multi-user — it's Alex's tool.
                           │  verdict → triage UI            │
                           │  · SQLite (working set)         │
                           │  · Haiku (own LLM) + playbook   │
-                          └────┬──────────────────────┬─────┘
-        reads (only) criteria  │                      │  manual: tracker.py add
-        + company memory        │                      │
-                          ┌────▼────────┐        ┌────▼─────────┐
-                          │  the brain  │        │   Notion     │
-                          │  knowledge  │        │  committed   │
-                          │  of Alex   │        │  pipeline    │
-                          └─────────────┘        └──────────────┘
+                          └────────────────┬────────────────┘
+                       reads (only)         │ criteria + company memory
+                                       ┌────▼────────┐
+                                       │  the brain  │
+                                       │  knowledge  │
+                                       │ of the user │
+                                       └─────────────┘
 ```
 
-Scout reads the brain (criteria + per-company memory) but never writes it;
-verdicts live only in scout's SQLite.
+Scout reads the brain (criteria + per-company memory) but never writes it.
+Verdicts and triage status live only in scout's SQLite — scout makes no external
+writes.
 
 ## The core principle: intelligence vs. knowledge
 
 ```
         KNOWLEDGE                              INTELLIGENCE
-   (who Alex is, what he                 (how to judge a company
-    wants, his rules)                      for fit, in this domain)
+   (who the user is, what                 (how to judge a company
+    they want, their rules)                for fit, in this domain)
             │                                       │
         ┌───▼────┐   reads criteria + memory   ┌─────▼──────┐
         │ brain  │ ──────────────────────────▶ │   scout    │
@@ -70,14 +71,14 @@ verdicts live only in scout's SQLite.
                                                └────────────┘
 ```
 
-- **The brain owns the knowledge.** Everything about Alex — preferences,
+- **The brain owns the knowledge.** Everything about the user — preferences,
   rules, hard exclusions, history — lives there. Scout never stores or
   duplicates it.
 - **Scout owns the intelligence.** It brings its own LLM (Haiku) and a small
   operating *playbook* (how to decide). It reads the brain's knowledge and
   reasons over it.
 
-This split is non-negotiable. Anything that pulls Alex's preferences into a
+This split is non-negotiable. Anything that pulls the user's preferences into a
 scout-local file (the legacy `taste.md`) is a **fallback for when the brain is
 unreachable**, nothing more — and we don't invest in it.
 
@@ -85,7 +86,7 @@ unreachable**, nothing more — and we don't invest in it.
 
 | ❌ Don't say | ✅ Say | Why |
 |---|---|---|
-| "taste" / "taste block" | **Alex's criteria** (from the brain) | "taste" implied a local file; the criteria are the brain's |
+| "taste" / "taste block" | **the user's criteria** (from the brain) | "taste" implied a local file; the criteria are the brain's |
 | "taste source" | **brain** (with local fallback) | the source is the brain |
 | `taste.md` as the source | **fallback criteria** | local file is offline-only |
 | "the agent's taste" | **the playbook** (how) + **the brain** (what) | two different things, two sources |
@@ -102,33 +103,33 @@ A single verdict decision combines four things from three sources:
 |---|---|---|
 | **Output contract** | Go constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
-| **Alex's criteria** | **the brain** (`profile` → episode bodies) | *what* Alex wants + his rules/exclusions |
+| **The user's criteria** | **the brain** (`profile` → episode bodies) | *what* the user wants + their rules/exclusions |
 | **This company** | scout SQLite + **brain** (`recall(name)`) | Crunchbase fields + enriched site text + brain memory about this specific company |
 
 ```
   output contract (Go, fixed) ─┐
   playbook — how to decide ────┤
-  Alex's criteria ────────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
+  the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
     (brain: profile bodies)    │
   this company ────────────────┘
     (SQLite + brain: recall)
 ```
 
 The playbook is the *only* "instructions" file scout owns, and it is
-deliberately **not** Alex-data — it's procedure. The brain owns the rest.
+deliberately **not** user-data — it's procedure. The brain owns the rest.
 
 ## The stores
 
 | Store | Holds | Disposable? |
 |---|---|---|
 | **scout SQLite** | working set: companies, enrichment, verdicts, status, runs | yes — rebuild from a CSV anytime |
-| **the brain** | who Alex is + what he wants (the knowledge substrate) | no — the system of record for Alex |
-| **Notion** | committed pipeline — the shortlist Alex actually pursues | no |
+| **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
-Scout never writes Notion (manual handoff). Scout **never writes the brain** —
-verdicts are scout-local. Scout reads the brain via `profile`/`recall` only.
+Scout makes **no external writes**: it never writes the brain (verdicts are
+scout-local), reading it via `profile`/`recall` only, and the triage status
+lives in scout's SQLite.
 
 ## The pipeline, with brain touchpoints
 
@@ -137,7 +138,7 @@ ingest    CSV → companies                              (no brain — pure data
 filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard gates,
           headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
-verdict   reads  Alex's criteria     ← brain: profile / episode bodies
+verdict   reads  the user's criteria  ← brain: profile / episode bodies
           reads  company history      ← brain: recall(name)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
@@ -152,7 +153,7 @@ The brain is touched in exactly two places, both inside `verdict`, both reads
 Plain **HTTP/JSON** (no MCP — that's for Claude Code). Scout uses two read
 operations (the brain also exposes `POST /capture`, but scout doesn't write):
 
-- `GET /profile` — Alex's full current picture. **Read the episode bodies**,
+- `GET /profile` — the user's full current picture. **Read the episode bodies**,
   not just extracted facts (see below).
 - `GET /recall?q=` — scored facts + episode bodies for a query; scout uses it
   for per-company memory. Scout sets its own score floor.
@@ -168,12 +169,12 @@ faithful captured text — complete, with the exclusions and gates). Per
 brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
 'fintech is explicitly excluded' and pursue something it should hard-skip."*
 
-> **Rule:** scout reads **episode bodies** for Alex's criteria (anything
+> **Rule:** scout reads **episode bodies** for the user's criteria (anything
 > rule-bearing). Facts are for fast positive lookups only.
 
 ## Invariants (don't break these)
 
-1. **Brain = knowledge, scout = intelligence.** No Alex-preferences baked into
+1. **Brain = knowledge, scout = intelligence.** No user-preferences baked into
    scout except the offline fallback. The brain is **read-only** for scout —
    verdicts are scout-local data and are never written back to the brain.
 2. **Brain is an enhancement, never a single point of failure.** If it's down,
@@ -189,7 +190,7 @@ brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
 `taste.toml` **stays, as a purely mechanical pre-filter** — cheap hard gates
 (location, headcount, funding stage, has-domain) that cull rows before the
 expensive verdict step. It is **not** taste/judgment: nuanced fit ("is this
-really right for Alex") happens only at verdict time, grounded in the brain.
+really right for the user") happens only at verdict time, grounded in the brain.
 The name is historical; treat it as the mechanical layer. Any vertical
 *judgment* currently in `taste.toml` (`verticals.allowed`/`excluded`) should be
 thinned to coarse cheap culls at most, with the real exclusion logic living in

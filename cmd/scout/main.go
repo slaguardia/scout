@@ -235,7 +235,7 @@ func cmdVerdict(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	// Resolve criteria: brain-primary (the episode bodies carry Alex's gates
+	// Resolve criteria: brain-primary (the episode bodies carry the user's gates
 	// and exclusions), taste.md as the offline fallback. The same client (when
 	// healthy) also serves per-company recall during scoring.
 	var (
@@ -257,7 +257,7 @@ func cmdVerdict(args []string) error {
 			case cerr != nil:
 				fmt.Fprintf(os.Stderr, "brain criteria fetch failed (%v); falling back to %s\n", cerr, *tasteMD)
 			case strings.TrimSpace(text) == "":
-				fmt.Fprintf(os.Stderr, "brain is healthy but has no criteria captured yet; using %s until Alex captures them\n", *tasteMD)
+				fmt.Fprintf(os.Stderr, "brain is healthy but has no criteria captured yet; using %s until the user captures them\n", *tasteMD)
 			default:
 				tb = taste.FromBrain(text, "brain:profile@"+*brainbotURL)
 			}

@@ -30,7 +30,7 @@ challenge templates need a new phrase in `challengePhrases`.
 ### Non-English about-pages
 
 Fetch and strip work fine, and the LLM reads non-English content competently.
-But Alex's criteria and the playbook rubric are English-centric, so fit
+But the user's criteria and the playbook rubric are English-centric, so fit
 reasoning on a non-English page is weaker. Edge case, not a blocker.
 
 ## Architectural cost we're paying
@@ -79,7 +79,7 @@ hard.
 
 ### Careers / jobs-page enrichment
 
-"Are they hiring my level?" is strong signal, deferred until verdict quality
+"Are they hiring the user's level?" is strong signal, deferred until verdict quality
 with about-page-only is measured. If yes/no decisions are already good, careers
 data is wasted complexity.
 
@@ -89,9 +89,10 @@ Useful for regular runs against fresh CSVs, less so ad-hoc. The data exists
 (`companies.ingested_at`, plus the durable `runs` table); a `scout diff --since
 <ts>` would be small. Not built.
 
-### Auto-promote to Notion
+### Auto-promote / external pipeline writes
 
-Explicit non-goal. The Notion handoff is manual on purpose — surfacing
+Explicit non-goal. Scout surfaces candidates and records a triage status;
+committing to pursue one happens outside scout, on purpose — surfacing
 candidates is cheap, committing to pursue one is not, and that friction is the
 point.
 
@@ -134,5 +135,5 @@ coverage on a real Crunchbase CSV; unit boundaries are covered.
 ## When to actually fix any of this
 
 When real use surfaces the pain. Premature fixes cost more than the problems
-they prevent. Keeping the surface area small (staged pipeline, SQLite, manual
-Notion handoff) is exactly what keeps all of the above cheap to add later.
+they prevent. Keeping the surface area small (staged pipeline, SQLite, no
+external writes) is exactly what keeps all of the above cheap to add later.

@@ -59,7 +59,7 @@ func TestProfile(t *testing.T) {
 			t.Errorf("Accept = %q", got)
 		}
 		io.WriteString(w, `{"count":2,"episodes":[
-			{"name":"E1","body":"Alex avoids fintech and crypto.","source":"capture"},
+			{"name":"E1","body":"The user avoids fintech and crypto.","source":"capture"},
 			{"name":"E2","body":"  ","source":"capture"}
 		]}`)
 	})
@@ -92,7 +92,7 @@ func TestRecall(t *testing.T) {
 				{"fact":"Acme builds developer tools.","name":"BUILDS","score":0.81,"valid_at":"2026-05-01T00:00:00+00:00","invalid_at":null},
 				{"fact":"Acme is in SF.","name":"LOCATED_IN","score":0.32,"valid_at":null,"invalid_at":null}
 			],
-			"episodes":[{"name":"note","body":"Alex already dismissed Acme last cycle."}]}`)
+			"episodes":[{"name":"note","body":"The user already dismissed Acme last cycle."}]}`)
 	})
 	rr, err := c.Recall(context.Background(), "Acme", 5)
 	if err != nil {
@@ -142,7 +142,7 @@ func TestCriteria(t *testing.T) {
 				t.Fatalf("should only hit /profile, got %s", r.URL.Path)
 			}
 			io.WriteString(w, `{"count":2,"episodes":[
-				{"name":"A","body":"Alex wants dev-tools / AI infra roles."},
+				{"name":"A","body":"The user wants dev-tools / AI infra roles."},
 				{"name":"B","body":"Hard no: crypto, legal tech, insurance."}
 			]}`)
 		})
@@ -166,7 +166,7 @@ func TestCriteria(t *testing.T) {
 				io.WriteString(w, `{"count":0,"episodes":[]}`)
 			case "/recall":
 				hitRecall = true
-				io.WriteString(w, `{"query":"x","facts":[],"episodes":[{"name":"c","body":"Alex avoids fintech."}]}`)
+				io.WriteString(w, `{"query":"x","facts":[],"episodes":[{"name":"c","body":"The user avoids fintech."}]}`)
 			default:
 				t.Fatalf("unexpected path %s", r.URL.Path)
 			}

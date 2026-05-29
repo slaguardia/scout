@@ -13,7 +13,7 @@ ingest → filter → enrich → verdict → triage
 ```
 
 `ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict`, and only for reads — scout reads Alex's criteria and per-company
+`verdict`, and only for reads — scout reads the user's criteria and per-company
 recall, and never writes back (verdicts stay scout-local). Default `--brainbot`
 is `http://127.0.0.1:8100`; empty disables it.
 
@@ -121,7 +121,7 @@ Sonnet second pass), `--workers 4`, `--force`.
 
 ### Resolving the criteria (brain-primary)
 
-The criteria are **Alex's** — they come from the brain, not a scout file.
+The criteria are **the user's** — they come from the brain, not a scout file.
 
 ```
 --brainbot set ──▶ GET /health ──ok──▶ Criteria() = GET /profile bodies
@@ -134,7 +134,7 @@ The criteria are **Alex's** — they come from the brain, not a scout file.
 ```
 
 - The brain client reads **episode BODIES** (`/profile`), not extracted facts —
-  bodies carry Alex's gates and hard exclusions; facts are a lossy
+  bodies carry the user's gates and hard exclusions; facts are a lossy
   positive-only index that drops them. See `north-star.md` → *Facts vs. episodes*.
 - A brain that's **unreachable** *or* **healthy-but-empty** falls back to
   `taste.md`. The fallback is offline-only — scout never invests in it.
@@ -158,7 +158,7 @@ those companies re-score on the next run. **That re-score is intended.** Editing
    verdict never fails on it.
 4. Sends to the Anthropic Messages API. The system block layers a fixed JSON
    **output contract** + the **playbook** (how to decide; built-in rubric if
-   none) + the **criteria** (what Alex wants). **Prompt caching is on**
+   none) + the **criteria** (what the user wants). **Prompt caching is on**
    (`Cached:true`) — the system block is identical across the run, so it's
    cached after the first call.
 5. Parses `{"verdict":"yes|maybe|no","reason":...}` (tolerant of fences/noise),

@@ -2,7 +2,7 @@
 
 scout's local SQLite working set. For *what* this store is and how it fits the
 brain-first architecture (scout SQLite = disposable working set; the brain is
-the system of record for Alex), see [`north-star.md`](./north-star.md). This
+the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
@@ -57,8 +57,7 @@ upsert via `INSERT OR IGNORE`. Index on `state`.
 
 The web UI writes this directly: the triage detail panel's status buttons
 (`new`/`reviewed`/`tracked`/`dismissed`) `PUT` to the server, which calls
-`SetStatus`. Marking `tracked` also surfaces the manual `tracker.py add` promote
-command to copy.
+`SetStatus`. These states are scout-local triage markers only.
 
 ---
 
@@ -113,11 +112,11 @@ verdicts (
 
 One row per company — the current verdict. We don't keep verdict history; a
 re-score overwrites the row (`UpsertVerdict`, `ON CONFLICT DO UPDATE`). "What
-did Alex think before" lives in the brain. Indexes on `verdict` and
+did the user think before" lives in the brain. Indexes on `verdict` and
 `taste_version`.
 
 **`taste_version` is the criteria version** (legacy column name; the concept is
-*Alex's criteria from the brain* — see north-star's terminology table). It is
+*the user's criteria from the brain* — see north-star's terminology table). It is
 `sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
 criteria text is the brain's episode bodies (or the offline `taste.md`
 fallback). When the brain learns something — or the playbook is edited — the

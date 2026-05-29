@@ -3,11 +3,11 @@
 A personal **job-fit scorer**. Ingests company dumps (Crunchbase CSV), enriches
 each from its website, and asks: *given everything the brain knows about the
 user, is this company worth their time?* It reasons with its own LLM and writes
-the verdict to its local store. Triage happens in a small local web UI; the
-shortlist the user commits to lives in Notion (manual handoff).
+the verdict to its local store. Triage happens in a small local web UI, where
+the user marks candidates reviewed / tracked / dismissed.
 
 Companion to [brainbot](https://github.com/slaguardia/brainbot): **brainbot holds
-the knowledge** (who Alex is, what he wants); **scout brings the intelligence**
+the knowledge** (who the user is, what they want); **scout brings the intelligence**
 (its LLM + a small playbook for *how* to judge). Scout is brainbot's canonical
 example consumer.
 

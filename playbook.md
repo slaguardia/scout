@@ -1,6 +1,6 @@
 # scout playbook — how the verdict agent decides
 
-> This is the agent's **operating manual**, not Alex's taste. It's the *how*
+> This is the agent's **operating manual**, not the user's taste. It's the *how*
 > of triage (procedure, tie-breaking, handling ambiguity), separate from the
 > *what* (taste.md / the brain) and from memory (brainbot). Edit this to change
 > the agent's behavior without touching preferences. Lives in the repo,
@@ -9,7 +9,7 @@
 
 ## Verdict rubric
 
-- **yes** — high-confidence fit. Worth Alex actively investigating now.
+- **yes** — high-confidence fit. Worth the user actively investigating now.
 - **maybe** — adjacent or uncertain. Worth a skim, not a deep dive.
 - **no** — poor fit, or a hard exclusion from the taste rules.
 
@@ -20,8 +20,8 @@
   Crunchbase fields (vertical, stage, headcount, location) and say so in the
   reason (e.g. "thin site; judged on vertical + stage").
 - **Ambiguous vertical.** If the company could plausibly sit inside or outside
-  Alex's allowed verticals, default to **maybe**, not **no**. A maybe costs
-  Alex a 10-second skim; a wrong no silently buries a real lead.
+  the user's allowed verticals, default to **maybe**, not **no**. A maybe costs
+  the user a 10-second skim; a wrong no silently buries a real lead.
 - **Genuinely can't tell.** Return **maybe** and say *why* it's unclear. Never
   fabricate a confident verdict to look decisive.
 - **Conflicting signals.** If the site says one thing and the Crunchbase
@@ -53,8 +53,8 @@ reads. Name the exclusion in the reason (e.g. "crypto wallet (excluded)").
 ## What the brain tells you
 
 If a "What the brain already knows about this company" section appears in the
-input, treat it as prior context Alex has accumulated — weight it, but it
-doesn't override the current site/Crunchbase signal. If the brain says Alex
+input, treat it as prior context the user has accumulated — weight it, but it
+doesn't override the current site/Crunchbase signal. If the brain says the user
 dismissed this company before for a reason that still holds, lean toward **no**
 and reference it.
 

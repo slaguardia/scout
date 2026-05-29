@@ -1,6 +1,6 @@
 // Package brainbot is a thin HTTP/JSON client for the brain service.
 //
-// Scout uses the brain READ-ONLY: it reads Alex's criteria (/profile) and
+// Scout uses the brain READ-ONLY: it reads the user's criteria (/profile) and
 // per-company memory (/recall), plus a /health probe. It never writes — scout's
 // verdicts stay scout-local, not in the brain. (The brain also exposes
 // POST /capture and an MCP face at /mcp, but scout doesn't use them.) This
@@ -34,9 +34,9 @@ import (
 
 const maxResponseSize = 1 << 20
 
-// criteriaQuery is the broad question used to recover Alex's criteria bodies
+// criteriaQuery is the broad question used to recover the user's criteria bodies
 // when /profile yields none (the fallback source of episode bodies).
-const criteriaQuery = "what does Alex want in a job: his preferences, rules, hard exclusions, and dealbreakers"
+const criteriaQuery = "what does the user want in a job: their preferences, rules, hard exclusions, and dealbreakers"
 
 // Client is a brain HTTP client.
 type Client struct {
@@ -58,7 +58,7 @@ func New(baseURL string) *Client {
 func (c *Client) Enabled() bool { return c != nil && c.BaseURL != "" }
 
 // Fact is an extracted graph claim. Facts are a lossy, POSITIVE-ONLY index:
-// the extractor reliably captures what Alex does/wants/has and systematically
+// the extractor reliably captures what the user does/wants/has and systematically
 // drops the negatives and rules. For anything rule-bearing (gates, avoid-lists,
 // dealbreakers) read Episode bodies instead. Score is present on recall, 0 on
 // profile (profile is an unscored dump).
@@ -126,7 +126,7 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-// Profile fetches Alex's full current picture as faithful episode bodies.
+// Profile fetches the user's full current picture as faithful episode bodies.
 func (c *Client) Profile(ctx context.Context) (ProfileResult, error) {
 	var out ProfileResult
 	err := c.getJSON(ctx, "/profile", nil, &out)
@@ -145,9 +145,9 @@ func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallRes
 	return out, err
 }
 
-// Criteria returns Alex's full criteria as the concatenated faithful episode
+// Criteria returns the user's full criteria as the concatenated faithful episode
 // bodies (the gates/exclusions live in the bodies, NOT the facts — a scorer
-// built off facts alone will pursue companies Alex hard-excludes). It reads
+// built off facts alone will pursue companies the user hard-excludes). It reads
 // /profile first; if profile yields no bodies it falls back to a broad
 // /recall. An empty string with a nil error means the brain genuinely knows
 // nothing yet (the caller should fall back to local criteria).

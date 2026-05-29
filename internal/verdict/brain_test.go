@@ -20,15 +20,15 @@ func candidateFixture() store.VerdictCandidate {
 func TestFactsAboveFloor(t *testing.T) {
 	facts := []brainbot.Fact{
 		{Fact: "Acme builds developer tools.", Score: 0.81},
-		{Fact: "Acme is loosely related to SF.", Score: 0.39},   // just under
-		{Fact: "Alex dismissed Acme last cycle.", Score: 0.40}, // exactly at floor
-		{Fact: "   ", Score: 0.95},                              // blank, dropped
+		{Fact: "Acme is loosely related to SF.", Score: 0.39},      // just under
+		{Fact: "The user dismissed Acme last cycle.", Score: 0.40}, // exactly at floor
+		{Fact: "   ", Score: 0.95},                                 // blank, dropped
 		{Fact: "Noise.", Score: 0.05},
 	}
 	got := factsAboveFloor(facts, brainScoreFloor)
 	want := []string{
 		"Acme builds developer tools.",
-		"Alex dismissed Acme last cycle.",
+		"The user dismissed Acme last cycle.",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("factsAboveFloor = %#v, want %#v", got, want)
@@ -44,11 +44,11 @@ func TestFactsAboveFloorEmpty(t *testing.T) {
 }
 
 func TestBuildUserPromptIncludesBrainFacts(t *testing.T) {
-	p := buildUserPrompt(candidateFixture(), []string{"Alex dismissed Acme last cycle."})
+	p := buildUserPrompt(candidateFixture(), []string{"The user dismissed Acme last cycle."})
 	if !strings.Contains(p, "What the brain already knows about this company:") {
 		t.Fatal("prompt missing brain section header")
 	}
-	if !strings.Contains(p, "Alex dismissed Acme last cycle.") {
+	if !strings.Contains(p, "The user dismissed Acme last cycle.") {
 		t.Fatal("prompt missing recalled fact")
 	}
 }

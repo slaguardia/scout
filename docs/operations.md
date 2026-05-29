@@ -90,7 +90,7 @@ Re-running any stage is safe. Each stage skips work it's already done.
 scout verdict
    │
    ├─ --brainbot set (default :8100) and healthy?
-   │     ├─ yes → GET /profile bodies (Alex's criteria, gates, exclusions)
+   │     ├─ yes → GET /profile bodies (the user's criteria, gates, exclusions)
    │     │        ↳ empty? broad GET /recall to recover them
    │     │        ↳ still empty? fall back to taste.md
    │     └─ no/unreachable → fall back to taste.md  (logged to stderr)
@@ -195,7 +195,7 @@ sqlite3 scout.db "SELECT company_id, fetch_status, fetch_error FROM enrichment W
 Expected when the brain is down — scoring proceeds on local criteria. If you
 want the brain, start it; if you don't, pass `--brainbot ""` to silence the
 probe. A *healthy but empty* brain logs `no criteria captured yet` and also
-falls back to `taste.md` until Alex captures something.
+falls back to `taste.md` until the user captures something.
 
 **Verdict says `considered=0`**
 Either no survivors (check `scout filter`), or no `ok` enrichment for the
@@ -242,7 +242,7 @@ sqlite3 scout.db
 rm scout.db scout.db-wal scout.db-shm   # nukes the working set
 ```
 
-The brain and the Notion tracker are untouched.
+The brain is untouched (scout only ever reads it).
 
 ## Running it on a schedule
 

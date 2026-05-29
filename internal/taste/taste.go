@@ -1,4 +1,4 @@
-// Package taste loads the criteria block (what Alex wants) fed to the verdict
+// Package taste loads the criteria block (what the user wants) fed to the verdict
 // stage.
 //
 // The primary source is the brain (the concatenated episode bodies from
@@ -25,7 +25,7 @@ type Block struct {
 }
 
 // FromBrain builds a criteria Block from brain-sourced text — the concatenated
-// faithful episode bodies (the complete record carrying Alex's gates and
+// faithful episode bodies (the complete record carrying the user's gates and
 // exclusions), NOT a join of extracted fact strings. source is a label like
 // "brain:profile@http://127.0.0.1:8100".
 func FromBrain(text, source string) *Block {
