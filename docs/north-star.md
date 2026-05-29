@@ -75,6 +75,7 @@ deliberately **not** Alex-data — it's procedure. The brain owns the rest.
 | **the brain** | who Alex is + what he wants (the knowledge substrate) | no — the system of record for Alex |
 | **Notion** | committed pipeline — the shortlist Alex actually pursues | no |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
+| **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
 Scout never writes Notion (manual handoff). Scout writes the brain only via
 `capture` (verdict write-back). Scout reads the brain via `profile`/`recall`.
@@ -83,7 +84,8 @@ Scout never writes Notion (manual handoff). Scout writes the brain only via
 
 ```
 ingest    CSV → companies                              (no brain — pure data)
-filter    mechanical gate only (has domain? dedupe?)   (no brain — see OPEN below)
+filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard gates,
+          headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
 verdict   reads  Alex's criteria     ← brain: profile / episode bodies
           reads  company history      ← brain: recall(name)
@@ -132,14 +134,19 @@ brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
 5. **Web-first.** The browser is the interface; the CLI is the secondary
    automation/debug surface, kept but not primary.
 
+## Resolved: the `filter` stage
+
+`taste.toml` **stays, as a purely mechanical pre-filter** — cheap hard gates
+(location, headcount, funding stage, has-domain) that cull rows before the
+expensive verdict step. It is **not** taste/judgment: nuanced fit ("is this
+really right for Alex") happens only at verdict time, grounded in the brain.
+The name is historical; treat it as the mechanical layer. Any vertical
+*judgment* currently in `taste.toml` (`verticals.allowed`/`excluded`) should be
+thinned to coarse cheap culls at most, with the real exclusion logic living in
+the brain's episode bodies.
+
 ## OPEN decisions (resolve before building)
 
-- **Fate of the `filter` stage.** Today `taste.toml` encodes *judgment*
-  (allowed/excluded verticals) — a duplicate of rules that now live in the
-  brain, so it will drift. Brain-first, `filter` should become **mechanical
-  only** (drop rows with no domain, dedupe) and let *all* judgment happen at
-  verdict time grounded in the brain. Alternative: drop `filter` entirely.
-  **Recommendation: mechanical-only.** ← needs Alex's call.
 - **Where the criteria bodies come from.** `profile` vs `recall(broad query)` —
   pin against one live `/profile` call (brainbot's two docs disagree on whether
   `profile` returns fact-records or bodies). Tracked in `brain-first-plan.md`.

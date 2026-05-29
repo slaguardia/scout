@@ -210,14 +210,13 @@ brain service ──(profile / recall)──▶ scout: reasons with its own LLM 
    - This means **when the brain learns something new, the profile changes →
      version changes → verdicts re-score next run.** That is the original PRD §6
      bet, finally wired correctly. Expected behavior, not a bug.
-   - **`internal/filter` implication:** the cheap SQL pre-filter (`taste.toml`)
-     still gates on location/headcount/vertical. But per the facts-vs-episodes
-     rule (north-star.md), rule-bearing logic should come from the episode
-     bodies too. For
-     this plan, keep `taste.toml` as the structured pre-filter and let the
-     episode-body taste block carry the nuanced gates into the verdict prompt;
-     note any divergence between `taste.toml` exclusions and the brain's stated
-     avoid-lists for Alex to reconcile.
+   - **`internal/filter` (DECIDED):** `taste.toml` stays as a **purely
+     mechanical pre-filter** — cheap hard gates (location, headcount, stage,
+     has-domain). All *judgment* lives in the brain and is applied at verdict
+     time via the episode-body criteria. Thin any vertical judgment in
+     `taste.toml` (`verticals.allowed`/`excluded`) down to coarse cheap culls
+     at most; the real exclusion logic comes from the brain. See north-star.md
+     "Resolved: the `filter` stage".
 
 3. **Per-company context via recall.**
    - In `verdict.Scorer.lookupBrain(name)`: call `Recall(name, 5)`, **keep only
