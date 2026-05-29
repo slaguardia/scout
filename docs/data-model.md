@@ -1,11 +1,17 @@
 # Data model
 
-SQLite. One file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` and are embedded via `//go:embed`; they apply
-on every `Open()` and are tracked in `schema_migrations`.
+scout's local SQLite working set. For *what* this store is and how it fits the
+brain-first architecture (scout SQLite = disposable working set; the brain is
+the system of record for Alex), see [`north-star.md`](./north-star.md). This
+doc is just the schema.
 
-Three pragmas: `foreign_keys=ON`, `journal_mode=WAL`. WAL because most
-stages do bursts of writes from worker pools and WAL handles that better
+SQLite, one file (`scout.db` by default). Migrations live in
+`internal/store/migrations/` (`0001`–`0006`), are embedded via `//go:embed`,
+apply in filename order on every `Open()`, and are tracked in
+`schema_migrations`.
+
+Two pragmas, set in the DSN: `foreign_keys=ON`, `journal_mode=WAL`. WAL because
+most stages do bursts of writes from worker pools and it handles that better
 than the default rollback journal.
 
 ## Tables
@@ -13,7 +19,7 @@ than the default rollback journal.
 ### `companies` — the inventory
 ```sql
 companies (
-    id            INTEGER PK,
+    id            INTEGER PK AUTOINCREMENT,
     source        TEXT NOT NULL,     -- 'crunchbase' | 'manual' | ...
     source_id     TEXT,              -- UUID from source, or 'name:<name>' fallback
     name          TEXT NOT NULL,
@@ -29,11 +35,11 @@ companies (
 ```
 
 Indexes on `name`, `location`, `headcount`, `vertical`. Headcount/vertical
-indexes are mostly speculative — drop if profiling says so.
+indexes are speculative — drop if profiling says so.
 
-`raw_json` is the escape hatch. Anything Crunchbase exports that we don't
-have a column for is preserved. Useful when the LLM gets a verdict wrong
-and you want to see what extra signal *was* in the row.
+`raw_json` is the escape hatch: anything the CSV exports that has no column is
+preserved. Useful when a verdict looks wrong and you want the extra signal that
+*was* in the row.
 
 ---
 
@@ -46,71 +52,136 @@ status (
 )
 ```
 
-Decoupled from ingest so re-ingest doesn't clobber review state. Seeded on
-first upsert via `INSERT OR IGNORE`.
+Decoupled from ingest so re-ingest doesn't clobber review state. Seeded on first
+upsert via `INSERT OR IGNORE`. Index on `state`.
 
-There's no UI write-back yet (PRD §8). Changing state today means UPDATE-ing
-the row by hand or via a CLI flag we haven't built. For v1 the only
-practical use is filtering the triage UI by state.
+The web UI writes this directly: the triage detail panel's status buttons
+(`new`/`reviewed`/`tracked`/`dismissed`) `PUT` to the server, which calls
+`SetStatus`. Marking `tracked` also surfaces the manual `tracker.py add` promote
+command to copy.
 
 ---
 
-### `enrichment` — cached about-page text
+### `enrichment` — cached site text
 ```sql
 enrichment (
     company_id      INTEGER PK FK companies(id) ON DELETE CASCADE,
     website_url     TEXT,             -- URL we successfully fetched
-    website_summary TEXT,             -- stripped text, ≤3000 runes
-    fetch_status    TEXT NOT NULL,    -- 'ok' | 'no_domain' | 'http_<code>' | 'timeout' | 'dns' | 'refused' | 'error'
+    website_summary TEXT,             -- stripped text, truncated
+    fetch_status    TEXT NOT NULL,    -- see taxonomy below
     fetch_error     TEXT,             -- detail when status != ok
     fetched_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
-One row per company, max. `fetched_at` vs `companies.ingested_at` is the
-cache key — re-ingest invalidates.
+One row per company, max. Index on `fetch_status`. The cache key is
+`companies.ingested_at <= enrichment.fetched_at` — a re-ingest (newer
+`ingested_at`) invalidates the row; `scout enrich --force` re-fetches
+unconditionally.
 
 Failed rows are kept (with `fetch_status` set) so we don't hot-loop on
-permanently broken sites. Use `--force` on `scout enrich` to retry.
+permanently broken sites.
+
+**`fetch_status` taxonomy:**
+
+| Status | Meaning |
+|---|---|
+| `ok` | fetched, enough content to use |
+| `low_content` | fetched but under the content floor (~200 runes — likely a JS/SPA shell) |
+| `challenge` | page is a bot-challenge interstitial (Cloudflare/PerimeterX etc.) |
+| `no_domain` | company has no domain to fetch |
+| `http_<code>` | non-2xx HTTP response, e.g. `http_404`, `http_503` |
+| `dns` | DNS resolution failed |
+| `refused` | connection refused |
+| `timeout` | request timed out |
+| `error` | any other fetch error |
 
 ---
 
 ### `verdicts` — LLM decisions
 ```sql
 verdicts (
-    company_id    INTEGER PK FK companies(id) ON DELETE CASCADE,
-    verdict       TEXT NOT NULL,     -- 'yes' | 'maybe' | 'no'
-    reason        TEXT NOT NULL,
-    taste_version TEXT NOT NULL,     -- sha256[:12] of the taste block used
-    model         TEXT NOT NULL,     -- 'claude-haiku-4-5'
-    scored_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    company_id      INTEGER PK FK companies(id) ON DELETE CASCADE,
+    verdict         TEXT NOT NULL,   -- 'yes' | 'maybe' | 'no'
+    reason          TEXT NOT NULL,   -- one-line justification
+    taste_version   TEXT NOT NULL,   -- criteria version (see below)
+    model           TEXT NOT NULL,   -- first-pass model, e.g. 'claude-haiku-4-5'
+    scored_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    escalated_model TEXT             -- second-pass model, NULL if not escalated
 )
 ```
 
-One row per company per current verdict. `taste_version` is the cache key
-— changing `taste.md` changes the hash and triggers re-scoring. We don't
-keep verdict history; if a re-score happens the old row is overwritten.
-Brainbot is the place for "what did Alex think before."
+One row per company — the current verdict. We don't keep verdict history; a
+re-score overwrites the row (`UpsertVerdict`, `ON CONFLICT DO UPDATE`). "What
+did Alex think before" lives in the brain. Indexes on `verdict` and
+`taste_version`.
+
+**`taste_version` is the criteria version** (legacy column name; the concept is
+*Alex's criteria from the brain* — see north-star's terminology table). It is
+`sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
+criteria text is the brain's episode bodies (or the offline `taste.md`
+fallback). When the brain learns something — or the playbook is edited — the
+hash changes, and the next `verdict` run re-scores rows whose stored
+`taste_version` no longer matches. That re-scoring is intended.
+
+**`escalated_model`** (migration `0004`) records the second-pass model that
+re-scored a first-pass `maybe` (Sonnet escalation). `NULL` means no escalation
+at the current `taste_version`. A first-pass upsert clears it to `NULL` (a
+re-score invalidates any prior escalation). `MaybesNeedingEscalation` selects
+`maybe` rows at the current `taste_version` whose `escalated_model` is `NULL` or
+differs from the requested model, so escalation is idempotent per model.
 
 ---
 
 ### `episodes_sent` — write-back dedup
 ```sql
 episodes_sent (
-    company_id    INTEGER FK companies(id) ON DELETE CASCADE,
-    taste_version TEXT NOT NULL,
-    sent_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (company_id, taste_version)
+    company_id   INTEGER NOT NULL FK companies(id) ON DELETE CASCADE,
+    verdict_hash TEXT NOT NULL,   -- sha256[:12] of verdict + "\n" + reason
+    sent_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (company_id, verdict_hash)
 )
 ```
 
-Marks that an episode was successfully POSTed to brainbot for this
-`(company_id, taste_version)` pair. `scout episodes` only ships rows
-missing from this table.
+Records that a verdict's *decision* was captured to the brain. The verdict
+write-back (`scout episodes`) only ships decisions missing from this table.
 
-If a verdict gets re-scored (new taste_version), it'll get re-shipped —
-that's intentional. Brainbot should treat each episode as immutable and
-let the latest one win at read time.
+Keyed on the **decision content** (`verdict_hash = sha256[:12]` of
+`verdict + "\n" + reason`), **not** `taste_version` (re-keyed in migration
+`0006`). The criteria version is brain-derived and shifts whenever the brain
+changes; keying on it would re-capture every verdict on each brain update.
+Keying on the decision content means scout captures only when the decision
+itself is new or changed.
+
+`episodes_sent` holds **exactly the last captured decision per company**.
+`MarkEpisodeSent` deletes any prior hash for the company before inserting the
+new one (in one transaction). So a re-score to a new decision captures once; and
+if a later re-score *reverts* to an earlier decision, that revert is treated as
+new and re-captured — otherwise the brain would keep holding the stale
+intermediate verdict. (The brain dedups on its side regardless.)
+
+---
+
+### `runs` — pipeline run history
+```sql
+runs (
+    id            TEXT PK,           -- uuid
+    stage         TEXT NOT NULL,     -- 'ingest' | 'enrich' | 'verdict' | 'episodes'
+    status        TEXT NOT NULL,     -- 'running' | 'done' | 'failed' | 'canceled'
+    started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    finished_at   DATETIME,          -- NULL while running
+    taste_version TEXT,              -- set for verdict runs only
+    summary       TEXT,              -- JSON: stage-specific counts
+    error         TEXT               -- set on failure
+)
+```
+
+A durable record of each pipeline run triggered from the UI (or CLI). Migration
+`0005`. `InsertRun` writes the `running` row when a background job starts;
+`FinishRun` sets the terminal `status`, `finished_at`, and a JSON `summary`
+(e.g. verdict counts). Live progress lines stream over SSE and are *not*
+persisted — only the summary lands here. `ListRuns` powers the UI run history,
+newest first. Indexes on `started_at` and `stage`.
 
 ---
 
@@ -120,7 +191,7 @@ schema_migrations (name TEXT PK, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)
 ```
 
 One row per applied migration filename. The `migrate()` loop in
-`internal/store/store.go` skips anything already in here.
+`internal/store/store.go` skips anything already recorded.
 
 ## Relationships
 
@@ -128,27 +199,30 @@ One row per applied migration filename. The `migrate()` loop in
 companies (1) ─── (0..1) status
           (1) ─── (0..1) enrichment
           (1) ─── (0..1) verdicts
-          (1) ─── (0..N) episodes_sent
+          (1) ─── (0..1) episodes_sent   -- last captured decision only
+
+runs            -- standalone; no FK to companies (run-level history)
 ```
 
-`FOREIGN KEY ... ON DELETE CASCADE` everywhere. Delete a company, the rest
-goes with it.
+`FOREIGN KEY ... ON DELETE CASCADE` on every company-scoped table. Delete a
+company and its `status`/`enrichment`/`verdicts`/`episodes_sent` rows go with
+it. `runs` is independent of any company.
 
 ## Idempotency keys at a glance
 
 | Stage | Idempotency key | Bust the cache by |
 |---|---|---|
-| ingest | `(source, source_id)` | (re-ingest is upsert; not really "bust") |
+| ingest | `(source, source_id)` | re-ingest is upsert; not really "bust" |
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
-| verdict | `verdicts.taste_version == taste.Version` | edit `taste.md`, or `--force` |
-| episodes | row in `episodes_sent` | nothing — by design |
+| verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
+| escalate | `maybe` row not yet escalated to the requested model | new criteria version, or a different escalation model |
+| episodes | `verdict_hash` (decision content) in `episodes_sent` | the decision (verdict + reason) changes |
 
 ## Why not Postgres / per-stage tables / event sourcing
 
 SQLite is plenty for low-thousand-row company sets. One file is the entire
-working set; nuke it and start over costs nothing. Per-stage tables would
-add joins for no benefit at this size. Event sourcing would be the right
-shape if scout needed to reconstruct history — but it doesn't; brainbot
-does. Scout is deliberately stateless across runs in everything except
-the current snapshot.
+working set; nuking it and starting over costs nothing. Per-stage tables would
+add joins for no benefit at this size. Event sourcing would be the right shape
+if scout needed to reconstruct history — but it doesn't; the brain does. Scout
+keeps only the current snapshot plus a thin `runs` log.

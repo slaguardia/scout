@@ -1,164 +1,138 @@
 # Limitations & deferred work
 
-Honest accounting of where scout is thin, where it'll break first, and
-what's deliberately deferred until real-use data justifies building it.
+Where scout is thin, where it breaks first, and what's deliberately deferred
+until real-use data justifies building it. Architecture lives in
+[`north-star.md`](./north-star.md); this is the honest-defects companion.
 
-## What scout will actually do badly
+## Where the signal degrades
 
-### JS-rendered marketing sites
+Enrich fetches one about-page per company, strips HTML with regex, and hands
+the text to the verdict LLM. Three failure shapes leak in. The first two are
+now *detected* and excluded from verdict candidates; the third is silent.
 
-Sites that ship a near-empty HTML shell and render via JS get stripped to
-nav chrome and "Loading..." and not much else. The verdict prompt still
-runs, but with degraded signal — the LLM falls back on the Crunchbase
-fields alone.
+| Failure | Detection | What happens |
+|---|---|---|
+| JS-rendered SPA shell | `low_content` — stripped text < 200 runes | text cached for inspection; row excluded from verdict candidates |
+| Bot challenge (Cloudflare/PerimeterX/Akamai) | `challenge` — boilerplate match on text < 1000 runes ("just a moment", "verify you are human", …) | row excluded from verdict candidates |
+| Stale / wrong domain | `dns`, `http_404` — visible | excluded; no second-source cross-check |
 
-**Detection:** None today. A trivial heuristic ("if stripped text < 200
-chars, flag as low-content") would help; not built.
+`fetch_status` taxonomy: `ok`, `low_content`, `challenge`, `no_domain`,
+`http_<code>`, `dns`, `refused`, `timeout`, `error`. Only `ok` rows reach the
+verdict stage.
 
-**Fix:** Add a headless-browser path. Adds heavy deps (chromedp or
-similar). Worth it only if a meaningful slice of survivors hit this case.
+### The remaining hole: silent challenge pages
 
-### Bot challenges
+A challenge interstitial that is *long* (≥ 1000 runes of junk) or doesn't match
+a known phrase still records `fetch_status: ok` and feeds garbage to the
+verdict. The short/known case is caught; the long/novel case is not. New CDN
+challenge templates need a new phrase in `challengePhrases`.
 
-Cloudflare / PerimeterX / Akamai sometimes serve challenge pages instead
-of content. Two failure shapes:
+### Non-English about-pages
 
-- Clean rejection → `http_403` or `http_429`. Visible.
-- Silent challenge page → `fetch_status: ok` with junk text. **Invisible.**
+Fetch and strip work fine, and the LLM reads non-English content competently.
+But Alex's criteria and the playbook rubric are English-centric, so fit
+reasoning on a non-English page is weaker. Edge case, not a blocker.
 
-The silent case is the worst — verdict runs with garbage input.
+## Architectural cost we're paying
 
-**Mitigation:** None today. Possible heuristics: keyword detection for
-challenge boilerplate ("Just a moment..."), suspiciously short content
-flag. Not built.
+### Regex HTML stripping
 
-### Stale or wrong domains
+Cheap, dependency-free, brittle by definition. Edge cases that bite:
 
-Crunchbase domain data is sometimes stale (company moved, rebranded) or
-typo'd. We get `dns` or `http_404` and move on. There's no cross-check
-against a second source.
+- Malformed HTML with unbalanced tags: the non-greedy `<[^>]+>` rule handles
+  most, but some pages leave residue (manifests as stray JS in the summary).
+- Comments (`<!-- ... -->`) are not explicitly stripped. The opening/closing
+  delimiters go through the catch-all tag rule, but multi-line comment *bodies*
+  survive. Minor; hasn't bitten yet.
 
-**Fix path:** Verify domains against a search engine before fetching.
-Adds complexity and an external dep. Not done.
+A real HTML parser would fix this at the cost of a dependency. Not worth it
+until residue actually corrupts verdicts.
 
-### Non-English about pages
+### SQLite single-writer
 
-The fetch works; the HTML strip works; the LLM is competent enough at
-reading non-English content that this is usually fine. But the taste
-block is in English and the rubric is English-centric. Edge case.
+Worker pools write through a single SQLite connection. WAL helps, but there's
+still a serial write point. Invisible at low thousands of rows; visible at
+hundreds of thousands. The fix (a real connection pool / `MaxOpenConns > 1`) is
+straightforward when the scale arrives.
+
+### No API retry/backoff
+
+`anthropic.Client.Send` does not retry. A transient 5xx or 429 marks the row
+`failed`; the next run picks it up. Fine for batch; wrong for interactive use.
+Add exponential backoff in `Send` if interactive latency starts to matter.
+
+### No structured logging
+
+`fmt.Println` / `fmt.Fprintf(os.Stderr, ...)` throughout. Fine for a one-person
+tool; would need `log/slog` for anything multi-user or for log aggregation.
 
 ## What's deferred by design
 
-These are explicitly punted in PRD §10/§11. They're listed so we know what
-not to be surprised about, not as a to-do.
+Listed so they're not surprises — not a to-do list.
 
 ### Multiple ingest sources
 
-CSV / Crunchbase only. AngelList, YC, scraped lists, etc. are deferred
-until we have one source actually working end-to-end and know what the
-combined data model wants to look like. Adding a new source is a new file
-in `internal/ingest/` and a `--source` value; not architecturally hard.
+Crunchbase CSV only. AngelList, YC, scraped lists, etc. wait until one source
+runs clean end-to-end and the combined data model is clear. A new source is a
+new file in `internal/ingest/` plus a `--source` value — not architecturally
+hard.
 
-### Careers / jobs page enrichment
+### Careers / jobs-page enrichment
 
-"Are they hiring my level?" is huge signal. Deferred until verdict
-quality with about-page only is measured. If yes/no decisions are
-already fine, adding careers data is wasted complexity.
+"Are they hiring my level?" is strong signal, deferred until verdict quality
+with about-page-only is measured. If yes/no decisions are already good, careers
+data is wasted complexity.
 
 ### Cross-run diffs ("what's new since last time")
 
-Useful when running scout regularly against fresh CSVs, less so for ad-hoc
-runs. Not built. The data is there (companies has `ingested_at`); a
-`scout diff --since <ts>` would be ~20 lines.
-
-### UI write-back for `status`
-
-The schema has it (`new/reviewed/tracked/dismissed`). The UI doesn't write
-it. Today, state changes happen via direct SQL or not at all. v2.
+Useful for regular runs against fresh CSVs, less so ad-hoc. The data exists
+(`companies.ingested_at`, plus the durable `runs` table); a `scout diff --since
+<ts>` would be small. Not built.
 
 ### Auto-promote to Notion
 
 Explicit non-goal. The Notion handoff is manual on purpose — surfacing
-candidates is cheap, committing to pursue one is not, and the friction is
-useful.
-
-## Architectural cost we're paying
-
-### SQLite single-writer
-
-Worker pools write to a single SQLite connection. WAL helps, but there's
-still a per-connection serial point. At low thousands of rows this is
-invisible; at hundreds of thousands you'd see it. Migration to a real
-connection pool (or a `sql.DB` with `MaxOpenConns > 1`) is straightforward
-when needed.
-
-### Regex HTML stripping
-
-Cheap, dependency-free, and brittle by definition. Edge cases that bite:
-- `<` and `>` inside `<script>` strings that we strip wholesale: fine.
-- Malformed HTML with unbalanced tags: regex non-greedy mode handles
-  most, but some pages still leave residue. Manifests as JS source in
-  the summary.
-- Comments (`<!-- ... -->`) are NOT explicitly removed. They become spaces
-  through the catch-all `<[^>]+>` rule, but their contents (if multi-line)
-  survive. Minor issue, hasn't bitten yet.
-
-### Verdict prompt assembly
-
-Every call sends the full `taste.md` (~1.5 KB) plus the rubric. With 500+
-companies that's 750 KB of redundant input per run.
-
-**Fix:** Anthropic prompt caching with a cache control marker on the
-system block. Cuts cost meaningfully at scale. Worth doing once verdict
-runs get bigger.
-
-### No retries on transient API failures
-
-If Anthropic returns a 5xx, the row is marked `failed` and skipped. Next
-run picks it up. Fine for batch, would be wrong for interactive use. Add
-exponential backoff in `anthropic.Client.Send` if needed.
-
-### No structured logging
-
-`fmt.Println` and `fmt.Fprintf(os.Stderr, ...)`. Fine for a one-person CLI;
-would need `log/slog` for anything multi-user.
+candidates is cheap, committing to pursue one is not, and that friction is the
+point.
 
 ## What would change at 10× scale
 
-Hypothetical: scout runs against 10k companies per CSV.
+Hypothetical: 10k companies per CSV.
 
-- **Enrich:** parallelism tuning matters. Per-domain rate limiting (not
-  per-worker) becomes worthwhile. Headless browser becomes painful at
-  this rate; about-page-only stays the answer.
-- **Verdict:** prompt caching becomes mandatory. Sonnet for the maybes
-  starts to make sense (run Haiku on all, run Sonnet on maybes only).
-  Batch API (Anthropic supports batch with discounted pricing) would cut
-  cost ~50%.
-- **Storage:** SQLite still fine. WAL handles the write rate.
-- **UI:** client-side sort/filter on 10k rows still works (it's a single
-  table). Server-side pagination becomes nice-to-have at 50k+.
+- **Enrich:** per-domain rate limiting (not per-worker) becomes worthwhile.
+  Headless browsing would be painful at this rate; about-page-only stays the
+  answer.
+- **Verdict:** the Batch API (discounted async pricing) would roughly halve
+  cost. The Sonnet escalation pass (re-score `maybe`s only) already exists; at
+  scale it's the default move. Prompt caching is already on — the system block
+  (contract + playbook + criteria) is cached across a run.
+- **Storage:** SQLite still fine; WAL handles the write rate.
+- **UI:** client-side sort/filter on a single 10k-row table still works;
+  server-side pagination becomes nice-to-have past ~50k.
 
-None of those are blockers; all are knobs to turn when the scale arrives.
+All knobs, no blockers.
 
 ## What's just plain missing
 
-Things we'd want but haven't built. Not blocking but worth being honest
-about.
+Wanted but unbuilt. Not blocking; worth being honest about.
 
-- **Tests.** Zero. The code is small and the contract is "does the
-  pipeline work end-to-end on a sample CSV." For a personal tool, that's
-  defensible — for anything else, write tests before extending.
-- **A `scout taste edit` helper.** Today you edit `taste.md`/`taste.toml`
-  by hand. A guided edit flow (preview which companies change verdict)
-  would be cool.
-- **A "why was this row dropped" lookup.** Filter shows aggregate drop
-  reasons; doesn't tell you why a specific company was dropped. Easy add.
-- **An export command.** `scout export --format csv --filter verdict=yes`
-  for handing off to other tools. Easy add.
+- **A guided criteria-edit flow.** The UI editor writes `taste.md`/`playbook.md`
+  (local files only — never the brain) and shows how many verdicts an edit makes
+  stale, but there's no "preview which companies flip verdict" before saving.
+- **A "why was this row dropped" lookup.** Filter reports aggregate drop
+  reasons; it can't yet explain a single company's drop. Easy add.
+- **An export command.** `scout export --format csv --filter verdict=yes` for
+  handing off to other tools. Easy add.
+
+## Tests
+
+Scout is no longer untested. Coverage exists across the load-bearing packages:
+`internal/brainbot`, `internal/taste`, `internal/verdict`, `internal/store`,
+`internal/ingest`, `internal/enrich`. The thinnest area is end-to-end pipeline
+coverage on a real Crunchbase CSV; unit boundaries are covered.
 
 ## When to actually fix any of this
 
-When real use surfaces the pain. Premature fixes are worse than the
-problems they prevent. The whole point of the architecture (CLI stages,
-SQLite, manual Notion handoff) is to keep the surface area tiny so this
-stuff stays cheap to add later.
+When real use surfaces the pain. Premature fixes cost more than the problems
+they prevent. Keeping the surface area small (staged pipeline, SQLite, manual
+Notion handoff) is exactly what keeps all of the above cheap to add later.

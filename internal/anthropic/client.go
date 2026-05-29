@@ -18,7 +18,7 @@ import (
 const (
 	defaultEndpoint = "https://api.anthropic.com/v1/messages"
 	apiVersion      = "2023-06-01"
-	// DefaultModel is what M3 uses for verdicts. Cheap, fast, good enough.
+	// DefaultModel is the default verdict model. Cheap, fast, good enough.
 	DefaultModel = "claude-haiku-4-5"
 )
 

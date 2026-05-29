@@ -5,8 +5,8 @@
 //   scout filter              Apply taste.toml rules; print survivors.
 //   scout enrich              Fetch about-pages for survivors (parallel).
 //   scout verdict             Score enriched survivors with Haiku.
-//   scout episodes            Ship verdicts to brainbot as episodes (M6).
-//   scout serve               Read-only triage UI on localhost.
+//   scout episodes            Capture verdicts back to the brain.
+//   scout serve               Web control surface + triage UI (primary interface).
 //   scout stats               Show DB row counts.
 package main
 
@@ -340,7 +340,7 @@ func cmdVerdict(args []string) error {
 	return nil
 }
 
-// --- episodes (M6) ---
+// --- episodes ---
 
 func cmdEpisodes(args []string) error {
 	fs := flag.NewFlagSet("episodes", flag.ExitOnError)

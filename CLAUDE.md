@@ -12,8 +12,8 @@ rules); **scout** brings the intelligence (its own LLM + a `playbook.md` for
 and writes verdicts back. There is **no scout-local "taste"** — `taste.md` is an
 offline fallback only; `taste.toml` is a purely mechanical pre-filter.
 
-Then: [`docs/brain-first-plan.md`](./docs/brain-first-plan.md) (the current work)
-and [`docs/`](./docs/) for stage references.
+Then [`docs/`](./docs/) for stage references (pipeline, verdict, enrichment,
+data-model, operations, limitations).
 
 ## Stack
 

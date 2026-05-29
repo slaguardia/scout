@@ -1,12 +1,17 @@
 # Operations
 
 How to actually run scout. Flags, env, and what to do when something goes
-sideways.
+sideways. For *what scout is* and the brain/scout split, see
+[`north-star.md`](./north-star.md) — this doc is purely operational.
 
 ## Prerequisites
 
 - Go 1.22+ (1.26+ on dev machines is fine).
-- `ANTHROPIC_API_KEY` for `scout verdict`. Nothing else needs auth.
+- `ANTHROPIC_API_KEY` for scoring (the `verdict` stage, including UI-triggered
+  runs).
+- The brain on `http://127.0.0.1:8100` if you want live criteria + per-company
+  memory + verdict write-back. **Optional** — scout falls back to `taste.md`
+  when it's unreachable.
 
 ## First-run
 
@@ -18,9 +23,28 @@ go build -o scout ./cmd/scout
 ```
 
 The migrations are embedded; the first `scout <anything>` call creates
-`scout.db` and runs them.
+`scout.db` and runs them (currently through `0006`).
 
-## A typical pipeline run
+## The normal way in: the browser
+
+`scout serve` is the primary interface. Everything below the CSV — ingest,
+enrich, verdict, episodes — runs from there as background jobs with live
+progress, plus triage, status write-back, the criteria/playbook editor, and a
+per-company brain recall panel.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./scout serve
+# scout triage UI at http://localhost:8765
+```
+
+Then in the browser: upload a CSV, run the stages, triage the results. The
+brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
+(criteria fall back to `taste.md`, recall/write-back are skipped).
+
+## A CLI pipeline run
+
+The same stages, headless — for automation or debugging.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -29,7 +53,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./scout ingest data/crunchbase-export.csv
 # read=423 upserted=423 skipped=0 errors=0
 
-# 2. Sanity-check the pre-filter.
+# 2. Sanity-check the mechanical pre-filter.
 ./scout filter
 # ... survivor table ...
 # total=423 survivors=87
@@ -43,9 +67,11 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./scout enrich
 # considered=87 fetched=87 ok=71 failed=16
 
-# 4. Score with Haiku.
+# 4. Score with Haiku. Criteria come from the brain (@127.0.0.1:8100) when
+#    healthy, else taste.md.
 ./scout verdict
-# taste source=file:taste.md version=b4cd783174d6
+# taste source=brain:profile@http://127.0.0.1:8100 version=b4cd783174d6
+# brain context: enabled (http://127.0.0.1:8100)
 # considered=71 scored=71 skipped=0 failed=0
 #   maybe 18
 #   no    35
@@ -55,12 +81,37 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./scout serve
 # scout triage UI at http://localhost:8765
 
-# 6. (Optional, when brain is up) ship verdicts as episodes.
-./scout episodes --brainbot http://127.0.0.1:8000
+# 6. Ship verdicts back to the brain via capture.
+./scout episodes
+# sent=18 failed=0
 ```
 
-Re-running any stage is safe. Re-running everything is also safe — each
-stage skips work it's already done.
+Re-running any stage is safe. Each stage skips work it's already done.
+
+## How scoring resolves criteria
+
+```
+scout verdict
+   │
+   ├─ --brainbot set (default :8100) and healthy?
+   │     ├─ yes → GET /profile bodies (Alex's criteria, gates, exclusions)
+   │     │        ↳ empty? broad GET /recall to recover them
+   │     │        ↳ still empty? fall back to taste.md
+   │     └─ no/unreachable → fall back to taste.md  (logged to stderr)
+   │
+   ├─ per company: GET /recall?q=<name> (top 5, keep facts score >= 0.4)
+   │     ↳ fresh companies match nothing → inject nothing
+   │
+   └─ score with Haiku + playbook → write {verdict, reason} to SQLite
+         ↳ scout episodes: POST /capture a sentence naming Alex
+```
+
+The **criteria version** (`taste_version` in the schema) is
+`sha256[:12]` of the playbook + criteria text. When the brain learns something,
+the criteria change, the version changes, and the next run re-scores. That's
+intended. Episode-send dedup is separate — keyed on the *decision content*
+(`verdict_hash` = `sha256[:12]` of verdict + reason), so re-sending an unchanged
+verdict is a no-op.
 
 ## Flag reference
 
@@ -72,13 +123,13 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 
 | Flag | Default | What |
 |---|---|---|
-| `--source` | `crunchbase` | Source tag stored on each row. Use this to distinguish multiple CSV vintages. |
+| `--source` | `crunchbase` | Source tag stored on each row. Distinguishes CSV vintages. |
 
 ### `scout filter`
 
 | Flag | Default | What |
 |---|---|---|
-| `--taste` | `taste.toml` | Path to the structured rules file. |
+| `--taste` | `taste.toml` | Path to the mechanical pre-filter rules. |
 
 ### `scout enrich`
 
@@ -92,31 +143,45 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 
 | Flag | Default | What |
 |---|---|---|
-| `--taste` | `taste.toml` | Structured rules (for the pre-filter step inside this subcommand). |
-| `--taste-md` | `taste.md` | Narrative taste block fed to the model. |
-| `--brainbot` | `""` | If set, pull taste from this brain URL (e.g. `http://127.0.0.1:8000`) via MCP `search_memory_facts`; fall back to `--taste-md` on error. |
-| `--model` | `claude-haiku-4-5` | Anthropic model ID. |
+| `--taste` | `taste.toml` | Mechanical pre-filter rules (the SQL gate inside this stage). |
+| `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
+| `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Primary source of criteria + per-company recall + write-back. **Empty disables** → `taste.md` fallback. |
+| `--model` | `claude-haiku-4-5` | Anthropic model for the first pass. |
+| `--escalate-model` | `""` | If set, re-score every `maybe` with this model (e.g. `claude-sonnet-4-5`). |
 | `--workers` | `4` | Parallel API calls. |
-| `--force` | `false` | Re-score every survivor even if `taste_version` matches. |
+| `--force` | `false` | Re-score every survivor even if the criteria version matches. |
 
 ### `scout episodes`
 
+Ships pending verdicts to the brain via `POST /capture` (one
+natural-language sentence per verdict, sent sequentially).
+
 | Flag | Default | What |
 |---|---|---|
-| `--brainbot` | `$BRAINBOT_URL` | Required. Brain base URL (e.g. `http://127.0.0.1:8000`). Scout calls `POST {URL}/mcp` for `add_memory`. |
+| `--brainbot` | `$BRAINBOT_URL` or `http://127.0.0.1:8100` | Brain base URL. Required (errors if empty). |
 
 ### `scout serve`
 
 | Flag | Default | What |
 |---|---|---|
 | `--addr` | `:8765` | Listen address. |
+| `--taste-md` | `taste.md` | Offline criteria fallback; editable in the UI (writes the **local file only**, never the brain). |
+| `--taste` | `taste.toml` | Mechanical pre-filter rules used by UI verdict runs. |
+| `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
+| `--source` | `crunchbase` | Source tag for UI CSV uploads. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL. Primary criteria source + per-company recall panel + episodes runs. Empty disables → `taste.md` fallback. |
+
+### `scout stats`
+
+Row counts and the verdict histogram. Takes only `--db`.
 
 ## Environment
 
 | Var | Used by | Required |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | `verdict` | Yes for verdict. |
-| `BRAINBOT_URL` | `episodes` | Yes for episodes unless `--brainbot` is passed. |
+| `ANTHROPIC_API_KEY` | `verdict` (CLI and UI runs) | Yes for scoring. |
+| `BRAINBOT_URL` | `episodes` | Optional. Overrides the `--brainbot` default when the flag isn't passed. |
 
 Nothing else.
 
@@ -136,13 +201,23 @@ Sanity-check `taste.toml`. Common gotchas:
 - `location.allowed` doesn't include "remote" but `remote_ok = false` → everyone with a remote location is dropped.
 
 **Enrichment shows `failed=N` but no useful detail**
-Run `sqlite3 scout.db "SELECT company_id, fetch_status, fetch_error FROM enrichment WHERE fetch_status != 'ok'"`.
+Each failure carries a `fetch_status`: `low_content`, `challenge`, `no_domain`,
+`http_<code>`, `dns`, `refused`, `timeout`, or `error`. Inspect them:
+```bash
+sqlite3 scout.db "SELECT company_id, fetch_status, fetch_error FROM enrichment WHERE fetch_status != 'ok'"
+```
+
+**`brain unreachable at http://127.0.0.1:8100 ... falling back to taste.md`**
+Expected when the brain is down — scoring proceeds on local criteria. If you
+want the brain, start it; if you don't, pass `--brainbot ""` to silence the
+probe. A *healthy but empty* brain logs `no criteria captured yet` and also
+falls back to `taste.md` until Alex captures something.
 
 **Verdict says `considered=0`**
 Either no survivors (check `scout filter`), or no `ok` enrichment for the
 survivors (check `scout enrich`), or everything is already scored at the
-current `taste_version` (which means scout is doing its job — use
-`--force` if you want to re-score anyway).
+current criteria version — which means scout is doing its job. Use `--force`
+to re-score anyway.
 
 **`anthropic HTTP 401`**
 Your `ANTHROPIC_API_KEY` is wrong or expired.
@@ -173,7 +248,9 @@ sqlite3 scout.db
 > .schema
 > SELECT name, verdict, reason FROM companies c JOIN verdicts v ON v.company_id = c.id;
 > SELECT fetch_status, COUNT(*) FROM enrichment GROUP BY fetch_status;
-> SELECT taste_version, COUNT(*) FROM verdicts GROUP BY taste_version;
+> SELECT taste_version, COUNT(*) FROM verdicts GROUP BY taste_version;   -- criteria version
+> SELECT * FROM runs ORDER BY started_at DESC LIMIT 10;                  -- run history
+> SELECT company_id, verdict_hash FROM episodes_sent;                    -- last captured decision per company
 ```
 
 ## Tearing down
@@ -182,7 +259,7 @@ sqlite3 scout.db
 rm scout.db scout.db-wal scout.db-shm   # nukes the working set
 ```
 
-Brainbot and the Notion tracker are untouched.
+The brain and the Notion tracker are untouched.
 
 ## Running it on a schedule
 
@@ -193,5 +270,4 @@ There's no daemon. If you want a daily cron:
 0 9 * * *  cd ~/Repositories/scout && ./scout enrich && ./scout verdict
 ```
 
-But really — scout is a "run when you have a new CSV" tool. Cron is
-overkill for v1.
+But really — scout is a "run when you have a new CSV" tool. Cron is overkill.

@@ -1,181 +1,261 @@
 # Pipeline
 
-Each subcommand in detail. Read top-to-bottom — they're meant to be run in
-order, though every stage handles being re-run.
+Per-command reference. Architecture and the brain split live in
+[`north-star.md`](./north-star.md) — this doc is *how each command behaves*.
+
+The **web UI (`scout serve`) is the primary interface**; the CLI commands below
+are the secondary automation/debug surface. Both drive the same stages:
+
+```
+ingest → filter → enrich → verdict → triage
+                              │  ▲
+                  brain ──────┘  └────── episodes (verdict write-back)
+```
+
+`ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
+`verdict` (read criteria + per-company recall) and `episodes` (write-back).
+Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it.
+
+---
 
 ## `scout ingest <csv>`
 
-**Input:** a CSV with a header row. Crunchbase export is the assumed shape;
-column aliases in `internal/ingest/csv.go` accept many common header names
-(`Organization Name`, `Company`, `name`, `UUID`, `Industries`, `Industry`,
-`Headcount`, `Employees`, `Headquarters Location`, `HQ Location`, etc).
+| | |
+|---|---|
+| **Input** | CSV with a header row (Crunchbase export is the assumed shape). |
+| **Output** | `read=N upserted=N skipped=N errors=N`; error lines on stderr. |
+| **Idempotent** | Yes — upsert by `(source, source_id)`. |
+| **Flags** | `--db scout.db`, `--source crunchbase`. |
 
 **Behavior:**
-- Reads header, maps to canonical fields, indexes column positions.
-- For each row: builds a `store.Company`, preserves the original row in
-  `raw_json` (untouched, ordered by header), upserts.
-- Upsert key: `(source, source_id)`. If the CSV has no UUID/ID column,
-  `source_id` falls back to `"name:" + name` — best-effort dedup.
-- Headcount tolerates ranges like `"11-50"` (takes the upper bound) and
-  commas (`"1,200"`).
-- Domain is normalized: lowercased, `https://`/`http://`/`www.` stripped,
-  path stripped.
-- Status row is seeded as `'new'` on first insert; re-ingest doesn't reset it.
-
-**Output:** `read=N upserted=N skipped=N errors=N` plus error lines on stderr.
-
-**Idempotent?** Yes. Upsert by `(source, source_id)`. `ingested_at` is bumped
-on every upsert, which invalidates downstream enrichment cache.
-
-**Flags:** `--db scout.db`, `--source crunchbase`.
+- Column aliases in `internal/ingest/csv.go` map many header names to canonical
+  fields (`Organization Name`/`Company`/`name`, `UUID`/`id`, `Industries`/`Industry`,
+  `Headcount`/`Employees`, `Headquarters Location`/`HQ Location`, etc.).
+- **Strips a UTF-8 BOM from the first header cell** — Crunchbase exports are
+  UTF-8-with-BOM, and without this the first column (`Organization Name` → the
+  company name) wouldn't match its alias and every row would skip as nameless.
+- Per row: builds a `store.Company`, preserves the original row in `raw_json`
+  (untouched, header-ordered), upserts. Rows with no resolved name are skipped.
+- Upsert key `(source, source_id)`. No UUID column → `source_id` is `"name:"+name`.
+- Headcount tolerates ranges (`"11-50"` → upper bound `50`) and commas (`"1,200"`).
+- Domain normalized: lowercased, `https://`/`http://`/`www.` and any path stripped.
+- `status` seeds to `new` on first insert; re-ingest doesn't reset it.
+- `ingested_at` bumps on every upsert, which invalidates downstream enrichment.
 
 ---
 
 ## `scout filter`
 
-**Input:** `taste.toml` (rules), `companies` table.
+| | |
+|---|---|
+| **Input** | `taste.toml` (mechanical pre-filter), `companies` table. |
+| **Output** | Survivor table + total/survivor counts + drop-reason histogram. |
+| **Idempotent** | Read-only — no state changes. |
+| **Flags** | `--db scout.db`, `--taste taste.toml`. |
+
+`taste.toml` is a **purely mechanical pre-filter** — cheap hard gates that cull
+rows before the expensive verdict step. It is *not* judgment; nuanced fit
+happens at verdict time, grounded in the brain.
 
 **Behavior:**
-- Loads taste.toml.
-- `SELECT id, name, location, vertical, headcount, funding_stage FROM companies`
-  — pulls all rows into Go, evaluates per-row.
-- Evaluation order: location → headcount → excluded verticals → allowed
-  verticals → funding stage. First failing check is the recorded drop reason.
-- Survivors are printed as a tab-separated table.
-
-**Why eval in Go and not SQL:**
-- Per-reason drop counts. SQL `WHERE` clauses don't tell you *which*
-  predicate dropped a row.
-- Substring matching on `vertical`/`location` is cleaner in Go.
-- N is low thousands. Speed isn't the bottleneck.
-
-**Output:** survivor table + total/survivor counts + drop-reason histogram.
-
-**Idempotent?** Read-only. No state changes.
-
-**Flags:** `--db scout.db`, `--taste taste.toml`.
+- Loads `taste.toml`, pulls all company rows into Go, evaluates per row.
+- Eval order, first failing check is the recorded drop reason:
+  `location → headcount_min/max → vertical_excluded → vertical_not_allowed → funding_stage`.
+- Eval is in Go (not SQL) for per-reason drop counts and substring matching;
+  N is low thousands, so speed isn't the bottleneck.
+- Location with no data passes only if `location.remote_ok`. Headcount is
+  checked only when present.
 
 ---
 
 ## `scout enrich`
 
-**Input:** `companies` table.
+| | |
+|---|---|
+| **Input** | `companies` with a non-empty domain. |
+| **Output** | `considered=N fetched=N ok=N failed=N`. |
+| **Idempotent** | Yes — re-fetches only rows re-ingested since last fetch. |
+| **Flags** | `--db`, `--workers 8`, `--timeout 12s`, `--force`. |
 
 **Behavior:**
-- Selects every company with a non-empty domain that either has no
-  enrichment row, or whose `companies.ingested_at` is newer than its
-  `enrichment.fetched_at` (or all of them, with `--force`).
-- Spawns N workers (default 8). Each worker:
-  - Tries `https://<domain>/about` → `/about-us` → `/company` → `/`.
-  - First 2xx HTML response wins.
-  - Strips `<script>`, `<style>`, `<noscript>`, `<svg>`, all tags, decodes
-    common entities, collapses whitespace, truncates to 3000 runes.
-  - Writes one `enrichment` row per company with `fetch_status`:
-    - `ok` — got HTML
-    - `no_domain` — company has no domain (shouldn't happen given the SELECT)
-    - `http_<code>` — last non-2xx response code
-    - `dns` — DNS lookup failed
-    - `refused` — TCP refused
-    - `timeout` — `Client.Timeout`
-    - `error` — anything else; detail in `fetch_error`
-- Per-request timeout default 12s. Redirect limit 5.
+- Targets every company whose domain has no enrichment row, or whose
+  `companies.ingested_at` is newer than its `enrichment.fetched_at`
+  (`--force` re-fetches all). Failure rows are NOT auto-retried — use `--force`.
+- N workers (default 8). Each tries `https://<domain>/about` → `/about-us` →
+  `/company` → `/`; first 2xx HTML response wins.
+- Strips `<script>`/`<style>`/`<noscript>`/`<svg>` and all tags, decodes common
+  entities, collapses whitespace, truncates to 3000 runes. 512 KB read cap,
+  redirect limit 5.
+- Writes one `enrichment` row per company with a `fetch_status`:
 
-**Output:** `considered=N fetched=N ok=N failed=N`.
+  | status | meaning |
+  |---|---|
+  | `ok` | got HTML with ≥ 200 runes of stripped text |
+  | `low_content` | < 200 runes (likely a JS-SPA shell); cached but skipped at verdict |
+  | `challenge` | bot-challenge interstitial (Cloudflare/PerimeterX/Akamai etc.) |
+  | `no_domain` | company has no domain |
+  | `http_<code>` | last non-2xx response code |
+  | `dns` | DNS lookup failed |
+  | `refused` | TCP connection refused |
+  | `timeout` | per-request `Client.Timeout` |
+  | `error` | anything else; detail in `fetch_error` |
 
-**Idempotent?** Yes. Re-runs only re-fetch rows where the company has been
-re-ingested since the last fetch. Failure rows are NOT auto-retried — to
-retry, pass `--force`.
-
-**Flags:** `--db`, `--workers 8`, `--timeout 12s`, `--force`.
-
-**See also:** [enrichment.md](./enrichment.md) for details on the fetch
-strategy and HTML stripping.
+**See also:** [enrichment.md](./enrichment.md) for fetch strategy and stripping.
 
 ---
 
 ## `scout verdict`
 
-**Input:** survivors from filter × `enrichment` with `fetch_status = 'ok'`, plus a taste block.
-
-**Behavior:**
-1. Resolves the taste block:
-   - If `--brainbot URL` set → MCP call `search_memory_facts(query="job search taste preferences", max_facts=20, group_ids=["brain"])` against `{URL}/mcp`, joins the returned `facts[].fact` strings into a narrative block. Falls back to `taste.md` on any error.
-   - Else → read `taste.md`.
-2. Hashes the taste text to compute `taste_version` (sha256[:12]).
-3. Re-runs filter to get survivors. Joins with enrichment on `fetch_status = 'ok'`.
-4. For each survivor:
-   - If a verdict row already exists with the same `taste_version` → skip.
-   - Else POST to Anthropic Messages API with a structured system+user prompt.
-   - Parse `{"verdict": ..., "reason": ...}` from the response.
-   - Upsert into `verdicts`.
-5. Workers default to 4. Per-call timeout 45s.
-
-**Requires:** `ANTHROPIC_API_KEY` env var.
-
-**Output:** `considered=N scored=N skipped=N failed=N` plus verdict histogram.
-
-**Idempotent?** Yes, by `(company_id, taste_version)`. Editing `taste.md`
-changes the version and triggers re-scoring on the next run.
+| | |
+|---|---|
+| **Input** | filter survivors × `enrichment` with `fetch_status='ok'`, plus the resolved criteria. |
+| **Output** | `considered=N scored=N skipped=N failed=N` + verdict histogram (+ escalation + cache lines). |
+| **Idempotent** | Yes, by `(company_id, taste_version)`. |
+| **Requires** | `ANTHROPIC_API_KEY`. |
 
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
-`--playbook playbook.md` (agent operating manual; folded into taste_version),
-`--brainbot URL`, `--model claude-haiku-4-5`,
-`--escalate-model claude-sonnet-4-5` (optional second pass on maybes),
-`--workers 4`, `--force`.
+`--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
+empty disables), `--model claude-haiku-4-5`, `--escalate-model` (optional
+Sonnet second pass), `--workers 4`, `--force`.
+
+### Resolving the criteria (brain-primary)
+
+The criteria are **Alex's** — they come from the brain, not a scout file.
+
+```
+--brainbot set ──▶ GET /health ──ok──▶ Criteria() = GET /profile bodies
+                       │                     │ (empty bodies → broad GET /recall)
+                    unreachable           empty → healthy-but-empty
+                       │                     │
+                       └────────┬────────────┘
+                                ▼
+                        fall back to taste.md (offline criteria)
+```
+
+- The brain client reads **episode BODIES** (`/profile`), not extracted facts —
+  bodies carry Alex's gates and hard exclusions; facts are a lossy
+  positive-only index that drops them. See `north-star.md` → *Facts vs. episodes*.
+- A brain that's **unreachable** *or* **healthy-but-empty** falls back to
+  `taste.md`. The fallback is offline-only — scout never invests in it.
+- The resolved block becomes a `taste.Block`: `Text`, `Source`
+  (`brain:profile@<url>` or `file:taste.md`), and `Version`.
+
+### `taste_version` = criteria + playbook hash
+
+`Version = sha256[:12]` of the playbook text plus the criteria text. When the
+brain learns something new, the criteria text changes → the version changes →
+those companies re-score on the next run. **That re-score is intended.** Editing
+`playbook.md` does the same.
+
+### Scoring each survivor
+
+1. Re-runs filter for survivors, joins enrichment on `fetch_status='ok'`.
+2. Skip if a verdict row already matches the current `taste_version` (unless `--force`).
+3. **Per-company brain context:** when the brain is healthy, `Recall(name, 5)`,
+   keeping only facts with `score >= 0.4` (a fresh company scores low and injects
+   nothing). Results are cached per run; a brain miss is logged and ignored —
+   verdict never fails on it.
+4. Sends to the Anthropic Messages API. The system block layers a fixed JSON
+   **output contract** + the **playbook** (how to decide; built-in rubric if
+   none) + the **criteria** (what Alex wants). **Prompt caching is on**
+   (`Cached:true`) — the system block is identical across the run, so it's
+   cached after the first call.
+5. Parses `{"verdict":"yes|maybe|no","reason":...}` (tolerant of fences/noise),
+   upserts into `verdicts`.
+
+### Escalation (`--escalate-model`)
+
+After the Haiku pass, every row still `maybe` at the current `taste_version`
+that hasn't been escalated to the escalation model is re-scored with it (per-call
+timeout 60s vs. 45s) and persisted via `escalated_model`. A first-pass re-score
+clears any prior escalation.
 
 **See also:** [verdict.md](./verdict.md) for prompts, parsing, model choice.
 
 ---
 
-## `scout serve`
+## `scout serve` — the primary interface
 
-**Input:** `companies`, `enrichment`, `verdicts`, `status` tables.
+| | |
+|---|---|
+| **Input** | `companies`/`enrichment`/`verdicts`/`status`/`runs` + optional brain. |
+| **Output** | `scout triage UI at http://localhost:8765`. |
+| **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`. |
 
-**Behavior:**
-- Embeds `internal/web/index.html` via `//go:embed`.
-- HTTP server with three routes:
-  - `GET /` → the embedded HTML.
-  - `GET /api/companies` → JSON: every company joined with optional
-    verdict, status, enrichment URL/summary. Ordered by verdict
-    (`yes` < `maybe` < `no` < unscored), then name.
-  - `GET /healthz` → `ok`.
-- Page is a single dark-mode table. Client-side sort by column, filter by
-  verdict/status, free-text search across name/vertical/reason, click a
-  row to expand the website summary inline.
-- Graceful shutdown on SIGINT/SIGTERM.
+A single embedded HTML page plus a **full control surface** — the whole pipeline
+runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 
-**Output:** `scout triage UI at http://localhost:8765` (or wherever).
+**Read / triage**
 
-**Idempotent?** Read-only. No state changes.
+| Route | Does |
+|---|---|
+| `GET /` | the embedded triage UI |
+| `GET /api/companies` | every company joined with verdict/status/enrichment |
+| `GET /api/companies/{id}` | full detail (incl. last episode-sent timestamp) |
+| `POST /api/companies/{id}/status` | **status write-back** → `new`/`reviewed`/`tracked`/`dismissed` |
+| `GET /api/companies/{id}/brain` | **per-company recall** panel — `Recall(name, 5)` |
+| `GET /api/stats` | counts + current criteria version/source |
+| `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |
+| `GET /healthz` | `ok` |
 
-**Flags:** `--db`, `--addr :8765`.
+**Run the pipeline as background jobs**
+
+| Route | Does |
+|---|---|
+| `POST /api/ingest` | multipart CSV upload (field `csv`) → temp file → ingest job |
+| `POST /api/run/{stage}` | start `enrich`/`verdict`/`episodes` as a job |
+| `GET /api/jobs/{id}/stream` | **live SSE progress** (one line per company) |
+| `POST /api/jobs/{id}/cancel` | cancel a running job |
+| `GET /api/runs` | **durable run history** (last 30, from the `runs` table) + busy stage |
+
+- The runner allows one job at a time (409 Conflict if busy). Each run is
+  recorded in `runs` (verdict runs stamp the criteria version).
+- `verdict` jobs 412 without `ANTHROPIC_API_KEY`; `episodes` jobs 412 without a
+  configured brain. The server health-gates the per-company recall client the
+  same way the CLI does.
+
+**Editor — local files only, never the brain**
+
+| Route | Does |
+|---|---|
+| `GET`/`PUT /api/taste` | read/write `taste.md` (the offline fallback criteria) |
+| `GET`/`PUT /api/playbook` | read/write `playbook.md` |
+
+A PUT re-resolves criteria + re-folds the playbook into the version (matching
+`scout verdict`). Per the editor-isolation invariant in `north-star.md`, these
+write the **local files only** and never touch the brain client.
 
 ---
 
-## `scout episodes`
+## `scout episodes` — verdict write-back
 
-**Input:** `verdicts` table, brainbot URL.
+| | |
+|---|---|
+| **Input** | `verdicts` table + a configured brain. |
+| **Output** | `sent=N failed=N`. |
+| **Idempotent** | Yes — keyed on decision content (`verdict_hash`). |
+| **Requires** | `--brainbot URL` (or `BRAINBOT_URL`); default `http://127.0.0.1:8100`. |
 
 **Behavior:**
-- Selects verdicts whose `(company_id, taste_version)` isn't in
-  `episodes_sent`.
-- For each: looks up company name/domain, formats a natural-language
-  sentence ("Scout verdicted <Company> as 'yes' on YYYY-MM-DD. Reason: …"),
-  and calls `add_memory` over MCP at `{URL}/mcp`. On 2xx, records in `episodes_sent`.
+- Health-checks the brain, then for each pending verdict ships a **third-person
+  natural-language sentence naming Alex** via `POST /capture`, e.g.
 
-**Requires:** `--brainbot URL` (or `BRAINBOT_URL` env var).
+  > Alex's scout tool verdicted Acme (acme.com) as "no" on 2026-05-28. Reason: crypto wallet (excluded).
 
-**Output:** `sent=N failed=N`.
-
-**Idempotent?** Yes, by `(company_id, taste_version)` via `episodes_sent`.
-
-**See also:** [north-star.md](./north-star.md) for how scout talks to the brain
-(capture/recall/profile), and brainbot's own `docs/consumer-api.md`.
+  The brain decomposes and extracts it server-side.
+- `capture` is slow (decompose + extract, ~seconds, ~1¢ each), so episodes ship
+  **sequentially**, one progress line per verdict.
+- **Dedup is on the decision content**, not the criteria version:
+  `verdict_hash = sha256[:12]` of `verdict + reason`. `episodes_sent` holds the
+  **last captured decision per company** — a re-run with no decision change is a
+  no-op; a changed verdict/reason re-captures and replaces the prior row.
 
 ---
 
 ## `scout stats`
 
-**Output:** `companies=N` plus verdict histogram if any.
+| | |
+|---|---|
+| **Output** | `companies=N` + verdict histogram if any. |
 
-Useful sanity check between stages.
+A quick sanity check between stages.

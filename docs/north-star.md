@@ -15,6 +15,21 @@ the brain.
 It is brainbot's canonical example consumer (brainbot's `value-prop.md` names
 the "job-fit scorer" as its #1 demonstration of the pattern).
 
+## Why scout exists
+
+Job discovery is a noisy filter problem. Crunchbase exports, YC batches, and
+similar sources surface thousands of companies; maybe 1% are worth a serious
+look. Manual triage is slow and inconsistent, and keyword filters miss nuance —
+a "Solutions Engineer" role is on- or off-target depending on whether it's
+*building*. An LLM with real personal context can do this in batch, **if** the
+context is real (the brain), the pipeline is cheap to re-run, and the output
+feeds the existing workflow instead of replacing it.
+
+**Non-goals.** Not a replacement for the Notion tracker (the system of record
+for committed pipeline). Not a job-board scraper — scout works on company-level
+data, not listings. Not real-time; it's a batch tool, run on a fresh dump. Not
+auto-applying. Not multi-user — it's Alex's tool.
+
 ## System at a glance
 
 ```
@@ -177,15 +192,15 @@ The name is historical; treat it as the mechanical layer. Any vertical
 thinned to coarse cheap culls at most, with the real exclusion logic living in
 the brain's episode bodies.
 
-## OPEN decisions (resolve before building)
-
-- **Where the criteria bodies come from.** `profile` vs `recall(broad query)` —
-  pin against one live `/profile` call (brainbot's two docs disagree on whether
-  `profile` returns fact-records or bodies). Tracked in `brain-first-plan.md`.
-
 ## How this relates to the other docs
 
-- [`brain-first-plan.md`](./brain-first-plan.md) — the execution plan to get the
-  code from its current state to this north star.
-- `PRD.md` — the original product spec (problem, non-goals, data model).
+This doc owns the architecture and concept; the rest is reference and links back
+here.
+
+- [`pipeline.md`](./pipeline.md) — each command's behavior.
+- [`verdict.md`](./verdict.md) — the LLM call: prompt assembly, caching, escalation.
+- [`enrichment.md`](./enrichment.md) — about-page fetch + fetch-status taxonomy.
+- [`data-model.md`](./data-model.md) — the SQLite schema.
+- [`operations.md`](./operations.md) — flags, env, troubleshooting.
+- [`limitations.md`](./limitations.md) — current limits and where it breaks first.
 - `CLAUDE.md` — working instructions + current state for Claude.
