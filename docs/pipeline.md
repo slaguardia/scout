@@ -169,8 +169,8 @@ changes the version and triggers re-scoring on the next run.
 
 **Idempotent?** Yes, by `(company_id, taste_version)` via `episodes_sent`.
 
-**See also:** [brainbot-contract.md](./brainbot-contract.md) for the wire
-shape.
+**See also:** [north-star.md](./north-star.md) for how scout talks to the brain
+(capture/recall/profile), and brainbot's own `docs/consumer-api.md`.
 
 ---
 

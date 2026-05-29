@@ -211,8 +211,9 @@ brain service ──(profile / recall)──▶ scout: reasons with its own LLM 
      version changes → verdicts re-score next run.** That is the original PRD §6
      bet, finally wired correctly. Expected behavior, not a bug.
    - **`internal/filter` implication:** the cheap SQL pre-filter (`taste.toml`)
-     still gates on location/headcount/vertical. But per brainbot-contract.md,
-     rule-bearing logic should ultimately come from the episode bodies too. For
+     still gates on location/headcount/vertical. But per the facts-vs-episodes
+     rule (north-star.md), rule-bearing logic should come from the episode
+     bodies too. For
      this plan, keep `taste.toml` as the structured pre-filter and let the
      episode-body taste block carry the nuanced gates into the verdict prompt;
      note any divergence between `taste.toml` exclusions and the brain's stated
@@ -307,15 +308,14 @@ back to the brain. Fix whatever real data breaks.
 
 **Changes:**
 - Audit: confirm the browser covers ingest, enrich, verdict, episodes, triage,
-  status, taste/playbook view+edit, run history (post-V3 it does). Note any gap.
-- Docs/mental-model: update `README.md`, `CLAUDE.md`, and `docs/architecture.md`
-  so the web UI is presented as the primary interface and the CLI as
-  secondary (automation/cron/debug/headless). Do **not** delete the CLI.
-- `docs/brainbot-contract.md`: rewrite for the capture/recall/profile contract
-  (the current doc still describes the retired MCP tools).
+  status, playbook view+edit, run history (post-V3 it does). Note any gap.
+- Docs/mental-model: update `README.md` and `CLAUDE.md` so the web UI is the
+  primary interface and the CLI is secondary (automation/cron/debug/headless).
+  Do **not** delete the CLI. (`north-star.md` is already brain-first; keep it
+  the canonical doc.)
 
-**Acceptance:** docs reflect web-first + the real brain contract; no functional
-web gap remains.
+**Acceptance:** docs reflect web-first; `north-star.md` is the single source of
+truth for the architecture; no functional web gap remains.
 
 ---
 

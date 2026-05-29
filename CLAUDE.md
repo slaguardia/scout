@@ -48,11 +48,19 @@ Go 1.22 · SQLite (`modernc.org/sqlite`, pure-Go) · BurntSushi/toml · Anthropi
 - **M2** — `scout enrich`: parallel about-page fetch (default 8 workers, 12s timeout), regex HTML strip, ~3000-rune summary cached in `enrichment` table. Idempotent: re-runs skip rows where `enrichment.fetched_at >= companies.ingested_at`.
 - **M3** — `scout verdict`: Haiku via direct Anthropic /v1/messages call (no SDK dep), narrative taste from `taste.md`, JSON output parsed and persisted to `verdicts`. Idempotent by `(company_id, taste_version)`.
 - **M4** — `scout serve`: localhost HTML + `/api/companies` JSON, embedded `index.html` with client-side sort/filter/search.
-- **M5** — ⚠️ **SUPERSEDED, built against a retired API.** Was brain taste-pull via `search_memory_facts` (MCP). That tool is gone; the brain is now `capture`/`recall`/`profile` over plain HTTP/JSON. Being redone — see `docs/brain-first-plan.md`.
-- **M6** — ⚠️ **SUPERSEDED, built against a retired API.** Was episode write-back via `add_memory` (MCP). `add_memory` is gone (now `capture`). Being redone — see `docs/brain-first-plan.md`.
+- **Brain integration** — in flight. Scout reads Alex's criteria from the brain
+  (`profile`/`recall`, episode bodies) and writes verdicts back via `capture`,
+  all over plain HTTP/JSON. See `docs/brain-first-plan.md`.
+- **UI v2 + v3 + playbook** — done: detail pane, status write-back, stats
+  sidebar, full control surface (run the pipeline from the browser, CSV upload,
+  live progress, run history), and a brain-isolated playbook editor.
 
-> ⚠️ Scout's brain client (`internal/brainbot/client.go`) currently speaks the **retired** Graphiti MCP surface and silently fails against the live brain. The live contract (capture/recall/profile, plain HTTP/JSON) and the corrective plan are in `docs/brain-first-plan.md`. Also note: this "What's done" list predates the UI v2/v3 + playbook work — see PRD.md and `docs/` for the current feature set.
+Architecture is in `docs/north-star.md` (the canonical doc): the brain owns the
+knowledge of Alex; scout brings the intelligence (its LLM + the playbook). No
+scout-local "taste" — the local file is an offline fallback only.
 
 ## What's next
 
-**Execute `docs/brain-first-plan.md`** — re-point the brain client to the live contract, make the brain (not `taste.md`) the primary intelligence source, then land a real Crunchbase CSV run. That plan is the source of truth for next steps.
+**Execute `docs/brain-first-plan.md`** — point the brain client at the live
+contract, make the brain the source of Alex's criteria, then land a real
+Crunchbase CSV run. `docs/north-star.md` is the target; the plan is the path.

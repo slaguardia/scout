@@ -147,8 +147,6 @@ brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
 ## How this relates to the other docs
 
 - [`brain-first-plan.md`](./brain-first-plan.md) — the execution plan to get the
-  code from its current (broken, taste-first) state to this north star.
-- [`architecture.md`](./architecture.md) — **legacy**: describes the taste-first
-  build. Superseded by this doc on every point of conflict.
-- `PRD.md`, `CLAUDE.md` — milestone history; the brain milestones (M5/M6) are
-  marked superseded.
+  code from its current state to this north star.
+- `PRD.md` — the original product spec (problem, non-goals, data model).
+- `CLAUDE.md` — working instructions + current state for Claude.

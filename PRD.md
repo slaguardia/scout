@@ -43,7 +43,10 @@ Scout doesn't hardcode preferences. It pulls them from brainbot at verdict-time.
 
 This means: changing the taste in brainbot changes scout's verdicts on the next run, with no scout code changes. That's the bet.
 
-**Resolved:** scout calls the brain's `search_memory_facts` MCP tool with `query: "job search taste preferences"` (group `brain`, up to 20 facts) and joins the returned fact strings into a single narrative block fed to the verdict prompt. See `docs/brainbot-contract.md`.
+Scout reads Alex's criteria from the brain over plain HTTP/JSON (`profile` /
+`recall`, reading episode bodies — not just extracted facts). See
+[`docs/north-star.md`](./docs/north-star.md) for the architecture and
+[`docs/brain-first-plan.md`](./docs/brain-first-plan.md) for the implementation.
 
 ## 7. Data model (SQLite)
 
@@ -124,9 +127,12 @@ Read-only. Served by the Go binary on localhost.
 2. **M2 — Enrichment.** ✅ `scout enrich`: parallel about-page fetch, HTML strip, SQLite cache, idempotent.
 3. **M3 — Verdict (static taste).** ✅ `scout verdict`: Haiku via Anthropic API, narrative taste from `taste.md`, idempotent by `taste_version`.
 4. **M4 — Triage UI.** ✅ `scout serve`: read-only HTML/JSON on localhost, sort/filter/search.
-5. **M5 — brainbot integration.** ⚠️ **SUPERSEDED — built against a retired API.** Was: `scout verdict --brainbot URL` pulls live taste via the brain's `search_memory_facts` MCP tool. That tool no longer exists; the brain narrowed to `capture`/`recall`/`profile` over plain HTTP/JSON. Being redone in [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
-6. **M6 — Episode write-back.** ⚠️ **SUPERSEDED — built against a retired API.** Was: `scout episodes --brainbot URL` ships verdicts via the brain's `add_memory` MCP tool. `add_memory` no longer exists (now `capture`). Being redone in [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
+5. **M5 — brain integration.** Scout reads Alex's criteria from the brain
+   (`profile`/`recall`, episode bodies) over plain HTTP/JSON. Implementation in
+   [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
+6. **M6 — Verdict write-back.** Scout writes each verdict back to the brain via
+   `capture`, closing the loop so judgments become memory.
 
-> ⚠️ **The brainbot integration described below is broken** — it targets the retired Graphiti MCP surface. The live contract and the corrective plan are in [`docs/brain-first-plan.md`](./docs/brain-first-plan.md).
-
-Scout's brain client lives at [`internal/brainbot/client.go`](./internal/brainbot/client.go). The wire protocol, tool surface, and integration patterns are owned by brainbot — see its [`docs/consumer-integration.md`](../brainbot/docs/consumer-integration.md). Scout-side specifics are in [`docs/brainbot-contract.md`](./docs/brainbot-contract.md).
+Architecture: [`docs/north-star.md`](./docs/north-star.md). Brain contract:
+brainbot's [`docs/consumer-api.md`](../brainbot/docs/consumer-api.md). Scout's
+brain client: [`internal/brainbot/client.go`](./internal/brainbot/client.go).
