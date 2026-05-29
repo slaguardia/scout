@@ -41,9 +41,10 @@ type Scorer struct {
 	// Idempotent per (company_id, taste_version, escalated_model).
 	EscalateModel string
 
-	// Optional: when set, scoreOne calls search_nodes(query=company.Name)
-	// against the brain and appends "What the brain already knows" to the
-	// user prompt. Cached per-Run via brainCache; brain errors are logged
+	// Optional: when set, scoreOne calls recall(query=company.Name) against the
+	// brain and appends "What the brain already knows" to the user prompt,
+	// keeping only facts above brainScoreFloor (fresh companies score low and
+	// inject nothing). Cached per-Run via brainCache; brain errors are logged
 	// and ignored so verdict never fails because of a brain miss.
 	Brainbot *brainbot.Client
 
@@ -54,8 +55,13 @@ type Scorer struct {
 	Progress func(string)
 
 	brainMu    sync.Mutex
-	brainCache map[string][]brainbot.Node
+	brainCache map[string][]string
 }
+
+// brainScoreFloor is the recall relevance cutoff for per-company context. The
+// brain reports scores but does not threshold; below this, a fresh company's
+// all-low scores would otherwise inject noise. ~0.4 keeps only on-target facts.
+const brainScoreFloor = 0.4
 
 func (s *Scorer) emit(line string) {
 	if s.Progress != nil {
@@ -91,7 +97,7 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 		s.Model = anthropic.DefaultModel
 	}
 	// Fresh brain-context cache per Run.
-	s.brainCache = make(map[string][]brainbot.Node)
+	s.brainCache = make(map[string][]string)
 
 	cands, err := s.candidates()
 	if err != nil {
@@ -241,9 +247,9 @@ func (s *Scorer) runEscalation(ctx context.Context, res *Result) error {
 // escalateOne re-scores a single candidate with s.EscalateModel and persists
 // via UpsertEscalatedVerdict. Returns (nil, ...) if skipped.
 func (s *Scorer) escalateOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
-	brainNodes := s.lookupBrain(ctx, c.Name) // re-uses per-Run cache
+	brainFacts := s.lookupBrain(ctx, c.Name) // re-uses per-Run cache
 	system := buildSystemPrompt(s.Playbook, s.Taste.Text)
-	user := buildUserPrompt(c, brainNodes)
+	user := buildUserPrompt(c, brainFacts)
 
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // sonnet a bit slower
 	defer cancel()
@@ -354,9 +360,9 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		}
 	}
 
-	brainNodes := s.lookupBrain(ctx, c.Name)
+	brainFacts := s.lookupBrain(ctx, c.Name)
 	system := buildSystemPrompt(s.Playbook, s.Taste.Text)
-	user := buildUserPrompt(c, brainNodes)
+	user := buildUserPrompt(c, brainFacts)
 
 	// Bound per-call latency separately from the global ctx.
 	callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -425,7 +431,7 @@ func buildSystemPrompt(playbook, taste string) string {
 	return b.String()
 }
 
-func buildUserPrompt(c store.VerdictCandidate, brainNodes []brainbot.Node) string {
+func buildUserPrompt(c store.VerdictCandidate, brainFacts []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Company: %s\n", c.Name)
 	if c.Domain != "" {
@@ -446,50 +452,61 @@ func buildUserPrompt(c store.VerdictCandidate, brainNodes []brainbot.Node) strin
 	if c.WebsiteSummary != "" {
 		fmt.Fprintf(&b, "\nWebsite text (truncated):\n%s\n", c.WebsiteSummary)
 	}
-	if len(brainNodes) > 0 {
+	if len(brainFacts) > 0 {
 		b.WriteString("\nWhat the brain already knows about this company:\n")
-		for _, n := range brainNodes {
-			fmt.Fprintf(&b, "- %s", n.Name)
-			if len(n.Labels) > 0 {
-				fmt.Fprintf(&b, " (%s)", strings.Join(n.Labels, ", "))
-			}
-			if n.Summary != "" {
-				fmt.Fprintf(&b, ": %s", n.Summary)
-			}
-			b.WriteString("\n")
+		for _, f := range brainFacts {
+			fmt.Fprintf(&b, "- %s\n", f)
 		}
 	}
 	b.WriteString("\nReturn the JSON verdict now.")
 	return b.String()
 }
 
-// lookupBrain returns cached nodes for the company name. On brain error,
-// logs to stderr and returns nil — the verdict still runs without brain
-// context. Empty slices are also cached so retries don't re-query.
-func (s *Scorer) lookupBrain(ctx context.Context, name string) []brainbot.Node {
+// lookupBrain returns cached recall facts for the company name, keeping only
+// those above brainScoreFloor (a fresh company's all-low scores inject
+// nothing). On brain error, logs to stderr and returns nil — the verdict still
+// runs without brain context. Empty slices are also cached so retries don't
+// re-query.
+func (s *Scorer) lookupBrain(ctx context.Context, name string) []string {
 	if s.Brainbot == nil || !s.Brainbot.Enabled() {
 		return nil
 	}
 	s.brainMu.Lock()
-	if nodes, ok := s.brainCache[name]; ok {
+	if facts, ok := s.brainCache[name]; ok {
 		s.brainMu.Unlock()
-		return nodes
+		return facts
 	}
 	s.brainMu.Unlock()
 
 	lookupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	nodes, err := s.Brainbot.SearchNodes(lookupCtx, name, 5)
+	var facts []string
+	res, err := s.Brainbot.Recall(lookupCtx, name, 5)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "brain lookup for %q failed: %v\n", name, err)
-		nodes = nil
+	} else {
+		facts = factsAboveFloor(res.Facts, brainScoreFloor)
 	}
 
 	s.brainMu.Lock()
-	s.brainCache[name] = nodes
+	s.brainCache[name] = facts
 	s.brainMu.Unlock()
-	return nodes
+	return facts
+}
+
+// factsAboveFloor returns the fact strings whose score meets the floor,
+// preserving recall order (best first).
+func factsAboveFloor(facts []brainbot.Fact, floor float64) []string {
+	var out []string
+	for _, f := range facts {
+		if f.Score >= floor {
+			if s := strings.TrimSpace(f.Fact); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 // Verdict parsing: tolerant of surrounding noise, fenced code blocks, etc.

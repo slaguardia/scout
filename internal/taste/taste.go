@@ -1,8 +1,12 @@
-// Package taste loads the narrative taste block used by the verdict stage.
+// Package taste loads the criteria block (what Alex wants) fed to the verdict
+// stage.
 //
-// Source of truth at M3 is a local markdown file (taste.md). At M5 this is
-// replaced by a live fetch from brainbot. Version is the first 12 hex chars of
-// sha256(content), used to invalidate cached verdicts when taste changes.
+// The primary source is the brain (the concatenated episode bodies from
+// /profile); see FromBrain. A local markdown file (taste.md) is the offline
+// fallback for when the brain is unreachable; see LoadFile. Version is the
+// first 12 hex chars of sha256(content) — it changes whenever the criteria
+// change (brain learns something, or the file is edited), which re-scores
+// cached verdicts on the next run.
 package taste
 
 import (
@@ -13,11 +17,24 @@ import (
 	"strings"
 )
 
-// Block is the resolved taste context.
+// Block is the resolved criteria context.
 type Block struct {
-	Text    string // raw narrative block fed to the LLM
+	Text    string // raw criteria block fed to the LLM
 	Version string // short hash for cache keys
-	Source  string // 'file:taste.md' or 'brainbot:<url>'
+	Source  string // 'brain:profile@<url>' (primary) or 'file:taste.md' (fallback)
+}
+
+// FromBrain builds a criteria Block from brain-sourced text — the concatenated
+// faithful episode bodies (the complete record carrying Alex's gates and
+// exclusions), NOT a join of extracted fact strings. source is a label like
+// "brain:profile@http://127.0.0.1:8100".
+func FromBrain(text, source string) *Block {
+	text = strings.TrimSpace(text)
+	return &Block{
+		Text:    text,
+		Version: Hash(text),
+		Source:  source,
+	}
 }
 
 // LoadFile reads taste from a local file.

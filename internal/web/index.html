@@ -1172,10 +1172,10 @@ function renderDetail(d) {
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
 
   const epBlock = d.episode_sent
-    ? `<div class="small">Shipped to brain on <strong>${escapeHTML((d.episode_sent_at || "").slice(0,10))}</strong> for taste_version <code>${escapeHTML(d.taste_version)}</code>.</div>`
+    ? `<div class="small">Captured to brain on <strong>${escapeHTML((d.episode_sent_at || "").slice(0,10))}</strong>.</div>`
     : (d.has_verdict
-        ? '<div class="muted">Not yet shipped to brain. Run <code>scout episodes</code>.</div>'
-        : '<div class="muted">No verdict to ship.</div>');
+        ? '<div class="muted">Not yet captured to brain. Run the Episodes stage.</div>'
+        : '<div class="muted">No verdict to capture.</div>');
 
   const rawRows = Object.keys(d.raw_json || {}).sort();
   const rawHTML = rawRows.length === 0 ? '' : `
@@ -1338,18 +1338,17 @@ async function loadBrain(id) {
     showBrain(`<div class="muted">Brain lookup error: ${escapeHTML(data.error)}.</div>`);
     return;
   }
-  const nodes = data.nodes || [];
-  if (nodes.length === 0) {
+  const facts = data.facts || [];
+  if (facts.length === 0) {
     showBrain('<div class="muted">Nothing in the brain about this company.</div>');
     return;
   }
-  showBrain(nodes.map(n => `
+  showBrain(facts.map(f => `
     <div class="brain-node">
       <div class="n">
-        <span>${escapeHTML(n.name)}</span>
-        ${n.labels && n.labels.length ? `<span class="l">${escapeHTML(n.labels.join(" · "))}</span>` : ""}
+        <span>${escapeHTML(f.fact)}</span>
+        ${typeof f.score === "number" ? `<span class="l">${f.score.toFixed(2)}</span>` : ""}
       </div>
-      ${n.summary ? `<div class="s">${escapeHTML(n.summary)}</div>` : ""}
     </div>
   `).join(""));
 }
@@ -1387,7 +1386,7 @@ async function loadMeta() {
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
   const eb = document.getElementById("btn-episodes");
   eb.disabled = !ctl || !state.meta.brain;
-  eb.title = state.meta.brain ? "" : "start scout serve --brainbot URL to enable";
+  eb.title = state.meta.brain ? "" : "brain not reachable — start the brain (or scout serve --brainbot URL)";
 }
 
 // ---- control surface: runs history ----

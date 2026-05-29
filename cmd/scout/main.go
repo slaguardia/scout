@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -34,6 +35,11 @@ import (
 	"github.com/slaguardia/scout/internal/verdict"
 	"github.com/slaguardia/scout/internal/web"
 )
+
+// defaultBrainURL is the brain's standard local address (brainbot serves HTTP
+// here; see brainbot/docs/consumer-integration.md). The brain is primary by
+// default — scout falls back to taste.md only when it's genuinely unreachable.
+const defaultBrainURL = "http://127.0.0.1:8100"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -70,6 +76,10 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `scout — personal job-research pipeline
 
+The web UI (`+"`scout serve`"+`) is the primary interface; the CLI below is the
+secondary automation/debug surface. The brain is primary by default
+(`+defaultBrainURL+`); scout falls back to taste.md only when it's unreachable.
+
 Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
   scout filter [--taste taste.toml] [--db scout.db]
@@ -83,7 +93,8 @@ Usage:
   scout stats [--db scout.db]
 
 Environment:
-  ANTHROPIC_API_KEY   required for `+"`verdict`"+`.`)
+  ANTHROPIC_API_KEY   required for `+"`verdict`"+`.
+  BRAINBOT_URL        default brain URL for `+"`episodes`"+`.`)
 }
 
 // --- ingest ---
@@ -206,7 +217,7 @@ func cmdVerdict(args []string) error {
 	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (how to decide); optional")
-	brainbotURL := fs.String("brainbot", "", "brainbot base URL; if set, overrides --taste-md")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); criteria come from here when healthy, else --taste-md. Empty disables.")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for the first pass")
 	escalateModel := fs.String("escalate-model", "", "if non-empty, re-score every 'maybe' with this model (e.g. claude-sonnet-4-5)")
 	workers := fs.Int("workers", 4, "parallel API calls")
@@ -229,25 +240,39 @@ func cmdVerdict(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	// Resolve narrative taste: brainbot if configured (M5), else local file.
-	// The same brainbot.Client (when configured) is also reused for per-company
-	// search_nodes lookups during scoring — D1.
+	// Resolve criteria: brain-primary (the episode bodies carry Alex's gates
+	// and exclusions), taste.md as the offline fallback. The same client (when
+	// healthy) also serves per-company recall during scoring.
 	var (
 		tb *taste.Block
 		bc *brainbot.Client
 	)
 	if *brainbotURL != "" {
 		bc = brainbot.New(*brainbotURL)
-		tb, err = bc.FetchTaste(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "brainbot taste fetch failed (%v); falling back to %s\n", err, *tasteMD)
-			tb, err = taste.LoadFile(*tasteMD)
+		hctx, hcancel := context.WithTimeout(ctx, 5*time.Second)
+		herr := bc.Health(hctx)
+		hcancel()
+		switch {
+		case herr != nil:
+			fmt.Fprintf(os.Stderr, "brain unreachable at %s (%v); falling back to %s\n", *brainbotURL, herr, *tasteMD)
+			bc = nil // don't retry a dead brain for every company
+		default:
+			text, cerr := bc.Criteria(ctx)
+			switch {
+			case cerr != nil:
+				fmt.Fprintf(os.Stderr, "brain criteria fetch failed (%v); falling back to %s\n", cerr, *tasteMD)
+			case strings.TrimSpace(text) == "":
+				fmt.Fprintf(os.Stderr, "brain is healthy but has no criteria captured yet; using %s until Alex captures them\n", *tasteMD)
+			default:
+				tb = taste.FromBrain(text, "brain:profile@"+*brainbotURL)
+			}
 		}
-	} else {
-		tb, err = taste.LoadFile(*tasteMD)
 	}
-	if err != nil {
-		return err
+	if tb == nil {
+		tb, err = taste.LoadFile(*tasteMD)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Load the optional playbook (how-to-decide). Folding it into the taste
@@ -320,7 +345,7 @@ func cmdVerdict(args []string) error {
 func cmdEpisodes(args []string) error {
 	fs := flag.NewFlagSet("episodes", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
-	brainbotURL := fs.String("brainbot", os.Getenv("BRAINBOT_URL"), "brainbot base URL")
+	brainbotURL := fs.String("brainbot", envOr("BRAINBOT_URL", defaultBrainURL), "brain base URL (HTTP)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -338,7 +363,14 @@ func cmdEpisodes(args []string) error {
 	defer cancel()
 
 	bc := brainbot.New(*brainbotURL)
-	sent, failed, err := brainbot.ShipEpisodes(ctx, db, bc, func(line string) {
+	hctx, hcancel := context.WithTimeout(ctx, 5*time.Second)
+	herr := bc.Health(hctx)
+	hcancel()
+	if herr != nil {
+		return fmt.Errorf("brain unreachable at %s: %w", *brainbotURL, herr)
+	}
+
+	sent, failed, err := brainbot.CaptureVerdicts(ctx, db, bc, func(line string) {
 		fmt.Println(" ", line)
 	})
 	if err != nil {
@@ -346,6 +378,14 @@ func cmdEpisodes(args []string) error {
 	}
 	fmt.Printf("sent=%d failed=%d\n", sent, failed)
 	return nil
+}
+
+// envOr returns the environment value for key, or def if unset/empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 // --- serve ---
@@ -358,7 +398,7 @@ func cmdServe(args []string) error {
 	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
-	brainbotURL := fs.String("brainbot", "", "brainbot base URL; enables brain context + episode runs")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source + episode runs. Empty disables (taste.md fallback).")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

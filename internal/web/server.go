@@ -53,13 +53,25 @@ type Server struct {
 	playbookText string       // current playbook text
 }
 
-// ReloadTaste re-reads taste.md + playbook.md, folds the playbook into the
-// version (matching `scout verdict`), and stores the result. Safe to call
-// concurrently with reads. A missing taste file leaves taste nil.
+// ReloadTaste resolves the criteria block (brain-primary, taste.md fallback)
+// and folds the playbook into the version (matching `scout verdict`). Safe to
+// call concurrently with reads. When neither source yields criteria, taste is
+// left nil. Called at startup and after every editor PUT.
 func (s *Server) ReloadTaste() {
 	var tb *taste.Block
-	if t, err := taste.LoadFile(s.TasteMDPath); err == nil {
-		tb = t
+	if s.Brainbot != nil && s.Brainbot.Enabled() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := s.Brainbot.Health(ctx); err == nil {
+			if text, err := s.Brainbot.Criteria(ctx); err == nil && strings.TrimSpace(text) != "" {
+				tb = taste.FromBrain(text, "brain:profile@"+s.Brainbot.BaseURL)
+			}
+		}
+		cancel()
+	}
+	if tb == nil { // brain unreachable, or healthy-but-empty → local fallback
+		if t, err := taste.LoadFile(s.TasteMDPath); err == nil {
+			tb = t
+		}
 	}
 	pb, _ := playbook.Load(s.PlaybookPath)
 	if tb != nil && pb != "" {
@@ -235,15 +247,34 @@ func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id i
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	nodes, err := s.Brainbot.SearchNodes(ctx, name, 5)
+	res, err := s.Brainbot.Recall(ctx, name, 5)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"nodes": []brainbot.Node{}, "error": err.Error(), "query": name})
+		writeJSON(w, http.StatusOK, map[string]any{"facts": []brainFact{}, "error": err.Error(), "query": name})
 		return
 	}
-	if nodes == nil {
-		nodes = []brainbot.Node{}
+	facts := make([]brainFact, 0, len(res.Facts))
+	for _, f := range res.Facts {
+		facts = append(facts, brainFact{Fact: f.Fact, Score: f.Score})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "query": name})
+	writeJSON(w, http.StatusOK, map[string]any{"facts": facts, "query": name})
+}
+
+// brainFact is the per-company recall shape rendered in the detail pane.
+type brainFact struct {
+	Fact  string  `json:"fact"`
+	Score float64 `json:"score"`
+}
+
+// brainHealthy reports whether the brain is configured AND currently reachable.
+// Used to gate UI controls; /api/meta loads once per page load, so the probe
+// cost is negligible.
+func (s *Server) brainHealthy(parent context.Context) bool {
+	if s.Brainbot == nil || !s.Brainbot.Enabled() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+	return s.Brainbot.Health(ctx) == nil
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

@@ -100,16 +100,12 @@ WHERE c.id = ?`
 		d.FetchedAt = fetchedAt.String
 	}
 
-	// Episode-sent lookup keyed by current verdict's taste_version (if any).
+	// Episode-sent lookup keyed by the verdict's decision content (see
+	// VerdictHash) — matches the capture dedup key, independent of taste_version.
 	if d.HasVerdict {
-		var sentAt sql.NullString
-		err := db.QueryRow(
-			`SELECT sent_at FROM episodes_sent WHERE company_id = ? AND taste_version = ?`,
-			d.CompanyID, d.TasteVersion,
-		).Scan(&sentAt)
-		if err == nil && sentAt.Valid {
+		if sentAt, ok, e := db.EpisodeSent(d.CompanyID, VerdictHash(d.Verdict, d.Reason)); e == nil && ok {
 			d.EpisodeSent = true
-			d.EpisodeSentAt = sentAt.String
+			d.EpisodeSentAt = sentAt
 		}
 	}
 

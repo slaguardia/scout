@@ -105,7 +105,7 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			Filter:        ft,
 			Client:        s.Anthropic,
 			Playbook:      s.currentPlaybook(),
-			Brainbot:      s.Brainbot, // per-company context only; taste stays file-sourced in the UI
+			Brainbot:      s.Brainbot, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
 			EscalateModel: opts.EscalateModel,
 			Force:         opts.Force,
 			Workers:       4,
@@ -132,7 +132,7 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 
 func (s *Server) episodesJob() jobs.Func {
 	return func(ctx context.Context, emit func(string)) (map[string]any, error) {
-		sent, failed, err := brainbot.ShipEpisodes(ctx, s.DB, s.Brainbot, emit)
+		sent, failed, err := brainbot.CaptureVerdicts(ctx, s.DB, s.Brainbot, emit)
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +224,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"control": s.Runner != nil,
-		"brain":   s.Brainbot != nil && s.Brainbot.Enabled(),
+		"brain":   s.brainHealthy(r.Context()),
 		"verdict": s.Anthropic != nil && s.Anthropic.APIKey != "",
 		"source":  s.IngestSource,
 	})
