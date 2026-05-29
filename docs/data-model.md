@@ -133,40 +133,11 @@ differs from the requested model, so escalation is idempotent per model.
 
 ---
 
-### `episodes_sent` — write-back dedup
-```sql
-episodes_sent (
-    company_id   INTEGER NOT NULL FK companies(id) ON DELETE CASCADE,
-    verdict_hash TEXT NOT NULL,   -- sha256[:12] of verdict + "\n" + reason
-    sent_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (company_id, verdict_hash)
-)
-```
-
-Records that a verdict's *decision* was captured to the brain. The verdict
-write-back (`scout episodes`) only ships decisions missing from this table.
-
-Keyed on the **decision content** (`verdict_hash = sha256[:12]` of
-`verdict + "\n" + reason`), **not** `taste_version` (re-keyed in migration
-`0006`). The criteria version is brain-derived and shifts whenever the brain
-changes; keying on it would re-capture every verdict on each brain update.
-Keying on the decision content means scout captures only when the decision
-itself is new or changed.
-
-`episodes_sent` holds **exactly the last captured decision per company**.
-`MarkEpisodeSent` deletes any prior hash for the company before inserting the
-new one (in one transaction). So a re-score to a new decision captures once; and
-if a later re-score *reverts* to an earlier decision, that revert is treated as
-new and re-captured — otherwise the brain would keep holding the stale
-intermediate verdict. (The brain dedups on its side regardless.)
-
----
-
 ### `runs` — pipeline run history
 ```sql
 runs (
     id            TEXT PK,           -- uuid
-    stage         TEXT NOT NULL,     -- 'ingest' | 'enrich' | 'verdict' | 'episodes'
+    stage         TEXT NOT NULL,     -- 'ingest' | 'enrich' | 'verdict'
     status        TEXT NOT NULL,     -- 'running' | 'done' | 'failed' | 'canceled'
     started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     finished_at   DATETIME,          -- NULL while running
@@ -199,14 +170,13 @@ One row per applied migration filename. The `migrate()` loop in
 companies (1) ─── (0..1) status
           (1) ─── (0..1) enrichment
           (1) ─── (0..1) verdicts
-          (1) ─── (0..1) episodes_sent   -- last captured decision only
 
 runs            -- standalone; no FK to companies (run-level history)
 ```
 
 `FOREIGN KEY ... ON DELETE CASCADE` on every company-scoped table. Delete a
-company and its `status`/`enrichment`/`verdicts`/`episodes_sent` rows go with
-it. `runs` is independent of any company.
+company and its `status`/`enrichment`/`verdicts` rows go with it. `runs` is
+independent of any company.
 
 ## Idempotency keys at a glance
 
@@ -217,7 +187,6 @@ it. `runs` is independent of any company.
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
 | escalate | `maybe` row not yet escalated to the requested model | new criteria version, or a different escalation model |
-| episodes | `verdict_hash` (decision content) in `episodes_sent` | the decision (verdict + reason) changes |
 
 ## Why not Postgres / per-stage tables / event sourcing
 

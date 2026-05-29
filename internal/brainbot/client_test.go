@@ -2,7 +2,6 @@ package brainbot
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,41 +121,18 @@ func TestRecallNoLimit(t *testing.T) {
 	}
 }
 
-func TestCapture(t *testing.T) {
-	t.Run("success 202", func(t *testing.T) {
-		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || r.URL.Path != "/capture" {
-				t.Errorf("%s %s, want POST /capture", r.Method, r.URL.Path)
-			}
-			var body struct {
-				Text string `json:"text"`
-			}
-			json.NewDecoder(r.Body).Decode(&body)
-			if !strings.Contains(body.Text, "verdicted Acme") {
-				t.Errorf("text = %q", body.Text)
-			}
-			w.WriteHeader(http.StatusAccepted)
-			io.WriteString(w, `{"mode":"rewrite","episodes":1,"topic":"scout verdict"}`)
-		})
-		err := c.Capture(context.Background(), `Alex's scout tool verdicted Acme (acme.com) as "no" on 2026-05-28.`)
-		if err != nil {
-			t.Fatalf("Capture: %v", err)
-		}
+func TestNon2xxCarriesErrorDetail(t *testing.T) {
+	_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"q is required"}`)
 	})
-
-	t.Run("400 carries error detail", func(t *testing.T) {
-		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"error":"text is required"}`)
-		})
-		err := c.Capture(context.Background(), "")
-		if err == nil {
-			t.Fatal("Capture: want error on 400")
-		}
-		if !strings.Contains(err.Error(), "text is required") {
-			t.Fatalf("error should carry body detail, got %v", err)
-		}
-	})
+	_, err := c.Recall(context.Background(), "", 5)
+	if err == nil {
+		t.Fatal("Recall: want error on 400")
+	}
+	if !strings.Contains(err.Error(), "q is required") {
+		t.Fatalf("error should carry body detail, got %v", err)
+	}
 }
 
 func TestCriteria(t *testing.T) {
@@ -237,8 +213,8 @@ func TestDisabledClient(t *testing.T) {
 	if _, err := c.Profile(context.Background()); err == nil {
 		t.Fatal("disabled client Profile should error")
 	}
-	if err := c.Capture(context.Background(), "x"); err == nil {
-		t.Fatal("disabled client Capture should error")
+	if _, err := c.Recall(context.Background(), "x", 5); err == nil {
+		t.Fatal("disabled client Recall should error")
 	}
 }
 

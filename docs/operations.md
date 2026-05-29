@@ -10,8 +10,8 @@ sideways. For *what scout is* and the brain/scout split, see
 - `ANTHROPIC_API_KEY` for scoring (the `verdict` stage, including UI-triggered
   runs).
 - The brain on `http://127.0.0.1:8100` if you want live criteria + per-company
-  memory + verdict write-back. **Optional** — scout falls back to `taste.md`
-  when it's unreachable.
+  memory (read-only). **Optional** — scout falls back to `taste.md` when it's
+  unreachable.
 
 ## First-run
 
@@ -28,9 +28,9 @@ The migrations are embedded; the first `scout <anything>` call creates
 ## The normal way in: the browser
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,
-enrich, verdict, episodes — runs from there as background jobs with live
-progress, plus triage, status write-back, the criteria/playbook editor, and a
-per-company brain recall panel.
+enrich, verdict — runs from there as background jobs with live progress, plus
+triage, status write-back, the criteria/playbook editor, and a per-company
+brain recall panel.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -40,7 +40,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 Then in the browser: upload a CSV, run the stages, triage the results. The
 brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
-(criteria fall back to `taste.md`, recall/write-back are skipped).
+(criteria fall back to `taste.md`, per-company recall is skipped).
 
 ## A CLI pipeline run
 
@@ -80,10 +80,6 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # 5. Triage in the browser.
 ./scout serve
 # scout triage UI at http://localhost:8765
-
-# 6. Ship verdicts back to the brain via capture.
-./scout episodes
-# sent=18 failed=0
 ```
 
 Re-running any stage is safe. Each stage skips work it's already done.
@@ -103,15 +99,13 @@ scout verdict
    │     ↳ fresh companies match nothing → inject nothing
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite
-         ↳ scout episodes: POST /capture a sentence naming Alex
 ```
 
-The **criteria version** (`taste_version` in the schema) is
+Verdicts are written to scout's SQLite and nowhere else — the brain is
+read-only for scout. The **criteria version** (`taste_version` in the schema) is
 `sha256[:12]` of the playbook + criteria text. When the brain learns something,
 the criteria change, the version changes, and the next run re-scores. That's
-intended. Episode-send dedup is separate — keyed on the *decision content*
-(`verdict_hash` = `sha256[:12]` of verdict + reason), so re-sending an unchanged
-verdict is a no-op.
+intended.
 
 ## Flag reference
 
@@ -146,20 +140,11 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste` | `taste.toml` | Mechanical pre-filter rules (the SQL gate inside this stage). |
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Primary source of criteria + per-company recall + write-back. **Empty disables** → `taste.md` fallback. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of criteria + per-company recall. **Empty disables** → `taste.md` fallback. |
 | `--model` | `claude-haiku-4-5` | Anthropic model for the first pass. |
 | `--escalate-model` | `""` | If set, re-score every `maybe` with this model (e.g. `claude-sonnet-4-5`). |
 | `--workers` | `4` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
-
-### `scout episodes`
-
-Ships pending verdicts to the brain via `POST /capture` (one
-natural-language sentence per verdict, sent sequentially).
-
-| Flag | Default | What |
-|---|---|---|
-| `--brainbot` | `$BRAINBOT_URL` or `http://127.0.0.1:8100` | Brain base URL. Required (errors if empty). |
 
 ### `scout serve`
 
@@ -170,7 +155,7 @@ natural-language sentence per verdict, sent sequentially).
 | `--taste` | `taste.toml` | Mechanical pre-filter rules used by UI verdict runs. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL. Primary criteria source + per-company recall panel + episodes runs. Empty disables → `taste.md` fallback. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source + per-company recall panel. Empty disables → `taste.md` fallback. |
 
 ### `scout stats`
 
@@ -181,7 +166,6 @@ Row counts and the verdict histogram. Takes only `--db`.
 | Var | Used by | Required |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | `verdict` (CLI and UI runs) | Yes for scoring. |
-| `BRAINBOT_URL` | `episodes` | Optional. Overrides the `--brainbot` default when the flag isn't passed. |
 
 Nothing else.
 
@@ -250,7 +234,6 @@ sqlite3 scout.db
 > SELECT fetch_status, COUNT(*) FROM enrichment GROUP BY fetch_status;
 > SELECT taste_version, COUNT(*) FROM verdicts GROUP BY taste_version;   -- criteria version
 > SELECT * FROM runs ORDER BY started_at DESC LIMIT 10;                  -- run history
-> SELECT company_id, verdict_hash FROM episodes_sent;                    -- last captured decision per company
 ```
 
 ## Tearing down

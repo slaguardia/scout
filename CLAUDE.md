@@ -8,9 +8,10 @@ project and a real tool he uses — both audiences matter.
 **[`docs/north-star.md`](./docs/north-star.md) is canonical.** The one-line
 model: the **brain** owns the knowledge (who Alex is, what he wants, his
 rules); **scout** brings the intelligence (its own LLM + a `playbook.md` for
-*how* to judge). Scout reads Alex's criteria from the brain, reasons over them,
-and writes verdicts back. There is **no scout-local "taste"** — `taste.md` is an
-offline fallback only; `taste.toml` is a purely mechanical pre-filter.
+*how* to judge). Scout reads Alex's criteria from the brain (read-only) and
+reasons over them; verdicts stay scout-local and are never written back to the
+brain. There is **no scout-local "taste"** — `taste.md` is an offline fallback
+only; `taste.toml` is a purely mechanical pre-filter.
 
 Then [`docs/`](./docs/) for stage references (pipeline, verdict, enrichment,
 data-model, operations, limitations).
@@ -34,10 +35,11 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   full web control surface — run everything from the browser (CSV upload, live
   progress, run history), plus a brain-isolated playbook editor.
 - **Brain-first, done:** scout speaks the brain's live HTTP contract
-  (`profile`/`recall`/`capture`); the brain is the primary source of Alex's
+  (`profile`/`recall`, read-only); the brain is the primary source of Alex's
   criteria (the episode bodies from `profile`), health-gated, with `taste.md` as
-  the offline fallback. Per-company context comes from `recall`; verdicts are
-  written back via `capture`. Default brain URL is `http://127.0.0.1:8100`.
+  the offline fallback. Per-company context comes from `recall`. Verdicts stay
+  scout-local — never written to the brain. Default brain URL is
+  `http://127.0.0.1:8100`.
 
 ## What's next
 

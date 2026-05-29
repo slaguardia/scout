@@ -40,9 +40,6 @@ type CompanyDetail struct {
 	FetchStatus    string `json:"fetch_status"`
 	FetchError     string `json:"fetch_error"`
 	FetchedAt      string `json:"fetched_at"`
-
-	EpisodeSent   bool   `json:"episode_sent"`
-	EpisodeSentAt string `json:"episode_sent_at"`
 }
 
 // GetCompanyDetail returns the full joined detail for one company.
@@ -98,15 +95,6 @@ WHERE c.id = ?`
 		d.FetchStatus = fetchStatus.String
 		d.FetchError = fetchError.String
 		d.FetchedAt = fetchedAt.String
-	}
-
-	// Episode-sent lookup keyed by the verdict's decision content (see
-	// VerdictHash) — matches the capture dedup key, independent of taste_version.
-	if d.HasVerdict {
-		if sentAt, ok, e := db.EpisodeSent(d.CompanyID, VerdictHash(d.Verdict, d.Reason)); e == nil && ok {
-			d.EpisodeSent = true
-			d.EpisodeSentAt = sentAt
-		}
 	}
 
 	return &d, nil

@@ -51,12 +51,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fn = s.verdictJob(opts)
-	case "episodes":
-		if s.Brainbot == nil || !s.Brainbot.Enabled() {
-			http.Error(w, "episodes needs --brainbot configured", http.StatusPreconditionFailed)
-			return
-		}
-		fn = s.episodesJob()
 	default:
 		http.Error(w, "unknown stage: "+stage, http.StatusBadRequest)
 		return
@@ -135,16 +129,6 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			summary["escalate_by_verdict"] = res.EscalateByVerdict
 		}
 		return summary, nil
-	}
-}
-
-func (s *Server) episodesJob() jobs.Func {
-	return func(ctx context.Context, emit func(string)) (map[string]any, error) {
-		sent, failed, err := brainbot.CaptureVerdicts(ctx, s.DB, s.Brainbot, emit)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"sent": sent, "failed": failed}, nil
 	}
 }
 

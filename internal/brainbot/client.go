@@ -1,19 +1,18 @@
 // Package brainbot is a thin HTTP/JSON client for the brain service.
 //
-// The brain exposes three operations — capture, recall, profile — plus a
-// health probe, over plain HTTP/JSON. (An MCP face at /mcp serves the same
-// three operations for Claude Code; typed consumers like scout use the HTTP
-// routes.) This client mirrors brainbot's reference client,
-// migrate/graphiti_clients.py.
+// Scout uses the brain READ-ONLY: it reads Alex's criteria (/profile) and
+// per-company memory (/recall), plus a /health probe. It never writes — scout's
+// verdicts stay scout-local, not in the brain. (The brain also exposes
+// POST /capture and an MCP face at /mcp, but scout doesn't use them.) This
+// client mirrors brainbot's reference client, migrate/graphiti_clients.py.
 //
 // Verified against the brain's own service.py (the authoritative contract;
 // brainbot/docs/consumer-api.md is stale on /profile):
 //
+//	GET  /health            -> {ok:true}
 //	GET  /profile           -> {count, episodes:[{name,body,source}]}
 //	GET  /recall?q=&limit=  -> {query, facts:[{fact,name,score,valid_at,invalid_at}],
 //	                            episodes:[{name,body}], fact_count, episode_count}
-//	POST /capture {text}    -> 202 {mode, episodes, topic}
-//	GET  /health            -> {ok:true}
 //
 // The brain is an enhancement, never a hard dependency: when it is unreachable
 // callers fall back to local criteria (taste.md). If the base URL isn't
@@ -21,7 +20,6 @@
 package brainbot
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -145,22 +143,6 @@ func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallRes
 	var out RecallResult
 	err := c.getJSON(ctx, "/recall", q, &out)
 	return out, err
-}
-
-// Capture writes natural-language text to the brain. The brain decomposes and
-// extracts it server-side, so this awaits the pipeline (seconds, ~1¢). Returns
-// nil on success (HTTP 202).
-func (c *Client) Capture(ctx context.Context, text string) error {
-	body, err := json.Marshal(map[string]string{"text": text})
-	if err != nil {
-		return err
-	}
-	req, err := c.newRequest(ctx, http.MethodPost, "/capture", nil, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.do(req, nil)
 }
 
 // Criteria returns Alex's full criteria as the concatenated faithful episode

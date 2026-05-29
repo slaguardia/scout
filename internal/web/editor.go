@@ -9,8 +9,8 @@ import (
 // The taste / playbook editor reads and writes ONLY the local instruction
 // files. It never touches the brain — that separation is deliberate and
 // enforced by construction: nothing in this file imports or references the
-// brainbot client. The brain is written only by episode write-back and read
-// only by the verdict taste-pull and per-company context lookups.
+// brainbot client. Scout uses the brain read-only (criteria via profile,
+// per-company context via recall); these editor routes don't go near it.
 
 const maxEditorBytes = 1 << 20 // 1 MB cap on an instruction file
 

@@ -9,8 +9,8 @@
 
 A **job-fit scorer**: it ingests company dumps and, for each company, asks the
 brain "who is Alex and what does he want?" then uses its own LLM to decide
-whether the company is worth Alex's time — and writes that judgment back to
-the brain.
+whether the company is worth Alex's time. The brain is read-only for scout —
+verdicts stay in scout, not the brain.
 
 It is brainbot's canonical example consumer (brainbot's `value-prop.md` names
 the "job-fit scorer" as its #1 demonstration of the pattern).
@@ -44,14 +44,17 @@ auto-applying. Not multi-user — it's Alex's tool.
                           │  · SQLite (working set)         │
                           │  · Haiku (own LLM) + playbook   │
                           └────┬──────────────────────┬─────┘
-           reads criteria +    │                      │  manual: tracker.py add
-           company memory      │  writes verdicts     │
+        reads (only) criteria  │                      │  manual: tracker.py add
+        + company memory        │                      │
                           ┌────▼────────┐        ┌────▼─────────┐
                           │  the brain  │        │   Notion     │
                           │  knowledge  │        │  committed   │
                           │  of Alex   │        │  pipeline    │
                           └─────────────┘        └──────────────┘
 ```
+
+Scout reads the brain (criteria + per-company memory) but never writes it;
+verdicts live only in scout's SQLite.
 
 ## The core principle: intelligence vs. knowledge
 
@@ -60,10 +63,10 @@ auto-applying. Not multi-user — it's Alex's tool.
    (who Alex is, what he                 (how to judge a company
     wants, his rules)                      for fit, in this domain)
             │                                       │
-        ┌───▼────┐      reads criteria        ┌─────▼──────┐
-        │ brain  │ ─────────────────────────▶ │   scout    │
-        │        │ ◀───────────────────────── │ (own LLM + │
-        └────────┘      writes verdicts        │  playbook) │
+        ┌───▼────┐   reads criteria + memory   ┌─────▼──────┐
+        │ brain  │ ──────────────────────────▶ │   scout    │
+        │        │      (read-only — scout      │ (own LLM + │
+        └────────┘       never writes back)     │  playbook) │
                                                └────────────┘
 ```
 
@@ -105,10 +108,10 @@ A single verdict decision combines four things from three sources:
 ```
   output contract (Go, fixed) ─┐
   playbook — how to decide ────┤
-  Alex's criteria ────────────┼──▶  Haiku  ──▶  { verdict, reason }
-    (brain: profile bodies)    │                       │
-  this company ────────────────┘                       ├─▶ SQLite (verdicts)
-    (SQLite + brain: recall)                            └─▶ brain: capture (loop closes)
+  Alex's criteria ────────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
+    (brain: profile bodies)    │
+  this company ────────────────┘
+    (SQLite + brain: recall)
 ```
 
 The playbook is the *only* "instructions" file scout owns, and it is
@@ -124,8 +127,8 @@ deliberately **not** Alex-data — it's procedure. The brain owns the rest.
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
-Scout never writes Notion (manual handoff). Scout writes the brain only via
-`capture` (verdict write-back). Scout reads the brain via `profile`/`recall`.
+Scout never writes Notion (manual handoff). Scout **never writes the brain** —
+verdicts are scout-local. Scout reads the brain via `profile`/`recall` only.
 
 ## The pipeline, with brain touchpoints
 
@@ -137,23 +140,22 @@ enrich    fetch company site → text                    (no brain — company d
 verdict   reads  Alex's criteria     ← brain: profile / episode bodies
           reads  company history      ← brain: recall(name)
           reasons  with Haiku + playbook
-          writes verdict back         → brain: capture        (loop closes)
+          writes verdict              → scout SQLite (not the brain)
 triage    browse / status / promote                    (no brain)
 ```
 
-The brain is touched in exactly three places, all inside `verdict`. Everything
-else is brain-free.
+The brain is touched in exactly two places, both inside `verdict`, both reads
+(`profile` + `recall`). Everything else is brain-free.
 
 ## How scout talks to the brain
 
-Plain **HTTP/JSON** (no MCP — that's for Claude Code). Three operations:
+Plain **HTTP/JSON** (no MCP — that's for Claude Code). Scout uses two read
+operations (the brain also exposes `POST /capture`, but scout doesn't write):
 
 - `GET /profile` — Alex's full current picture. **Read the episode bodies**,
   not just extracted facts (see below).
 - `GET /recall?q=` — scored facts + episode bodies for a query; scout uses it
   for per-company memory. Scout sets its own score floor.
-- `POST /capture` — write a verdict back as natural-language text; the brain
-  decomposes and extracts it.
 
 Authoritative contract: `brainbot/docs/consumer-api.md` +
 `consumer-integration.md`. Scout's client mirrors `brainbot/migrate/graphiti_clients.py`.
@@ -172,7 +174,8 @@ brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
 ## Invariants (don't break these)
 
 1. **Brain = knowledge, scout = intelligence.** No Alex-preferences baked into
-   scout except the offline fallback.
+   scout except the offline fallback. The brain is **read-only** for scout —
+   verdicts are scout-local data and are never written back to the brain.
 2. **Brain is an enhancement, never a single point of failure.** If it's down,
    scout logs and falls back to local criteria; it never hard-crashes a run.
 3. **Editor isolation.** The UI taste/playbook editor writes local files only

@@ -146,9 +146,6 @@ criteria changes it for **every** company, and the next run re-scores all of
 them. That is intended: when the brain learns something new about what Alex
 wants, every prior verdict is stale. `--force` re-scores regardless of version.
 
-Episode write-back has its own, independent dedup key — see below. It is *not*
-keyed on the criteria version.
-
 ## Parsing
 
 Models occasionally wrap JSON in prose. `parseVerdict` is tolerant:
@@ -207,22 +204,12 @@ Reach for it when `maybe` is over-populated and verdicts feel random, or at
 scale where Sonnet-on-everything is expensive but Sonnet-on-maybes is fine.
 Don't, by default.
 
-## Write-back to the brain
+## Where verdicts go
 
-Verdict write-back is a *separate* stage (`scout episodes` / the UI episodes
-job), not part of scoring. `CaptureVerdicts` walks pending verdicts and POSTs
-each as a third-person sentence naming Alex, **sequentially** (capture is slow
-and ~1¢ each):
-
-```
-Alex's scout tool verdicted Acme (acme.com) as "no" on 2026-05-28. Reason: crypto wallet (excluded).
-```
-
-Dedup is keyed on the **decision content**, not the criteria version:
-`verdict_hash = sha256[:12]` of `verdict + reason` (`store.VerdictHash`).
-`episodes_sent` holds exactly the last captured decision per company, so a
-re-run with no decision change is a no-op, while a changed verdict/reason is
-captured anew.
+Verdicts are written to scout's local `verdicts` table and nowhere else. Scout
+**does not** write them back to the brain — the brain is read-only for scout
+(criteria via `profile`, per-company memory via `recall`). Verdict data is
+scout-local working state; rebuild it from a CSV anytime.
 
 ## Concurrency
 

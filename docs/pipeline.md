@@ -8,13 +8,14 @@ are the secondary automation/debug surface. Both drive the same stages:
 
 ```
 ingest → filter → enrich → verdict → triage
-                              │  ▲
-                  brain ──────┘  └────── episodes (verdict write-back)
+                              │
+                  brain ──────┘  (read-only: criteria + per-company recall)
 ```
 
 `ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict` (read criteria + per-company recall) and `episodes` (write-back).
-Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it.
+`verdict`, and only for reads — scout reads Alex's criteria and per-company
+recall, and never writes back (verdicts stay scout-local). Default `--brainbot`
+is `http://127.0.0.1:8100`; empty disables it.
 
 ---
 
@@ -203,16 +204,15 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | Route | Does |
 |---|---|
 | `POST /api/ingest` | multipart CSV upload (field `csv`) → temp file → ingest job |
-| `POST /api/run/{stage}` | start `enrich`/`verdict`/`episodes` as a job |
+| `POST /api/run/{stage}` | start `enrich`/`verdict` as a job |
 | `GET /api/jobs/{id}/stream` | **live SSE progress** (one line per company) |
 | `POST /api/jobs/{id}/cancel` | cancel a running job |
 | `GET /api/runs` | **durable run history** (last 30, from the `runs` table) + busy stage |
 
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
-- `verdict` jobs 412 without `ANTHROPIC_API_KEY`; `episodes` jobs 412 without a
-  configured brain. The server health-gates the per-company recall client the
-  same way the CLI does.
+- `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server health-gates the
+  per-company recall client the same way the CLI does.
 
 **Editor — local files only, never the brain**
 
@@ -224,31 +224,6 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 A PUT re-resolves criteria + re-folds the playbook into the version (matching
 `scout verdict`). Per the editor-isolation invariant in `north-star.md`, these
 write the **local files only** and never touch the brain client.
-
----
-
-## `scout episodes` — verdict write-back
-
-| | |
-|---|---|
-| **Input** | `verdicts` table + a configured brain. |
-| **Output** | `sent=N failed=N`. |
-| **Idempotent** | Yes — keyed on decision content (`verdict_hash`). |
-| **Requires** | `--brainbot URL` (or `BRAINBOT_URL`); default `http://127.0.0.1:8100`. |
-
-**Behavior:**
-- Health-checks the brain, then for each pending verdict ships a **third-person
-  natural-language sentence naming Alex** via `POST /capture`, e.g.
-
-  > Alex's scout tool verdicted Acme (acme.com) as "no" on 2026-05-28. Reason: crypto wallet (excluded).
-
-  The brain decomposes and extracts it server-side.
-- `capture` is slow (decompose + extract, ~seconds, ~1¢ each), so episodes ship
-  **sequentially**, one progress line per verdict.
-- **Dedup is on the decision content**, not the criteria version:
-  `verdict_hash = sha256[:12]` of `verdict + reason`. `episodes_sent` holds the
-  **last captured decision per company** — a re-run with no decision change is a
-  no-op; a changed verdict/reason re-captures and replaces the prior row.
 
 ---
 
