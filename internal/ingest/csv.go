@@ -56,6 +56,12 @@ func (c *CSV) Run(path string) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
+	// Crunchbase exports are UTF-8 with a leading BOM. Strip it from the first
+	// header cell so "Organization Name" (→ the company name) still matches its
+	// alias — otherwise every row maps to an empty name and is skipped.
+	if len(header) > 0 {
+		header[0] = strings.TrimPrefix(header[0], "\ufeff")
+	}
 	idx := indexHeader(header)
 
 	res := &Result{}
