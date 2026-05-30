@@ -72,6 +72,25 @@
 
   ::selection { background: rgba(139, 109, 255, 0.35); }
 
+  /* themed scrollbars on the remaining scroll containers — the detail pane,
+     summary box, docs body, and code blocks set their own below; these bring
+     the sidebar, progress drawer, editor, and docs nav in line so none falls
+     back to the chunky default OS bar. */
+  aside.sidebar, .drawer-log, .modal-body, .docs-nav {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+  }
+  aside.sidebar::-webkit-scrollbar,
+  .drawer-log::-webkit-scrollbar,
+  .modal-body::-webkit-scrollbar,
+  .docs-nav::-webkit-scrollbar { width: 10px; }
+  aside.sidebar::-webkit-scrollbar-thumb,
+  .drawer-log::-webkit-scrollbar-thumb,
+  .modal-body::-webkit-scrollbar-thumb,
+  .docs-nav::-webkit-scrollbar-thumb {
+    background: var(--line-2); border-radius: 999px;
+  }
+
   /* ---- brand / logo (top of sidebar) ---- */
   .sidebar-brand {
     margin-bottom: 20px;
@@ -155,6 +174,14 @@
     border-color: var(--link);
     box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
     background: var(--panel-2);
+  }
+  /* keyboard focus ring on buttons — mirrors the input treatment above so
+     tabbing through the controls is visible and consistent. */
+  .run-btn:focus-visible, .btn:focus-visible, .doc-btn:focus-visible,
+  .close-btn:focus-visible, .drawer-head button:focus-visible {
+    outline: none;
+    border-color: var(--link);
+    box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
   }
   aside.sidebar select {
     appearance: none;
@@ -568,7 +595,6 @@
                 transform var(--dur-base) var(--ease);
     font-size: 13px;
     max-width: 480px;
-    position: fixed;
   }
   .toast::before {
     content: "";
@@ -578,6 +604,8 @@
     background: var(--yes);
     box-shadow: 0 0 8px var(--yes);
   }
+  /* error toasts swap the success dot for the 'no' red */
+  .toast.err::before { background: var(--no); box-shadow: 0 0 8px var(--no); }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* ---- run controls ---- */
@@ -1653,6 +1681,8 @@ let toastTimer;
 function toast(msg) {
   const el = document.getElementById("toast");
   el.textContent = msg;
+  // mirror the drawer's error classification: red dot on failures.
+  el.classList.toggle("err", /\b(fail(ed)?|error|disabled|already running)\b/i.test(msg));
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
