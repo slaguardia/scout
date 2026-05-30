@@ -281,10 +281,11 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		emit(fmt.Sprintf("read=%d upserted=%d skipped=%d errors=%d",
-			res.Read, res.Upserted, res.Skipped, len(res.Errors)))
+		emit(fmt.Sprintf("read=%d upserted=%d (%d new, %d merged) skipped=%d errors=%d",
+			res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Skipped, len(res.Errors)))
 		return map[string]any{
 			"read": res.Read, "upserted": res.Upserted,
+			"inserted": res.Upserted - res.Merged, "merged": res.Merged,
 			"skipped": res.Skipped, "errors": len(res.Errors),
 			"filename": filename,
 		}, nil

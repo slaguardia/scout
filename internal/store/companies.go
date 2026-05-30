@@ -71,6 +71,21 @@ ON CONFLICT(id) DO UPDATE SET
 	return id, nil
 }
 
+// CompanyExists reports whether a company with the given deterministic id is
+// already stored. Ingest uses it to tell a fresh insert from a dedup merge
+// before upserting (see CompanyID, UpsertCompany).
+func (db *DB) CompanyExists(id string) (bool, error) {
+	var x int
+	err := db.QueryRow(`SELECT 1 FROM companies WHERE id = ?`, id).Scan(&x)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("company exists %q: %w", id, err)
+	}
+	return true, nil
+}
+
 // CountCompanies returns the total number of rows in the companies table.
 func (db *DB) CountCompanies() (int, error) {
 	var n int

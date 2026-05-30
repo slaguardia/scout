@@ -1655,7 +1655,7 @@ function summarize(r) {
       return `${v.yes||0} yes · ${v.maybe||0} maybe · ${v.no||0} no`;
     }
     case "enrich":  return `${s.ok||0} ok · ${s.failed||0} failed`;
-    case "ingest":  return `+${s.upserted||0} companies`;
+    case "ingest":  return `+${s.inserted ?? ((s.upserted||0)-(s.merged||0))} new · ${s.merged||0} merged`;
     default: return "";
   }
 }

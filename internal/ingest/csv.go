@@ -35,7 +35,8 @@ type CSV struct {
 // Result reports how a run went.
 type Result struct {
 	Read     int
-	Upserted int
+	Upserted int // total rows written (new inserts + dedup merges)
+	Merged   int // of Upserted, how many overwrote an existing company
 	Skipped  int
 	Errors   []string
 }
@@ -95,11 +96,21 @@ func (c *CSV) Run(path string) (*Result, error) {
 			Vertical:     nullStr(pick(idx, row, "vertical")),
 			RawJSON:      string(rawJSON),
 		}
+		// Tell a fresh insert from a dedup merge: the deterministic id already
+		// being present means this row collapses onto an existing company.
+		existed, err := c.DB.CompanyExists(store.CompanyID(company.Domain.String, company.Name))
+		if err != nil {
+			res.Errors = append(res.Errors, err.Error())
+			continue
+		}
 		if _, err := c.DB.UpsertCompany(company); err != nil {
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
 		res.Upserted++
+		if existed {
+			res.Merged++
+		}
 	}
 	return res, nil
 }

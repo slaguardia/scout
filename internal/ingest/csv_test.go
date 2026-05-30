@@ -110,3 +110,57 @@ func getDetailByName(t *testing.T, db *store.DB, name string) *store.CompanyDeta
 	t.Fatalf("company %q not ingested", name)
 	return nil
 }
+
+// TestIngestReportsMergedCount checks that Result splits fresh inserts from
+// dedup merges — both within a single file (same domain, different rows) and
+// across a re-ingest of the same file.
+func TestIngestReportsMergedCount(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "scout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Two distinct companies; the third row repeats the first by domain (a
+	// different Crunchbase URL but the same Website), so it should merge.
+	const csv = `Organization Name,Website,Organization Name URL
+Acme,https://acme.ai/,https://www.crunchbase.com/organization/acme
+Globex,www.globex.com,https://www.crunchbase.com/organization/globex
+Acme (Relisted),http://acme.ai,https://www.crunchbase.com/organization/acme-2
+`
+	res := runIngest(t, db, dir, "crunchbase", csv)
+	if res.Read != 3 || res.Upserted != 3 || res.Merged != 1 {
+		t.Fatalf("read=%d upserted=%d merged=%d, want 3/3/1 (errors=%v)", res.Read, res.Upserted, res.Merged, res.Errors)
+	}
+	if n, _ := db.CountCompanies(); n != 2 {
+		t.Fatalf("companies=%d, want 2 (the two acme rows share a domain)", n)
+	}
+
+	// Re-ingesting the same file dedups every row onto what's already stored.
+	res = runIngest(t, db, dir, "crunchbase", csv)
+	if res.Merged != 3 {
+		t.Fatalf("re-ingest merged=%d, want 3 (all rows already present)", res.Merged)
+	}
+	if n, _ := db.CountCompanies(); n != 2 {
+		t.Fatalf("companies=%d after re-ingest, want 2 (no new rows)", n)
+	}
+}
+
+// runIngest writes content to a fresh temp CSV under dir and ingests it into db.
+func runIngest(t *testing.T, db *store.DB, dir, source, content string) *Result {
+	t.Helper()
+	f, err := os.CreateTemp(dir, "in-*.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	res, err := (&CSV{Source: source, DB: db}).Run(f.Name())
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	return res
+}
