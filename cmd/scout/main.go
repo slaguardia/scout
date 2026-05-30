@@ -41,6 +41,7 @@ import (
 const defaultBrainURL = "http://127.0.0.1:8100"
 
 func main() {
+	loadDotenv(".env") // project-local config (e.g. ANTHROPIC_API_KEY); real env wins
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -88,7 +89,7 @@ Usage:
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
 
-Environment:
+Environment (read from the shell env or a .env file in the working directory):
   ANTHROPIC_API_KEY   required for `+"`verdict`"+`.`)
 }
 

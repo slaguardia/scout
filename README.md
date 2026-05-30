@@ -24,7 +24,9 @@ only), with `taste.md` as the offline fallback when the brain is unreachable.
 
 ```bash
 brew install go && go build -o scout ./cmd/scout
-export ANTHROPIC_API_KEY=sk-ant-...
+
+# Put the key in a gitignored .env (auto-loaded), or export it in your shell.
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 
 # The brain runs at http://127.0.0.1:8100 by default (and is on by default).
 # If it's down, scout logs once and falls back to taste.md.

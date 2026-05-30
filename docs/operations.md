@@ -167,7 +167,15 @@ Row counts and the verdict histogram. Takes only `--db`.
 |---|---|---|
 | `ANTHROPIC_API_KEY` | `verdict` (CLI and UI runs) | Yes for scoring. |
 
-Nothing else.
+Nothing else. scout reads variables from the shell environment **or** a `.env`
+file in the working directory (auto-loaded at startup; a real environment
+variable wins over the file). `.env` is gitignored — the recommended place for
+the key:
+
+```bash
+# .env  (project root, gitignored)
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
 ## Troubleshooting
 
