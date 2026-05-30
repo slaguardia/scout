@@ -661,6 +661,156 @@
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
 
+  /* ---- docs overlay ("how it works") ---- */
+  .doc-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel); color: var(--fg-mute);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .doc-btn:hover { color: var(--fg); border-color: var(--line-2); background: var(--panel-2); }
+  .doc-btn svg { width: 13px; height: 13px; }
+
+  .docs-scrim {
+    position: fixed; inset: 0; background: rgba(5,7,10,0.66);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 80;
+    opacity: 0; pointer-events: none; transition: opacity var(--dur-base) var(--ease);
+    display: flex; align-items: center; justify-content: center; padding: 28px;
+  }
+  .docs-scrim.open { opacity: 1; pointer-events: auto; }
+  .docs {
+    width: min(1120px, 96vw); height: min(880px, 92vh);
+    background: var(--bg-2); border: 1px solid var(--line-2);
+    border-radius: var(--r-xl); box-shadow: var(--shadow-md);
+    display: grid; grid-template-rows: auto 1fr;
+    transform: scale(0.985) translateY(6px);
+    transition: transform var(--dur-base) var(--ease);
+    overflow: hidden;
+  }
+  .docs-scrim.open .docs { transform: none; }
+  .docs-head {
+    display: flex; align-items: center; gap: 11px;
+    padding: 15px 20px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  }
+  .docs-head .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--link));
+    box-shadow: 0 0 12px rgba(139, 109, 255, 0.6); flex: none;
+  }
+  .docs-head h2 { margin: 0; font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .docs-head .sub { color: var(--fg-dim); font-size: 12.5px; }
+  .docs-head .spacer { flex: 1; }
+  .docs-head .close-btn {
+    background: transparent; border: 1px solid transparent; color: var(--fg-mute);
+    cursor: pointer; width: 30px; height: 30px; border-radius: var(--r-md);
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .docs-head .close-btn:hover { color: var(--fg); background: var(--panel-2); border-color: var(--line); }
+  .docs-head .close-btn svg { width: 14px; height: 14px; }
+
+  .docs-grid { display: grid; grid-template-columns: 214px 1fr; min-height: 0; }
+  .docs-nav {
+    border-right: 1px solid var(--line); background: var(--bg);
+    padding: 16px 10px; overflow-y: auto;
+  }
+  .docs-nav a {
+    display: flex; align-items: baseline; gap: 5px;
+    padding: 7px 12px; border-radius: var(--r-md);
+    color: var(--fg-mute); font-size: 13px; cursor: pointer;
+    border: 1px solid transparent; margin-bottom: 2px;
+    transition: all var(--dur-fast) var(--ease); text-decoration: none;
+  }
+  .docs-nav a:hover { color: var(--fg); background: var(--panel); }
+  .docs-nav a.active { color: var(--fg); background: var(--panel-2); border-color: var(--line); }
+  .docs-nav .nav-num {
+    width: 16px; color: var(--fg-dim); font-variant-numeric: tabular-nums; flex: none;
+  }
+  .docs-nav a.active .nav-num { color: var(--accent); }
+
+  .docs-body {
+    overflow-y: auto; padding: 8px 40px 64px;
+    scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+  }
+  .docs-body::-webkit-scrollbar { width: 10px; }
+  .docs-body::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; border: 2px solid var(--bg-2); }
+
+  .docs-body section { padding-top: 30px; scroll-margin-top: 8px; }
+  .docs-body section:first-child { padding-top: 18px; }
+  .docs-body h3.dsec {
+    margin: 0 0 6px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; color: var(--fg);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .docs-body h3.dsec .n {
+    font-size: 13px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .docs-body .lede { color: var(--fg-mute); font-size: 13.5px; margin: 0 0 16px; max-width: 74ch; line-height: 1.6; }
+  .docs-body h4 {
+    margin: 22px 0 9px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--fg-dim);
+  }
+  .docs-body p { color: var(--fg-mute); line-height: 1.65; max-width: 74ch; margin: 0 0 12px; }
+  .docs-body p strong, .docs-body li strong { color: var(--fg); font-weight: 600; }
+  .docs-body ul { margin: 0 0 14px; padding-left: 20px; color: var(--fg-mute); line-height: 1.65; max-width: 74ch; }
+  .docs-body li { margin-bottom: 5px; }
+  .docs-body code {
+    color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r-sm); padding: 1px 5px; font-size: 12px;
+  }
+
+  .docs-body .flow { display: flex; flex-wrap: wrap; margin: 4px 0 20px; }
+  .docs-body .flow .step {
+    flex: 1; min-width: 116px; padding: 11px 14px;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .docs-body .flow .step:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+  .docs-body .flow .step:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; }
+  .docs-body .flow .step + .step { border-left: none; }
+  .docs-body .flow .step .s-name { font-weight: 600; color: var(--fg); font-size: 13px; }
+  .docs-body .flow .step .s-desc { color: var(--fg-dim); font-size: 11.5px; margin-top: 3px; line-height: 1.4; }
+
+  .docs-body table.dt { width: 100%; border-collapse: collapse; margin: 4px 0 18px; font-size: 13px; }
+  .docs-body table.dt th {
+    text-align: left; padding: 8px 12px; font-weight: 600; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-dim);
+    border-bottom: 1px solid var(--line-2);
+  }
+  .docs-body table.dt td {
+    padding: 9px 12px; border-bottom: 1px solid var(--line);
+    color: var(--fg-mute); vertical-align: top; line-height: 1.5;
+  }
+  .docs-body table.dt tr:last-child td { border-bottom: none; }
+  .docs-body table.dt td.field { color: var(--fg); font-weight: 500; white-space: nowrap; }
+  .docs-body table.dt code { font-size: 11.5px; }
+
+  .docs-body .callout {
+    border: 1px solid var(--line); border-left: 2px solid var(--accent);
+    background: var(--panel); border-radius: var(--r-md);
+    padding: 12px 16px; margin: 4px 0 18px; color: var(--fg-mute); line-height: 1.62;
+    font-size: 13px; max-width: 78ch;
+  }
+  .docs-body .callout strong { color: var(--fg); }
+  .docs-body pre.code {
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 14px 16px; margin: 4px 0 18px; overflow-x: auto;
+    font: 12px/1.6 "SF Mono", Menlo, monospace; color: var(--fg-mute);
+    white-space: pre;
+    scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+  }
+  .docs-body pre.code .k { color: var(--accent); }
+  .docs-body pre.code .s { color: var(--yes); }
+  .docs-body pre.code .c { color: var(--fg-dim); }
+
+  .docs-body .tag {
+    display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; vertical-align: 1px;
+  }
+  .docs-body .tag-req { color: var(--no); background: var(--no-bg); }
+  .docs-body .tag-opt { color: var(--fg-dim); background: var(--panel-3); }
+  .docs-body .pill { vertical-align: 1px; }
+
   /* responsive: keep sidebar but tighten on smaller laptops */
   @media (max-width: 1100px) {
     :root { --sidebar-w: 240px; }
@@ -673,6 +823,10 @@
   <div class="brand">scout</div>
   <span class="spacer"></span>
   <span class="hint">click any company to inspect</span>
+  <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
+    how it works
+  </button>
 </header>
 
 <div class="layout">
@@ -838,6 +992,234 @@
     <div class="modal-foot">
       <button class="btn" id="editor-cancel">Cancel</button>
       <button class="btn btn-primary" id="editor-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- docs overlay ("how it works") -->
+<div class="docs-scrim" id="docs-scrim">
+  <div class="docs" role="dialog" aria-modal="true" aria-label="How scout works">
+    <div class="docs-head">
+      <span class="dot" aria-hidden="true"></span>
+      <h2>How scout works</h2>
+      <span class="sub">a guided tour of the pipeline</span>
+      <span class="spacer"></span>
+      <button class="close-btn" id="docs-close" aria-label="close">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+      </button>
+    </div>
+    <div class="docs-grid">
+      <nav class="docs-nav" id="docs-nav">
+        <a data-sec="overview"><span class="nav-num">1</span> Overview</a>
+        <a data-sec="pipeline"><span class="nav-num">2</span> The pipeline</a>
+        <a data-sec="ingest"><span class="nav-num">3</span> Ingest &amp; CSV format</a>
+        <a data-sec="filter"><span class="nav-num">4</span> The pre-filter</a>
+        <a data-sec="enrich"><span class="nav-num">5</span> Enrichment</a>
+        <a data-sec="verdict"><span class="nav-num">6</span> The verdict &amp; prompts</a>
+        <a data-sec="files"><span class="nav-num">7</span> Files scout reads</a>
+        <a data-sec="triage"><span class="nav-num">8</span> Triage &amp; results</a>
+      </nav>
+      <div class="docs-body" id="docs-body">
+
+        <section id="doc-overview">
+          <h3 class="dsec"><span class="n">01</span> Overview</h3>
+          <p class="lede">scout is a <strong>job-fit scorer</strong>. You feed it a dump of companies (a Crunchbase CSV), and for each one it decides whether the company is worth your time to investigate as a job lead — a <span class="pill pill-yes">yes</span>, <span class="pill pill-maybe">maybe</span>, or <span class="pill pill-no">no</span> with a one-line reason.</p>
+          <p>Job discovery is a noisy filter problem: a Crunchbase export surfaces thousands of companies, and maybe 1% are worth a serious look. Keyword filters miss nuance; manual triage is slow. scout runs an LLM with real personal context over the whole list in one batch, cheaply, and re-runs whenever your criteria change.</p>
+
+          <h4>The core split: knowledge vs. intelligence</h4>
+          <p>Two systems, deliberately separated:</p>
+          <ul>
+            <li><strong>The brain</strong> owns the <strong>knowledge</strong> — who you are, what you want, your hard rules and exclusions. It's a separate service scout talks to over HTTP. scout reads it <strong>read-only</strong> and never writes back.</li>
+            <li><strong>scout</strong> owns the <strong>intelligence</strong> — it brings its own LLM and a small <code>playbook.md</code> (the procedure for <em>how</em> to judge). It reads the brain's knowledge and reasons over it.</li>
+          </ul>
+          <div class="callout">Verdicts live <strong>only in scout</strong> (its local SQLite). scout makes no external writes — it reads the brain for your criteria and per-company memory, and that's the only contact. If the brain is unreachable, scout falls back to a local <code>taste.md</code> and keeps running.</div>
+        </section>
+
+        <section id="doc-pipeline">
+          <h3 class="dsec"><span class="n">02</span> The pipeline</h3>
+          <p class="lede">Every company moves through five stages. The first three are mechanical and brain-free; the brain is touched only at <strong>verdict</strong>, and only for reads.</p>
+          <div class="flow">
+            <div class="step"><div class="s-name">ingest</div><div class="s-desc">CSV → companies table</div></div>
+            <div class="step"><div class="s-name">filter</div><div class="s-desc">cheap hard gates cull rows</div></div>
+            <div class="step"><div class="s-name">enrich</div><div class="s-desc">fetch each company's site</div></div>
+            <div class="step"><div class="s-name">verdict</div><div class="s-desc">LLM scores fit · reads brain</div></div>
+            <div class="step"><div class="s-name">triage</div><div class="s-desc">you browse &amp; decide</div></div>
+          </div>
+          <table class="dt">
+            <thead><tr><th>Stage</th><th>What it does</th><th>Touches the brain?</th></tr></thead>
+            <tbody>
+              <tr><td class="field">ingest</td><td>Reads a CSV dump, maps known headers to canonical fields, upserts rows. Pure data.</td><td>No</td></tr>
+              <tr><td class="field">filter</td><td>Applies cheap mechanical gates from <code>taste.toml</code> (location, headcount, vertical, stage) to cull rows before the expensive step.</td><td>No</td></tr>
+              <tr><td class="field">enrich</td><td>Fetches each surviving company's about-page and stores a stripped text summary.</td><td>No</td></tr>
+              <tr><td class="field">verdict</td><td>Sends each enriched survivor to the LLM with your criteria + the playbook, and stores a yes/maybe/no.</td><td><strong>Yes — reads only</strong></td></tr>
+              <tr><td class="field">triage</td><td>You browse the scored table, filter, and open companies to inspect. This is the web UI you're in now.</td><td>No</td></tr>
+            </tbody>
+          </table>
+          <p>You drive all of this from the <strong>Run</strong> panel in the sidebar (or the <code>scout</code> CLI). Each run streams live progress and is recorded in <strong>Recent runs</strong>.</p>
+        </section>
+
+        <section id="doc-ingest">
+          <h3 class="dsec"><span class="n">03</span> Ingest &amp; CSV format</h3>
+          <p class="lede">Ingestion loads a CSV dump into scout's local database. Use <strong>Ingest CSV…</strong> in the sidebar (or <code>scout ingest &lt;file.csv&gt;</code>). The first row must be a header.</p>
+
+          <h4>What happens to each row</h4>
+          <ul>
+            <li>The header is matched against a table of <strong>known aliases</strong> — Crunchbase exports vary, so several spellings map to the same canonical field (see below).</li>
+            <li>A <strong>UTF-8 BOM</strong> on the first header cell is stripped (Crunchbase exports include one) so the name column still matches.</li>
+            <li>Rows with <strong>no resolved name are skipped</strong>; everything else is upserted.</li>
+            <li>The <strong>entire original row is preserved</strong> in a <code>raw_json</code> field — even columns scout doesn't recognize — so no signal is lost. You can see it under "Raw row" when you open a company.</li>
+            <li>Headcount tolerates ranges (<code>"11-50"</code> → upper bound <code>50</code>) and commas (<code>"1,200"</code>). Domains are normalized (scheme, <code>www.</code>, and path stripped).</li>
+            <li>Re-ingesting is an <strong>upsert</strong> keyed on a <strong>deterministic ID derived from the company's identity</strong> — its domain, or its name when there's no domain. The same company collapses into one row across re-ingests, and even when it arrives from a different source (last writer wins); the original <code>source</code> / <code>source_id</code> are kept as provenance.</li>
+          </ul>
+
+          <h4>Recognized CSV headers</h4>
+          <p>Only <strong>name</strong> is strictly required. Everything else is optional, but each field powers the filter and gives the LLM more to judge on. Matching is case-insensitive.</p>
+          <table class="dt">
+            <thead><tr><th>Field</th><th></th><th>Accepted header names (any one)</th><th>Used for</th></tr></thead>
+            <tbody>
+              <tr><td class="field">name</td><td><span class="tag tag-req">required</span></td><td><code>Name</code>, <code>Organization Name</code>, <code>Company</code>, <code>Company Name</code></td><td>identity; rows without it are skipped</td></tr>
+              <tr><td class="field">source_id</td><td><span class="tag tag-opt">optional</span></td><td><code>UUID</code>, <code>id</code>, <code>cb_id</code>, <code>Crunchbase UUID</code>, <code>Organization Name URL</code></td><td>source provenance (last writer wins)</td></tr>
+              <tr><td class="field">domain</td><td><span class="tag tag-opt">optional</span></td><td><code>Domain</code>, <code>Website</code>, <code>Homepage URL</code>, <code>URL</code></td><td>enrichment + dedup identity</td></tr>
+              <tr><td class="field">vertical</td><td><span class="tag tag-opt">optional</span></td><td><code>Industry</code>, <code>Industries</code>, <code>Category</code>, <code>Categories</code>, <code>Vertical</code></td><td>filter + verdict</td></tr>
+              <tr><td class="field">location</td><td><span class="tag tag-opt">optional</span></td><td><code>Location</code>, <code>Headquarters Location</code>, <code>HQ Location</code>, <code>City</code>, <code>Headquarters</code></td><td>filter (location gate)</td></tr>
+              <tr><td class="field">headcount</td><td><span class="tag tag-opt">optional</span></td><td><code>Headcount</code>, <code>Employees</code>, <code>Number of Employees</code>, <code>Employee Count</code></td><td>filter (size gate)</td></tr>
+              <tr><td class="field">funding_stage</td><td><span class="tag tag-opt">optional</span></td><td><code>Funding Stage</code>, <code>Last Funding Type</code>, <code>Stage</code>, <code>Last Funding Round</code></td><td>filter + verdict</td></tr>
+            </tbody>
+          </table>
+          <div class="callout">Unrecognized columns aren't an error — they're kept verbatim in <code>raw_json</code>. A standard Crunchbase company export works as-is.</div>
+        </section>
+
+        <section id="doc-filter">
+          <h3 class="dsec"><span class="n">04</span> The pre-filter</h3>
+          <p class="lede">Before spending an LLM call on a company, scout culls obvious misses with cheap mechanical gates. These live in <code>taste.toml</code> and are <strong>not judgment</strong> — just coarse hard gates. Nuanced fit happens later, at verdict time.</p>
+          <p>Every company is checked against four gates in order. The <strong>first failing check</strong> is recorded as the drop reason, so you can see exactly why rows were culled.</p>
+          <table class="dt">
+            <thead><tr><th>Gate</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr><td class="field">location</td><td>The location must contain one of the allowed substrings (e.g. <code>san francisco</code>, <code>bay area</code>, <code>remote</code>). A missing location passes only when <code>remote_ok</code> is set.</td></tr>
+              <tr><td class="field">headcount</td><td>Must fall within <code>[min, max]</code> (<code>0</code> means no bound). A missing headcount passes — companies aren't punished for not exporting the field.</td></tr>
+              <tr><td class="field">vertical — excluded</td><td>If the vertical matches any excluded substring (e.g. <code>crypto</code>, <code>legal tech</code>, <code>insurance</code>), it's dropped — always.</td></tr>
+              <tr><td class="field">vertical — allowed</td><td>If an allowlist is set, the vertical must match one of it. (Left empty by default, so everything not excluded passes.)</td></tr>
+              <tr><td class="field">funding stage</td><td>If a stage allowlist is set, the stage must match one. (Empty = allow all.)</td></tr>
+            </tbody>
+          </table>
+          <p>Survivors of the filter are the only companies that get enriched and scored. The filter is read-only — it changes no data, and you tune it by editing <code>taste.toml</code> on disk.</p>
+        </section>
+
+        <section id="doc-enrich">
+          <h3 class="dsec"><span class="n">05</span> Enrichment</h3>
+          <p class="lede">Enrichment gives the LLM something real to read: it fetches each company's own about-page and stores a cleaned-up text summary. Run it with <strong>Enrich</strong> in the sidebar (or <code>scout enrich</code>).</p>
+          <h4>How a page is fetched</h4>
+          <ul>
+            <li>For each company with a domain, scout tries a few candidate paths in order — <code>/about</code> → <code>/about-us</code> → <code>/company</code> → <code>/</code> — and takes the <strong>first one that returns 2xx HTML</strong>.</li>
+            <li>It strips <code>&lt;script&gt;</code>, <code>&lt;style&gt;</code>, SVG, and all tags; decodes common entities; collapses whitespace; and <strong>truncates to ~3000 characters</strong>. (12s timeout, 512&nbsp;KB read cap, 8 parallel fetchers.)</li>
+            <li>Results are cached. A company is re-fetched only if it was re-ingested since the last fetch, or you force it. <strong>Failures are remembered</strong>, not retried in a hot loop.</li>
+          </ul>
+          <h4>Fetch status — what each outcome means</h4>
+          <p>Every company gets exactly one status. Only <span class="pill pill-yes">ok</span> rows go on to the verdict stage; the rest are visible under <strong>Enrichment failures</strong> in the sidebar.</p>
+          <table class="dt">
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td class="field">ok</td><td>Fetched real HTML with enough text (≥ ~200 chars) to judge on.</td></tr>
+              <tr><td class="field">low_content</td><td>Fetched, but too little text — usually a JavaScript app shell. Cached, but skipped at verdict.</td></tr>
+              <tr><td class="field">challenge</td><td>The page is a bot-challenge interstitial (Cloudflare / PerimeterX / Akamai, etc.).</td></tr>
+              <tr><td class="field">no_domain</td><td>The company has no domain to fetch.</td></tr>
+              <tr><td class="field">http_&lt;code&gt;</td><td>A non-2xx response, e.g. <code>http_404</code>, <code>http_503</code>.</td></tr>
+              <tr><td class="field">dns / refused / timeout</td><td>DNS lookup failed / connection refused / request timed out.</td></tr>
+              <tr><td class="field">error</td><td>Any other fetch error; detail is stored alongside it.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="doc-verdict">
+          <h3 class="dsec"><span class="n">06</span> The verdict &amp; prompts</h3>
+          <p class="lede">This is the heart of scout: for each enriched survivor, it asks an LLM "is this worth the user's time?" and stores a <span class="pill pill-yes">yes</span> / <span class="pill pill-maybe">maybe</span> / <span class="pill pill-no">no</span> with a one-line reason. Run it with <strong>Verdict</strong> (needs an <code>ANTHROPIC_API_KEY</code>).</p>
+
+          <h4>The four inputs to a single verdict</h4>
+          <table class="dt">
+            <thead><tr><th>Input</th><th>Source</th><th>Role</th></tr></thead>
+            <tbody>
+              <tr><td class="field">Output contract</td><td>fixed in scout's code</td><td>the required JSON shape — never editable</td></tr>
+              <tr><td class="field">Playbook</td><td><code>playbook.md</code></td><td><em>how</em> to decide: rubric, tie-breaking, "default to maybe when unsure"</td></tr>
+              <tr><td class="field">Your criteria</td><td>the <strong>brain</strong> (or <code>taste.md</code>)</td><td><em>what</em> you want + your rules and hard exclusions</td></tr>
+              <tr><td class="field">This company</td><td>scout's DB + the <strong>brain</strong></td><td>Crunchbase fields + the fetched site text + any brain memory about this specific company</td></tr>
+            </tbody>
+          </table>
+
+          <h4>The system prompt (assembled fresh, identical across a run)</h4>
+          <p>scout layers three blocks into the system prompt. The first is fixed; the other two are exactly the files / criteria described above:</p>
+          <pre class="code"><span class="c">/* 1. OUTPUT CONTRACT — fixed in code, never editable */</span>
+You are Scout's verdict engine. Given a company, decide if it's
+worth the user's time to investigate further as a job opportunity.
+Reply ONLY with valid JSON, no preamble, no markdown fences. The
+JSON must have exactly two fields:
+  {<span class="k">"verdict"</span>: <span class="s">"yes"|"maybe"|"no"</span>, <span class="k">"reason"</span>: <span class="s">"one-line, specific"</span>}
+
+<span class="c">--- PLAYBOOK (how to decide) ---</span>
+<span class="c">   ← the full text of playbook.md (or a built-in rubric)</span>
+
+<span class="c">--- TASTE (what the user wants) ---</span>
+<span class="c">   ← your criteria: the brain's profile, or taste.md offline</span></pre>
+
+          <h4>The user prompt (one per company)</h4>
+          <p>The company's own data is sent as the user message — only the fields that exist are included:</p>
+          <pre class="code">Company: &lt;name&gt;
+Domain / Vertical / Location / Headcount / Funding stage: &lt;…&gt;
+
+Website text (truncated):
+&lt;the stripped about-page text from enrichment&gt;
+
+What the brain already knows about this company:
+- &lt;recalled fact&gt;     <span class="c">← only if the brain has relevant memory</span>
+
+Return the JSON verdict now.</pre>
+
+          <h4>Where the brain comes in</h4>
+          <ul>
+            <li><strong>Your criteria</strong> come from the brain's profile (the full episode text, which carries your gates and exclusions — not just a lossy fact index). If the brain is down or empty, scout falls back to <code>taste.md</code>.</li>
+            <li><strong>Per-company memory</strong> is pulled with a recall query on the company name, keeping only sufficiently-relevant facts (a brand-new company surfaces nothing). A brain miss is logged and ignored — the verdict still runs.</li>
+          </ul>
+
+          <h4>Model, parsing, and re-scoring</h4>
+          <ul>
+            <li>The first pass runs on <strong>Haiku</strong> (<code>claude-haiku-4-5</code>) — cheap and fast. <strong>Prompt caching</strong> is on: the system block is identical across the run, so it's billed once.</li>
+            <li>scout parses <code>{"verdict": …, "reason": …}</code> tolerantly (it copes with stray fences or text) and stores one row per company.</li>
+            <li>A verdict is tagged with a <strong>criteria version</strong> — a hash of the playbook + your criteria. When the brain learns something new, or you edit the playbook or <code>taste.md</code>, the version changes and those companies <strong>re-score on the next run</strong>. That's the "N verdicts stale" badge in the sidebar. Up-to-date rows are skipped, so re-running is cheap.</li>
+          </ul>
+        </section>
+
+        <section id="doc-files">
+          <h3 class="dsec"><span class="n">07</span> Files scout reads</h3>
+          <p class="lede">scout's behavior comes from a handful of inputs. Two of them are editable right here in the UI; the brain is external and read-only.</p>
+          <table class="dt">
+            <thead><tr><th>What</th><th>Holds</th><th>Edit it</th></tr></thead>
+            <tbody>
+              <tr><td class="field">taste.toml</td><td>The mechanical pre-filter gates (location, headcount, vertical, stage). Cheap hard culls — not judgment.</td><td>on disk</td></tr>
+              <tr><td class="field">playbook.md</td><td><em>How</em> scout decides — the rubric and tie-breaking procedure. Scout's own logic, not your data.</td><td><strong>in the UI</strong> ("edit playbook.md")</td></tr>
+              <tr><td class="field">taste.md</td><td><em>What</em> you want — the offline fallback for your criteria, used only when the brain is unreachable.</td><td><strong>in the UI</strong> ("edit taste.md")</td></tr>
+              <tr><td class="field">the brain</td><td>The primary source of your criteria + per-company memory. A separate HTTP service. <strong>Read-only</strong>: scout never writes it.</td><td>elsewhere (not in scout)</td></tr>
+              <tr><td class="field">scout.db</td><td>The local SQLite working set: companies, enrichment, verdicts, and run history. Disposable — rebuild from a CSV anytime.</td><td>managed by scout</td></tr>
+            </tbody>
+          </table>
+          <div class="callout">The in-UI editor writes the <strong>local files only</strong> and never touches the brain — that separation is deliberate. Saving an edit changes the criteria version, so the next verdict run re-scores everything.</div>
+        </section>
+
+        <section id="doc-triage">
+          <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
+          <p class="lede">The main table is where you actually work. Each row is a company with its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict or search by name, vertical, or reason.</p>
+          <h4>Opening a company</h4>
+          <p>Click any company name to slide open its detail pane, which gathers everything scout knows in one place:</p>
+          <ul>
+            <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
+            <li><strong>Verdict</strong> — the call, the reason, the model used, and the criteria version it was scored under.</li>
+            <li><strong>Enrichment</strong> — the fetched URL, the fetch status, and the stripped site text the LLM actually read.</li>
+            <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
+          </ul>
+          <h4>Re-running</h4>
+          <p>The sidebar's <strong>Pipeline</strong> counters (total → survivors → enriched → scored) and <strong>Current taste</strong> block show the state at a glance. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+        </section>
+
+      </div>
     </div>
   </div>
 </div>
@@ -1343,6 +1725,7 @@ document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  if (docsOpen()) { closeDocs(); return; }
   closeDetail();
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
@@ -1367,6 +1750,44 @@ document.getElementById("editor-save").onclick = saveEditor;
 document.getElementById("editor-scrim").onclick = e => {
   if (e.target.id === "editor-scrim") closeEditor();
 };
+
+// ---- docs overlay ("how it works") ----
+function openDocs() {
+  document.getElementById("docs-scrim").classList.add("open");
+  const first = document.querySelector("#docs-nav a");
+  setActiveDoc(first ? first.dataset.sec : null);
+  const body = document.getElementById("docs-body");
+  if (body) body.scrollTop = 0;
+}
+function closeDocs() { document.getElementById("docs-scrim").classList.remove("open"); }
+function docsOpen() { return document.getElementById("docs-scrim").classList.contains("open"); }
+function setActiveDoc(sec) {
+  document.querySelectorAll("#docs-nav a").forEach(a =>
+    a.classList.toggle("active", a.dataset.sec === sec));
+}
+document.getElementById("open-docs").onclick = openDocs;
+document.getElementById("docs-close").onclick = closeDocs;
+document.getElementById("docs-scrim").onclick = e => {
+  if (e.target.id === "docs-scrim") closeDocs();
+};
+document.querySelectorAll("#docs-nav a").forEach(a => {
+  a.onclick = () => {
+    const el = document.getElementById("doc-" + a.dataset.sec);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveDoc(a.dataset.sec);
+  };
+});
+// Scroll-spy: highlight the nav item for whichever section is in view.
+(function () {
+  const body = document.getElementById("docs-body");
+  if (!body || !("IntersectionObserver" in window)) return;
+  const obs = new IntersectionObserver(entries => {
+    const visible = entries.filter(e => e.isIntersecting)
+      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+    if (visible.length) setActiveDoc(visible[0].target.id.replace(/^doc-/, ""));
+  }, { root: body, rootMargin: "0px 0px -65% 0px", threshold: 0 });
+  document.querySelectorAll("#docs-body section").forEach(s => obs.observe(s));
+})();
 
 loadList();
 loadStats();
