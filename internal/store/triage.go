@@ -20,24 +20,20 @@ type TriageRow struct {
 	VerdictStr     string         `json:"verdict"`
 	Reason         sql.NullString `json:"-"`
 	ReasonStr      string         `json:"reason"`
-	State          sql.NullString `json:"-"`
-	StateStr       string         `json:"state"`
 	WebsiteURL     sql.NullString `json:"-"`
 	WebsiteURLStr  string         `json:"website_url"`
 	WebsiteSummary sql.NullString `json:"-"`
 	WebsiteSumStr  string         `json:"website_summary"`
 }
 
-// TriageRows pulls every company joined with optional enrichment, verdict, status.
+// TriageRows pulls every company joined with optional enrichment and verdict.
 func (db *DB) TriageRows() ([]TriageRow, error) {
 	const q = `
 SELECT c.id, c.name, c.domain, c.location, c.vertical, c.headcount, c.funding_stage,
        v.verdict, v.reason,
-       s.state,
        e.website_url, e.website_summary
 FROM companies c
 LEFT JOIN verdicts v ON v.company_id = c.id
-LEFT JOIN status   s ON s.company_id = c.id
 LEFT JOIN enrichment e ON e.company_id = c.id
 ORDER BY
   CASE COALESCE(v.verdict, 'zzz')
@@ -56,7 +52,7 @@ ORDER BY
 	for rows.Next() {
 		var r TriageRow
 		if err := rows.Scan(&r.CompanyID, &r.Name, &r.Domain, &r.Location, &r.Vertical, &r.Headcount, &r.Stage,
-			&r.Verdict, &r.Reason, &r.State, &r.WebsiteURL, &r.WebsiteSummary); err != nil {
+			&r.Verdict, &r.Reason, &r.WebsiteURL, &r.WebsiteSummary); err != nil {
 			return nil, err
 		}
 		r.DomainStr = r.Domain.String
@@ -66,7 +62,6 @@ ORDER BY
 		r.StageStr = r.Stage.String
 		r.VerdictStr = r.Verdict.String
 		r.ReasonStr = r.Reason.String
-		r.StateStr = r.State.String
 		r.WebsiteURLStr = r.WebsiteURL.String
 		r.WebsiteSumStr = r.WebsiteSummary.String
 		out = append(out, r)

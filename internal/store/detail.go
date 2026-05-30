@@ -3,10 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
-	"time"
 )
 
 // CompanyDetail is the payload for GET /api/companies/:id.
@@ -23,9 +20,6 @@ type CompanyDetail struct {
 	Vertical     string            `json:"vertical"`
 	IngestedAt   string            `json:"ingested_at"`
 	RawJSON      map[string]string `json:"raw_json"`
-
-	State     string `json:"state"`
-	UpdatedAt string `json:"status_updated_at"`
 
 	HasVerdict   bool   `json:"has_verdict"`
 	Verdict      string `json:"verdict"`
@@ -50,11 +44,9 @@ SELECT c.id, c.name, c.source, COALESCE(c.source_id, ''),
        COALESCE(c.domain, ''), COALESCE(c.headcount, 0),
        COALESCE(c.funding_stage, ''), COALESCE(c.location, ''),
        COALESCE(c.vertical, ''), c.ingested_at, c.raw_json,
-       COALESCE(s.state, 'new'), COALESCE(s.updated_at, ''),
        v.verdict, v.reason, v.taste_version, v.model, v.scored_at,
        e.website_url, e.website_summary, e.fetch_status, e.fetch_error, e.fetched_at
 FROM companies c
-LEFT JOIN status     s ON s.company_id = c.id
 LEFT JOIN verdicts   v ON v.company_id = c.id
 LEFT JOIN enrichment e ON e.company_id = c.id
 WHERE c.id = ?`
@@ -68,7 +60,6 @@ WHERE c.id = ?`
 		&d.CompanyID, &d.Name, &d.Source, &d.SourceID,
 		&d.Domain, &d.Headcount, &d.FundingStage, &d.Location, &d.Vertical,
 		&d.IngestedAt, &rawJSON,
-		&d.State, &d.UpdatedAt,
 		&verdict, &reason, &tasteVersion, &model, &scoredAt,
 		&websiteURL, &websiteSummary, &fetchStatus, &fetchError, &fetchedAt,
 	)
@@ -123,41 +114,6 @@ func parseRawJSON(s string) map[string]string {
 	return out
 }
 
-// Valid status states. Anything else is rejected by SetStatus.
-var validStates = map[string]bool{
-	"new":       true,
-	"reviewed":  true,
-	"tracked":   true,
-	"dismissed": true,
-}
-
-// SetStatus updates the per-company review state. Returns the (possibly new)
-// state row. Errors if the company doesn't exist or the state is invalid.
-func (db *DB) SetStatus(companyID int64, state string) (string, string, error) {
-	state = strings.TrimSpace(strings.ToLower(state))
-	if !validStates[state] {
-		return "", "", fmt.Errorf("invalid state %q", state)
-	}
-	// Ensure the company exists.
-	var exists int
-	if err := db.QueryRow(`SELECT 1 FROM companies WHERE id = ?`, companyID).Scan(&exists); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", sql.ErrNoRows
-		}
-		return "", "", err
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	const q = `
-INSERT INTO status (company_id, state, updated_at) VALUES (?, ?, ?)
-ON CONFLICT(company_id) DO UPDATE SET
-    state      = excluded.state,
-    updated_at = excluded.updated_at;`
-	if _, err := db.Exec(q, companyID, state, now); err != nil {
-		return "", "", err
-	}
-	return state, now, nil
-}
-
 // Stats is the payload for GET /api/stats.
 type Stats struct {
 	TotalCompanies   int            `json:"total_companies"`
@@ -165,7 +121,6 @@ type Stats struct {
 	Scored           int            `json:"scored"`
 	Unscored         int            `json:"unscored"`
 	ByVerdict        map[string]int `json:"by_verdict"`
-	ByStatus         map[string]int `json:"by_status"`
 	FetchStatus      map[string]int `json:"fetch_status"`
 	CurrentTaste     string         `json:"current_taste"`         // version hash, e.g. "b4cd783174d6"
 	TasteSource      string         `json:"taste_source"`          // "file:taste.md" or "brainbot:<url>" or "" if unknown
@@ -178,7 +133,6 @@ type Stats struct {
 func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, error) {
 	s := &Stats{
 		ByVerdict:    map[string]int{},
-		ByStatus:     map[string]int{},
 		FetchStatus:  map[string]int{},
 		CurrentTaste: currentTasteVersion,
 		TasteSource:  currentTasteSource,
@@ -199,9 +153,6 @@ func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, 
 	}
 
 	if err := scanHist(db, `SELECT verdict, COUNT(1) FROM verdicts GROUP BY verdict`, s.ByVerdict); err != nil {
-		return nil, err
-	}
-	if err := scanHist(db, `SELECT COALESCE(state, 'new'), COUNT(1) FROM status GROUP BY state`, s.ByStatus); err != nil {
 		return nil, err
 	}
 	if err := scanHist(db, `SELECT fetch_status, COUNT(1) FROM enrichment GROUP BY fetch_status`, s.FetchStatus); err != nil {

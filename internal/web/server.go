@@ -1,7 +1,7 @@
 // Package web serves the triage UI on localhost.
 //
 // An embedded HTML page plus JSON endpoints. Beyond the read/triage surface
-// (companies, detail, status, stats, brain proxy) it also drives the pipeline:
+// (companies, detail, stats, brain proxy) it also drives the pipeline:
 // /api/run/* and /api/ingest start jobs via an in-process runner, /api/jobs/*
 // stream and cancel them, /api/runs lists durable history, and /api/taste &
 // /api/playbook read/write the local instruction files.
@@ -169,8 +169,6 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		s.handleCompanyDetail(w, r, id)
-	case len(parts) == 2 && parts[1] == "status":
-		s.handleCompanyStatus(w, r, id)
 	case len(parts) == 2 && parts[1] == "brain":
 		s.handleCompanyBrain(w, r, id)
 	default:
@@ -193,38 +191,6 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
-}
-
-func (s *Server) handleCompanyStatus(w http.ResponseWriter, r *http.Request, id int64) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		State string `json:"state"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	state, updatedAt, err := s.DB.SetStatus(id, body.State)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.NotFound(w, r)
-			return
-		}
-		if strings.HasPrefix(err.Error(), "invalid state") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"company_id":        id,
-		"state":             state,
-		"status_updated_at": updatedAt,
-	})
 }
 
 func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id int64) {

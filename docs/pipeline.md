@@ -40,7 +40,6 @@ is `http://127.0.0.1:8100`; empty disables it.
 - Upsert key `(source, source_id)`. No UUID column → `source_id` is `"name:"+name`.
 - Headcount tolerates ranges (`"11-50"` → upper bound `50`) and commas (`"1,200"`).
 - Domain normalized: lowercased, `https://`/`http://`/`www.` and any path stripped.
-- `status` seeds to `new` on first insert; re-ingest doesn't reset it.
 - `ingested_at` bumps on every upsert, which invalidates downstream enrichment.
 
 ---
@@ -179,7 +178,7 @@ clears any prior escalation.
 
 | | |
 |---|---|
-| **Input** | `companies`/`enrichment`/`verdicts`/`status`/`runs` + optional brain. |
+| **Input** | `companies`/`enrichment`/`verdicts`/`runs` + optional brain. |
 | **Output** | `scout triage UI at http://localhost:8765`. |
 | **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`. |
 
@@ -191,9 +190,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | Route | Does |
 |---|---|
 | `GET /` | the embedded triage UI |
-| `GET /api/companies` | every company joined with verdict/status/enrichment |
-| `GET /api/companies/{id}` | full detail (incl. last episode-sent timestamp) |
-| `POST /api/companies/{id}/status` | **status write-back** → `new`/`reviewed`/`tracked`/`dismissed` |
+| `GET /api/companies` | every company joined with verdict and enrichment |
+| `GET /api/companies/{id}` | full detail |
 | `GET /api/companies/{id}/brain` | **per-company recall** panel — `Recall(name, 5)` |
 | `GET /api/stats` | counts + current criteria version/source |
 | `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |

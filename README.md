@@ -4,7 +4,7 @@ A personal **job-fit scorer**. Ingests company dumps (Crunchbase CSV), enriches
 each from its website, and asks: *given everything the brain knows about the
 user, is this company worth their time?* It reasons with its own LLM and writes
 the verdict to its local store. Triage happens in a small local web UI, where
-the user marks candidates reviewed / tracked / dismissed.
+the user browses, sorts, and filters the scored candidates.
 
 Companion to [brainbot](https://github.com/slaguardia/brainbot): **brainbot holds
 the knowledge** (who the user is, what they want); **scout brings the intelligence**

@@ -29,8 +29,7 @@ The migrations are embedded; the first `scout <anything>` call creates
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,
 enrich, verdict — runs from there as background jobs with live progress, plus
-triage, status write-back, the criteria/playbook editor, and a per-company
-brain recall panel.
+triage, the criteria/playbook editor, and a per-company brain recall panel.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...

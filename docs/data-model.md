@@ -43,24 +43,6 @@ preserved. Useful when a verdict looks wrong and you want the extra signal that
 
 ---
 
-### `status` — review state
-```sql
-status (
-    company_id INTEGER PK FK companies(id) ON DELETE CASCADE,
-    state      TEXT NOT NULL DEFAULT 'new',  -- new | reviewed | tracked | dismissed
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-```
-
-Decoupled from ingest so re-ingest doesn't clobber review state. Seeded on first
-upsert via `INSERT OR IGNORE`. Index on `state`.
-
-The web UI writes this directly: the triage detail panel's status buttons
-(`new`/`reviewed`/`tracked`/`dismissed`) `PUT` to the server, which calls
-`SetStatus`. These states are scout-local triage markers only.
-
----
-
 ### `enrichment` — cached site text
 ```sql
 enrichment (
@@ -166,15 +148,14 @@ One row per applied migration filename. The `migrate()` loop in
 ## Relationships
 
 ```
-companies (1) ─── (0..1) status
-          (1) ─── (0..1) enrichment
+companies (1) ─── (0..1) enrichment
           (1) ─── (0..1) verdicts
 
 runs            -- standalone; no FK to companies (run-level history)
 ```
 
 `FOREIGN KEY ... ON DELETE CASCADE` on every company-scoped table. Delete a
-company and its `status`/`enrichment`/`verdicts` rows go with it. `runs` is
+company and its `enrichment`/`verdicts` rows go with it. `runs` is
 independent of any company.
 
 ## Idempotency keys at a glance

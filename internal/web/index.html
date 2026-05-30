@@ -295,19 +295,6 @@
   .pill-none  { background: var(--panel-3);  color: var(--fg-dim); }
   .pill-none::before { opacity: 0.5; }
 
-  .pill-status { font-size: 10.5px; padding: 1px 8px; }
-  .pill-status-new       { background: var(--panel-3); color: var(--fg-mute); }
-  .pill-status-reviewed  { background: var(--link-bg); color: var(--link); }
-  .pill-status-tracked   { background: var(--yes-bg);  color: var(--yes); }
-  .pill-status-dismissed { background: #1a1d27;        color: var(--fg-dim); }
-
-  /* row visual treatments */
-  tr.row-tracked > td:first-child {
-    box-shadow: inset 3px 0 0 var(--yes);
-  }
-  tr.row-dismissed { opacity: 0.45; }
-  tr.row-dismissed:hover { opacity: 0.7; }
-
   .reason { color: var(--fg-mute); }
   td .row-name {
     cursor: pointer; font-weight: 500;
@@ -435,38 +422,6 @@
   .kv dd { margin: 0; word-wrap: break-word; min-width: 0; }
 
   .pills-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-
-  /* status buttons */
-  .status-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-  .status-btn {
-    background: var(--panel);
-    color: var(--fg);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-    padding: 7px 13px;
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    display: inline-flex; align-items: center; gap: 6px;
-    transition: all var(--dur-fast) var(--ease);
-  }
-  .status-btn:hover:not(:disabled) {
-    border-color: var(--line-2);
-    background: var(--panel-2);
-  }
-  .status-btn.active {
-    border-color: var(--link);
-    color: var(--link);
-    background: var(--link-bg);
-  }
-  .status-btn[data-state="tracked"].active {
-    border-color: var(--yes); color: var(--yes); background: var(--yes-bg);
-  }
-  .status-btn[data-state="dismissed"].active {
-    border-color: var(--fg-dim); color: var(--fg-mute); background: var(--panel-3);
-  }
-  .status-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .status-btn svg { width: 12px; height: 12px; }
 
   /* summary box */
   .summary-box {
@@ -769,15 +724,6 @@
         <option value="__none__">(unscored)</option>
       </select>
     </div>
-    <div class="filter-row">
-      <select id="state">
-        <option value="">status: any</option>
-        <option value="new">new</option>
-        <option value="reviewed">reviewed</option>
-        <option value="tracked">tracked</option>
-        <option value="dismissed">dismissed</option>
-      </select>
-    </div>
   </div>
 
   <div class="block" id="block-pipeline">
@@ -794,14 +740,6 @@
       By verdict
     </h3>
     <div id="verdict-stats"></div>
-  </div>
-
-  <div class="block" id="block-status">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2" stroke-linecap="round"/></svg>
-      By status
-    </h3>
-    <div id="status-stats"></div>
   </div>
 
   <div class="block" id="block-fetch" style="display:none">
@@ -838,7 +776,6 @@
       <thead>
         <tr>
           <th data-k="verdict">verdict</th>
-          <th data-k="state">status</th>
           <th data-k="name">name</th>
           <th data-k="reason">reason</th>
           <th data-k="vertical">vertical</th>
@@ -972,11 +909,6 @@ function renderStats() {
     ["yes","maybe","no"].map(k => statLine(k, v[k] || 0)).join("") +
     statLine("unscored", s.unscored ?? 0);
 
-  // By status
-  const st = s.by_status || {};
-  document.getElementById("status-stats").innerHTML =
-    ["new","reviewed","tracked","dismissed"].map(k => statLine(k, st[k] || 0)).join("");
-
   // Fetch failures: show only non-ok statuses.
   const fs = s.fetch_status || {};
   const failures = Object.keys(fs).filter(k => k !== "ok").sort();
@@ -1013,31 +945,19 @@ function compare(a, b, k) {
     const order = { yes: 0, maybe: 1, no: 2, "": 3 };
     return (order[av] ?? 3) - (order[bv] ?? 3);
   }
-  if (k === "state") {
-    const order = { tracked: 0, new: 1, reviewed: 2, dismissed: 3, "": 1 };
-    return (order[av] ?? 1) - (order[bv] ?? 1);
-  }
   return String(av).localeCompare(String(bv));
 }
 
-function sortWithDismissedLast(rows) {
-  return rows.slice().sort((a, b) => {
-    const av = state.sort.dir * compare(a, b, state.sort.k);
-    const ad = (a.state === "dismissed") ? 1 : 0;
-    const bd = (b.state === "dismissed") ? 1 : 0;
-    if (ad !== bd) return ad - bd;
-    return av;
-  });
+function sortRows(rows) {
+  return rows.slice().sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
 }
 
 function filtered() {
   const q = document.getElementById("q").value.trim().toLowerCase();
   const v = document.getElementById("verdict").value;
-  const s = document.getElementById("state").value;
   return state.rows.filter(r => {
     if (v === "__none__" && r.verdict) return false;
     if (v && v !== "__none__" && r.verdict !== v) return false;
-    if (s && r.state !== s) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -1049,7 +969,7 @@ function filtered() {
 function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
-  const rows = sortWithDismissedLast(filtered());
+  const rows = sortRows(filtered());
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
   // Sidebar "survivors" card updates with the current filter.
   if (state.stats) {
@@ -1065,11 +985,8 @@ function renderList() {
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
-    if (r.state === "tracked") tr.classList.add("row-tracked");
-    if (r.state === "dismissed") tr.classList.add("row-dismissed");
     tr.innerHTML = `
       <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
-      <td><span class="pill pill-status pill-status-${escapeHTML(r.state || "new")}">${escapeHTML(r.state || "new")}</span></td>
       <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
       <td class="reason">${escapeHTML(r.reason || "")}</td>
       <td>${escapeHTML(r.vertical || "")}</td>
@@ -1083,12 +1000,6 @@ function renderList() {
   tbody.querySelectorAll(".row-name").forEach(el => {
     el.addEventListener("click", () => openDetail(parseInt(el.dataset.id, 10)));
   });
-}
-
-function updateRowState(id, newState) {
-  const row = state.rows.find(r => r.company_id === id);
-  if (row) row.state = newState;
-  renderList();
 }
 
 // ---- detail pane ----
@@ -1128,7 +1039,6 @@ function renderDetail(d) {
   document.getElementById("pane-title").textContent = d.name;
   document.getElementById("pane-pills").innerHTML = `
     <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
-    <span class="pill pill-status pill-status-${escapeHTML(d.state || "new")}">${escapeHTML(d.state || "new")}</span>
   `;
 
   const domainLine = d.domain
@@ -1165,27 +1075,6 @@ function renderDetail(d) {
   `;
 
   document.getElementById("pane-body").innerHTML = `
-    <section class="pane-section">
-      <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 8h12M8 2v12"/></svg>
-        Status
-      </h3>
-      <div class="status-btns" id="status-btns">
-        <button class="status-btn${d.state === "reviewed" ? " active" : ""}" data-state="reviewed">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
-          Reviewed
-        </button>
-        <button class="status-btn${d.state === "tracked" ? " active" : ""}" data-state="tracked">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4l5 8 5-8M3 4h10"/></svg>
-          Tracked
-        </button>
-        <button class="status-btn${d.state === "dismissed" ? " active" : ""}" data-state="dismissed">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-          Dismissed
-        </button>
-      </div>
-    </section>
-
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M5 6h6M5 9h4"/></svg>
@@ -1228,48 +1117,6 @@ function renderDetail(d) {
     </section>
   `;
 
-  document.querySelectorAll("#status-btns .status-btn").forEach(btn => {
-    btn.addEventListener("click", () => onStatusClick(d, btn.dataset.state));
-  });
-}
-
-async function onStatusClick(d, newState) {
-  const btns = document.querySelectorAll("#status-btns .status-btn");
-  btns.forEach(b => b.disabled = true);
-  let resp;
-  try {
-    resp = await fetch(`/api/companies/${d.company_id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: newState }),
-    });
-  } catch (e) {
-    toast(`status update failed: ${e.message}`);
-    btns.forEach(b => b.disabled = false);
-    return;
-  }
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => "");
-    toast(`status update failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
-    btns.forEach(b => b.disabled = false);
-    return;
-  }
-
-  d.state = newState;
-  updateRowState(d.company_id, newState);
-
-  btns.forEach(b => {
-    b.classList.toggle("active", b.dataset.state === newState);
-    b.disabled = false;
-  });
-
-  const pills = document.getElementById("pane-pills");
-  pills.innerHTML = `
-    <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
-    <span class="pill pill-status pill-status-${escapeHTML(d.state)}">${escapeHTML(d.state)}</span>
-  `;
-
-  toast(`marked ${newState}`);
 }
 
 async function loadBrain(id) {
@@ -1505,7 +1352,6 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
 });
 document.getElementById("q").oninput = renderList;
 document.getElementById("verdict").onchange = renderList;
-document.getElementById("state").onchange = renderList;
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
@@ -1540,13 +1386,6 @@ loadList();
 loadStats();
 loadMeta();
 loadRuns();
-
-// When a status changes via the detail pane, refresh stats so by_status updates.
-const origUpdateRowState = updateRowState;
-updateRowState = function(id, newState) {
-  origUpdateRowState(id, newState);
-  loadStats();
-};
 </script>
 </body>
 </html>

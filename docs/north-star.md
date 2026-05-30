@@ -25,8 +25,8 @@ a "Solutions Engineer" role is on- or off-target depending on whether it's
 context is real (the brain), the pipeline is cheap to re-run, and the output
 feeds the existing workflow instead of replacing it.
 
-**Non-goals.** Not a pipeline tracker — scout surfaces candidates and records a
-triage status; what the user does with a committed candidate is out of scope.
+**Non-goals.** Not a pipeline tracker — scout surfaces and scores candidates;
+what the user does with a committed candidate is out of scope.
 Not a job-board scraper — scout works on company-level data, not listings. Not
 real-time; it's a batch tool, run on a fresh dump. Not auto-applying. Not
 multi-user — it's the user's tool.
@@ -54,8 +54,7 @@ multi-user — it's the user's tool.
 ```
 
 Scout reads the brain (criteria + per-company memory) but never writes it.
-Verdicts and triage status live only in scout's SQLite — scout makes no external
-writes.
+Verdicts live only in scout's SQLite — scout makes no external writes.
 
 ## The core principle: intelligence vs. knowledge
 
@@ -122,14 +121,13 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 
 | Store | Holds | Disposable? |
 |---|---|---|
-| **scout SQLite** | working set: companies, enrichment, verdicts, status, runs | yes — rebuild from a CSV anytime |
+| **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
-scout-local), reading it via `profile`/`recall` only, and the triage status
-lives in scout's SQLite.
+scout-local), reading it via `profile`/`recall` only.
 
 ## The pipeline, with brain touchpoints
 
@@ -142,7 +140,7 @@ verdict   reads  the user's criteria  ← brain: profile / episode bodies
           reads  company history      ← brain: recall(name)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
-triage    browse / status / promote                    (no brain)
+triage    browse / promote                             (no brain)
 ```
 
 The brain is touched in exactly two places, both inside `verdict`, both reads

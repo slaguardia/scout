@@ -52,11 +52,6 @@ RETURNING id;`
 	if err != nil {
 		return 0, fmt.Errorf("upsert company %q: %w", c.Name, err)
 	}
-
-	// Ensure a status row exists. Idempotent.
-	if _, err := db.Exec(`INSERT OR IGNORE INTO status (company_id, state) VALUES (?, 'new')`, id); err != nil {
-		return 0, fmt.Errorf("seed status for %q: %w", c.Name, err)
-	}
 	return id, nil
 }
 
