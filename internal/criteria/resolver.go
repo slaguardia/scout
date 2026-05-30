@@ -76,12 +76,15 @@ func (r *Resolver) Resolve(ctx context.Context) (*taste.Block, error) {
 			r.log("criteria: refreshed brain profile from %s", url)
 			return blk, nil
 		} else {
-			// 3. Brain unreachable/empty → fall back to the last cached copy.
+			// 3. Couldn't refresh (brain unreachable, or healthy-but-empty) →
+			// fall back to the last cached copy. The error string already says
+			// which case it is, so surface it verbatim rather than labelling it
+			// "unavailable" (a healthy-but-empty brain is reachable, just empty).
 			if cp, cerr := r.Store.GetBrainProfile(url); cerr == nil && cp != nil && strings.TrimSpace(cp.Body) != "" {
-				r.log("criteria: brain unavailable (%v); using stale cached profile (age %ds)", err, cp.AgeSeconds)
+				r.log("criteria: %v; using stale cached profile (age %ds)", err, cp.AgeSeconds)
 				return taste.FromBrain(cp.Body, brainSource(url)), nil
 			}
-			r.log("criteria: brain unavailable (%v) and no cache; falling back to %s", err, r.TasteMDPath)
+			r.log("criteria: %v; no cache — falling back to %s", err, r.TasteMDPath)
 		}
 	}
 
