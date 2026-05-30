@@ -53,7 +53,6 @@
     /* layout */
     --pane-w:    560px;
     --sidebar-w: 280px;
-    --header-h:  56px;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -73,14 +72,12 @@
 
   ::selection { background: rgba(139, 109, 255, 0.35); }
 
-  /* ---- header ---- */
-  header {
-    height: var(--header-h);
-    padding: 0 20px;
+  /* ---- brand / logo (top of sidebar) ---- */
+  .sidebar-brand {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
     border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; gap: 14px;
-    background: linear-gradient(180deg, var(--bg-2), var(--bg));
-    position: sticky; top: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
   }
   .brand {
     font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -105,21 +102,11 @@
   @media (prefers-reduced-motion: reduce) {
     .brand:hover { animation: none; }
   }
-  header .spacer { flex: 1; }
-  header .hint {
-    color: var(--fg-dim); font-size: 12px;
-  }
-  header .hint kbd {
-    display: inline-block; padding: 1px 6px; border-radius: 4px;
-    background: var(--panel-2); border: 1px solid var(--line);
-    font: 11px/1 "SF Mono", monospace; color: var(--fg-mute);
-  }
-
   /* ---- layout ---- */
   .layout {
     display: grid;
     grid-template-columns: var(--sidebar-w) 1fr;
-    min-height: calc(100vh - var(--header-h));
+    min-height: 100vh;
   }
 
   /* ---- sidebar ---- */
@@ -128,8 +115,8 @@
     background: var(--bg-2);
     padding: 18px 16px 40px;
     overflow-y: auto;
-    position: sticky; top: var(--header-h);
-    max-height: calc(100vh - var(--header-h));
+    position: sticky; top: 0;
+    max-height: 100vh;
   }
   aside.sidebar .block { margin-bottom: 24px; }
   aside.sidebar .block:last-child { margin-bottom: 0; }
@@ -819,18 +806,15 @@
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">scout</div>
-  <span class="spacer"></span>
-  <span class="hint">click any company to inspect</span>
-  <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
-    how it works
-  </button>
-</header>
-
 <div class="layout">
 <aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand">scout</div>
+    <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
+      how it works
+    </button>
+  </div>
   <div class="block" id="block-run">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
