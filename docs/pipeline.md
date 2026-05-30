@@ -109,14 +109,13 @@ happens at verdict time, grounded in the brain.
 | | |
 |---|---|
 | **Input** | filter survivors × `enrichment` with `fetch_status='ok'`, plus the resolved criteria. |
-| **Output** | `considered=N scored=N skipped=N failed=N` + verdict histogram (+ escalation + cache lines). |
+| **Output** | `considered=N scored=N skipped=N failed=N` + verdict histogram (+ cache line). |
 | **Idempotent** | Yes, by `(company_id, taste_version)`. |
 | **Requires** | `ANTHROPIC_API_KEY`. |
 
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
 `--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
-empty disables), `--model claude-haiku-4-5`, `--escalate-model` (optional
-Sonnet second pass), `--workers 4`, `--force`.
+empty disables), `--model claude-haiku-4-5`, `--workers 4`, `--force`.
 
 ### Resolving the criteria (brain-primary)
 
@@ -162,13 +161,6 @@ those companies re-score on the next run. **That re-score is intended.** Editing
    cached after the first call.
 5. Parses `{"verdict":"yes|maybe|no","reason":...}` (tolerant of fences/noise),
    upserts into `verdicts`.
-
-### Escalation (`--escalate-model`)
-
-After the Haiku pass, every row still `maybe` at the current `taste_version`
-that hasn't been escalated to the escalation model is re-scored with it (per-call
-timeout 60s vs. 45s) and persisted via `escalated_model`. A first-pass re-score
-clears any prior escalation.
 
 **See also:** [verdict.md](./verdict.md) for prompts, parsing, model choice.
 

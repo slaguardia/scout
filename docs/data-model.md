@@ -6,7 +6,7 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0007`), are embedded via `//go:embed`,
+`internal/store/migrations/` (`0001`–`0009`), are embedded via `//go:embed`,
 apply in filename order on every `Open()`, and are tracked in
 `schema_migrations`.
 
@@ -86,9 +86,8 @@ verdicts (
     verdict         TEXT NOT NULL,   -- 'yes' | 'maybe' | 'no'
     reason          TEXT NOT NULL,   -- one-line justification
     taste_version   TEXT NOT NULL,   -- criteria version (see below)
-    model           TEXT NOT NULL,   -- first-pass model, e.g. 'claude-haiku-4-5'
-    scored_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    escalated_model TEXT             -- second-pass model, NULL if not escalated
+    model           TEXT NOT NULL,   -- scoring model, e.g. 'claude-haiku-4-5'
+    scored_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
@@ -104,13 +103,6 @@ criteria text is the brain's episode bodies (or the offline `taste.md`
 fallback). When the brain learns something — or the playbook is edited — the
 hash changes, and the next `verdict` run re-scores rows whose stored
 `taste_version` no longer matches. That re-scoring is intended.
-
-**`escalated_model`** (migration `0004`) records the second-pass model that
-re-scored a first-pass `maybe` (Sonnet escalation). `NULL` means no escalation
-at the current `taste_version`. A first-pass upsert clears it to `NULL` (a
-re-score invalidates any prior escalation). `MaybesNeedingEscalation` selects
-`maybe` rows at the current `taste_version` whose `escalated_model` is `NULL` or
-differs from the requested model, so escalation is idempotent per model.
 
 ---
 
@@ -166,7 +158,6 @@ independent of any company.
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
-| escalate | `maybe` row not yet escalated to the requested model | new criteria version, or a different escalation model |
 
 ## Why not Postgres / per-stage tables / event sourcing
 

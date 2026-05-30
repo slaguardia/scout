@@ -23,7 +23,7 @@ go build -o scout ./cmd/scout
 ```
 
 The migrations are embedded; the first `scout <anything>` call creates
-`scout.db` and runs them (currently through `0007`).
+`scout.db` and runs them (currently through `0009`).
 
 ## The normal way in: the browser
 
@@ -140,8 +140,7 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of criteria + per-company recall. **Empty disables** → `taste.md` fallback. |
-| `--model` | `claude-haiku-4-5` | Anthropic model for the first pass. |
-| `--escalate-model` | `""` | If set, re-score every `maybe` with this model (e.g. `claude-sonnet-4-5`). |
+| `--model` | `claude-haiku-4-5` | Anthropic model for scoring. |
 | `--workers` | `4` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
 

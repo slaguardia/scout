@@ -200,7 +200,7 @@ This doc owns the architecture and concept; the rest is reference and links back
 here.
 
 - [`pipeline.md`](./pipeline.md) — each command's behavior.
-- [`verdict.md`](./verdict.md) — the LLM call: prompt assembly, caching, escalation.
+- [`verdict.md`](./verdict.md) — the LLM call: prompt assembly, caching.
 - [`enrichment.md`](./enrichment.md) — about-page fetch + fetch-status taxonomy.
 - [`data-model.md`](./data-model.md) — the SQLite schema.
 - [`operations.md`](./operations.md) — flags, env, troubleshooting.

@@ -31,9 +31,8 @@ Body:
   }
 ```
 
-Per-call timeout: 45s (60s on the escalation pass), separate from the global
-ctx. No streaming. Workers default to 4 — Anthropic rate limits matter more than
-local CPU.
+Per-call timeout: 45s, separate from the global ctx. No streaming. Workers
+default to 4 — Anthropic rate limits matter more than local CPU.
 
 ## System prompt — three layers
 
@@ -166,7 +165,7 @@ Default: `claude-haiku-4-5` (`anthropic.DefaultModel`). Override with
 `scout verdict --model <id>`. The mechanical pre-filter (`taste.toml`) already
 culls obvious mismatches, so survivors are plausible candidates and the model is
 making fine-grained yes/maybe/no calls — a job Haiku is fast, cheap, and good
-enough at. Escalate to Sonnet only when real data shows quality is bad.
+enough at. Switch `--model` to Sonnet only when real data shows quality is bad.
 
 Cost back-of-envelope (verify against current pricing):
 
@@ -174,35 +173,6 @@ Cost back-of-envelope (verify against current pricing):
   cache-read after the first call.
 - Output: ~50 tokens.
 - 500 companies → roughly $0.50–1.50 a run.
-
-## Sonnet escalation for maybes (optional)
-
-`--escalate-model <model>` adds a second pass: after the Haiku pass, every row
-still scored `maybe` at the current criteria version (`MaybesNeedingEscalation`)
-is re-scored with the escalation model (typically `claude-sonnet-4-5`).
-
-```bash
-scout verdict --escalate-model claude-sonnet-4-5
-```
-
-The new verdict overwrites the old via `UpsertEscalatedVerdict`; the
-`escalated_model` column records which model did it. The pass only re-scores
-rows where `escalated_model IS NULL OR escalated_model != <flag>`, so re-running
-with the same flag is a no-op. Re-running the first pass clears `escalated_model`
-on upsert, re-arming escalation for the next run. Same worker-pool model and
-cached system block as the first pass; caching numbers aggregate across both.
-
-```
-considered=87 scored=87 skipped=0 failed=0
-  maybe 18 · no 35 · yes 18
-escalation (claude-sonnet-4-5): considered=18 scored=18 skipped=0 failed=0
-  maybe 6 · no 8 · yes 4
-cache: created=3500 tokens, read=308000 tokens
-```
-
-Reach for it when `maybe` is over-populated and verdicts feel random, or at
-scale where Sonnet-on-everything is expensive but Sonnet-on-maybes is fine.
-Don't, by default.
 
 ## Where verdicts go
 

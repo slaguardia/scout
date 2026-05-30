@@ -83,16 +83,14 @@
     position: sticky; top: 0; z-index: 10;
   }
   .brand {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em;
-  }
-  .brand-dot {
-    width: 9px; height: 9px; border-radius: 50%;
+    font-family: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 17px; font-weight: 600; letter-spacing: 0.06em;
     background: linear-gradient(135deg, var(--accent), var(--link));
-    box-shadow: 0 0 12px rgba(139, 109, 255, 0.6);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(139, 109, 255, 0.28));
+    user-select: none;
   }
-  .brand-slash { color: var(--fg-dim); font-weight: 400; }
-  .brand-sub  { color: var(--fg-mute); font-weight: 500; }
   header .stats {
     color: var(--fg-mute); font-size: 13px;
     font-variant-numeric: tabular-nums;
@@ -545,11 +543,6 @@
   .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .run-btn svg { width: 13px; height: 13px; flex: none; color: var(--fg-mute); }
   .run-btn .grow { flex: 1; }
-  .run-opt {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 12px; color: var(--fg-mute); padding: 2px 2px 4px;
-  }
-  .run-opt input { width: auto; }
   .run-busy {
     font-size: 12px; color: var(--maybe);
     display: flex; align-items: center; gap: 6px; padding: 4px 2px 0;
@@ -665,12 +658,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">
-    <span class="brand-dot" aria-hidden="true"></span>
-    <span>scout</span>
-    <span class="brand-slash">/</span>
-    <span class="brand-sub">triage</span>
-  </div>
+  <div class="brand">scout</div>
   <span class="stats" id="stats"><span class="spinner"></span></span>
   <span class="spacer"></span>
   <span class="hint">click any company to inspect</span>
@@ -696,7 +684,6 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
         <span class="grow">Verdict</span>
       </button>
-      <div class="run-opt"><label><input type="checkbox" id="opt-escalate"> escalate maybes (Sonnet)</label></div>
     </div>
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
@@ -1362,8 +1349,7 @@ document.addEventListener("keydown", e => {
 
 // run controls
 document.getElementById("btn-enrich").onclick = () => startRun("enrich", {});
-document.getElementById("btn-verdict").onclick = () =>
-  startRun("verdict", { escalate_model: document.getElementById("opt-escalate").checked ? "claude-sonnet-4-5" : "" });
+document.getElementById("btn-verdict").onclick = () => startRun("verdict", {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("csv-file").onchange = e => {
   const f = e.target.files && e.target.files[0];

@@ -36,11 +36,6 @@ type Scorer struct {
 	// Taste.Version so verdicts re-score when the playbook changes.
 	Playbook string
 
-	// EscalateModel: when non-empty, after the first Haiku pass, every row
-	// still scored 'maybe' is re-scored with this model (typically Sonnet).
-	// Idempotent per (company_id, taste_version, escalated_model).
-	EscalateModel string
-
 	// Optional: when set, scoreOne calls recall(query=company.Name) against the
 	// brain and appends "What the brain already knows" to the user prompt,
 	// keeping only facts above brainScoreFloor (fresh companies score low and
@@ -78,13 +73,6 @@ type Result struct {
 	ByVerdict           map[string]int
 	CacheCreationTokens int // sum of cache_creation_input_tokens across all calls
 	CacheReadTokens     int // sum of cache_read_input_tokens (the saving)
-
-	// Escalation second-pass stats (zero when EscalateModel is unset).
-	EscalateConsidered int
-	EscalateScored     int
-	EscalateSkipped    int
-	EscalateFailed     int
-	EscalateByVerdict  map[string]int
 }
 
 // Run scores every survivor (per filter rules) that has enrichment and lacks
@@ -154,134 +142,7 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 	}
 	close(jobs)
 	wg.Wait()
-
-	// Second pass: re-score maybes with the escalation model.
-	if s.EscalateModel != "" {
-		res.EscalateByVerdict = map[string]int{}
-		if err := s.runEscalation(ctx, res); err != nil {
-			return res, err
-		}
-	}
 	return res, nil
-}
-
-// runEscalation finds every 'maybe' verdict at the current taste_version
-// that hasn't been escalated to s.EscalateModel and re-scores it. Updates
-// res.EscalateXxx counters. Same worker pool model as Run.
-func (s *Scorer) runEscalation(ctx context.Context, res *Result) error {
-	ids, err := s.DB.MaybesNeedingEscalation(s.Taste.Version, s.EscalateModel)
-	if err != nil {
-		return err
-	}
-	res.EscalateConsidered = len(ids)
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// Rebuild the candidate payload for each id from filter survivors +
-	// enrichment. We could SELECT directly, but reusing candidates() keeps
-	// the data shape identical to the first pass.
-	allCands, err := s.candidates()
-	if err != nil {
-		return err
-	}
-	byID := make(map[int64]store.VerdictCandidate, len(allCands))
-	for _, c := range allCands {
-		byID[c.CompanyID] = c
-	}
-
-	jobs := make(chan store.VerdictCandidate)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for i := 0; i < s.Workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for c := range jobs {
-				v, cacheCreate, cacheRead, err := s.escalateOne(ctx, c)
-				mu.Lock()
-				res.CacheCreationTokens += cacheCreate
-				res.CacheReadTokens += cacheRead
-				if err != nil {
-					res.EscalateFailed++
-					mu.Unlock()
-					fmt.Printf("escalate %d (%s) error: %v\n", c.CompanyID, c.Name, err)
-					s.emit(fmt.Sprintf("escalate %s — error: %v", c.Name, err))
-					continue
-				}
-				if v == nil {
-					res.EscalateSkipped++
-					mu.Unlock()
-					continue
-				}
-				res.EscalateScored++
-				res.EscalateByVerdict[v.Verdict]++
-				mu.Unlock()
-				s.emit(fmt.Sprintf("escalated %s → %s", c.Name, v.Verdict))
-			}
-		}()
-	}
-
-	for _, id := range ids {
-		c, ok := byID[id]
-		if !ok {
-			// Survivor set or enrichment changed since the first pass —
-			// skip rather than fail. This is rare in practice.
-			res.EscalateSkipped++
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			close(jobs)
-			wg.Wait()
-			return ctx.Err()
-		case jobs <- c:
-		}
-	}
-	close(jobs)
-	wg.Wait()
-	return nil
-}
-
-// escalateOne re-scores a single candidate with s.EscalateModel and persists
-// via UpsertEscalatedVerdict. Returns (nil, ...) if skipped.
-func (s *Scorer) escalateOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
-	brainFacts := s.lookupBrain(ctx, c.Name) // re-uses per-Run cache
-	system := buildSystemPrompt(s.Playbook, s.Taste.Text)
-	user := buildUserPrompt(c, brainFacts)
-
-	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // sonnet a bit slower
-	defer cancel()
-
-	resp, err := s.Client.Send(callCtx, anthropic.Request{
-		Model:     s.EscalateModel,
-		System:    system,
-		MaxTokens: 256,
-		Messages:  []anthropic.Message{{Role: "user", Content: user}},
-		Cached:    true, // identical system block across calls
-	})
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	verdict, reason, err := parseVerdict(resp.Text())
-	if err != nil {
-		return nil, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens,
-			fmt.Errorf("parse: %w (raw=%q)", err, truncate(resp.Text(), 200))
-	}
-
-	v := store.Verdict{
-		CompanyID:    c.CompanyID,
-		Verdict:      verdict,
-		Reason:       reason,
-		TasteVersion: s.Taste.Version,
-		Model:        s.EscalateModel,
-	}
-	if err := s.DB.UpsertEscalatedVerdict(v, s.EscalateModel); err != nil {
-		return nil, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, err
-	}
-	return &v, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, nil
 }
 
 // candidates: companies that survive the static SQL filter AND have an 'ok' enrichment row.

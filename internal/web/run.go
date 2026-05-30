@@ -20,8 +20,7 @@ import (
 
 // runOptions is the optional JSON body for POST /api/run/{stage}.
 type runOptions struct {
-	Force         bool   `json:"force"`
-	EscalateModel string `json:"escalate_model"`
+	Force bool `json:"force"`
 }
 
 // handleRun starts a pipeline stage as a job. POST /api/run/{stage}.
@@ -102,33 +101,25 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			bc = s.Brainbot
 		}
 		sc := &verdict.Scorer{
-			DB:            s.DB,
-			Taste:         tb,
-			Filter:        ft,
-			Client:        s.Anthropic,
-			Playbook:      s.currentPlaybook(),
-			Brainbot:      bc, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
-			EscalateModel: opts.EscalateModel,
-			Force:         opts.Force,
-			Workers:       4,
-			Progress:      emit,
+			DB:       s.DB,
+			Taste:    tb,
+			Filter:   ft,
+			Client:   s.Anthropic,
+			Playbook: s.currentPlaybook(),
+			Brainbot: bc, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
+			Force:    opts.Force,
+			Workers:  4,
+			Progress: emit,
 		}
 		res, err := sc.Run(ctx)
 		if err != nil {
 			return nil, err
 		}
-		summary := map[string]any{
+		return map[string]any{
 			"considered": res.Considered, "scored": res.Scored,
 			"skipped": res.Skipped, "failed": res.Failed,
 			"by_verdict": res.ByVerdict,
-		}
-		if opts.EscalateModel != "" {
-			summary["escalate_model"] = opts.EscalateModel
-			summary["escalate_considered"] = res.EscalateConsidered
-			summary["escalate_scored"] = res.EscalateScored
-			summary["escalate_by_verdict"] = res.EscalateByVerdict
-		}
-		return summary, nil
+		}, nil
 	}
 }
 

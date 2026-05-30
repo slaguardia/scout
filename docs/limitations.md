@@ -104,9 +104,8 @@ Hypothetical: 10k companies per CSV.
   Headless browsing would be painful at this rate; about-page-only stays the
   answer.
 - **Verdict:** the Batch API (discounted async pricing) would roughly halve
-  cost. The Sonnet escalation pass (re-score `maybe`s only) already exists; at
-  scale it's the default move. Prompt caching is already on — the system block
-  (contract + playbook + criteria) is cached across a run.
+  cost. Prompt caching is already on — the system block (contract + playbook +
+  criteria) is cached across a run.
 - **Storage:** SQLite still fine; WAL handles the write rate.
 - **UI:** client-side sort/filter on a single 10k-row table still works;
   server-side pagination becomes nice-to-have past ~50k.

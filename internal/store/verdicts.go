@@ -41,68 +41,21 @@ func (db *DB) GetVerdict(companyID int64) (*Verdict, error) {
 	return &v, nil
 }
 
-// UpsertVerdict inserts or replaces a verdict. A first-pass upsert clears
-// escalated_model (a re-score invalidates any prior escalation).
+// UpsertVerdict inserts or replaces a verdict for a company.
 func (db *DB) UpsertVerdict(v Verdict) error {
 	const q = `
-INSERT INTO verdicts (company_id, verdict, reason, taste_version, model, scored_at, escalated_model)
-VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)
+INSERT INTO verdicts (company_id, verdict, reason, taste_version, model, scored_at)
+VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT(company_id) DO UPDATE SET
-    verdict         = excluded.verdict,
-    reason          = excluded.reason,
-    taste_version   = excluded.taste_version,
-    model           = excluded.model,
-    scored_at       = CURRENT_TIMESTAMP,
-    escalated_model = NULL;`
+    verdict       = excluded.verdict,
+    reason        = excluded.reason,
+    taste_version = excluded.taste_version,
+    model         = excluded.model,
+    scored_at     = CURRENT_TIMESTAMP;`
 	if _, err := db.Exec(q, v.CompanyID, v.Verdict, v.Reason, v.TasteVersion, v.Model); err != nil {
 		return fmt.Errorf("upsert verdict %d: %w", v.CompanyID, err)
 	}
 	return nil
-}
-
-// UpsertEscalatedVerdict overwrites a verdict with the second-pass result
-// from an escalation model, recording which model did the re-score so the
-// next run can skip rows that already escalated to the same model.
-func (db *DB) UpsertEscalatedVerdict(v Verdict, escalatedModel string) error {
-	const q = `
-INSERT INTO verdicts (company_id, verdict, reason, taste_version, model, scored_at, escalated_model)
-VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-ON CONFLICT(company_id) DO UPDATE SET
-    verdict         = excluded.verdict,
-    reason          = excluded.reason,
-    taste_version   = excluded.taste_version,
-    model           = excluded.model,
-    scored_at       = CURRENT_TIMESTAMP,
-    escalated_model = excluded.escalated_model;`
-	if _, err := db.Exec(q, v.CompanyID, v.Verdict, v.Reason, v.TasteVersion, v.Model, escalatedModel); err != nil {
-		return fmt.Errorf("upsert escalated verdict %d: %w", v.CompanyID, err)
-	}
-	return nil
-}
-
-// MaybesNeedingEscalation returns company_ids that are currently scored 'maybe'
-// at the given taste_version AND have not yet been escalated with the given
-// model (escalated_model is NULL or differs).
-func (db *DB) MaybesNeedingEscalation(tasteVersion, escalateModel string) ([]int64, error) {
-	const q = `
-SELECT company_id FROM verdicts
-WHERE verdict = 'maybe'
-  AND taste_version = ?
-  AND (escalated_model IS NULL OR escalated_model != ?)`
-	rows, err := db.Query(q, tasteVersion, escalateModel)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }
 
 // CountVerdictsByVerdict returns a histogram for stats.
