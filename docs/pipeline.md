@@ -9,13 +9,13 @@ are the secondary automation/debug surface. Both drive the same stages:
 ```
 ingest → filter → enrich → verdict → triage
                               │
-                  brain ──────┘  (read-only: criteria + per-company recall)
+                  brain ──────┘  (read-only: the user's criteria, cached locally)
 ```
 
 `ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict`, and only for reads — scout reads the user's criteria and per-company
-recall, and never writes back (verdicts stay scout-local). Default `--brainbot`
-is `http://127.0.0.1:8100`; empty disables it.
+`verdict`, and only for reads — scout reads the user's criteria from `/profile`
+(cached locally) and never writes back (verdicts stay scout-local). Default
+`--brainbot` is `http://127.0.0.1:8100`; empty disables it.
 
 ---
 
@@ -117,27 +117,36 @@ happens at verdict time, grounded in the brain.
 
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
 `--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
-empty disables), `--model claude-haiku-4-5`, `--workers 4`, `--force`.
+empty disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
+`--workers 4`, `--force`.
 
-### Resolving the criteria (brain-primary)
+### Resolving the criteria (brain-primary, cached)
 
 The criteria are **the user's** — they come from the brain, not a scout file.
+Resolution is centralized in `internal/criteria` (`criteria.Resolver`), shared by
+both `cmdVerdict` and the web server, with a local SQLite cache in front of the
+brain:
 
 ```
---brainbot set ──▶ GET /health ──ok──▶ Criteria() = GET /profile bodies
-                       │                     │ (empty bodies → broad GET /recall)
-                    unreachable           empty → healthy-but-empty
-                       │                     │
-                       └────────┬────────────┘
-                                ▼
-                        fall back to taste.md (offline criteria)
+fresh cached profile? (age < --brain-cache-ttl) ──yes──▶ use it
+       │ no
+GET /profile bodies ──▶ ok ──▶ cache + use   (empty → broad GET /recall bodies)
+       │ unreachable
+stale cached profile? ──yes──▶ use it (brain is down)
+       │ no
+fall back to taste.md (offline criteria)
 ```
 
 - The brain client reads **episode BODIES** (`/profile`), not extracted facts —
   bodies carry the user's gates and hard exclusions; facts are a lossy
   positive-only index that drops them. See `north-star.md` → *Facts vs. episodes*.
-- A brain that's **unreachable** *or* **healthy-but-empty** falls back to
-  `taste.md`. The fallback is offline-only — scout never invests in it.
+  The broad `/recall` is an internal fallback that only recovers criteria bodies
+  when `/profile` is empty — not a per-company lookup.
+- A fetched profile is written to `brain_profile_cache` and reused within
+  `--brain-cache-ttl` (default 6h). If the brain is unreachable, a *stale* cached
+  profile is used before scout drops to `taste.md`.
+- A brain that's **unreachable with no cache** *or* **healthy-but-empty** falls
+  back to `taste.md`. The fallback is offline-only — scout never invests in it.
 - The resolved block becomes a `taste.Block`: `Text`, `Source`
   (`brain:profile@<url>` or `file:taste.md`), and `Version`.
 
@@ -152,16 +161,12 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 
 1. Re-runs filter for survivors, joins enrichment on `fetch_status='ok'`.
 2. Skip if a verdict row already matches the current `taste_version` (unless `--force`).
-3. **Per-company brain context:** when the brain is healthy, `Recall(name, 5)`,
-   keeping only facts with `score >= 0.4` (a fresh company scores low and injects
-   nothing). Results are cached per run; a brain miss is logged and ignored —
-   verdict never fails on it.
-4. Sends to the Anthropic Messages API. The system block layers a fixed JSON
+3. Sends to the Anthropic Messages API. The system block layers a fixed JSON
    **output contract** + the **playbook** (how to decide; built-in rubric if
    none) + the **criteria** (what the user wants). **Prompt caching is on**
    (`Cached:true`) — the system block is identical across the run, so it's
    cached after the first call.
-5. Parses `{"verdict":"yes|maybe|no","reason":...}` (tolerant of fences/noise),
+4. Parses `{"verdict":"yes|maybe|no","reason":...}` (tolerant of fences/noise),
    upserts into `verdicts`.
 
 **See also:** [verdict.md](./verdict.md) for prompts, parsing, model choice.
@@ -174,7 +179,7 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 |---|---|
 | **Input** | `companies`/`enrichment`/`verdicts`/`runs` + optional brain. |
 | **Output** | `scout triage UI at http://localhost:8765`. |
-| **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`. |
+| **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`, `--brain-cache-ttl 6h`. |
 
 A single embedded HTML page plus a **full control surface** — the whole pipeline
 runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
@@ -186,7 +191,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /` | the embedded triage UI |
 | `GET /api/companies` | every company joined with verdict and enrichment |
 | `GET /api/companies/{id}` | full detail |
-| `GET /api/companies/{id}/brain` | **per-company recall** panel — `Recall(name, 5)` |
+| `GET /api/profile` | **read-only** cached brain profile + freshness (the active criteria) |
+| `POST /api/profile/refresh` | force a refetch of `/profile` from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
 | `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |
 | `GET /healthz` | `ok` |
@@ -203,8 +209,9 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
-- `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server health-gates the
-  per-company recall client the same way the CLI does.
+- `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server resolves criteria
+  through the same `internal/criteria` resolver the CLI uses (cached profile →
+  live `/profile` → stale cache → `taste.md`).
 
 **Editor — local files only, never the brain**
 

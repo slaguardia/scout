@@ -9,9 +9,9 @@ sideways. For *what scout is* and the brain/scout split, see
 - Go 1.22+ (1.26+ on dev machines is fine).
 - `ANTHROPIC_API_KEY` for scoring (the `verdict` stage, including UI-triggered
   runs).
-- The brain on `http://127.0.0.1:8100` if you want live criteria + per-company
-  memory (read-only). **Optional** — scout falls back to `taste.md` when it's
-  unreachable.
+- The brain on `http://127.0.0.1:8100` if you want live criteria (read-only).
+  **Optional** — scout caches the last profile it fetched and falls back to
+  `taste.md` when the brain is unreachable and the cache is gone.
 
 ## First-run
 
@@ -23,13 +23,14 @@ go build -o scout ./cmd/scout
 ```
 
 The migrations are embedded; the first `scout <anything>` call creates
-`scout.db` and runs them (currently through `0010`).
+`scout.db` and runs them (currently through `0013`).
 
 ## The normal way in: the browser
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,
 enrich, verdict — runs from there as background jobs with live progress, plus
-triage, the criteria/playbook editor, and a per-company brain recall panel.
+triage and the Criteria panel (view/refresh the brain profile, or edit the
+`taste.md` fallback) with the always-editable playbook.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -39,7 +40,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 Then in the browser: upload a CSV, run the stages, triage the results. The
 brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
-(criteria fall back to `taste.md`, per-company recall is skipped).
+(criteria fall back to `taste.md`).
 
 ## A CLI pipeline run
 
@@ -67,10 +68,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # considered=87 fetched=87 ok=71 failed=16
 
 # 4. Score with Haiku. Criteria come from the brain (@127.0.0.1:8100) when
-#    healthy, else taste.md.
+#    healthy (cached locally), else taste.md.
 ./scout verdict
 # taste source=brain:profile@http://127.0.0.1:8100 version=b4cd783174d6
-# brain context: enabled (http://127.0.0.1:8100)
 # considered=71 scored=71 skipped=0 failed=0
 #   maybe 18
 #   no    35
@@ -88,17 +88,21 @@ Re-running any stage is safe. Each stage skips work it's already done.
 ```
 scout verdict
    │
-   ├─ --brainbot set (default :8100) and healthy?
+   ├─ fresh cached profile? (age < --brain-cache-ttl, default 6h) → use it
+   │
+   ├─ else --brainbot set (default :8100) and healthy?
    │     ├─ yes → GET /profile bodies (the user's criteria, gates, exclusions)
+   │     │        ↳ cache it locally (brain_profile_cache), then use it
    │     │        ↳ empty? broad GET /recall to recover them
    │     │        ↳ still empty? fall back to taste.md
-   │     └─ no/unreachable → fall back to taste.md  (logged to stderr)
-   │
-   ├─ per company: GET /recall?q=<name> (top 5, keep facts score >= 0.4)
-   │     ↳ fresh companies match nothing → inject nothing
+   │     └─ no/unreachable → stale cached profile if any, else taste.md  (logged)
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite
 ```
+
+The brain is touched in exactly one place — reading `/profile` for the user's
+criteria, cached locally (TTL) so repeated runs don't refetch. There is no
+per-company brain query.
 
 Verdicts are written to scout's SQLite and nowhere else — the brain is
 read-only for scout. The **criteria version** (`taste_version` in the schema) is
@@ -139,7 +143,8 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste` | `taste.toml` | Mechanical pre-filter rules (the SQL gate inside this stage). |
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of criteria + per-company recall. **Empty disables** → `taste.md` fallback. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`/profile`). **Empty disables** → `taste.md` fallback. |
+| `--brain-cache-ttl` | `6h` | How long a cached brain profile stays fresh before the resolver refetches `/profile`. |
 | `--model` | `claude-haiku-4-5` | Anthropic model for scoring. |
 | `--workers` | `4` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
@@ -153,7 +158,8 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste` | `taste.toml` | Mechanical pre-filter rules used by UI verdict runs. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source + per-company recall panel. Empty disables → `taste.md` fallback. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`/profile`), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
+| `--brain-cache-ttl` | `6h` | How long a cached brain profile stays fresh before a refetch (shared resolver). |
 
 ### `scout stats`
 
@@ -197,11 +203,13 @@ Each failure carries a `fetch_status`: `low_content`, `challenge`, `no_domain`,
 sqlite3 scout.db "SELECT company_id, fetch_status, fetch_error FROM enrichment WHERE fetch_status != 'ok'"
 ```
 
-**`brain unreachable at http://127.0.0.1:8100 ... falling back to taste.md`**
-Expected when the brain is down — scoring proceeds on local criteria. If you
-want the brain, start it; if you don't, pass `--brainbot ""` to silence the
-probe. A *healthy but empty* brain logs `no criteria captured yet` and also
-falls back to `taste.md` until the user captures something.
+**`brain unreachable at http://127.0.0.1:8100 ... falling back`**
+Expected when the brain is down — the resolver serves a *stale* cached profile
+if it has one, else `taste.md`, and scoring proceeds. If you want fresh criteria,
+start the brain (or `POST /api/profile/refresh` from the UI); if you don't want
+the brain at all, pass `--brainbot ""` to silence the probe. A *healthy but
+empty* brain logs `no criteria captured yet` and also falls back to `taste.md`
+until the user captures something.
 
 **Verdict says `considered=0`**
 Either no survivors (check `scout filter`), or no `ok` enrichment for the

@@ -12,7 +12,7 @@ no retries beyond `net/http`. One call, one verdict.
 
 ```
 candidate ──▶ buildSystemPrompt(playbook, criteria)  (cached system block)
-          ──▶ buildUserPrompt(company, brainFacts)    (per-company)
+          ──▶ buildUserPrompt(company)                (per-company)
           ──▶ Haiku  ──▶ parseVerdict  ──▶  {verdict, reason}  ──▶ verdicts
 ```
 
@@ -27,7 +27,7 @@ Body:
     "max_tokens": 256,
     "system": [{ "type": "text", "text": "<3 layers>",
                  "cache_control": {"type": "ephemeral"} }],
-    "messages": [{"role": "user", "content": "<company facts + site text + brain memory>"}]
+    "messages": [{"role": "user", "content": "<company facts + site text>"}]
   }
 ```
 
@@ -57,26 +57,35 @@ The criteria block is appended verbatim — not summarized, paraphrased, or
 trimmed. (The header text still reads `TASTE`; the concept is "criteria," and
 they come from the brain. See [`north-star.md` Terminology](./north-star.md#terminology-retired-vs-canonical).)
 
-### Where the criteria come from (brain-primary, file-fallback)
+### Where the criteria come from (cached, brain-primary, file-fallback)
 
-Resolved once per run, before scoring, and health-gated:
+Resolved once per run, before scoring, by the shared `internal/criteria`
+resolver (the same path the web server uses) with a local SQLite cache in front
+of the brain:
 
 ```
-brain reachable? ── no ──▶ taste.md          (offline fallback)
-       │ yes
+fresh cached profile? (age < --brain-cache-ttl) ── yes ──▶ use it
+       │ no
    GET /profile bodies ── empty ──▶ broad /recall bodies ── empty ──▶ taste.md
-       │ non-empty                                                    (brain knows nothing yet)
-   brain criteria  ──────────────────────────────────────────────▶ scoring
+       │ non-empty (cache it)                                         (brain knows nothing yet)
+       │                                          unreachable ──▶ stale cached profile?
+       │                                                              │ yes → use it
+       │                                                              │ no  → taste.md
+   brain criteria  ───────────────────────────────────────────────▶ scoring
 ```
 
 The brain's criteria are the concatenated **episode bodies** (`Criteria()` →
-`/profile`, falling back to a broad `/recall`), because the gates and exclusions
-live in the bodies, not the extracted facts. A healthy-but-empty brain falls
-back to `taste.md` too. Default brain URL: `http://127.0.0.1:8100`.
+`/profile`, falling back to a broad `/recall` *only* to recover the bodies when
+`/profile` is empty), because the gates and exclusions live in the bodies, not
+the extracted facts. A fetched profile is cached in `brain_profile_cache` and
+reused within `--brain-cache-ttl` (default 6h); when the brain is unreachable
+the resolver serves a *stale* cached profile before dropping to `taste.md`. A
+healthy-but-empty brain falls back to `taste.md` too. Default brain URL:
+`http://127.0.0.1:8100`.
 
 ## User prompt
 
-`buildUserPrompt(c, brainFacts)`:
+`buildUserPrompt(c)`:
 
 ```
 Company: <name>
@@ -89,19 +98,13 @@ Funding stage: <stage>
 Website text (truncated):
 <up to 3000 runes of stripped about-page text>
 
-What the brain already knows about this company:
-- <recall fact, score ≥ 0.4>
-- <…>
-
 Return the JSON verdict now.
 ```
 
-Fields with no value are omitted (no `Headcount: 0` noise). The brain block is
-the per-company memory: `lookupBrain` calls `Recall(name, 5)` and keeps only
-facts scoring **≥ 0.4** (`brainScoreFloor`) — a fresh company scores all-low and
-injects nothing, so the section is dropped entirely. Recall is per-run cached
-(empty results cached too, so misses aren't re-queried); a brain error logs to
-stderr and returns nil, so the verdict still runs without brain context.
+Fields with no value are omitted (no `Headcount: 0` noise). The user prompt is
+purely the company's own data — Crunchbase fields plus the enriched site text.
+There is **no per-company brain lookup**: the brain's only contribution to a
+verdict is the user's criteria, which live in the cached system block, not here.
 
 ## Prompt caching
 
@@ -169,7 +172,7 @@ enough at. Switch `--model` to Sonnet only when real data shows quality is bad.
 
 Cost back-of-envelope (verify against current pricing):
 
-- Input: ~3500 tokens/call (criteria block + facts + 3000-rune summary), mostly
+- Input: ~3500 tokens/call (criteria block + 3000-rune summary), mostly
   cache-read after the first call.
 - Output: ~50 tokens.
 - 500 companies → roughly $0.50–1.50 a run.
@@ -178,8 +181,8 @@ Cost back-of-envelope (verify against current pricing):
 
 Verdicts are written to scout's local `verdicts` table and nowhere else. Scout
 **does not** write them back to the brain — the brain is read-only for scout
-(criteria via `profile`, per-company memory via `recall`). Verdict data is
-scout-local working state; rebuild it from a CSV anytime.
+(criteria via `profile`, cached locally). Verdict data is scout-local working
+state; rebuild it from a CSV anytime.
 
 ## Concurrency
 
@@ -198,7 +201,7 @@ account if scout grows. Higher tier → bump `--workers`.
 | `anthropic HTTP 429` | rate limited | lower `--workers` or wait |
 | `anthropic HTTP 5xx` | API down | retry; next run picks up failed rows |
 | `parse: no valid verdict JSON` | model returned prose | rerun; if persistent, tighten the prompt |
-| `brain lookup for … failed` (stderr) | recall miss/timeout | harmless — scoring continues without brain context |
+| `criteria: brain unavailable …` (stderr) | brain unreachable at resolve time | harmless — resolver serves a stale cached profile, else `taste.md`; scoring continues |
 | `considered=0`, work expected | survivors lack `ok` enrichment, or all are scored at the current version | run `scout enrich`, check `scout stats`, or `--force` |
 
 ## What this stage deliberately doesn't do

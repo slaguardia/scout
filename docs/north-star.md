@@ -45,7 +45,7 @@ multi-user — it's the user's tool.
                           │  · SQLite (working set)         │
                           │  · Haiku (own LLM) + playbook   │
                           └────────────────┬────────────────┘
-                       reads (only)         │ criteria + company memory
+                       reads (only)         │ the user's criteria
                                        ┌────▼────────┐
                                        │  the brain  │
                                        │  knowledge  │
@@ -53,8 +53,8 @@ multi-user — it's the user's tool.
                                        └─────────────┘
 ```
 
-Scout reads the brain (criteria + per-company memory) but never writes it.
-Verdicts live only in scout's SQLite — scout makes no external writes.
+Scout reads the brain (the user's criteria) but never writes it. Verdicts live
+only in scout's SQLite — scout makes no external writes.
 
 ## The core principle: intelligence vs. knowledge
 
@@ -63,11 +63,11 @@ Verdicts live only in scout's SQLite — scout makes no external writes.
    (who the user is, what                 (how to judge a company
     they want, their rules)                for fit, in this domain)
             │                                       │
-        ┌───▼────┐   reads criteria + memory   ┌─────▼──────┐
-        │ brain  │ ──────────────────────────▶ │   scout    │
-        │        │      (read-only — scout      │ (own LLM + │
-        └────────┘       never writes back)     │  playbook) │
-                                               └────────────┘
+        ┌───▼────┐    reads the user's criteria  ┌─────▼──────┐
+        │ brain  │ ────────────────────────────▶ │   scout    │
+        │        │      (read-only — scout        │ (own LLM + │
+        └────────┘       never writes back)       │  playbook) │
+                                                 └────────────┘
 ```
 
 - **The brain owns the knowledge.** Everything about the user — preferences,
@@ -102,16 +102,17 @@ A single verdict decision combines four things from three sources:
 |---|---|---|
 | **Output contract** | Go constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
-| **The user's criteria** | **the brain** (`profile` → episode bodies) | *what* the user wants + their rules/exclusions |
-| **This company** | scout SQLite + **brain** (`recall(name)`) | Crunchbase fields + enriched site text + brain memory about this specific company |
+| **The user's criteria** | **the brain** (`profile` → episode bodies, cached locally) | *what* the user wants + their rules/exclusions |
+| **This company** | scout SQLite | Crunchbase fields + enriched site text |
 
 ```
   output contract (Go, fixed) ─┐
   playbook — how to decide ────┤
   the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
-    (brain: profile bodies)    │
+    (brain: profile bodies,    │
+     cached locally)           │
   this company ────────────────┘
-    (SQLite + brain: recall)
+    (scout SQLite only)
 ```
 
 The playbook is the *only* "instructions" file scout owns, and it is
@@ -122,12 +123,14 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | Store | Holds | Disposable? |
 |---|---|---|
 | **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
+| **brain profile cache** (in scout SQLite) | the last `/profile` body scout fetched, per brain URL — reused within `--brain-cache-ttl`, stale-fallback when the brain is down | yes — a disposable cache; the brain is the source of truth |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
-scout-local), reading it via `profile`/`recall` only.
+scout-local), reading it via `profile` only (and an internal `/recall` fallback
+to recover criteria bodies when `/profile` is empty).
 
 ## The pipeline, with brain touchpoints
 
@@ -137,24 +140,30 @@ filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard 
           headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
 verdict   reads  the user's criteria  ← brain: profile / episode bodies
-          reads  company history      ← brain: recall(name)
+                                         (cached locally, TTL)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
 triage    browse / promote                             (no brain)
 ```
 
-The brain is touched in exactly two places, both inside `verdict`, both reads
-(`profile` + `recall`). Everything else is brain-free.
+The brain is touched in exactly one place — reading the user's criteria from
+`/profile` inside `verdict` (cached locally), a read. Everything else is
+brain-free.
 
 ## How scout talks to the brain
 
-Plain **HTTP/JSON** (no MCP — that's for Claude Code). Scout uses two read
-operations (the brain also exposes `POST /capture`, but scout doesn't write):
+Plain **HTTP/JSON** (no MCP — that's for Claude Code). Scout reads the brain in
+exactly one way (the brain also exposes `POST /capture`, but scout doesn't
+write):
 
-- `GET /profile` — the user's full current picture. **Read the episode bodies**,
-  not just extracted facts (see below).
-- `GET /recall?q=` — scored facts + episode bodies for a query; scout uses it
-  for per-company memory. Scout sets its own score floor.
+- `GET /profile` — the user's full current picture, the source of the criteria.
+  **Read the episode bodies**, not just extracted facts (see below). The fetched
+  profile is cached in scout's SQLite and reused within `--brain-cache-ttl`
+  (default 6h); a stale cache covers a brain that's gone unreachable before
+  scout falls back to `taste.md`.
+- `GET /recall?q=` — used **only internally** as a fallback to recover the
+  criteria bodies when `/profile` comes back empty. It is **not** a per-company
+  lookup; scout never queries the brain per company.
 
 Authoritative contract: `brainbot/docs/consumer-api.md` +
 `consumer-integration.md`. Scout's client mirrors `brainbot/migrate/graphiti_clients.py`.
