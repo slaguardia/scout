@@ -31,24 +31,25 @@ type Job struct {
 	Status  string
 	Started time.Time
 
-	mu      sync.Mutex
-	lines   []string
-	subs    []chan string // SSE subscribers
-	cancel  context.CancelFunc
-	done    chan struct{}
+	mu     sync.Mutex
+	lines  []string
+	subs   []chan string // SSE subscribers
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // Func is the work a job performs. It receives a cancelable context and an
-// emit callback for progress lines, and returns a summary + error.
-type Func func(ctx context.Context, emit func(string)) (summary map[string]any, err error)
+// emit callback for progress lines, and returns a summary + error. id is the
+// job's id, so work can tag any durable rows it writes (e.g. the run uuid).
+type Func func(ctx context.Context, id string, emit func(string)) (summary map[string]any, err error)
 
 // Runner owns the set of jobs and enforces one-active-job-per-stage (and,
 // because pipeline stages share the single SQLite writer, one job at a time
 // overall).
 type Runner struct {
-	mu       sync.Mutex
-	jobs     map[string]*Job
-	active   string // id of the currently running job, "" if idle
+	mu     sync.Mutex
+	jobs   map[string]*Job
+	active string // id of the currently running job, "" if idle
 
 	// OnStart / OnFinish let the caller persist to the runs table. Both may
 	// be nil. OnFinish receives the terminal status, summary, and error text.
@@ -110,7 +111,7 @@ func (r *Runner) Start(stage string, fn Func) (*Job, error) {
 
 	go func() {
 		defer cancel()
-		summary, err := fn(ctx, j.emit)
+		summary, err := fn(ctx, j.ID, j.emit)
 		status := StatusDone
 		errMsg := ""
 		if err != nil {

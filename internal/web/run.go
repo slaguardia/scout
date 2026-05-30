@@ -69,7 +69,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) enrichJob(opts runOptions) jobs.Func {
-	return func(ctx context.Context, emit func(string)) (map[string]any, error) {
+	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
 		e := &enrich.Enricher{DB: s.DB, Progress: emit}
 		res, err := e.Run(ctx, opts.Force)
 		if err != nil {
@@ -83,7 +83,7 @@ func (s *Server) enrichJob(opts runOptions) jobs.Func {
 }
 
 func (s *Server) verdictJob(opts runOptions) jobs.Func {
-	return func(ctx context.Context, emit func(string)) (map[string]any, error) {
+	return func(ctx context.Context, id string, emit func(string)) (map[string]any, error) {
 		ft, err := filter.LoadTaste(s.TasteTOMLPath)
 		if err != nil {
 			return nil, err
@@ -107,6 +107,7 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			Client:   s.Anthropic,
 			Playbook: s.currentPlaybook(),
 			Brainbot: bc, // per-company recall during scoring; criteria come from currentTaste (brain-primary, see ReloadTaste)
+			RunID:    id, // tags decision-trail rows with this run
 			Force:    opts.Force,
 			Workers:  4,
 			Progress: emit,
@@ -273,7 +274,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	}
 	filename := hdr.Filename
 
-	fn := func(ctx context.Context, emit func(string)) (map[string]any, error) {
+	fn := func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
 		defer os.Remove(tmpPath)
 		emit(fmt.Sprintf("ingesting %s (source=%s)…", filename, source))
 		c := &ingest.CSV{Source: source, DB: s.DB}

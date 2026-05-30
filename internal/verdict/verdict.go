@@ -43,6 +43,10 @@ type Scorer struct {
 	// and ignored so verdict never fails because of a brain miss.
 	Brainbot *brainbot.Client
 
+	// RunID, when set, tags every decision-trail row with the UI run uuid so a
+	// company's timeline can be grouped by run. Empty for CLI runs.
+	RunID string
+
 	Workers int
 
 	// Progress, if set, receives one line per scored company (both passes).
@@ -50,7 +54,21 @@ type Scorer struct {
 	Progress func(string)
 
 	brainMu    sync.Mutex
-	brainCache map[string][]string
+	brainCache map[string]brainResult
+}
+
+// brainResult is the full outcome of a per-company recall: every fact the brain
+// returned (with the Used flag for those that cleared the floor), the episode
+// bodies it returned, and the call status. Used is the subset of fact strings
+// actually injected into the prompt. Cached per-Run so the decision-trail
+// write reuses the same lookup the prompt used.
+type brainResult struct {
+	Query    string
+	Status   string // "ok" | "error" | "empty" | "disabled"
+	Err      string
+	Facts    []store.TraceFact
+	Episodes []store.TraceEpisode
+	Used     []string
 }
 
 // brainScoreFloor is the recall relevance cutoff for per-company context. The
@@ -85,7 +103,7 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 		s.Model = anthropic.DefaultModel
 	}
 	// Fresh brain-context cache per Run.
-	s.brainCache = make(map[string][]string)
+	s.brainCache = make(map[string]brainResult)
 
 	cands, err := s.candidates()
 	if err != nil {
@@ -221,9 +239,9 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		}
 	}
 
-	brainFacts := s.lookupBrain(ctx, c.Name)
+	br := s.lookupBrain(ctx, c.Name)
 	system := buildSystemPrompt(s.Playbook, s.Taste.Text)
-	user := buildUserPrompt(c, brainFacts)
+	user := buildUserPrompt(c, br.Used)
 
 	// Bound per-call latency separately from the global ctx.
 	callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -256,6 +274,7 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 	if err := s.DB.UpsertVerdict(v); err != nil {
 		return nil, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, err
 	}
+	s.writeTrace(c, s.Model, br, verdict, reason)
 	return &v, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens, nil
 }
 
@@ -323,37 +342,83 @@ func buildUserPrompt(c store.VerdictCandidate, brainFacts []string) string {
 	return b.String()
 }
 
-// lookupBrain returns cached recall facts for the company name, keeping only
-// those above brainScoreFloor (a fresh company's all-low scores inject
-// nothing). On brain error, logs to stderr and returns nil — the verdict still
-// runs without brain context. Empty slices are also cached so retries don't
-// re-query.
-func (s *Scorer) lookupBrain(ctx context.Context, name string) []string {
+// lookupBrain recalls per-company context, returning every fact (flagged Used
+// for those above brainScoreFloor — a fresh company's all-low scores inject
+// nothing), the episode bodies, and the call status. On brain error it logs to
+// stderr and returns a result with Status "error"; the verdict still runs
+// without brain context. Results (including empty/error ones) are cached per
+// company so the trace write reuses the same lookup the prompt used.
+func (s *Scorer) lookupBrain(ctx context.Context, name string) brainResult {
 	if s.Brainbot == nil || !s.Brainbot.Enabled() {
-		return nil
+		return brainResult{Status: "disabled"}
 	}
 	s.brainMu.Lock()
-	if facts, ok := s.brainCache[name]; ok {
+	if br, ok := s.brainCache[name]; ok {
 		s.brainMu.Unlock()
-		return facts
+		return br
 	}
 	s.brainMu.Unlock()
 
 	lookupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	var facts []string
+	br := brainResult{Query: name, Status: "ok"}
 	res, err := s.Brainbot.Recall(lookupCtx, name, 5)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "brain lookup for %q failed: %v\n", name, err)
+		br.Status = "error"
+		br.Err = err.Error()
 	} else {
-		facts = factsAboveFloor(res.Facts, brainScoreFloor)
+		for _, f := range res.Facts {
+			fact := strings.TrimSpace(f.Fact)
+			if fact == "" {
+				continue
+			}
+			br.Facts = append(br.Facts, store.TraceFact{
+				Fact:  fact,
+				Name:  f.Name,
+				Score: f.Score,
+				Used:  f.Score >= brainScoreFloor,
+			})
+		}
+		br.Used = factsAboveFloor(res.Facts, brainScoreFloor)
+		for _, e := range res.Episodes {
+			if body := strings.TrimSpace(e.Body); body != "" {
+				br.Episodes = append(br.Episodes, store.TraceEpisode{Name: e.Name, Body: body})
+			}
+		}
+		if len(br.Facts) == 0 && len(br.Episodes) == 0 {
+			br.Status = "empty"
+		}
 	}
 
 	s.brainMu.Lock()
-	s.brainCache[name] = facts
+	s.brainCache[name] = br
 	s.brainMu.Unlock()
-	return facts
+	return br
+}
+
+// writeTrace appends one decision-trail row for a completed scoring pass.
+// Best-effort: a failure is logged but never fails the verdict (the trail is a
+// debugging aid, not part of the result).
+func (s *Scorer) writeTrace(c store.VerdictCandidate, model string, br brainResult, verdict, reason string) {
+	t := store.VerdictTrace{
+		CompanyID:      c.CompanyID,
+		RunID:          s.RunID,
+		Model:          model,
+		TasteVersion:   s.Taste.Version,
+		CriteriaSource: s.Taste.Source,
+		BrainQuery:     br.Query,
+		BrainStatus:    br.Status,
+		BrainError:     br.Err,
+		BrainFacts:     br.Facts,
+		BrainEpisodes:  br.Episodes,
+		Verdict:        verdict,
+		Reason:         reason,
+	}
+	if err := s.DB.InsertVerdictTrace(t); err != nil {
+		fmt.Fprintf(os.Stderr, "verdict trace %s (%s): %v\n", c.CompanyID, c.Name, err)
+	}
 }
 
 // factsAboveFloor returns the fact strings whose score meets the floor,

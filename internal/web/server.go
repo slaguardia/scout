@@ -13,8 +13,8 @@ package web
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -168,9 +168,27 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyPostings(w, r, id)
 	case len(parts) == 2 && parts[1] == "brain":
 		s.handleCompanyBrain(w, r, id)
+	case len(parts) == 2 && parts[1] == "trace":
+		s.handleCompanyTrace(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handleCompanyTrace returns the decision trail for one company — the
+// append-only record of every verdict scoring pass (what scout asked the brain,
+// what came back, and the verdict). GET /api/companies/:id/trace.
+func (s *Server) handleCompanyTrace(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	events, err := s.DB.CompanyTrace(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id string) {

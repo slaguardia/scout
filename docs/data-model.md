@@ -6,7 +6,7 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0011`), are embedded via `//go:embed`,
+`internal/store/migrations/` (`0001`–`0012`), are embedded via `//go:embed`,
 apply in filename order on every `Open()`, and are tracked in
 `schema_migrations`.
 
@@ -160,6 +160,51 @@ newest first. Indexes on `started_at` and `stage`.
 
 ---
 
+### `verdict_trace` — decision trail (append-only)
+
+```sql
+verdict_trace (
+    id              INTEGER PK AUTOINCREMENT,
+    company_id      TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
+    run_id          TEXT,              -- UI run uuid; NULL for CLI runs
+    model           TEXT NOT NULL,
+    taste_version   TEXT NOT NULL,
+    criteria_source TEXT,              -- where 'what the user wants' came from
+    brain_query     TEXT,              -- the recall query (company name)
+    brain_status    TEXT NOT NULL,     -- 'ok' | 'error' | 'empty' | 'disabled'
+    brain_error     TEXT,              -- set when brain_status = 'error'
+    brain_facts     TEXT,              -- JSON [{fact,name,score,used}]
+    brain_episodes  TEXT,              -- JSON [{name,body}]
+    verdict         TEXT NOT NULL,
+    reason          TEXT NOT NULL,
+    scored_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+Migration `0012`. Unlike every other company-scoped table, this one is
+**append-only** — one row per verdict scoring pass, written by the scorer
+(`scoreOne` → `writeTrace`) via `InsertVerdictTrace`. It is the answer to "*why
+did this company get this verdict?*": it records what scout asked the brain
+(`brain_query`), what came back (`brain_facts` with each fact's recall score and
+a `used` flag for those that cleared the `brainScoreFloor` and were injected
+into the prompt, plus the `brain_episodes` bodies recall returned that scout
+does **not** inject per-company), which criteria source was live, and the
+resulting verdict. `CompanyTrace(company_id)` reads it oldest-first to power the
+UI's "Decision trail" panel (`GET /api/companies/:id/trace`).
+
+Because it appends, it keeps history the `verdicts` snapshot throws away: each
+re-score (new criteria version, or a forced run) adds a row, so you can watch a
+company's verdict move as the brain learns or the playbook changes — the prior
+verdicts are still there, not overwritten. Writes are best-effort: a trace
+failure is logged and never fails the verdict. Indexes on
+`(company_id, scored_at)` and `run_id`.
+
+A row holds the brain payload (facts + episode bodies) but **not** the full
+prompt or raw model response — it's a decision trail, not a request log. At
+low-thousands of companies × a few re-scores that's single-digit MB.
+
+---
+
 ### `schema_migrations` — migration ledger
 ```sql
 schema_migrations (name TEXT PK, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)
@@ -174,13 +219,15 @@ One row per applied migration filename. The `migrate()` loop in
 companies (1) ─── (0..1) enrichment
           (1) ─── (0..1) verdicts
           (1) ─── (0..N) job_postings
+          (1) ─── (0..N) verdict_trace   -- append-only; one row per scoring pass
 
 runs            -- standalone; no FK to companies (run-level history)
 ```
 
 `FOREIGN KEY ... ON DELETE CASCADE` on every company-scoped table. Delete a
-company and its `enrichment`/`verdicts`/`job_postings` rows go with it. `runs`
-is independent of any company.
+company and its `enrichment`/`verdicts`/`job_postings`/`verdict_trace` rows go
+with it. `runs` is independent of any company (the optional
+`verdict_trace.run_id` is a loose tag, not an FK).
 
 ## Idempotency keys at a glance
 
@@ -191,11 +238,18 @@ is independent of any company.
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
+| verdict_trace | n/a — append-only, one row per scoring pass | never deduped; deleted only with its company |
 
 ## Why not Postgres / per-stage tables / event sourcing
 
 SQLite is plenty for low-thousand-row company sets. One file is the entire
 working set; nuking it and starting over costs nothing. Per-stage tables would
 add joins for no benefit at this size. Event sourcing would be the right shape
-if scout needed to reconstruct history — but it doesn't; the brain does. Scout
-keeps only the current snapshot plus a thin `runs` log.
+if scout needed to reconstruct *all* history — but it doesn't; the brain does.
+Scout keeps only the current snapshot plus a thin `runs` log.
+
+The one scoped exception is `verdict_trace`: an append-only decision trail for
+the *verdict* stage only, added for testing/tuning the brain's intelligence (so
+you can see what scout asked, what the brain returned, and how it decided). It's
+deliberately narrow — verdict reasoning, not a general event store — and it's
+disposable like the rest of the working set.

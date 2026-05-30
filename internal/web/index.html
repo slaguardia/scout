@@ -493,6 +493,56 @@
     font-weight: 500;
   }
 
+  /* ---- decision trail ---- */
+  .trail-event {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--line-2);
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .trail-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .trail-meta { font-size: 11px; color: var(--fg-dim); }
+  .trail-head .trail-time { margin-left: auto; }
+  .trail-label { color: var(--fg-dim); margin-right: 4px; }
+  .trail-q { font-size: 13px; margin-bottom: 4px; }
+  .trail-status { margin-left: 6px; font-size: 11px; color: var(--fg-dim); }
+  .trail-status-error { color: var(--no); }
+  .trail-fact {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 12.5px; padding: 4px 0; border-top: 1px solid var(--line);
+  }
+  .trail-fact .l {
+    font: 11px/1 "SF Mono", Menlo, monospace; color: var(--fg-dim);
+    min-width: 30px; text-align: right;
+  }
+  .trail-fact .ft { flex: 1; }
+  .trail-fact .tag {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--fg-dim);
+  }
+  .trail-fact.used .l, .trail-fact.used .tag { color: var(--yes); }
+  .trail-fact.dropped { opacity: 0.5; }
+  .trail-eps { margin-top: 6px; }
+  .trail-eps summary { font-size: 11.5px; color: var(--fg-dim); cursor: pointer; }
+  .trail-eps .ep-body {
+    font-size: 12px; color: var(--fg-mute);
+    margin-top: 6px; padding: 6px 8px;
+    background: var(--panel-2); border-radius: var(--r-sm);
+    white-space: pre-wrap;
+  }
+  .trail-decision {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed var(--line-2);
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .trail-reason { color: var(--fg-mute); font-size: 12.5px; flex: 1; }
+  .trail-foot { margin-top: 8px; }
+
   /* misc */
   .muted { color: var(--fg-mute); }
   .dim   { color: var(--fg-dim); }
@@ -1389,6 +1439,7 @@ async function openDetail(id) {
   }
   renderDetail(d);
   loadBrain(id);
+  loadTrace(id);
 }
 
 function closeDetail() {
@@ -1493,6 +1544,14 @@ function renderDetail(d) {
       </h3>
       <div id="brain-body"><div class="loading-row"><span class="spinner"></span><span>asking the brain…</span></div></div>
     </section>
+
+    <section class="pane-section" id="trace-section">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>
+        Decision trail
+      </h3>
+      <div id="trace-body"><div class="loading-row"><span class="spinner"></span><span>loading trail…</span></div></div>
+    </section>
   `;
 
 
@@ -1588,6 +1647,88 @@ function showBrain(html) {
   if (!sec) return;
   sec.style.display = "";
   document.getElementById("brain-body").innerHTML = html;
+}
+
+// Decision trail: the append-only record of every verdict scoring pass —
+// what scout asked the brain, what came back (facts + scores, used vs dropped),
+// and the verdict it produced. Oldest-first, so re-scores read top-to-bottom as
+// the verdict evolves.
+async function loadTrace(id) {
+  let r;
+  try {
+    r = await fetch(`/api/companies/${id}/trace`);
+  } catch (e) {
+    showTrace(`<div class="muted">Failed to load trail: ${escapeHTML(e.message)}</div>`);
+    return;
+  }
+  if (!r.ok) {
+    showTrace(`<div class="muted">Failed to load trail: HTTP ${r.status}.</div>`);
+    return;
+  }
+  const events = (await r.json()).events || [];
+  if (events.length === 0) {
+    showTrace('<div class="muted">No decision trail yet. Run <code>verdict</code> to record one — every scoring pass is captured here.</div>');
+    return;
+  }
+  showTrace(events.map(renderTraceEvent).join(""));
+}
+
+function renderTraceEvent(e) {
+  // What scout asked the brain, and the call's status.
+  let status;
+  switch (e.brain_status) {
+    case "ok":       status = `${(e.brain_facts || []).length} facts returned`; break;
+    case "empty":    status = "brain knew nothing"; break;
+    case "error":    status = `error: ${escapeHTML(e.brain_error || "unknown")}`; break;
+    case "disabled": status = "brain not consulted"; break;
+    default:         status = escapeHTML(e.brain_status || "");
+  }
+  const queryHTML = e.brain_query
+    ? `<span class="mono">“${escapeHTML(e.brain_query)}”</span>`
+    : '<span class="muted">— (using local criteria)</span>';
+  const askHTML = `<div class="trail-q"><span class="trail-label">asked the brain</span>${queryHTML}<span class="trail-status trail-status-${escapeHTML(e.brain_status)}">${status}</span></div>`;
+
+  // Each fact: score + text + used/dropped tag.
+  const factsHTML = (e.brain_facts || []).map(f => `
+    <div class="trail-fact ${f.used ? "used" : "dropped"}">
+      <span class="l">${typeof f.score === "number" ? f.score.toFixed(2) : ""}</span>
+      <span class="ft">${escapeHTML(f.fact)}</span>
+      <span class="tag" ${f.used ? "" : 'title="below the 0.40 relevance floor — not injected into the prompt"'}>${f.used ? "used" : "below floor"}</span>
+    </div>`).join("");
+
+  // Episode bodies the brain returned but scout does NOT inject per-company.
+  const eps = e.brain_episodes || [];
+  const epsHTML = eps.length === 0 ? "" : `
+    <details class="trail-eps">
+      <summary>${eps.length} episode ${eps.length === 1 ? "body" : "bodies"} returned — not used in the per-company prompt</summary>
+      ${eps.map(ep => `<div class="ep-body">${escapeHTML(ep.body)}</div>`).join("")}
+    </details>`;
+
+  const sourceBits = [e.criteria_source, e.taste_version].filter(Boolean).map(escapeHTML);
+  if (e.run_id) sourceBits.push("run " + escapeHTML(e.run_id.slice(0, 8)));
+
+  return `
+    <div class="trail-event">
+      <div class="trail-head">
+        <span class="${pillClass(e.verdict)}">${escapeHTML(e.verdict)}</span>
+        <span class="trail-meta mono">${escapeHTML(e.model || "")}</span>
+        <span class="trail-meta trail-time">${escapeHTML(e.scored_at || "")}</span>
+      </div>
+      ${askHTML}
+      ${factsHTML}
+      ${epsHTML}
+      <div class="trail-decision">
+        <span class="trail-label">decided</span>
+        <span class="${pillClass(e.verdict)}">${escapeHTML(e.verdict)}</span>
+        <span class="trail-reason">${escapeHTML(e.reason || "")}</span>
+      </div>
+      <div class="trail-foot muted small">criteria: ${sourceBits.join(" · ") || "—"}</div>
+    </div>`;
+}
+
+function showTrace(html) {
+  const body = document.getElementById("trace-body");
+  if (body) body.innerHTML = html;
 }
 
 let toastTimer;
