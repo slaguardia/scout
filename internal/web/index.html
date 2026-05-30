@@ -83,17 +83,27 @@
     position: sticky; top: 0; z-index: 10;
   }
   .brand {
-    font-family: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
-    font-size: 17px; font-weight: 600; letter-spacing: 0.06em;
-    background: linear-gradient(135deg, var(--accent), var(--link));
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 10px rgba(139, 109, 255, 0.28));
-    user-select: none;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 19px; font-weight: 800;
+    letter-spacing: 0.22em; text-transform: lowercase;
+    color: var(--fg);
+    user-select: none; cursor: default;
+    /* chromatic RGB-split glitch */
+    text-shadow:
+      -1.5px 0 rgba(255, 45, 120, 0.72),
+       1.5px 0 rgba(40, 224, 255, 0.72),
+       0 0 16px rgba(139, 109, 255, 0.30);
   }
-  header .stats {
-    color: var(--fg-mute); font-size: 13px;
-    font-variant-numeric: tabular-nums;
+  .brand:hover { animation: brand-glitch 360ms steps(2, end) 2; }
+  @keyframes brand-glitch {
+    0%   { transform: translate(0, 0);      text-shadow: -1.5px 0 rgba(255,45,120,.72),  1.5px 0 rgba(40,224,255,.72); }
+    25%  { transform: translate(-2px, 0);   text-shadow:  2.5px 0 rgba(255,45,120,.9),  -2.5px 0 rgba(40,224,255,.9); }
+    50%  { transform: translate(2px, -1px); text-shadow: -2.5px 0 rgba(255,45,120,.9),   2.5px 0 rgba(40,224,255,.9); }
+    75%  { transform: translate(-1px, 1px); text-shadow:  1.5px 0 rgba(255,45,120,.72), -1.5px 0 rgba(40,224,255,.72); }
+    100% { transform: translate(0, 0);      text-shadow: -1.5px 0 rgba(255,45,120,.72),  1.5px 0 rgba(40,224,255,.72); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand:hover { animation: none; }
   }
   header .spacer { flex: 1; }
   header .hint {
@@ -164,9 +174,11 @@
     padding-right: 28px;
   }
 
-  /* search input gets an icon */
+  /* search input gets an icon — selector must out-specify `aside.sidebar input`
+     (0,1,2) or the padding shorthand there collapses the left padding and the
+     icon overlaps the placeholder. */
   .search-wrap { position: relative; }
-  .search-wrap input { padding-left: 30px; }
+  aside.sidebar .search-wrap input { padding-left: 32px; }
   .search-wrap svg {
     position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
     width: 13px; height: 13px; color: var(--fg-dim); pointer-events: none;
@@ -659,7 +671,6 @@
 <body>
 <header>
   <div class="brand">scout</div>
-  <span class="stats" id="stats"><span class="spinner"></span></span>
   <span class="spacer"></span>
   <span class="hint">click any company to inspect</span>
 </header>
@@ -843,12 +854,6 @@ async function loadList() {
   const r = await fetch("/api/companies");
   const data = await r.json();
   state.rows = data.rows || [];
-  const counts = countBy(state.rows, "verdict")
-    .map(([k,v]) => `<span class="dim">${k||"unscored"}</span> <strong>${v}</strong>`)
-    .join("<span class=\"dim\"> · </span>");
-  document.getElementById("stats").innerHTML =
-    `<strong>${state.rows.length}</strong> <span class="dim">companies</span>` +
-    (counts ? `<span class="dim"> · </span>${counts}` : "");
   renderList();
 }
 
@@ -919,11 +924,6 @@ function renderStats() {
   document.getElementById("taste-stats").innerHTML = tasteHTML;
 }
 
-function countBy(rows, key) {
-  const m = new Map();
-  for (const r of rows) m.set(r[key] || "", (m.get(r[key]||"") || 0) + 1);
-  return Array.from(m.entries()).sort((a,b) => b[1] - a[1]);
-}
 
 function compare(a, b, k) {
   const av = a[k] ?? ""; const bv = b[k] ?? "";
