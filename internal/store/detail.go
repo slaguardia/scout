@@ -34,6 +34,8 @@ type CompanyDetail struct {
 	FetchStatus    string `json:"fetch_status"`
 	FetchError     string `json:"fetch_error"`
 	FetchedAt      string `json:"fetched_at"`
+
+	Postings []Posting `json:"postings"`
 }
 
 // GetCompanyDetail returns the full joined detail for one company.
@@ -86,6 +88,14 @@ WHERE c.id = ?`
 		d.FetchStatus = fetchStatus.String
 		d.FetchError = fetchError.String
 		d.FetchedAt = fetchedAt.String
+	}
+
+	// Postings are one-to-many, so they ride a second query rather than the
+	// join above. A failure here shouldn't sink the whole detail payload.
+	if postings, err := db.ListPostings(companyID); err == nil {
+		d.Postings = postings
+	} else {
+		d.Postings = []Posting{}
 	}
 
 	return &d, nil

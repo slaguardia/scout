@@ -6,7 +6,7 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0010`), are embedded via `//go:embed`,
+`internal/store/migrations/` (`0001`–`0011`), are embedded via `//go:embed`,
 apply in filename order on every `Open()`, and are tracked in
 `schema_migrations`.
 
@@ -113,6 +113,30 @@ hash changes, and the next `verdict` run re-scores rows whose stored
 
 ---
 
+### `job_postings` — links to postings
+
+```sql
+job_postings (
+    id         TEXT PK,           -- uuid
+    company_id TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
+    url        TEXT NOT NULL,     -- the posting link
+    title      TEXT,              -- optional label
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+Links to actual job/role postings found at a company — added by hand from the
+triage detail pane. Migration `0011`. Unlike `enrichment`/`verdicts` (0..1 per
+company, keyed on `company_id`), this is **one-to-many**: a company can have any
+number of postings, so it gets its own uuid `id` PK (like `runs`) plus an index
+on `company_id` (the company's deterministic TEXT uuid). Postings carry only a
+labeled link — no application status / workflow state, which keeps scout on the
+right side of its "not a pipeline/applicant tracker" non-goal. `AddPosting`
+validates the company exists and a non-empty `url`; `ListPostings` returns
+newest-first.
+
+---
+
 ### `runs` — pipeline run history
 ```sql
 runs (
@@ -149,19 +173,21 @@ One row per applied migration filename. The `migrate()` loop in
 ```
 companies (1) ─── (0..1) enrichment
           (1) ─── (0..1) verdicts
+          (1) ─── (0..N) job_postings
 
 runs            -- standalone; no FK to companies (run-level history)
 ```
 
 `FOREIGN KEY ... ON DELETE CASCADE` on every company-scoped table. Delete a
-company and its `enrichment`/`verdicts` rows go with it. `runs` is
-independent of any company.
+company and its `enrichment`/`verdicts`/`job_postings` rows go with it. `runs`
+is independent of any company.
 
 ## Idempotency keys at a glance
 
 | Stage | Idempotency key | Bust the cache by |
 |---|---|---|
 | ingest | `id` = UUIDv5(domain \| `name:`+name) | re-ingest is upsert; not really "bust" |
+| postings | none (always inserts a new uuid row) | — |
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |

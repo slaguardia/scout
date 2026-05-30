@@ -164,6 +164,8 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		s.handleCompanyDetail(w, r, id)
+	case len(parts) == 2 && parts[1] == "postings":
+		s.handleCompanyPostings(w, r, id)
 	case len(parts) == 2 && parts[1] == "brain":
 		s.handleCompanyBrain(w, r, id)
 	default:
@@ -186,6 +188,38 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyPostings adds a job posting link to a company. POST only this
+// pass — the list is delivered with the company detail payload. The created
+// posting is returned so the client can append it without a refetch.
+func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := s.DB.AddPosting(id, body.URL, body.Title)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(err.Error(), "url required") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id string) {
