@@ -7,7 +7,7 @@ import (
 
 // TestVerdictTraceRoundTrip verifies the verdict_trace migration applies and a
 // company's decision trail inserts append-only and reads back oldest-first with
-// facts, episodes, and the used/dropped flags intact.
+// the criteria provenance intact.
 func TestVerdictTraceRoundTrip(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "trace.db"))
 	if err != nil {
@@ -25,16 +25,9 @@ func TestVerdictTraceRoundTrip(t *testing.T) {
 		RunID:          "run-1",
 		Model:          "claude-haiku-4-5",
 		TasteVersion:   "v1",
-		CriteriaSource: "brain:profile",
-		BrainQuery:     "Acme Corp",
-		BrainStatus:    "ok",
-		BrainFacts: []TraceFact{
-			{Fact: "builds ML infra", Score: 0.82, Used: true},
-			{Fact: "sponsors a podcast", Score: 0.20, Used: false},
-		},
-		BrainEpisodes: []TraceEpisode{{Name: "note", Body: "met at a conference"}},
-		Verdict:       "maybe",
-		Reason:        "adjacent ML infra",
+		CriteriaSource: "brain:profile@http://127.0.0.1:8100 + playbook.md",
+		Verdict:        "maybe",
+		Reason:         "adjacent ML infra",
 	}
 	if err := db.InsertVerdictTrace(v1); err != nil {
 		t.Fatalf("insert v1: %v", err)
@@ -62,17 +55,11 @@ func TestVerdictTraceRoundTrip(t *testing.T) {
 	}
 
 	e0 := events[0]
-	if len(e0.BrainFacts) != 2 {
-		t.Fatalf("got %d facts, want 2", len(e0.BrainFacts))
-	}
-	if !e0.BrainFacts[0].Used || e0.BrainFacts[1].Used {
-		t.Errorf("used flags wrong: %+v", e0.BrainFacts)
-	}
-	if len(e0.BrainEpisodes) != 1 || e0.BrainEpisodes[0].Body != "met at a conference" {
-		t.Errorf("episodes not round-tripped: %+v", e0.BrainEpisodes)
-	}
-	if e0.RunID != "run-1" || e0.BrainQuery != "Acme Corp" || e0.BrainStatus != "ok" {
+	if e0.RunID != "run-1" || e0.Model != "claude-haiku-4-5" || e0.Verdict != "maybe" {
 		t.Errorf("scalar fields wrong: %+v", e0)
+	}
+	if e0.CriteriaSource != v1.CriteriaSource || e0.Reason != "adjacent ML infra" {
+		t.Errorf("provenance not round-tripped: %+v", e0)
 	}
 
 	// A company with no trail returns an empty (non-nil) slice.

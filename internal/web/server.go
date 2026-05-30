@@ -24,6 +24,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/jobs"
 	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
@@ -37,8 +38,9 @@ var indexHTML []byte
 // the control surface; when Runner is nil the run/ingest/editor routes 503.
 type Server struct {
 	DB       *store.DB
-	Brainbot *brainbot.Client // optional
-	Runner   *jobs.Runner     // optional; nil disables the control surface
+	Brainbot *brainbot.Client   // optional; used for health probes + the profile panel
+	Resolver *criteria.Resolver // resolves criteria (cached brain profile → taste.md)
+	Runner   *jobs.Runner       // optional; nil disables the control surface
 
 	// Stage construction inputs (used by the run handlers).
 	Anthropic     *anthropic.Client
@@ -52,22 +54,19 @@ type Server struct {
 	playbookText string       // current playbook text
 }
 
-// ReloadTaste resolves the criteria block (brain-primary, taste.md fallback)
-// and folds the playbook into the version (matching `scout verdict`). Safe to
-// call concurrently with reads. When neither source yields criteria, taste is
-// left nil. Called at startup and after every editor PUT.
+// ReloadTaste resolves the criteria block (cached brain profile → taste.md, via
+// the Resolver) and folds the playbook into the version (matching `scout
+// verdict`). Safe to call concurrently with reads. When no source yields
+// criteria, taste is left nil. Called at startup, after every editor PUT, and
+// after a manual profile refresh.
 func (s *Server) ReloadTaste() {
 	var tb *taste.Block
-	if s.Brainbot != nil && s.Brainbot.Enabled() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := s.Brainbot.Health(ctx); err == nil {
-			if text, err := s.Brainbot.Criteria(ctx); err == nil && strings.TrimSpace(text) != "" {
-				tb = taste.FromBrain(text, "brain:profile@"+s.Brainbot.BaseURL)
-			}
-		}
+	if s.Resolver != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		tb, _ = s.Resolver.Resolve(ctx) // resolver already falls back to taste.md
 		cancel()
 	}
-	if tb == nil { // brain unreachable, or healthy-but-empty → local fallback
+	if tb == nil { // no resolver (e.g. tests) → load taste.md directly
 		if t, err := taste.LoadFile(s.TasteMDPath); err == nil {
 			tb = t
 		}
@@ -124,6 +123,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/meta", s.handleMeta)     // GET capabilities
 	mux.HandleFunc("/api/ingest", s.handleIngest) // POST multipart CSV
 
+	// brain profile (read-only view + manual refresh of the cached criteria)
+	mux.HandleFunc("/api/profile", s.handleProfile)                // GET cached profile
+	mux.HandleFunc("/api/profile/refresh", s.handleProfileRefresh) // POST refetch
+
 	// editor (local files only — never the brain)
 	mux.HandleFunc("/api/taste", s.handleTaste)
 	mux.HandleFunc("/api/playbook", s.handlePlaybook)
@@ -166,8 +169,6 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyDetail(w, r, id)
 	case len(parts) == 2 && parts[1] == "postings":
 		s.handleCompanyPostings(w, r, id)
-	case len(parts) == 2 && parts[1] == "brain":
-		s.handleCompanyBrain(w, r, id)
 	case len(parts) == 2 && parts[1] == "trace":
 		s.handleCompanyTrace(w, r, id)
 	default:
@@ -238,44 +239,6 @@ func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
-}
-
-func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.Brainbot == nil || !s.Brainbot.Enabled() {
-		http.Error(w, "brain not configured", http.StatusNotFound)
-		return
-	}
-	name, _, err := s.DB.GetCompanyName(id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	res, err := s.Brainbot.Recall(ctx, name, 5)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"facts": []brainFact{}, "error": err.Error(), "query": name})
-		return
-	}
-	facts := make([]brainFact, 0, len(res.Facts))
-	for _, f := range res.Facts {
-		facts = append(facts, brainFact{Fact: f.Fact, Score: f.Score})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"facts": facts, "query": name})
-}
-
-// brainFact is the per-company recall shape rendered in the detail pane.
-type brainFact struct {
-	Fact  string  `json:"fact"`
-	Score float64 `json:"score"`
 }
 
 // brainHealthy reports whether the brain is configured AND currently reachable.

@@ -17,13 +17,13 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/enrich"
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/ingest"
@@ -39,6 +39,11 @@ import (
 // here; see brainbot/docs/consumer-integration.md). The brain is primary by
 // default — scout falls back to taste.md only when it's genuinely unreachable.
 const defaultBrainURL = "http://127.0.0.1:8100"
+
+// defaultBrainCacheTTL is how long a locally-cached brain profile is reused
+// before scout refetches it. The profile changes rarely, so a few hours keeps
+// runs from re-hitting the brain without serving badly stale criteria.
+const defaultBrainCacheTTL = 6 * time.Hour
 
 func main() {
 	loadDotenv(".env") // project-local config (e.g. ANTHROPIC_API_KEY); real env wins
@@ -213,6 +218,7 @@ func cmdVerdict(args []string) error {
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (how to decide); optional")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); criteria come from here when healthy, else --taste-md. Empty disables.")
+	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for scoring")
 	workers := fs.Int("workers", 4, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
@@ -234,39 +240,22 @@ func cmdVerdict(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	// Resolve criteria: brain-primary (the episode bodies carry the user's gates
-	// and exclusions), taste.md as the offline fallback. The same client (when
-	// healthy) also serves per-company recall during scoring.
-	var (
-		tb *taste.Block
-		bc *brainbot.Client
-	)
+	// Resolve criteria via the shared resolver: a TTL-cached brain profile
+	// (primary), with taste.md as the offline fallback. See internal/criteria.
+	var bc *brainbot.Client
 	if *brainbotURL != "" {
 		bc = brainbot.New(*brainbotURL)
-		hctx, hcancel := context.WithTimeout(ctx, 5*time.Second)
-		herr := bc.Health(hctx)
-		hcancel()
-		switch {
-		case herr != nil:
-			fmt.Fprintf(os.Stderr, "brain unreachable at %s (%v); falling back to %s\n", *brainbotURL, herr, *tasteMD)
-			bc = nil // don't retry a dead brain for every company
-		default:
-			text, cerr := bc.Criteria(ctx)
-			switch {
-			case cerr != nil:
-				fmt.Fprintf(os.Stderr, "brain criteria fetch failed (%v); falling back to %s\n", cerr, *tasteMD)
-			case strings.TrimSpace(text) == "":
-				fmt.Fprintf(os.Stderr, "brain is healthy but has no criteria captured yet; using %s until the user captures them\n", *tasteMD)
-			default:
-				tb = taste.FromBrain(text, "brain:profile@"+*brainbotURL)
-			}
-		}
 	}
-	if tb == nil {
-		tb, err = taste.LoadFile(*tasteMD)
-		if err != nil {
-			return err
-		}
+	resolver := &criteria.Resolver{
+		Brain:       bc,
+		Store:       db,
+		TasteMDPath: *tasteMD,
+		TTL:         *cacheTTL,
+		Log:         func(line string) { fmt.Fprintln(os.Stderr, line) },
+	}
+	tb, err := resolver.Resolve(ctx)
+	if err != nil {
+		return err
 	}
 
 	// Load the optional playbook (how-to-decide). Folding it into the taste
@@ -281,9 +270,6 @@ func cmdVerdict(args []string) error {
 	}
 
 	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
-	if bc != nil && bc.Enabled() {
-		fmt.Printf("brain context: enabled (%s)\n", *brainbotURL)
-	}
 
 	s := &verdict.Scorer{
 		DB:       db,
@@ -294,7 +280,6 @@ func cmdVerdict(args []string) error {
 		Playbook: pbText,
 		Force:    *force,
 		Workers:  *workers,
-		Brainbot: bc,
 	}
 	res, err := s.Run(ctx)
 	if err != nil {
@@ -330,6 +315,7 @@ func cmdServe(args []string) error {
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
+	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -352,6 +338,13 @@ func cmdServe(args []string) error {
 		TasteTOMLPath: *tasteTOML,
 		PlaybookPath:  *playbookPath,
 		IngestSource:  *source,
+		Resolver: &criteria.Resolver{
+			Brain:       bc, // same client instance the server uses for health probes
+			Store:       db,
+			TasteMDPath: *tasteMD,
+			TTL:         *cacheTTL,
+			Log:         func(line string) { fmt.Fprintln(os.Stderr, line) },
+		},
 	}
 	// Load taste + playbook into the server (folds playbook into the version,
 	// matching `scout verdict`). Re-run after every editor PUT.

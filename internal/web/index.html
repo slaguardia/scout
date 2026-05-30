@@ -847,6 +847,22 @@
   .posting-add .prow { display: flex; gap: 8px; }
   .posting-add .prow .input { flex: 1; min-width: 0; }
   .posting-add .prow .btn { flex: none; }
+
+  /* criteria block (sidebar) */
+  .crit-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 3px 0; font-size: 13px;
+  }
+  .crit-what { display: flex; align-items: center; color: var(--fg); font-weight: 500; min-width: 0; }
+  .crit-what code, .crit-what { font-variant-numeric: tabular-nums; }
+  .crit-acts { display: flex; align-items: center; gap: 7px; flex: none; }
+  .crit-acts .dim { font-size: 11px; }
+  .crit-note { margin: 1px 0 6px; }
+  .pf-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; flex: none; }
+  .pf-dot.ok   { background: var(--yes); box-shadow: 0 0 7px var(--yes); }
+  .pf-dot.warn { background: var(--maybe); }
+  .pf-dot.off  { background: var(--fg-dim); }
+  #criteria-stats .edit-link { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -924,15 +940,12 @@
     <div id="fetch-stats"></div>
   </div>
 
-  <div class="block" id="block-taste">
+  <div class="block" id="block-criteria">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L8 3l5 10H3z"/></svg>
-      Current taste
+      Criteria
     </h3>
-    <div id="taste-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-    <span class="edit-link" id="edit-taste">edit taste.md</span>
-    &nbsp;·&nbsp;
-    <span class="edit-link" id="edit-playbook">edit playbook.md</span>
+    <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
   </div>
 
   <div class="sidebar-foot">
@@ -1013,6 +1026,26 @@
     <div class="modal-foot">
       <button class="btn" id="editor-cancel">Cancel</button>
       <button class="btn btn-primary" id="editor-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- brain profile viewer (read-only) -->
+<div class="modal-scrim" id="profile-scrim">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Brain profile</h2>
+      <span class="ver" id="profile-modal-meta"></span>
+    </div>
+    <div class="modal-body">
+      <div class="summary-box" id="profile-modal-body" style="max-height:54vh"></div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Read-only. This is scout's cached copy of your brain profile — the exact criteria text the verdict stage feeds the LLM. Use “refresh” in the Criteria panel to refetch it.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="profile-modal-close">Close</button>
     </div>
   </div>
 </div>
@@ -1248,7 +1281,7 @@ Return the JSON verdict now.</pre>
 <div class="toast" id="toast"></div>
 
 <script>
-const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null };
+const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null };
 
 const pillClass = v => "pill pill-" + (v || "none");
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -1315,16 +1348,8 @@ function renderStats() {
       failures.map(k => statLine(k, fs[k])).join("");
   }
 
-  // Taste
-  const tasteHTML = s.current_taste
-    ? `<div class="small"><span class="dim">source</span> <code>${escapeHTML(s.taste_source || "")}</code></div>
-       <div class="small" style="margin-top:6px"><span class="dim">version</span> <code>${escapeHTML(s.current_taste)}</code></div>
-       ${s.stale_verdicts > 0 ? `<div class="stale">
-         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
-         ${s.stale_verdicts} verdicts stale
-       </div>` : ""}`
-    : `<div class="muted small">no taste loaded — start <code>scout serve --taste-md taste.md</code></div>`;
-  document.getElementById("taste-stats").innerHTML = tasteHTML;
+  // Criteria block (source + playbook + stale badge) reads stats too.
+  renderCriteria();
 }
 
 
@@ -1415,7 +1440,6 @@ async function openDetail(id) {
     return;
   }
   renderDetail(d);
-  loadBrain(id);
   loadTrace(id);
 }
 
@@ -1514,14 +1538,6 @@ function renderDetail(d) {
       ${enrichBlock}
     </section>
 
-    <section class="pane-section" id="brain-section" style="display:none">
-      <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3c-1.5 0-2.5 1-2.5 2.5 0 .5.2 1 .5 1.5-1 .5-1.5 1.5-1.5 2.5 0 1.5 1.5 2.5 3.5 2.5s3.5-1 3.5-2.5c0-1-.5-2-1.5-2.5.3-.5.5-1 .5-1.5C10.5 4 9.5 3 8 3z"/></svg>
-        Brain context
-      </h3>
-      <div id="brain-body"><div class="loading-row"><span class="spinner"></span><span>asking the brain…</span></div></div>
-    </section>
-
     <section class="pane-section" id="trace-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg>
@@ -1587,49 +1603,9 @@ async function onAddPosting(d) {
 }
 
 
-async function loadBrain(id) {
-  let r;
-  try {
-    r = await fetch(`/api/companies/${id}/brain`);
-  } catch {
-    return;
-  }
-  if (r.status === 404) return;
-  if (!r.ok) {
-    showBrain(`<div class="muted">Brain lookup failed: HTTP ${r.status}.</div>`);
-    return;
-  }
-  const data = await r.json();
-  if (data.error) {
-    showBrain(`<div class="muted">Brain lookup error: ${escapeHTML(data.error)}.</div>`);
-    return;
-  }
-  const facts = data.facts || [];
-  if (facts.length === 0) {
-    showBrain('<div class="muted">Nothing in the brain about this company.</div>');
-    return;
-  }
-  showBrain(facts.map(f => `
-    <div class="brain-node">
-      <div class="n">
-        <span>${escapeHTML(f.fact)}</span>
-        ${typeof f.score === "number" ? `<span class="l">${f.score.toFixed(2)}</span>` : ""}
-      </div>
-    </div>
-  `).join(""));
-}
-
-function showBrain(html) {
-  const sec = document.getElementById("brain-section");
-  if (!sec) return;
-  sec.style.display = "";
-  document.getElementById("brain-body").innerHTML = html;
-}
-
-// Decision trail: the append-only record of every verdict scoring pass —
-// what scout asked the brain, what came back (facts + scores, used vs dropped),
-// and the verdict it produced. Oldest-first, so re-scores read top-to-bottom as
-// the verdict evolves.
+// Decision trail: the append-only record of every verdict scoring pass — which
+// criteria (source + version) and model drove the verdict, and the verdict it
+// produced. Oldest-first, so re-scores read top-to-bottom as the verdict evolves.
 async function loadTrace(id) {
   let r;
   try {
@@ -1651,36 +1627,6 @@ async function loadTrace(id) {
 }
 
 function renderTraceEvent(e) {
-  // What scout asked the brain, and the call's status.
-  let status;
-  switch (e.brain_status) {
-    case "ok":       status = `${(e.brain_facts || []).length} facts returned`; break;
-    case "empty":    status = "brain knew nothing"; break;
-    case "error":    status = `error: ${escapeHTML(e.brain_error || "unknown")}`; break;
-    case "disabled": status = "brain not consulted"; break;
-    default:         status = escapeHTML(e.brain_status || "");
-  }
-  const queryHTML = e.brain_query
-    ? `<span class="mono">“${escapeHTML(e.brain_query)}”</span>`
-    : '<span class="muted">— (using local criteria)</span>';
-  const askHTML = `<div class="trail-q"><span class="trail-label">asked the brain</span>${queryHTML}<span class="trail-status trail-status-${escapeHTML(e.brain_status)}">${status}</span></div>`;
-
-  // Each fact: score + text + used/dropped tag.
-  const factsHTML = (e.brain_facts || []).map(f => `
-    <div class="trail-fact ${f.used ? "used" : "dropped"}">
-      <span class="l">${typeof f.score === "number" ? f.score.toFixed(2) : ""}</span>
-      <span class="ft">${escapeHTML(f.fact)}</span>
-      <span class="tag" ${f.used ? "" : 'title="below the 0.40 relevance floor — not injected into the prompt"'}>${f.used ? "used" : "below floor"}</span>
-    </div>`).join("");
-
-  // Episode bodies the brain returned but scout does NOT inject per-company.
-  const eps = e.brain_episodes || [];
-  const epsHTML = eps.length === 0 ? "" : `
-    <details class="trail-eps">
-      <summary>${eps.length} episode ${eps.length === 1 ? "body" : "bodies"} returned — not used in the per-company prompt</summary>
-      ${eps.map(ep => `<div class="ep-body">${escapeHTML(ep.body)}</div>`).join("")}
-    </details>`;
-
   const sourceBits = [e.criteria_source, e.taste_version].filter(Boolean).map(escapeHTML);
   if (e.run_id) sourceBits.push("run " + escapeHTML(e.run_id.slice(0, 8)));
 
@@ -1691,12 +1637,7 @@ function renderTraceEvent(e) {
         <span class="trail-meta mono">${escapeHTML(e.model || "")}</span>
         <span class="trail-meta trail-time">${escapeHTML(e.scored_at || "")}</span>
       </div>
-      ${askHTML}
-      ${factsHTML}
-      ${epsHTML}
       <div class="trail-decision">
-        <span class="trail-label">decided</span>
-        <span class="${pillClass(e.verdict)}">${escapeHTML(e.verdict)}</span>
         <span class="trail-reason">${escapeHTML(e.reason || "")}</span>
       </div>
       <div class="trail-foot muted small">criteria: ${sourceBits.join(" · ") || "—"}</div>
@@ -1881,6 +1822,7 @@ document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (docsOpen()) { closeDocs(); return; }
+  if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   closeDetail();
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
@@ -1897,13 +1839,119 @@ document.getElementById("csv-file").onchange = e => {
 document.getElementById("drawer-cancel").onclick = cancelActiveJob;
 document.getElementById("drawer-close").onclick = () => document.getElementById("drawer").classList.remove("open");
 
-// editor
-document.getElementById("edit-taste").onclick = () => openEditor("taste");
-document.getElementById("edit-playbook").onclick = () => openEditor("playbook");
+// editor (edit-taste / edit-playbook links are wired in renderCriteria, since
+// the Criteria block re-renders them dynamically)
 document.getElementById("editor-cancel").onclick = closeEditor;
 document.getElementById("editor-save").onclick = saveEditor;
 document.getElementById("editor-scrim").onclick = e => {
   if (e.target.id === "editor-scrim") closeEditor();
+};
+
+// ---- brain profile + criteria block ----
+function relTime(sec) {
+  if (sec == null) return "—";
+  let s = Math.max(0, sec | 0);
+  if (s < 90) return `${s}s ago`;
+  const m = Math.round(s / 60); if (m < 90) return `${m}m ago`;
+  const h = Math.round(m / 60); if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+async function loadProfile() {
+  try {
+    const r = await fetch("/api/profile");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    state.profile = await r.json();
+  } catch {
+    state.profile = null;
+  }
+  renderCriteria();
+}
+
+// renderCriteria draws the Criteria block: the active "what the user wants"
+// source (the brain profile when it's live — view-only + refresh — or taste.md
+// when the brain is offline — editable), the always-editable playbook, and the
+// stale-verdicts badge. Driven by state.profile + state.stats.
+function renderCriteria() {
+  const el = document.getElementById("criteria-stats");
+  if (!el) return;
+  const p = state.profile;
+  const stale = (state.stats && state.stats.stale_verdicts) || 0;
+  const active = (p && p.active_source) || (state.stats && state.stats.taste_source) || "";
+  const usingBrain = active.startsWith("brain:");
+  const hasBody = p && typeof p.body === "string";
+
+  let html = "";
+  if (usingBrain) {
+    let dot = "off", note = "";
+    if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
+    else if (p && p.stale) { dot = "warn"; note = "cached · stale"; }
+    else if (hasBody) { dot = "ok"; note = "fetched " + relTime(p.age_seconds); }
+    html += `<div class="crit-row">
+      <span class="crit-what"><span class="pf-dot ${dot}"></span>brain profile</span>
+      <span class="crit-acts">
+        ${hasBody ? '<span class="edit-link" id="view-profile">view</span><span class="dim">·</span>' : ''}
+        <span class="edit-link" id="refresh-profile">refresh</span>
+      </span></div>`;
+    if (note) html += `<div class="crit-note dim small">${escapeHTML(note)}</div>`;
+  } else {
+    html += `<div class="crit-row">
+      <span class="crit-what">taste.md</span>
+      <span class="edit-link" id="edit-taste">edit</span></div>`;
+    if (p && p.configured) html += `<div class="crit-note dim small">brain offline — local fallback</div>`;
+  }
+  html += `<div class="crit-row">
+    <span class="crit-what">playbook.md</span>
+    <span class="edit-link" id="edit-playbook">edit</span></div>`;
+  if (stale > 0) {
+    html += `<div class="stale">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
+      ${stale} verdicts stale</div>`;
+  }
+  el.innerHTML = html;
+
+  const vp = document.getElementById("view-profile");
+  if (vp) vp.onclick = () => openProfileModal(state.profile);
+  const rp = document.getElementById("refresh-profile");
+  if (rp) rp.onclick = refreshProfile;
+  const et = document.getElementById("edit-taste");
+  if (et) et.onclick = () => openEditor("taste");
+  const ep = document.getElementById("edit-playbook");
+  if (ep) ep.onclick = () => openEditor("playbook");
+}
+
+async function refreshProfile() {
+  const link = document.getElementById("refresh-profile");
+  if (link) { link.textContent = "refreshing…"; link.style.pointerEvents = "none"; }
+  let resp;
+  try {
+    resp = await fetch("/api/profile/refresh", { method: "POST" });
+  } catch (e) { toast(`refresh failed: ${e.message}`); loadProfile(); return; }
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    toast(`refresh failed: ${(t || "").trim() || ("HTTP " + resp.status)}`);
+    loadProfile();
+    return;
+  }
+  state.profile = await resp.json();
+  renderCriteria();
+  toast("brain profile refreshed");
+  loadStats(); // criteria version / stale-count may have changed
+}
+
+function openProfileModal(d) {
+  if (!d || typeof d.body !== "string") return;
+  document.getElementById("profile-modal-meta").textContent =
+    `${d.chars || 0} chars · fetched ${relTime(d.age_seconds)}`;
+  document.getElementById("profile-modal-body").textContent = d.body;
+  document.getElementById("profile-scrim").classList.add("open");
+}
+function closeProfileModal() {
+  document.getElementById("profile-scrim").classList.remove("open");
+}
+document.getElementById("profile-modal-close").onclick = closeProfileModal;
+document.getElementById("profile-scrim").onclick = e => {
+  if (e.target.id === "profile-scrim") closeProfileModal();
 };
 
 // ---- docs overlay ("how it works") ----
@@ -1948,6 +1996,7 @@ loadList();
 loadStats();
 loadMeta();
 loadRuns();
+loadProfile();
 </script>
 </body>
 </html>
