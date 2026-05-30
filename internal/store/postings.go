@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -32,12 +31,12 @@ func (db *DB) AddPosting(companyID, url, title string) (Posting, error) {
 	}
 
 	// Ensure the company exists (mirrors the guard in other store writes).
-	var exists int
-	if err := db.QueryRow(`SELECT 1 FROM companies WHERE id = ?`, companyID).Scan(&exists); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Posting{}, sql.ErrNoRows
-		}
+	exists, err := db.CompanyExists(companyID)
+	if err != nil {
 		return Posting{}, err
+	}
+	if !exists {
+		return Posting{}, sql.ErrNoRows
 	}
 
 	titleVal := sql.NullString{String: title, Valid: title != ""}

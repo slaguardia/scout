@@ -1599,11 +1599,6 @@ function postingsListHTML(d) {
     </div>`).join("");
 }
 
-function renderPostings(d) {
-  const el = document.getElementById("postings-list");
-  if (el) el.innerHTML = postingsListHTML(d);
-}
-
 async function onAddPosting(d) {
   const urlEl = document.getElementById("posting-url");
   const titleEl = document.getElementById("posting-title");
@@ -1632,7 +1627,8 @@ async function onAddPosting(d) {
   const p = await resp.json();
   d.postings = d.postings || [];
   d.postings.unshift(p);
-  renderPostings(d);
+  const list = document.getElementById("postings-list");
+  if (list) list.innerHTML = postingsListHTML(d);
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
   toast("link added");
