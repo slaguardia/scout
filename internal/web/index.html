@@ -886,6 +886,14 @@
   .crit-acts { display: flex; align-items: center; gap: 7px; flex: none; }
   .crit-acts .dim { font-size: 11px; }
   .crit-note { margin: 1px 0 6px; }
+  .crit-edit {
+    flex: none; background: none; border: none; cursor: pointer; padding: 3px;
+    color: var(--fg-dim); display: inline-flex; align-items: center;
+    border-radius: var(--r-sm);
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .crit-edit:hover { color: var(--link); background: var(--panel); }
+  .crit-edit svg { width: 13px; height: 13px; }
   .pf-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; flex: none; }
   .pf-dot.ok   { background: var(--yes); box-shadow: 0 0 7px var(--yes); }
   .pf-dot.warn { background: var(--maybe); }
@@ -1902,6 +1910,8 @@ async function loadProfile() {
 // source (the brain profile when it's live — view-only + refresh — or taste.md
 // when the brain is offline — editable), the always-editable playbook, and the
 // stale-verdicts badge. Driven by state.profile + state.stats.
+const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.6 2.4a1.2 1.2 0 0 1 1.7 1.7L5.6 11.8l-3 1 1-3z"/><path d="M10.4 3.6l2 2"/></svg>';
+
 function renderCriteria() {
   const el = document.getElementById("criteria-stats");
   if (!el) return;
@@ -1926,13 +1936,13 @@ function renderCriteria() {
     if (note) html += `<div class="crit-note dim small">${escapeHTML(note)}</div>`;
   } else {
     html += `<div class="crit-row">
-      <span class="crit-what">taste.md</span>
-      <span class="edit-link" id="edit-taste">edit</span></div>`;
+      <span class="crit-what">taste</span>
+      <button class="crit-edit" id="edit-taste" title="edit taste.md" aria-label="edit taste">${PENCIL}</button></div>`;
     if (p && p.configured) html += `<div class="crit-note dim small">brain offline — local fallback</div>`;
   }
   html += `<div class="crit-row">
-    <span class="crit-what">playbook.md</span>
-    <span class="edit-link" id="edit-playbook">edit</span></div>`;
+    <span class="crit-what">playbook</span>
+    <button class="crit-edit" id="edit-playbook" title="edit playbook.md" aria-label="edit playbook">${PENCIL}</button></div>`;
   if (stale > 0) {
     html += `<div class="stale">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
