@@ -985,7 +985,7 @@ function renderList() {
     tbody.appendChild(tr);
   }
   tbody.querySelectorAll(".row-name").forEach(el => {
-    el.addEventListener("click", () => openDetail(parseInt(el.dataset.id, 10)));
+    el.addEventListener("click", () => openDetail(el.dataset.id));
   });
 }
 

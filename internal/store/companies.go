@@ -3,11 +3,19 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
 )
+
+// companyNamespace seeds the deterministic company IDs. Stable across builds
+// (derived from a fixed name), so the same identity always hashes to the same
+// UUID — that's what lets the pkey double as the dedup key.
+var companyNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("github.com/slaguardia/scout/companies"))
 
 // Company is the minimal row used by ingest and filter.
 type Company struct {
-	ID           int64
+	ID           string
 	Source       string
 	SourceID     sql.NullString
 	Name         string
@@ -19,21 +27,32 @@ type Company struct {
 	RawJSON      string
 }
 
-// UpsertCompany inserts or updates a company keyed by (source, source_id).
-// If source_id is empty it falls back to (source, lower(name)) to dedupe.
-func (db *DB) UpsertCompany(c Company) (int64, error) {
-	// We use INSERT ... ON CONFLICT on (source, source_id). When source_id is empty,
-	// we synthesize one from the name so the unique index still works.
-	syntheticID := c.SourceID.String
-	if !c.SourceID.Valid || syntheticID == "" {
-		syntheticID = "name:" + c.Name
-		c.SourceID = sql.NullString{String: syntheticID, Valid: true}
+// CompanyID derives the deterministic primary key for a company from its
+// identity: the normalized domain, or 'name:<lower(name)>' when there's no
+// domain. The same company — same domain, or same name when domain-less —
+// always produces the same UUID regardless of source, which is what makes the
+// pkey a cross-source dedup key.
+func CompanyID(domain, name string) string {
+	key := strings.TrimSpace(strings.ToLower(domain))
+	if key == "" {
+		key = "name:" + strings.TrimSpace(strings.ToLower(name))
 	}
+	return uuid.NewSHA1(companyNamespace, []byte(key)).String()
+}
+
+// UpsertCompany inserts or updates a company keyed by its deterministic UUID
+// (see CompanyID). A re-ingest — or the same company arriving from a different
+// source — conflicts on the primary key and overwrites the row in place;
+// (source, source_id) is kept only as last-writer provenance.
+func (db *DB) UpsertCompany(c Company) (string, error) {
+	id := CompanyID(c.Domain.String, c.Name)
 
 	const q = `
-INSERT INTO companies (source, source_id, name, domain, headcount, funding_stage, location, vertical, raw_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(source, source_id) DO UPDATE SET
+INSERT INTO companies (id, source, source_id, name, domain, headcount, funding_stage, location, vertical, raw_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    source        = excluded.source,
+    source_id     = excluded.source_id,
     name          = excluded.name,
     domain        = excluded.domain,
     headcount     = excluded.headcount,
@@ -41,16 +60,13 @@ ON CONFLICT(source, source_id) DO UPDATE SET
     location      = excluded.location,
     vertical      = excluded.vertical,
     raw_json      = excluded.raw_json,
-    ingested_at   = CURRENT_TIMESTAMP
-RETURNING id;`
+    ingested_at   = CURRENT_TIMESTAMP;`
 
-	var id int64
-	err := db.QueryRow(q,
-		c.Source, c.SourceID, c.Name, c.Domain, c.Headcount,
+	if _, err := db.Exec(q,
+		id, c.Source, c.SourceID, c.Name, c.Domain, c.Headcount,
 		c.FundingStage, c.Location, c.Vertical, c.RawJSON,
-	).Scan(&id)
-	if err != nil {
-		return 0, fmt.Errorf("upsert company %q: %w", c.Name, err)
+	); err != nil {
+		return "", fmt.Errorf("upsert company %q: %w", c.Name, err)
 	}
 	return id, nil
 }

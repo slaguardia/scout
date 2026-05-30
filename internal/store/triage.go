@@ -4,7 +4,7 @@ import "database/sql"
 
 // TriageRow is the joined row served by the read-only UI.
 type TriageRow struct {
-	CompanyID      int64          `json:"company_id"`
+	CompanyID      string         `json:"company_id"`
 	Name           string         `json:"name"`
 	Domain         sql.NullString `json:"-"`
 	DomainStr      string         `json:"domain"`

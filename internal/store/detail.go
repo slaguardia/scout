@@ -9,7 +9,7 @@ import (
 // CompanyDetail is the payload for GET /api/companies/:id.
 // Fields are flattened and JSON-tagged for direct serialization.
 type CompanyDetail struct {
-	CompanyID    int64             `json:"company_id"`
+	CompanyID    string            `json:"company_id"`
 	Name         string            `json:"name"`
 	Source       string            `json:"source"`
 	SourceID     string            `json:"source_id"`
@@ -38,7 +38,7 @@ type CompanyDetail struct {
 
 // GetCompanyDetail returns the full joined detail for one company.
 // Returns nil, nil if not found.
-func (db *DB) GetCompanyDetail(companyID int64) (*CompanyDetail, error) {
+func (db *DB) GetCompanyDetail(companyID string) (*CompanyDetail, error) {
 	const q = `
 SELECT c.id, c.name, c.source, COALESCE(c.source_id, ''),
        COALESCE(c.domain, ''), COALESCE(c.headcount, 0),
@@ -204,7 +204,7 @@ func scanHist(db *DB, q string, dst map[string]int) error {
 }
 
 // GetCompanyName looks up name + domain by ID. Used by the brain proxy route.
-func (db *DB) GetCompanyName(companyID int64) (name, domain string, err error) {
+func (db *DB) GetCompanyName(companyID string) (name, domain string, err error) {
 	err = db.QueryRow(
 		`SELECT name, COALESCE(domain, '') FROM companies WHERE id = ?`,
 		companyID,

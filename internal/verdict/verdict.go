@@ -113,7 +113,7 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 				if err != nil {
 					res.Failed++
 					mu.Unlock()
-					fmt.Printf("verdict %d (%s) error: %v\n", c.CompanyID, c.Name, err)
+					fmt.Printf("verdict %s (%s) error: %v\n", c.CompanyID, c.Name, err)
 					s.emit(fmt.Sprintf("%s — error: %v", c.Name, err))
 					continue
 				}
@@ -154,8 +154,8 @@ func (s *Scorer) candidates() ([]store.VerdictCandidate, error) {
 	if len(fres.Survivors) == 0 {
 		return nil, nil
 	}
-	ids := make([]int64, 0, len(fres.Survivors))
-	byID := make(map[int64]filter.Survivor, len(fres.Survivors))
+	ids := make([]string, 0, len(fres.Survivors))
+	byID := make(map[string]filter.Survivor, len(fres.Survivors))
 	for _, sv := range fres.Survivors {
 		ids = append(ids, sv.ID)
 		byID[sv.ID] = sv
@@ -174,7 +174,7 @@ WHERE fetch_status = 'ok' AND company_id IN `, ids)
 
 	var out []store.VerdictCandidate
 	for rows.Next() {
-		var id int64
+		var id string
 		var summary string
 		if err := rows.Scan(&id, &summary); err != nil {
 			return nil, err
@@ -194,7 +194,7 @@ WHERE fetch_status = 'ok' AND company_id IN `, ids)
 	return out, rows.Err()
 }
 
-func buildInQuery(prefix string, ids []int64) (string, []any) {
+func buildInQuery(prefix string, ids []string) (string, []any) {
 	if len(ids) == 0 {
 		return prefix + "()", nil
 	}

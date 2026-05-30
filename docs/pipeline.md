@@ -25,7 +25,7 @@ is `http://127.0.0.1:8100`; empty disables it.
 |---|---|
 | **Input** | CSV with a header row (Crunchbase export is the assumed shape). |
 | **Output** | `read=N upserted=N skipped=N errors=N`; error lines on stderr. |
-| **Idempotent** | Yes — upsert by `(source, source_id)`. |
+| **Idempotent** | Yes — upsert by deterministic `id` (UUIDv5 of domain, or name). |
 | **Flags** | `--db scout.db`, `--source crunchbase`. |
 
 **Behavior:**
@@ -37,7 +37,9 @@ is `http://127.0.0.1:8100`; empty disables it.
   company name) wouldn't match its alias and every row would skip as nameless.
 - Per row: builds a `store.Company`, preserves the original row in `raw_json`
   (untouched, header-ordered), upserts. Rows with no resolved name are skipped.
-- Upsert key `(source, source_id)`. No UUID column → `source_id` is `"name:"+name`.
+- Upsert key is the deterministic primary key `id` = UUIDv5 of the normalized
+  `domain`, or `"name:"+lower(name)` when there's no domain. The same company —
+  including the same domain from a *different source* — collapses into one row.
 - Headcount tolerates ranges (`"11-50"` → upper bound `50`) and commas (`"1,200"`).
 - Domain normalized: lowercased, `https://`/`http://`/`www.` and any path stripped.
 - `ingested_at` bumps on every upsert, which invalidates downstream enrichment.

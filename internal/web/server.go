@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -161,11 +160,7 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	id, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
+	id := parts[0] // company UUID; an unknown id falls through to NotFound at the store
 	switch {
 	case len(parts) == 1:
 		s.handleCompanyDetail(w, r, id)
@@ -176,7 +171,7 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -193,7 +188,7 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id 
 	writeJSON(w, http.StatusOK, d)
 }
 
-func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id int64) {
+func (s *Server) handleCompanyBrain(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

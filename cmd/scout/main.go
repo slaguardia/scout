@@ -153,7 +153,7 @@ func cmdFilter(args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(w, "id\tname\tlocation\tvertical\theadcount\tstage\n")
 	for _, s := range res.Survivors {
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%d\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
 			s.ID, s.Name, s.Location, s.Vertical, s.Headcount, s.Stage)
 	}
 	w.Flush()

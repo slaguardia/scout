@@ -6,7 +6,7 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0009`), are embedded via `//go:embed`,
+`internal/store/migrations/` (`0001`–`0010`), are embedded via `//go:embed`,
 apply in filename order on every `Open()`, and are tracked in
 `schema_migrations`.
 
@@ -19,9 +19,9 @@ than the default rollback journal.
 ### `companies` — the inventory
 ```sql
 companies (
-    id            INTEGER PK AUTOINCREMENT,
-    source        TEXT NOT NULL,     -- 'crunchbase' | 'manual' | ...
-    source_id     TEXT,              -- UUID from source, or 'name:<name>' fallback
+    id            TEXT PK,           -- deterministic UUIDv5; see "dedup" below
+    source        TEXT NOT NULL,     -- 'crunchbase' | 'manual' | ... (last-writer provenance)
+    source_id     TEXT,              -- the source's own id, if any (provenance only)
     name          TEXT NOT NULL,
     domain        TEXT,              -- normalized: no scheme, no www, no path
     headcount     INTEGER,
@@ -29,8 +29,7 @@ companies (
     location      TEXT,
     vertical      TEXT,
     raw_json      TEXT NOT NULL,     -- full original row, ordered by header
-    ingested_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source, source_id)
+    ingested_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
@@ -41,12 +40,20 @@ indexes are speculative — drop if profiling says so.
 preserved. Useful when a verdict looks wrong and you want the extra signal that
 *was* in the row.
 
+**Dedup.** `id` is a deterministic UUIDv5 (`store.CompanyID`) derived from the
+company's *identity*: the normalized `domain`, or `'name:'+lower(name)` when
+there's no domain. The same company always hashes to the same id, so the
+primary key **is** the dedup key — ingest `INSERT ... ON CONFLICT(id) DO UPDATE`
+collapses a re-ingest, and collapses the *same domain arriving from a different
+source* into one row (last writer wins on the mutable columns). `(source,
+source_id)` is kept only as provenance; it no longer constrains uniqueness.
+
 ---
 
 ### `enrichment` — cached site text
 ```sql
 enrichment (
-    company_id      INTEGER PK FK companies(id) ON DELETE CASCADE,
+    company_id      TEXT PK FK companies(id) ON DELETE CASCADE,
     website_url     TEXT,             -- URL we successfully fetched
     website_summary TEXT,             -- stripped text, truncated
     fetch_status    TEXT NOT NULL,    -- see taxonomy below
@@ -82,7 +89,7 @@ permanently broken sites.
 ### `verdicts` — LLM decisions
 ```sql
 verdicts (
-    company_id      INTEGER PK FK companies(id) ON DELETE CASCADE,
+    company_id      TEXT PK FK companies(id) ON DELETE CASCADE,
     verdict         TEXT NOT NULL,   -- 'yes' | 'maybe' | 'no'
     reason          TEXT NOT NULL,   -- one-line justification
     taste_version   TEXT NOT NULL,   -- criteria version (see below)
@@ -154,7 +161,7 @@ independent of any company.
 
 | Stage | Idempotency key | Bust the cache by |
 |---|---|---|
-| ingest | `(source, source_id)` | re-ingest is upsert; not really "bust" |
+| ingest | `id` = UUIDv5(domain \| `name:`+name) | re-ingest is upsert; not really "bust" |
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |

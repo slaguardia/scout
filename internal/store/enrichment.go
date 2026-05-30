@@ -7,14 +7,14 @@ import (
 
 // EnrichmentTarget is a company that still needs (or could refresh) enrichment.
 type EnrichmentTarget struct {
-	CompanyID int64
+	CompanyID string
 	Name      string
 	Domain    string
 }
 
 // Enrichment is the cached about-page record.
 type Enrichment struct {
-	CompanyID      int64
+	CompanyID      string
 	WebsiteURL     sql.NullString
 	WebsiteSummary sql.NullString
 	FetchStatus    string
@@ -63,13 +63,13 @@ ON CONFLICT(company_id) DO UPDATE SET
     fetched_at      = CURRENT_TIMESTAMP;`
 	_, err := db.Exec(q, e.CompanyID, e.WebsiteURL, e.WebsiteSummary, e.FetchStatus, e.FetchError)
 	if err != nil {
-		return fmt.Errorf("upsert enrichment %d: %w", e.CompanyID, err)
+		return fmt.Errorf("upsert enrichment %s: %w", e.CompanyID, err)
 	}
 	return nil
 }
 
 // GetEnrichment returns the cached enrichment for a company, if any.
-func (db *DB) GetEnrichment(companyID int64) (*Enrichment, error) {
+func (db *DB) GetEnrichment(companyID string) (*Enrichment, error) {
 	const q = `
 SELECT company_id, website_url, website_summary, fetch_status, fetch_error, fetched_at
 FROM enrichment WHERE company_id = ?`

@@ -39,7 +39,7 @@ func LoadTaste(path string) (*Taste, error) {
 
 // Survivor is the projection returned for triage.
 type Survivor struct {
-	ID        int64
+	ID        string
 	Name      string
 	Domain    string
 	Location  string

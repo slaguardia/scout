@@ -11,7 +11,7 @@ import (
 
 func candidateFixture() store.VerdictCandidate {
 	return store.VerdictCandidate{
-		CompanyID: 1, Name: "Acme", Domain: "acme.com",
+		CompanyID: store.CompanyID("acme.com", "Acme"), Name: "Acme", Domain: "acme.com",
 		Vertical: "dev tools", Location: "SF", Headcount: 80, Stage: "Series A",
 		WebsiteSummary: "Acme builds developer tools.",
 	}

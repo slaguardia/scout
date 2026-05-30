@@ -23,7 +23,7 @@ go build -o scout ./cmd/scout
 ```
 
 The migrations are embedded; the first `scout <anything>` call creates
-`scout.db` and runs them (currently through `0009`).
+`scout.db` and runs them (currently through `0010`).
 
 ## The normal way in: the browser
 

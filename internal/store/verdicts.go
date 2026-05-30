@@ -7,7 +7,7 @@ import (
 
 // Verdict is a row in the verdicts table.
 type Verdict struct {
-	CompanyID    int64
+	CompanyID    string
 	Verdict      string
 	Reason       string
 	TasteVersion string
@@ -17,7 +17,7 @@ type Verdict struct {
 
 // VerdictCandidate is a survivor with its enrichment, ready for scoring.
 type VerdictCandidate struct {
-	CompanyID      int64
+	CompanyID      string
 	Name           string
 	Domain         string
 	Location       string
@@ -28,7 +28,7 @@ type VerdictCandidate struct {
 }
 
 // GetVerdict returns the latest verdict for a company, if any.
-func (db *DB) GetVerdict(companyID int64) (*Verdict, error) {
+func (db *DB) GetVerdict(companyID string) (*Verdict, error) {
 	const q = `SELECT company_id, verdict, reason, taste_version, model, scored_at FROM verdicts WHERE company_id = ?`
 	var v Verdict
 	err := db.QueryRow(q, companyID).Scan(&v.CompanyID, &v.Verdict, &v.Reason, &v.TasteVersion, &v.Model, &v.ScoredAt)
@@ -53,7 +53,7 @@ ON CONFLICT(company_id) DO UPDATE SET
     model         = excluded.model,
     scored_at     = CURRENT_TIMESTAMP;`
 	if _, err := db.Exec(q, v.CompanyID, v.Verdict, v.Reason, v.TasteVersion, v.Model); err != nil {
-		return fmt.Errorf("upsert verdict %d: %w", v.CompanyID, err)
+		return fmt.Errorf("upsert verdict %s: %w", v.CompanyID, err)
 	}
 	return nil
 }
