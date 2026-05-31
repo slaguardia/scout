@@ -129,16 +129,16 @@ func parseRawJSON(s string) map[string]string {
 
 // Stats is the payload for GET /api/stats.
 type Stats struct {
-	TotalCompanies   int            `json:"total_companies"`
-	EnrichedOK       int            `json:"enriched_ok"`
-	Scored           int            `json:"scored"`
-	Unscored         int            `json:"unscored"`
-	ByVerdict        map[string]int `json:"by_verdict"`
-	FetchStatus      map[string]int `json:"fetch_status"`
-	CurrentTaste     string         `json:"current_taste"`         // version hash, e.g. "b4cd783174d6"
-	TasteSource      string         `json:"taste_source"`          // "file:taste.md" or "brainbot:<url>" or "" if unknown
-	StaleVerdicts    int            `json:"stale_verdicts"`        // verdicts whose taste_version != CurrentTaste
-	TasteVersionsSeen []string      `json:"taste_versions_seen"`   // distinct taste_versions present in verdicts
+	TotalCompanies    int            `json:"total_companies"`
+	EnrichedOK        int            `json:"enriched_ok"`
+	Scored            int            `json:"scored"`
+	Unscored          int            `json:"unscored"`
+	ByVerdict         map[string]int `json:"by_verdict"`
+	FetchStatus       map[string]int `json:"fetch_status"`
+	CurrentTaste      string         `json:"current_taste"`       // version hash, e.g. "b4cd783174d6"
+	TasteSource       string         `json:"taste_source"`        // "file:taste.md" or "brainbot:<url>" or "" if unknown
+	StaleVerdicts     int            `json:"stale_verdicts"`      // verdicts whose taste_version != CurrentTaste
+	TasteVersionsSeen []string       `json:"taste_versions_seen"` // distinct taste_versions present in verdicts
 }
 
 // GetStats computes the sidebar payload. currentTasteVersion may be empty

@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	defaultWorkers    = 8
-	defaultTimeout    = 12 * time.Second
-	maxBodyBytes      = 512 * 1024 // 512 KB read cap
-	maxSummaryRunes   = 3000       // chunk handed to the LLM
-	minContentRunes   = 200        // below this, flag as 'low_content' (JS-SPA likely)
-	userAgent         = "scout/0.1 (+https://github.com/slaguardia/scout)"
+	defaultWorkers  = 8
+	defaultTimeout  = 12 * time.Second
+	maxBodyBytes    = 512 * 1024 // 512 KB read cap
+	maxSummaryRunes = 3000       // chunk handed to the LLM
+	minContentRunes = 200        // below this, flag as 'low_content' (JS-SPA likely)
+	userAgent       = "scout/0.1 (+https://github.com/slaguardia/scout)"
 )
 
 // candidate URL paths in priority order.
@@ -231,21 +231,21 @@ var (
 )
 
 var entities = map[string]string{
-	"&amp;":   "&",
-	"&lt;":    "<",
-	"&gt;":    ">",
-	"&quot;":  `"`,
-	"&apos;":  "'",
-	"&nbsp;":  " ",
-	"&#39;":   "'",
-	"&#34;":   `"`,
+	"&amp;":    "&",
+	"&lt;":     "<",
+	"&gt;":     ">",
+	"&quot;":   `"`,
+	"&apos;":   "'",
+	"&nbsp;":   " ",
+	"&#39;":    "'",
+	"&#34;":    `"`,
 	"&hellip;": "…",
-	"&mdash;": "—",
-	"&ndash;": "–",
-	"&rsquo;": "'",
-	"&lsquo;": "'",
-	"&rdquo;": `"`,
-	"&ldquo;": `"`,
+	"&mdash;":  "—",
+	"&ndash;":  "–",
+	"&rsquo;":  "'",
+	"&lsquo;":  "'",
+	"&rdquo;":  `"`,
+	"&ldquo;":  `"`,
 }
 
 func extractText(body []byte) string {

@@ -50,9 +50,9 @@ type Survivor struct {
 
 // Apply runs the rules and returns survivors, plus a summary breakdown of why rows were dropped.
 type Result struct {
-	Total      int
-	Survivors  []Survivor
-	DroppedBy  map[string]int // reason -> count
+	Total     int
+	Survivors []Survivor
+	DroppedBy map[string]int // reason -> count
 }
 
 func (t *Taste) Apply(db *store.DB) (*Result, error) {

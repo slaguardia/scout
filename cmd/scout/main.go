@@ -1,12 +1,13 @@
 // scout — personal job-research pipeline.
 //
 // Subcommands:
-//   scout ingest <csv>        Load a CSV dump into the local DB.
-//   scout filter              Apply taste.toml rules; print survivors.
-//   scout enrich              Fetch about-pages for survivors (parallel).
-//   scout verdict             Score enriched survivors with Haiku.
-//   scout serve               Web control surface + triage UI (primary interface).
-//   scout stats               Show DB row counts.
+//
+//	scout ingest <csv>        Load a CSV dump into the local DB.
+//	scout filter              Apply taste.toml rules; print survivors.
+//	scout enrich              Fetch about-pages for survivors (parallel).
+//	scout verdict             Score enriched survivors with Haiku.
+//	scout serve               Web control surface + triage UI (primary interface).
+//	scout stats               Show DB row counts.
 package main
 
 import (
