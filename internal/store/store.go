@@ -21,7 +21,10 @@ type DB struct {
 
 // Open opens (or creates) the SQLite database at path and applies any pending migrations.
 func Open(path string) (*DB, error) {
-	sqlDB, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	// busy_timeout makes a blocked writer wait for the lock instead of failing
+	// with SQLITE_BUSY immediately — WAL still allows only one writer at a time,
+	// and the verdict pass runs several workers that each write concurrently.
+	sqlDB, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
