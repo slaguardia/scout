@@ -201,7 +201,7 @@ func renderFacts(facts []Fact) string {
 		b.WriteString(header + "\n")
 		b.WriteString(strings.Join(lines, "\n"))
 	}
-	writeSection("HARD REQUIREMENTS / DEALBREAKERS (treat as gates — a miss is a hard skip):", hard)
+	writeSection("HARD REQUIREMENTS / DEALBREAKERS (gates — apply per the gate logic above):", hard)
 	writeSection("PREFERENCES (weigh, don't gate):", soft)
 	writeSection("CONTEXT (background, not a filter):", context)
 	return b.String()

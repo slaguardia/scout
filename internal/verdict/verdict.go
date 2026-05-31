@@ -259,6 +259,21 @@ const builtinRubric = `Verdict rubric:
 
 The reason must be specific — name the vertical, stage, or trait that drove the call. Don't say "matches taste" or "good fit"; say "AI infra for ML teams, Series B" or "crypto wallet (excluded)".`
 
+// hardGateRubric tells the LLM how to apply the HARD REQUIREMENTS block. The
+// hard section mixes two logically different kinds of [requires]: an OR-set of
+// target markets/verticals (qualify on ANY one) and standalone gates like
+// location (must hold on their own). The brain deliberately reports each target
+// domain as a separate hard fact to preserve its individual hardness; treating
+// them as alternatives is scout's job, so this lives in prompt prose, not in
+// renderFacts grouping.
+const hardGateRubric = `Items under "HARD REQUIREMENTS / DEALBREAKERS" are gates — apply them with this logic:
+• [excludes] items are independent dealbreakers: if the company matches ANY one, the verdict is "no" (red).
+• [requires] items that name a target market, domain, or vertical are ALTERNATIVES: the company only needs to match ONE of them. Matching none of the target domains is "no" (red); failing to match the others is expected and is NOT a strike.
+• any other [requires] or [gate] item (e.g. location / work arrangement) is an independent gate that must hold on its own.
+Items under "PREFERENCES" are weights: a miss leans "maybe" (yellow), never an automatic "no".
+
+`
+
 // buildSystemPrompt assembles three layers: the hard JSON contract (fixed),
 // the playbook / how-to-decide (operator-editable, falls back to the builtin
 // rubric), then the taste / what-the-user-wants block.
@@ -274,7 +289,7 @@ func buildSystemPrompt(playbook, taste string) string {
 	}
 
 	b.WriteString("\n\n--- TASTE (what the user wants) ---\n")
-	b.WriteString("Items under \"HARD REQUIREMENTS / DEALBREAKERS\" are gates: a miss forces \"no\" (red). Items under \"PREFERENCES\" are weights: a miss leans \"maybe\" (yellow), never an automatic \"no\".\n\n")
+	b.WriteString(hardGateRubric)
 	b.WriteString(strings.TrimSpace(taste))
 	return b.String()
 }
