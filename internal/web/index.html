@@ -1321,6 +1321,10 @@ const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: n
 
 const pillClass = v => "pill pill-" + (v || "none");
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// safeHref neutralizes hostile schemes (e.g. javascript:) for user-derived URLs:
+// returns the URL only when it is http(s), otherwise "#". escapeHTML still guards
+// the attribute syntax; safeHref guards the scheme.
+const safeHref = u => /^https?:\/\//i.test(String(u ?? "")) ? escapeHTML(u) : "#";
 
 async function loadList() {
   const r = await fetch("/api/companies");
@@ -1444,7 +1448,7 @@ function renderList() {
       <td>${escapeHTML(r.location || "")}</td>
       <td>${r.headcount || ""}</td>
       <td>${escapeHTML(r.stage || "")}</td>
-      <td>${r.website_url ? `<a href="${escapeHTML(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
+      <td>${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -1508,7 +1512,7 @@ function renderDetail(d) {
 
   const enrichBlock = d.has_enrichment ? `
     <dl class="kv">
-      <dt>url</dt><dd>${d.website_url ? `<a href="${escapeHTML(d.website_url)}" target="_blank" rel="noopener">${escapeHTML(d.website_url)} ↗</a>` : '<span class="muted">—</span>'}</dd>
+      <dt>url</dt><dd>${d.website_url ? `<a href="${safeHref(d.website_url)}" target="_blank" rel="noopener">${escapeHTML(d.website_url)} ↗</a>` : '<span class="muted">—</span>'}</dd>
       <dt>status</dt><dd class="small">${escapeHTML(d.fetch_status || "")}${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
       <dt>fetched</dt><dd class="small muted">${escapeHTML(d.fetched_at || "")}</dd>
     </dl>
@@ -1594,7 +1598,7 @@ function postingsListHTML(d) {
   if (!ps.length) return '<div class="muted">No job links yet.</div>';
   return ps.map(p => `
     <div class="brain-node">
-      <div class="n"><a href="${escapeHTML(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
+      <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.created_at ? `<div class="l">${escapeHTML(p.created_at)}</div>` : ""}
     </div>`).join("");
 }

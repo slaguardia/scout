@@ -85,6 +85,61 @@ func TestUpsertCompanyDomainlessNameFallback(t *testing.T) {
 	}
 }
 
+// MergeCompany folds a domain-less (name-keyed) company into the domain-keyed
+// company that arrives later for the same identity: children re-point and the
+// old parent goes away, leaving exactly one row.
+func TestMergeCompanyCollapsesNameKeyIntoDomainKey(t *testing.T) {
+	db := openTestDB(t)
+
+	// "Acme" first arrives with no domain (keyed on name) and picks up children.
+	oldID, err := db.UpsertCompany(mkCompany("manual", "Acme", ""))
+	if err != nil {
+		t.Fatalf("seed name-keyed: %v", err)
+	}
+	if want := CompanyID("", "Acme"); oldID != want {
+		t.Fatalf("name-keyed id = %q, want %q", oldID, want)
+	}
+	if err := db.UpsertEnrichment(Enrichment{CompanyID: oldID, FetchStatus: "ok"}); err != nil {
+		t.Fatalf("seed enrichment: %v", err)
+	}
+	if _, err := db.AddPosting(oldID, "https://acme.com/jobs", "SE"); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	// "Acme" arrives again WITH a domain — the new domain-keyed parent.
+	newID, err := db.UpsertCompany(mkCompany("crunchbase", "Acme", "acme.com"))
+	if err != nil {
+		t.Fatalf("seed domain-keyed: %v", err)
+	}
+	if newID == oldID {
+		t.Fatalf("domain-keyed id collided with name-keyed id %q", newID)
+	}
+
+	if err := db.MergeCompany(oldID, newID); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	// Exactly one row survives — the domain-keyed one.
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Fatalf("CountCompanies = %d, want 1 after merge", n)
+	}
+	if exists, _ := db.CompanyExists(oldID); exists {
+		t.Fatalf("old name-keyed parent %q still present", oldID)
+	}
+
+	// Children moved to the surviving row, not cascaded away.
+	d, err := db.GetCompanyDetail(newID)
+	if err != nil || d == nil {
+		t.Fatalf("detail: %v (nil=%v)", err, d == nil)
+	}
+	if !d.HasEnrichment {
+		t.Errorf("enrichment did not survive the merge")
+	}
+	if len(d.Postings) != 1 || d.Postings[0].URL != "https://acme.com/jobs" {
+		t.Errorf("posting did not survive the merge: %+v", d.Postings)
+	}
+}
+
 // Child rows keyed on the company UUID cascade on delete.
 func TestCompanyDeleteCascades(t *testing.T) {
 	db := openTestDB(t)

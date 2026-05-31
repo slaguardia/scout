@@ -69,6 +69,21 @@ func TestAddPostingValidation(t *testing.T) {
 		t.Errorf("want url-required error, got %v", err)
 	}
 
+	// Non-http(s) schemes (e.g. javascript:, which would render into an href)
+	// are rejected with a "url "-prefixed error so the handler returns 400.
+	for _, bad := range []string{"javascript:alert(1)", "data:text/html,x", "ftp://acme.com/x"} {
+		_, err := db.AddPosting(cid, bad, "")
+		if err == nil || !strings.HasPrefix(err.Error(), "url ") {
+			t.Errorf("AddPosting(%q): want url-prefixed validation error, got %v", bad, err)
+		}
+	}
+
+	// http(s) urls still pass scheme validation (sanity check the gate isn't
+	// over-broad).
+	if _, err := db.AddPosting(cid, "http://acme.com/jobs", ""); err != nil {
+		t.Errorf("http url unexpectedly rejected: %v", err)
+	}
+
 	// Unknown company → sql.ErrNoRows.
 	if _, err := db.AddPosting("no-such-company-uuid", "https://x.com/job", ""); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("want sql.ErrNoRows for missing company, got %v", err)

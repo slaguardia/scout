@@ -200,6 +200,33 @@ func TestCriteria(t *testing.T) {
 			t.Fatalf("empty brain should yield empty criteria, got %q", text)
 		}
 	})
+
+	t.Run("recall fallback error surfaces, not swallowed", func(t *testing.T) {
+		// Profile is empty (so we fall back to recall) but recall is down — a
+		// real outage. Criteria must surface it, not report "" (which the
+		// resolver would mistake for an empty brain and silently fall back).
+		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/profile":
+				io.WriteString(w, `{"count":0,"episodes":[]}`)
+			case "/recall":
+				w.WriteHeader(http.StatusServiceUnavailable)
+				io.WriteString(w, `{"error":"recall backend down"}`)
+			default:
+				t.Fatalf("unexpected path %s", r.URL.Path)
+			}
+		})
+		text, err := c.Criteria(context.Background())
+		if err == nil {
+			t.Fatal("expected error when recall fallback fails")
+		}
+		if !strings.Contains(err.Error(), "recall backend down") {
+			t.Fatalf("error should carry recall detail, got %v", err)
+		}
+		if text != "" {
+			t.Fatalf("failed recall fallback should yield empty text, got %q", text)
+		}
+	})
 }
 
 func TestDisabledClient(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 )
 
 // CompanyDetail is the payload for GET /api/companies/:id.
@@ -91,10 +92,12 @@ WHERE c.id = ?`
 	}
 
 	// Postings are one-to-many, so they ride a second query rather than the
-	// join above. A failure here shouldn't sink the whole detail payload.
+	// join above. A failure here shouldn't sink the whole detail payload, but
+	// log it so a real DB error isn't silently masked by an empty slice.
 	if postings, err := db.ListPostings(companyID); err == nil {
 		d.Postings = postings
 	} else {
+		fmt.Fprintf(os.Stderr, "list postings %s: %v\n", companyID, err)
 		d.Postings = []Posting{}
 	}
 

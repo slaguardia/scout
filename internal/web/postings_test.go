@@ -58,6 +58,14 @@ func TestPostingsAPI(t *testing.T) {
 		t.Errorf("empty url: want 400, got %d", rec.Code)
 	}
 
+	// Non-http(s) scheme (XSS vector) → 400, not 500. The store rejects it with
+	// a "url "-prefixed validation error the handler maps to a bad request.
+	for _, bad := range []string{"javascript:alert(1)", "data:text/html,x", "ftp://x.com/job"} {
+		if rec := post(cid, `{"url":"`+bad+`"}`); rec.Code != http.StatusBadRequest {
+			t.Errorf("bad-scheme url %q: want 400, got %d (%s)", bad, rec.Code, rec.Body.String())
+		}
+	}
+
 	// Unknown company → 404.
 	if rec := post("no-such-company-uuid", `{"url":"https://x.com/job"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("bad company: want 404, got %d", rec.Code)

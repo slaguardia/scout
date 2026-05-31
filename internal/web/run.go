@@ -83,6 +83,10 @@ func (s *Server) enrichJob(opts runOptions) jobs.Func {
 
 func (s *Server) verdictJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, id string, emit func(string)) (map[string]any, error) {
+		// Re-resolve criteria first so the Resolver re-checks its TTL and
+		// refreshes the cached brain profile; otherwise a long-lived server
+		// scores against criteria frozen at startup once the cache TTL lapses.
+		s.ReloadTaste()
 		ft, err := filter.LoadTaste(s.TasteTOMLPath)
 		if err != nil {
 			return nil, err
@@ -204,22 +208,18 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRuns returns durable run history. GET /api/runs.
+// handleRuns reports which stage (if any) is currently running. GET /api/runs.
+// The UI only consumes busy_stage; the durable run history is no longer surfaced.
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	runs, err := s.DB.ListRuns(30)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	busy := ""
 	if s.Runner != nil {
 		busy = s.Runner.Busy()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "busy_stage": busy})
+	writeJSON(w, http.StatusOK, map[string]any{"busy_stage": busy})
 }
 
 // handleIngest accepts a multipart CSV upload, saves it to a temp file, and

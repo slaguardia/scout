@@ -150,7 +150,9 @@ func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallRes
 // built off facts alone will pursue companies the user hard-excludes). It reads
 // /profile first; if profile yields no bodies it falls back to a broad
 // /recall. An empty string with a nil error means the brain genuinely knows
-// nothing yet (the caller should fall back to local criteria).
+// nothing yet (the caller should fall back to local criteria). If profile is
+// empty AND the recall fallback errors, it returns a non-nil error so the caller
+// surfaces the outage instead of mistaking it for an empty brain.
 func (c *Client) Criteria(ctx context.Context) (string, error) {
 	pr, err := c.Profile(ctx)
 	if err != nil {
@@ -159,10 +161,13 @@ func (c *Client) Criteria(ctx context.Context) (string, error) {
 	bodies := pr.Bodies()
 	if len(bodies) == 0 {
 		// profile empty (or, on an older brain, returns only facts) — recover
-		// the bodies from a broad recall.
-		if rr, rerr := c.Recall(ctx, criteriaQuery, 50); rerr == nil {
-			bodies = rr.Bodies()
+		// the bodies from a broad recall. A recall failure here is a real
+		// outage, not an empty brain: surface it rather than reporting "".
+		rr, rerr := c.Recall(ctx, criteriaQuery, 50)
+		if rerr != nil {
+			return "", fmt.Errorf("brain recall fallback: %w", rerr)
 		}
+		bodies = rr.Bodies()
 	}
 	return strings.Join(bodies, "\n\n"), nil
 }

@@ -96,19 +96,47 @@ func (c *CSV) Run(path string) (*Result, error) {
 			Vertical:     nullStr(pick(idx, row, "vertical")),
 			RawJSON:      string(rawJSON),
 		}
-		// Tell a fresh insert from a dedup merge: the deterministic id already
-		// being present means this row collapses onto an existing company.
-		existed, err := c.DB.CompanyExists(store.CompanyID(company.Domain.String, company.Name))
+		// Classify the write and auto-merge a domain-less arrival into its later
+		// domain-bearing twin. A company first seen without a domain is keyed by
+		// name ("name:<lower>"); the same company arriving WITH a domain keys on
+		// the domain instead, so the two would otherwise live as separate rows.
+		// Compute the id once and reuse the existence check for both the merge
+		// decision and the new-vs-merged count.
+		domainKey := store.CompanyID(company.Domain.String, company.Name)
+		domainExists, err := c.DB.CompanyExists(domainKey)
 		if err != nil {
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
-		if _, err := c.DB.UpsertCompany(company); err != nil {
+		merge := false
+		nameKey := ""
+		if company.Domain.Valid && !domainExists {
+			// Only a brand-new domain-keyed row can fold in a name-keyed twin.
+			nameKey = store.CompanyID("", company.Name)
+			if nameKey != domainKey {
+				nameExists, err := c.DB.CompanyExists(nameKey)
+				if err != nil {
+					res.Errors = append(res.Errors, err.Error())
+					continue
+				}
+				merge = nameExists
+			}
+		}
+
+		if err := c.DB.UpsertCompanyWithID(domainKey, company); err != nil {
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
+		if merge {
+			if err := c.DB.MergeCompany(nameKey, domainKey); err != nil {
+				res.Errors = append(res.Errors, err.Error())
+				continue
+			}
+		}
 		res.Upserted++
-		if existed {
+		// An existing domain-keyed row, or a folded-in name-keyed twin, both
+		// count as merges (overwrote or absorbed an existing company).
+		if domainExists || merge {
 			res.Merged++
 		}
 	}

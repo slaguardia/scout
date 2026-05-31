@@ -231,7 +231,7 @@ func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, i
 			http.NotFound(w, r)
 			return
 		}
-		if strings.HasPrefix(err.Error(), "url required") {
+		if strings.HasPrefix(err.Error(), "url ") { // url required / url must be http(s)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

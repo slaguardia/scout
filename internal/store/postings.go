@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	neturl "net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -21,13 +22,21 @@ type Posting struct {
 }
 
 // AddPosting inserts a posting for a company and returns the created row.
-// Inputs are trimmed; an empty url is rejected with a validation error.
-// Returns sql.ErrNoRows if the company doesn't exist.
+// Inputs are trimmed; the url must be a non-empty http(s) link — anything else
+// (empty, or a scheme like javascript: that would render into a clickable href)
+// is rejected with a validation error whose message starts with "url ", which
+// the web handler maps to HTTP 400. Returns sql.ErrNoRows if the company
+// doesn't exist.
 func (db *DB) AddPosting(companyID, url, title string) (Posting, error) {
 	url = strings.TrimSpace(url)
 	title = strings.TrimSpace(title)
 	if url == "" {
 		return Posting{}, fmt.Errorf("url required")
+	}
+	// Reject non-http(s) schemes (e.g. javascript:) before they reach an href.
+	u, err := neturl.Parse(url)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return Posting{}, fmt.Errorf("url must be http(s)")
 	}
 
 	// Ensure the company exists (mirrors the guard in other store writes).

@@ -147,6 +147,51 @@ Acme (Relisted),http://acme.ai,https://www.crunchbase.com/organization/acme-2
 	}
 }
 
+// TestIngestAutoMergesDomainlessIntoDomain checks that a company first ingested
+// WITHOUT a domain (keyed by name) collapses onto the same company when it later
+// arrives WITH a domain (keyed by domain): one surviving row, and any children
+// attached to the original name-keyed row ride along to the merged row.
+func TestIngestAutoMergesDomainlessIntoDomain(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "scout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// First pass: "Acme" with no Website → keyed on name.
+	res := runIngest(t, db, dir, "crunchbase", "Organization Name,Website\nAcme,\n")
+	if res.Read != 1 || res.Upserted != 1 || res.Merged != 0 {
+		t.Fatalf("first pass read=%d upserted=%d merged=%d, want 1/1/0", res.Read, res.Upserted, res.Merged)
+	}
+	nameKey := store.CompanyID("", "Acme")
+	// Attach a child to the name-keyed row; it must survive the merge.
+	if err := db.UpsertEnrichment(store.Enrichment{CompanyID: nameKey, FetchStatus: "ok"}); err != nil {
+		t.Fatalf("seed enrichment on name-keyed row: %v", err)
+	}
+
+	// Second pass: "Acme" WITH a Website → keyed on domain, folds in the old row.
+	res = runIngest(t, db, dir, "crunchbase", "Organization Name,Website\nAcme,https://acme.com/\n")
+	if res.Read != 1 || res.Upserted != 1 || res.Merged != 1 {
+		t.Fatalf("second pass read=%d upserted=%d merged=%d, want 1/1/1 (auto-merge)", res.Read, res.Upserted, res.Merged)
+	}
+
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Fatalf("companies=%d, want 1 (the name-keyed row merged into the domain-keyed row)", n)
+	}
+	domainKey := store.CompanyID("acme.com", "Acme")
+	d, err := db.GetCompanyDetail(domainKey)
+	if err != nil || d == nil {
+		t.Fatalf("detail for domain-keyed row: %v (nil=%v)", err, d == nil)
+	}
+	if d.Domain != "acme.com" {
+		t.Errorf("surviving row domain = %q, want acme.com", d.Domain)
+	}
+	if !d.HasEnrichment {
+		t.Errorf("enrichment from the name-keyed row did not survive the merge")
+	}
+}
+
 // runIngest writes content to a fresh temp CSV under dir and ingests it into db.
 func runIngest(t *testing.T, db *store.DB, dir, source, content string) *Result {
 	t.Helper()

@@ -46,7 +46,14 @@ func CompanyID(domain, name string) string {
 // (source, source_id) is kept only as last-writer provenance.
 func (db *DB) UpsertCompany(c Company) (string, error) {
 	id := CompanyID(c.Domain.String, c.Name)
+	return id, db.UpsertCompanyWithID(id, c)
+}
 
+// UpsertCompanyWithID upserts a company under an already-computed deterministic
+// id (see CompanyID). Ingest computes the id once — to check existence and to
+// drive cross-source dedup — and passes it straight through, so neither the
+// hash nor the existence lookup is repeated per row.
+func (db *DB) UpsertCompanyWithID(id string, c Company) error {
 	const q = `
 INSERT INTO companies (id, source, source_id, name, domain, headcount, funding_stage, location, vertical, raw_json)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -66,9 +73,39 @@ ON CONFLICT(id) DO UPDATE SET
 		id, c.Source, c.SourceID, c.Name, c.Domain, c.Headcount,
 		c.FundingStage, c.Location, c.Vertical, c.RawJSON,
 	); err != nil {
-		return "", fmt.Errorf("upsert company %q: %w", c.Name, err)
+		return fmt.Errorf("upsert company %q: %w", c.Name, err)
 	}
-	return id, nil
+	return nil
+}
+
+// MergeCompany collapses a domain-less company (keyed by name, oldID) into the
+// domain-keyed company (newID) that later arrived for the same identity. It
+// re-points every child row from oldID to newID and deletes the old parent — in
+// one transaction so a crash never strands children or orphans them past the
+// ON DELETE CASCADE. Children move BEFORE the delete for the same reason.
+// Caller guarantees newID already exists (upserted) and has no children yet, so
+// the PK-on-company_id tables (enrichment, verdicts) can't conflict.
+func (db *DB) MergeCompany(oldID, newID string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("merge %s→%s: begin: %w", oldID, newID, err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range []string{"enrichment", "verdicts", "verdict_trace", "job_postings"} {
+		if _, err := tx.Exec(
+			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
+		); err != nil {
+			return fmt.Errorf("merge %s→%s: repoint %s: %w", oldID, newID, table, err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM companies WHERE id = ?`, oldID); err != nil {
+		return fmt.Errorf("merge %s→%s: delete old parent: %w", oldID, newID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("merge %s→%s: commit: %w", oldID, newID, err)
+	}
+	return nil
 }
 
 // CompanyExists reports whether a company with the given deterministic id is
