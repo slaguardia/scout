@@ -102,14 +102,14 @@ A single verdict decision combines four things from three sources:
 |---|---|---|
 | **Output contract** | Go constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
-| **The user's criteria** | **the brain** (`profile` → episode bodies, cached locally) | *what* the user wants + their rules/exclusions |
+| **The user's criteria** | **the brain** (`profile` → structured facts, rendered into a grouped criteria block, cached locally) | *what* the user wants + their rules/exclusions |
 | **This company** | scout SQLite | Crunchbase fields + enriched site text |
 
 ```
   output contract (Go, fixed) ─┐
   playbook — how to decide ────┤
   the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
-    (brain: profile bodies,    │
+    (brain: profile facts,     │
      cached locally)           │
   this company ────────────────┘
     (scout SQLite only)
@@ -129,8 +129,7 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
-scout-local), reading it via `profile` only (and an internal `/recall` fallback
-to recover criteria bodies when `/profile` is empty).
+scout-local), reading it via `profile` only.
 
 ## The pipeline, with brain touchpoints
 
@@ -139,7 +138,7 @@ ingest    CSV → companies                              (no brain — pure data
 filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard gates,
           headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
-verdict   reads  the user's criteria  ← brain: profile / episode bodies
+verdict   reads  the user's criteria  ← brain: profile facts → criteria block
                                          (cached locally, TTL)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
@@ -157,27 +156,31 @@ exactly one way (the brain also exposes `POST /capture`, but scout doesn't
 write):
 
 - `GET /profile` — the user's full current picture, the source of the criteria.
-  **Read the episode bodies**, not just extracted facts (see below). The fetched
-  profile is cached in scout's SQLite and reused within `--brain-cache-ttl`
-  (default 6h); a stale cache covers a brain that's gone unreachable before
-  scout falls back to `taste.md`.
-- `GET /recall?q=` — used **only internally** as a fallback to recover the
-  criteria bodies when `/profile` comes back empty. It is **not** a per-company
+  Each fact carries a polarity (positive/negative/null) and strength
+  (hard/soft/null) scout renders into a grouped criteria block (see below). The
+  fetched profile is cached in scout's SQLite and reused within
+  `--brain-cache-ttl` (default 6h); a stale cache covers a brain that's gone
+  unreachable before scout falls back to `taste.md`.
+- `GET /recall?q=` — scored facts for a query; scout does **not** use it for
+  criteria (`/profile` already returns every fact). It is **not** a per-company
   lookup; scout never queries the brain per company.
 
 Authoritative contract: `brainbot/docs/consumer-api.md` +
 `consumer-integration.md`. Scout's client mirrors `brainbot/migrate/graphiti_clients.py`.
 
-### Facts vs. episodes (the rule that protects the gates)
+### Reading the facts (polarity + strength drive the gates)
 
-The brain returns two things: **`facts`** (extracted, scored — but a *lossy,
-positive-only* index that drops negatives/rules) and **episode bodies** (the
-faithful captured text — complete, with the exclusions and gates). Per
-brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
-'fintech is explicitly excluded' and pursue something it should hard-skip."*
+`/profile` returns **structured facts**, each tagged with a **polarity**
+(positive = seeks/values/requires, negative = avoids/rejects/excludes, null =
+neutral) and a **strength** (hard = gate/dealbreaker, soft = preference, null =
+biographical context). Scout renders them into a grouped criteria block: hard
+facts become **HARD REQUIREMENTS / DEALBREAKERS** (gates), soft facts become
+**PREFERENCES** (weights), and null-strength facts become **CONTEXT**. The
+stance metadata is what lets scout treat a hard+negative fact ("fintech is
+excluded") as a hard skip rather than another positive signal.
 
-> **Rule:** scout reads **episode bodies** for the user's criteria (anything
-> rule-bearing). Facts are for fast positive lookups only.
+> **Rule:** scout gates on each fact's polarity/strength — hard+negative is a
+> dealbreaker, hard+positive a requirement, soft either way a weight.
 
 ## Invariants (don't break these)
 
@@ -188,7 +191,8 @@ brainbot's own docs, a job-fit scorer that reads only `facts` *"will miss
    scout logs and falls back to local criteria; it never hard-crashes a run.
 3. **Editor isolation.** The UI taste/playbook editor writes local files only
    and never touches the brain client.
-4. **Read bodies, not facts, for rules.** (See above.)
+4. **Gate on fact polarity/strength.** Hard facts are gates, soft facts are
+   weights, null-strength facts are context. (See above.)
 5. **Web-first.** The browser is the interface; the CLI is the secondary
    automation/debug surface, kept but not primary.
 
@@ -201,7 +205,7 @@ really right for the user") happens only at verdict time, grounded in the brain.
 The name is historical; treat it as the mechanical layer. Any vertical
 *judgment* currently in `taste.toml` (`verticals.allowed`/`excluded`) should be
 thinned to coarse cheap culls at most, with the real exclusion logic living in
-the brain's episode bodies.
+the brain's facts (hard+negative dealbreakers).
 
 ## How this relates to the other docs
 

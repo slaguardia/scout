@@ -130,18 +130,18 @@ brain:
 ```
 fresh cached profile? (age < --brain-cache-ttl) ──yes──▶ use it
        │ no
-GET /profile bodies ──▶ ok ──▶ cache + use   (empty → broad GET /recall bodies)
+GET /profile facts ──▶ render criteria block ──▶ cache + use
        │ unreachable
 stale cached profile? ──yes──▶ use it (brain is down)
        │ no
 fall back to taste.md (offline criteria)
 ```
 
-- The brain client reads **episode BODIES** (`/profile`), not extracted facts —
-  bodies carry the user's gates and hard exclusions; facts are a lossy
-  positive-only index that drops them. See `north-star.md` → *Facts vs. episodes*.
-  The broad `/recall` is an internal fallback that only recovers criteria bodies
-  when `/profile` is empty — not a per-company lookup.
+- The brain client reads **structured FACTS** (`/profile`) and renders them into
+  a grouped criteria block: each fact's polarity (positive/negative/null) and
+  strength (hard/soft/null) decide whether it is a gate, a weight, or context.
+  See `north-star.md` → *Reading the facts*. `/profile` returns every fact, so
+  there is no `/recall` criteria fallback; `/recall` is never a per-company lookup.
 - A fetched profile is written to `brain_profile_cache` and reused within
   `--brain-cache-ttl` (default 6h). If the brain is unreachable, a *stale* cached
   profile is used before scout drops to `taste.md`.

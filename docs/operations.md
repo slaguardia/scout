@@ -91,10 +91,10 @@ scout verdict
    ├─ fresh cached profile? (age < --brain-cache-ttl, default 6h) → use it
    │
    ├─ else --brainbot set (default :8100) and healthy?
-   │     ├─ yes → GET /profile bodies (the user's criteria, gates, exclusions)
+   │     ├─ yes → GET /profile facts → render grouped criteria block
+   │     │        (gates, preferences, context; tagged by polarity/strength)
    │     │        ↳ cache it locally (brain_profile_cache), then use it
-   │     │        ↳ empty? broad GET /recall to recover them
-   │     │        ↳ still empty? fall back to taste.md
+   │     │        ↳ empty? fall back to taste.md
    │     └─ no/unreachable → stale cached profile if any, else taste.md  (logged)
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite

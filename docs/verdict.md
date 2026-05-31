@@ -66,18 +66,20 @@ of the brain:
 ```
 fresh cached profile? (age < --brain-cache-ttl) ── yes ──▶ use it
        │ no
-   GET /profile bodies ── empty ──▶ broad /recall bodies ── empty ──▶ taste.md
-       │ non-empty (cache it)                                         (brain knows nothing yet)
+   GET /profile facts ── render criteria block ──▶ scoring (cache it)
+       │ empty ───▶ taste.md (brain knows nothing yet)
        │                                          unreachable ──▶ stale cached profile?
        │                                                              │ yes → use it
        │                                                              │ no  → taste.md
    brain criteria  ───────────────────────────────────────────────▶ scoring
 ```
 
-The brain's criteria are the concatenated **episode bodies** (`Criteria()` →
-`/profile`, falling back to a broad `/recall` *only* to recover the bodies when
-`/profile` is empty), because the gates and exclusions live in the bodies, not
-the extracted facts. A fetched profile is cached in `brain_profile_cache` and
+The brain's criteria are the brain's structured **facts** (`Criteria()` →
+`/profile`), rendered into a grouped criteria block (`renderFacts`): hard facts
+become gates (HARD REQUIREMENTS / DEALBREAKERS), soft facts become PREFERENCES
+(weights), and null-strength facts become CONTEXT — polarity tags each line
+([requires]/[excludes]/[seeks]/[avoids]). `/profile` returns every fact, so there
+is no `/recall` fallback. A fetched profile is cached in `brain_profile_cache` and
 reused within `--brain-cache-ttl` (default 6h); when the brain is unreachable
 the resolver serves a *stale* cached profile before dropping to `taste.md`. A
 healthy-but-empty brain falls back to `taste.md` too. Default brain URL:

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func brainServer(t *testing.T, hits *int32, body string) *brainbot.Client {
 		case "/health":
 			io.WriteString(w, `{"ok":true}`)
 		case "/profile":
-			fmt.Fprintf(w, `{"count":1,"episodes":[{"name":"e","body":%q}]}`, body)
+			fmt.Fprintf(w, `{"count":1,"facts":[{"fact":%q,"polarity":"positive","strength":"soft","name":"ASSERTS"}]}`, body)
 		default:
 			http.NotFound(w, r)
 		}
@@ -86,15 +87,15 @@ func TestResolveFetchesAndCaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if blk.Text != "BRAIN CRITERIA" {
-		t.Fatalf("text = %q, want the brain body", blk.Text)
+	if !strings.Contains(blk.Text, "BRAIN CRITERIA") {
+		t.Fatalf("text = %q, want a block containing the brain fact", blk.Text)
 	}
 	cp, err := db.GetBrainProfile(c.BaseURL)
 	if err != nil || cp == nil {
 		t.Fatalf("expected cache to be written, got cp=%v err=%v", cp, err)
 	}
-	if cp.Body != "BRAIN CRITERIA" {
-		t.Fatalf("cached body = %q", cp.Body)
+	if !strings.Contains(cp.Body, "BRAIN CRITERIA") {
+		t.Fatalf("cached body = %q, want it to contain the brain fact", cp.Body)
 	}
 	// A second resolve must be served from the cache — no further brain traffic.
 	before := atomic.LoadInt32(&hits)

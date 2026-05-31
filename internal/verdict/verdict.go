@@ -274,6 +274,7 @@ func buildSystemPrompt(playbook, taste string) string {
 	}
 
 	b.WriteString("\n\n--- TASTE (what the user wants) ---\n")
+	b.WriteString("Items under \"HARD REQUIREMENTS / DEALBREAKERS\" are gates: a miss forces \"no\" (red). Items under \"PREFERENCES\" are weights: a miss leans \"maybe\" (yellow), never an automatic \"no\".\n\n")
 	b.WriteString(strings.TrimSpace(taste))
 	return b.String()
 }

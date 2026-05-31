@@ -106,7 +106,7 @@ did the user think before" lives in the brain. Indexes on `verdict` and
 **`taste_version` is the criteria version** (legacy column name; the concept is
 *the user's criteria from the brain* — see north-star's terminology table). It is
 `sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
-criteria text is the brain's episode bodies (or the offline `taste.md`
+criteria text is the brain's facts rendered into a grouped criteria block (or the offline `taste.md`
 fallback). When the brain learns something — or the playbook is edited — the
 hash changes, and the next `verdict` run re-scores rows whose stored
 `taste_version` no longer matches. That re-scoring is intended.
@@ -204,7 +204,7 @@ low-thousands of companies × a few re-scores that's single-digit MB.
 ```sql
 brain_profile_cache (
     source_url   TEXT PK,              -- the brain base URL the profile came from
-    body         TEXT NOT NULL,        -- the resolved criteria text (episode bodies)
+    body         TEXT NOT NULL,        -- the resolved criteria text (fact-derived block)
     content_hash TEXT NOT NULL,        -- hash of body, for change detection
     fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )

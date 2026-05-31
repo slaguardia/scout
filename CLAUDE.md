@@ -35,13 +35,15 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   full web control surface — run everything from the browser (CSV upload, live
   progress, run history), plus a brain-isolated playbook editor.
 - **Brain-first, done:** scout reads the brain's `/profile` (read-only) for the
-  user's criteria (the episode bodies) and caches it locally in SQLite (table
+  user's criteria as structured facts (each carrying `polarity` and `strength`),
+  which scout renders into a grouped criteria block (hard → gates, soft →
+  weights, null/null → context) and caches locally in SQLite (table
   `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual refresh from
   the UI's Criteria panel); `taste.md` is the offline fallback when the brain is
-  unreachable and the cache is gone. `/recall` survives only as an internal
-  fallback to recover the criteria bodies when `/profile` is empty — there is no
-  per-company recall. Verdicts stay scout-local — never written to the brain.
-  Default brain URL is `http://127.0.0.1:8100`.
+  unreachable and the cache is gone. `/recall` exists on the client but is not
+  used for criteria (`/profile` returns all facts) and there is no per-company
+  recall. Verdicts stay scout-local — never written to the brain. Default brain
+  URL is `http://127.0.0.1:8100`.
 
 ## What's next
 

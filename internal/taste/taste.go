@@ -1,8 +1,9 @@
 // Package taste loads the criteria block (what the user wants) fed to the verdict
 // stage.
 //
-// The primary source is the brain (the concatenated episode bodies from
-// /profile); see FromBrain. A local markdown file (taste.md) is the offline
+// The primary source is the brain: the structured facts from /profile, rendered
+// into a grouped criteria block (gates, preferences, context); see FromBrain. A
+// local markdown file (taste.md) is the offline
 // fallback for when the brain is unreachable; see LoadFile. Version is the
 // first 12 hex chars of sha256(content) — it changes whenever the criteria
 // change (brain learns something, or the file is edited), which re-scores
@@ -24,10 +25,10 @@ type Block struct {
 	Source  string // 'brain:profile@<url>' (primary) or 'file:taste.md' (fallback)
 }
 
-// FromBrain builds a criteria Block from brain-sourced text — the concatenated
-// faithful episode bodies (the complete record carrying the user's gates and
-// exclusions), NOT a join of extracted fact strings. source is a label like
-// "brain:profile@http://127.0.0.1:8100".
+// FromBrain builds a criteria Block from brain-sourced text — the fact-derived
+// grouped criteria block scout renders from /profile (the user's gates,
+// preferences, and context, tagged by polarity/strength). source is a label like
+// "brain:profile@http://127.0.0.1:8100". The text is opaque to FromBrain.
 func FromBrain(text, source string) *Block {
 	text = strings.TrimSpace(text)
 	return &Block{

@@ -1259,15 +1259,12 @@ Domain / Vertical / Location / Headcount / Funding stage: &lt;…&gt;
 Website text (truncated):
 &lt;the stripped about-page text from enrichment&gt;
 
-What the brain already knows about this company:
-- &lt;recalled fact&gt;     <span class="c">← only if the brain has relevant memory</span>
-
 Return the JSON verdict now.</pre>
 
           <h4>Where the brain comes in</h4>
           <ul>
-            <li><strong>Your criteria</strong> come from the brain's profile (the full episode text, which carries your gates and exclusions — not just a lossy fact index). If the brain is down or empty, scout falls back to <code>taste.md</code>.</li>
-            <li><strong>Per-company memory</strong> is pulled with a recall query on the company name, keeping only sufficiently-relevant facts (a brand-new company surfaces nothing). A brain miss is logged and ignored — the verdict still runs.</li>
+            <li><strong>Your criteria</strong> come from the brain's profile — structured facts carrying a polarity (positive/negative) and strength (hard/soft), rendered into a grouped criteria block: hard facts are gates (requirements/dealbreakers), soft facts are weights, and neutral facts are context. If the brain is down or empty, scout falls back to <code>taste.md</code>.</li>
+            <li><strong>No per-company lookup.</strong> Scout reads the brain once for your criteria — it never queries the brain per company. A brain miss is logged and ignored; the verdict still runs on the local fallback.</li>
           </ul>
 
           <h4>Model, parsing, and re-scoring</h4>

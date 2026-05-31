@@ -1,18 +1,23 @@
 // Package brainbot is a thin HTTP/JSON client for the brain service.
 //
 // Scout uses the brain READ-ONLY: it reads the user's criteria (/profile) and
-// per-company memory (/recall), plus a /health probe. It never writes — scout's
+// per-query recall (/recall), plus a /health probe. It never writes — scout's
 // verdicts stay scout-local, not in the brain. (The brain also exposes
 // POST /capture and an MCP face at /mcp, but scout doesn't use them.) This
 // client mirrors brainbot's reference client, migrate/graphiti_clients.py.
 //
-// Verified against the brain's own service.py (the authoritative contract;
-// brainbot/docs/consumer-api.md is stale on /profile):
+// Verified against the brain's own service.py (the authoritative contract):
 //
 //	GET  /health            -> {ok:true}
-//	GET  /profile           -> {count, episodes:[{name,body,source}]}
-//	GET  /recall?q=&limit=  -> {query, facts:[{fact,name,score,valid_at,invalid_at}],
-//	                            episodes:[{name,body}], fact_count, episode_count}
+//	GET  /profile           -> {count, facts:[{fact,polarity,strength,valid_at,name}]}
+//	GET  /recall?q=&limit=  -> {query, facts:[{fact,name,score,polarity,strength,
+//	                            valid_at,invalid_at}], fact_count}
+//
+// /profile returns ALL currently-true structured facts; each carries a polarity
+// (positive/negative/null) and strength (hard/soft/null) scout renders into a
+// grouped criteria block. /recall additionally scores facts against a query.
+// (Both endpoints also surface episodes/episode_count for debugging; scout does
+// not decode or use them.)
 //
 // The brain is an enhancement, never a hard dependency: when it is unreachable
 // callers fall back to local criteria (taste.md). If the base URL isn't
@@ -34,10 +39,6 @@ import (
 
 const maxResponseSize = 1 << 20
 
-// criteriaQuery is the broad question used to recover the user's criteria bodies
-// when /profile yields none (the fallback source of episode bodies).
-const criteriaQuery = "what does the user want in a job: their preferences, rules, hard exclusions, and dealbreakers"
-
 // Client is a brain HTTP client.
 type Client struct {
 	BaseURL string
@@ -57,58 +58,34 @@ func New(baseURL string) *Client {
 // Enabled reports whether a base URL is configured.
 func (c *Client) Enabled() bool { return c != nil && c.BaseURL != "" }
 
-// Fact is an extracted graph claim. Facts are a lossy, POSITIVE-ONLY index:
-// the extractor reliably captures what the user does/wants/has and systematically
-// drops the negatives and rules. For anything rule-bearing (gates, avoid-lists,
-// dealbreakers) read Episode bodies instead. Score is present on recall, 0 on
-// profile (profile is an unscored dump).
+// Fact is an extracted graph claim with stance metadata. Polarity is positive
+// (the user seeks/values/requires it), negative (avoids/rejects/excludes), or
+// "" when the fact carries no stance (a neutral biographical fact). Strength is
+// "hard" (a gate/dealbreaker/requirement), "soft" (a preference/lean), or ""
+// (neutral context). Score is present on recall (0 on profile, an unscored
+// dump). Together polarity+strength let scout render gates, preferences, and
+// context distinctly instead of treating every fact the same.
 type Fact struct {
 	Fact      string  `json:"fact"`
 	Name      string  `json:"name"`
+	Polarity  string  `json:"polarity"`
+	Strength  string  `json:"strength"`
 	Score     float64 `json:"score"`
 	ValidAt   string  `json:"valid_at"`
 	InvalidAt string  `json:"invalid_at"`
 }
 
-// Episode is a faithful captured body — the complete record, with the
-// negatives/gates/rules the facts drop. /profile returns {name,body,source};
-// /recall returns {name,body}.
-type Episode struct {
-	Name   string `json:"name"`
-	Body   string `json:"body"`
-	Source string `json:"source,omitempty"`
-}
-
-// ProfileResult is GET /profile: every currently-true episode body.
+// ProfileResult is GET /profile: every currently-true structured fact.
 type ProfileResult struct {
-	Count    int       `json:"count"`
-	Episodes []Episode `json:"episodes"`
+	Count int    `json:"count"`
+	Facts []Fact `json:"facts"`
 }
 
-// RecallResult is GET /recall: scored facts plus faithful episode bodies.
+// RecallResult is GET /recall: scored facts matched against a query.
 type RecallResult struct {
-	Query        string    `json:"query"`
-	Facts        []Fact    `json:"facts"`
-	Episodes     []Episode `json:"episodes"`
-	FactCount    int       `json:"fact_count"`
-	EpisodeCount int       `json:"episode_count"`
-}
-
-// Bodies returns the non-empty episode bodies — the text the criteria block is
-// built from. The gates and exclusions live here, not in the facts.
-func (p ProfileResult) Bodies() []string { return episodeBodies(p.Episodes) }
-
-// Bodies returns the non-empty matched episode bodies for a recall query.
-func (r RecallResult) Bodies() []string { return episodeBodies(r.Episodes) }
-
-func episodeBodies(eps []Episode) []string {
-	out := make([]string, 0, len(eps))
-	for _, e := range eps {
-		if b := strings.TrimSpace(e.Body); b != "" {
-			out = append(out, b)
-		}
-	}
-	return out
+	Query     string `json:"query"`
+	Facts     []Fact `json:"facts"`
+	FactCount int    `json:"fact_count"`
 }
 
 // Health probes liveness. A nil error means the brain is up. (The probe is
@@ -126,15 +103,15 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-// Profile fetches the user's full current picture as faithful episode bodies.
+// Profile fetches the user's full current picture as structured facts.
 func (c *Client) Profile(ctx context.Context) (ProfileResult, error) {
 	var out ProfileResult
 	err := c.getJSON(ctx, "/profile", nil, &out)
 	return out, err
 }
 
-// Recall fetches scored facts + episode bodies for a query. limit <= 0 omits
-// the param (the brain defaults to 20).
+// Recall fetches scored facts for a query. limit <= 0 omits the param (the
+// brain defaults to 20).
 func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallResult, error) {
 	q := url.Values{"q": {query}}
 	if limit > 0 {
@@ -145,31 +122,116 @@ func (c *Client) Recall(ctx context.Context, query string, limit int) (RecallRes
 	return out, err
 }
 
-// Criteria returns the user's full criteria as the concatenated faithful episode
-// bodies (the gates/exclusions live in the bodies, NOT the facts — a scorer
-// built off facts alone will pursue companies the user hard-excludes). It reads
-// /profile first; if profile yields no bodies it falls back to a broad
-// /recall. An empty string with a nil error means the brain genuinely knows
-// nothing yet (the caller should fall back to local criteria). If profile is
-// empty AND the recall fallback errors, it returns a non-nil error so the caller
-// surfaces the outage instead of mistaking it for an empty brain.
+// Criteria returns the user's full criteria as a grouped block rendered from the
+// brain's structured /profile facts (see renderFacts). Each fact's polarity and
+// strength decide whether it lands in HARD REQUIREMENTS / DEALBREAKERS (gates),
+// PREFERENCES (weights), or CONTEXT (background). /profile returns ALL facts, so
+// there is no recall fallback. An empty string with a nil error means the brain
+// genuinely knows nothing yet (the caller should fall back to local criteria); a
+// /profile fetch error is returned so the caller surfaces the outage instead of
+// mistaking it for an empty brain.
 func (c *Client) Criteria(ctx context.Context) (string, error) {
 	pr, err := c.Profile(ctx)
 	if err != nil {
 		return "", err
 	}
-	bodies := pr.Bodies()
-	if len(bodies) == 0 {
-		// profile empty (or, on an older brain, returns only facts) — recover
-		// the bodies from a broad recall. A recall failure here is a real
-		// outage, not an empty brain: surface it rather than reporting "".
-		rr, rerr := c.Recall(ctx, criteriaQuery, 50)
-		if rerr != nil {
-			return "", fmt.Errorf("brain recall fallback: %w", rerr)
+	return renderFacts(pr.Facts), nil
+}
+
+// renderFacts groups structured facts into a plain-text criteria block the
+// verdict LLM can gate on. Grouping is by strength first: "hard" -> HARD
+// REQUIREMENTS / DEALBREAKERS (gates), "soft" -> PREFERENCES (weights). A fact
+// with no strength but a present polarity is a stance with no declared force,
+// so it lands in PREFERENCES as a weight (preserving its seek/avoid signal
+// rather than discarding it); only a null/null fact (no polarity, no strength)
+// is neutral CONTEXT (background). Within a group the polarity picks the tag.
+//
+// Strength/polarity are matched case-insensitively (trimmed, lowercased) so a
+// brain that emits "Hard"/"SOFT" still buckets correctly; an unrecognized
+// non-empty strength falls back to the polarity-driven path (CONTEXT only when
+// polarity is also absent), and an unrecognized polarity falls back to a
+// neutral tag — graceful, never a panic. Facts with an empty .Fact string are
+// skipped, exact-duplicate rendered lines are collapsed (the brain can emit
+// dupes), empty sections are omitted, and input order is otherwise preserved so
+// the rendered block — and its taste Version hash — is deterministic. With no
+// facts at all it returns "".
+func renderFacts(facts []Fact) string {
+	var hard, soft, context []string
+	seen := make(map[string]bool) // dedup keyed on the fully-rendered line
+	add := func(bucket *[]string, tag, fact string) {
+		line := "- " + fact
+		if tag != "" {
+			line = "- [" + tag + "] " + fact
 		}
-		bodies = rr.Bodies()
+		if seen[line] {
+			return
+		}
+		seen[line] = true
+		*bucket = append(*bucket, line)
 	}
-	return strings.Join(bodies, "\n\n"), nil
+	for _, f := range facts {
+		fact := strings.TrimSpace(f.Fact)
+		if fact == "" {
+			continue
+		}
+		strength := strings.ToLower(strings.TrimSpace(f.Strength))
+		polarity := strings.ToLower(strings.TrimSpace(f.Polarity))
+		switch {
+		case strength == "hard":
+			add(&hard, hardTag(polarity), fact)
+		case strength == "soft":
+			add(&soft, softTag(polarity), fact)
+		case strength == "" && polarity != "":
+			// Stance with no declared force: keep it as a weight, don't
+			// demote a seek/avoid signal to non-filterable context.
+			add(&soft, softTag(polarity), fact)
+		default: // null/null -> neutral biographical context
+			add(&context, "", fact)
+		}
+	}
+
+	var b strings.Builder
+	writeSection := func(header string, lines []string) {
+		if len(lines) == 0 {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(header + "\n")
+		b.WriteString(strings.Join(lines, "\n"))
+	}
+	writeSection("HARD REQUIREMENTS / DEALBREAKERS (treat as gates — a miss is a hard skip):", hard)
+	writeSection("PREFERENCES (weigh, don't gate):", soft)
+	writeSection("CONTEXT (background, not a filter):", context)
+	return b.String()
+}
+
+// hardTag labels a hard fact by (normalized, lowercase) polarity: a
+// requirement, an exclusion, or an unsigned gate when polarity is absent or
+// unrecognized.
+func hardTag(polarity string) string {
+	switch polarity {
+	case "positive":
+		return "requires"
+	case "negative":
+		return "excludes"
+	default:
+		return "gate"
+	}
+}
+
+// softTag labels a soft fact by (normalized, lowercase) polarity: something
+// sought, avoided, or merely preferred when polarity is absent or unrecognized.
+func softTag(polarity string) string {
+	switch polarity {
+	case "positive":
+		return "seeks"
+	case "negative":
+		return "avoids"
+	default:
+		return "prefers"
+	}
 }
 
 // --- transport ---
