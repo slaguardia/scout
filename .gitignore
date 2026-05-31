@@ -25,6 +25,9 @@
 *.db-wal
 *.db-shm
 
+# Claude Code worktrees (harness-managed checkouts)
+.claude/worktrees/
+
 # IDE
 .idea/
 .vscode/
