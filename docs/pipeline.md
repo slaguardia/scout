@@ -44,6 +44,18 @@ ingest → filter → enrich → verdict → triage
 - Domain normalized: lowercased, `https://`/`http://`/`www.` and any path stripped.
 - `ingested_at` bumps on every upsert, which invalidates downstream enrichment.
 
+**Manual add (UI only).** Besides CSV upload, the web UI's **Add company** modal
+(Run panel) ingests one hand-entered company via `POST /api/companies` (source
+`manual`) — for a company not in a dump. **Website is the only required field**
+(it's the row's identity); a blank name defaults to the domain, and
+vertical/location/headcount/funding-stage are optional. Funding stage is a
+dropdown and verticals a multi-select, both populated from the values already in
+the set (`GET /api/facets`; verticals are the deduped tags split out of the
+composite `Industries` cells, rejoined `"A, B, C"` on save). Unlike a CSV
+re-ingest, a manual add for a website **already present is rejected (`409`),
+never overwritten** — it returns the existing company. See `ingest.AddManual` /
+`ingest.ErrCompanyExists`.
+
 ---
 
 ## `scout filter`
@@ -190,7 +202,9 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 |---|---|
 | `GET /` | the embedded triage UI |
 | `GET /api/companies` | every company joined with verdict and enrichment |
+| `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
+| `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
 | `GET /api/profile` | **read-only** cached brain profile + freshness (the active criteria) |
 | `POST /api/profile/refresh` | force a refetch of `/profile` from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
