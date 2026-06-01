@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -116,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/companies", s.handleCompanies)
 	mux.HandleFunc("/api/companies/", s.handleCompany)
 	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 
 	// control surface
 	mux.HandleFunc("/api/run/", s.handleRun)      // POST /api/run/{stage}
@@ -199,6 +201,54 @@ func (s *Server) handleAddCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"company_id": id})
+}
+
+// handleFacets returns the distinct funding stages and verticals currently in
+// the set, to populate the Add-company dropdowns. Stages are whole values;
+// verticals are split on commas (Crunchbase stores composite "Industries"
+// cells like "AI, Cloud Computing, SaaS"), deduped case-insensitively, and
+// sorted, so the multi-select offers individual tags. GET /api/facets.
+func (s *Server) handleFacets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	stages, err := s.DB.DistinctValues("funding_stage")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rawVerticals, err := s.DB.DistinctValues("vertical")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"funding_stages": stages,
+		"verticals":      splitVerticals(rawVerticals),
+	})
+}
+
+// splitVerticals flattens composite "A, B, C" vertical cells into a sorted set
+// of distinct individual tags (case-insensitive dedupe, first spelling wins).
+func splitVerticals(cells []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, cell := range cells {
+		for _, tok := range strings.Split(cell, ",") {
+			tok = strings.TrimSpace(tok)
+			key := strings.ToLower(tok)
+			if tok == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, tok)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
+	return out
 }
 
 // alreadyInListMsg builds the 409 body for a duplicate manual add, naming the

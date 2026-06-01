@@ -2,11 +2,15 @@ package web
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/slaguardia/scout/internal/store"
 )
 
 // TestAddCompanyAPI covers POST /api/companies: a valid add returns 200 and is
@@ -79,5 +83,48 @@ func TestAddCompanyAPI(t *testing.T) {
 	}
 	if n, _ := s.DB.CountCompanies(); n != 2 {
 		t.Errorf("companies=%d, want 2 (seed acme.com + globex.io)", n)
+	}
+}
+
+// TestFacetsAPI checks that GET /api/facets returns distinct funding stages and
+// verticals split out of composite "A, B, C" cells, deduped case-insensitively
+// across companies, and sorted — the data the Add-company dropdowns consume.
+func TestFacetsAPI(t *testing.T) {
+	s, _ := newTestServer(t) // seeds Acme with no vertical/stage (excluded)
+	seed := func(name, domain, vertical, stage string) {
+		if _, err := s.DB.UpsertCompany(store.Company{
+			Source:       "test",
+			Name:         name,
+			Domain:       sql.NullString{String: domain, Valid: true},
+			Vertical:     sql.NullString{String: vertical, Valid: vertical != ""},
+			FundingStage: sql.NullString{String: stage, Valid: stage != ""},
+			RawJSON:      "{}",
+		}); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+	seed("Vapi", "vapi.com", "Artificial Intelligence (AI), Developer Platform, Software", "Series B")
+	seed("Armada", "armada.ai", "Artificial Intelligence (AI), Cloud Computing, Software", "Series A")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/facets", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("facets: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var f struct {
+		Verticals     []string `json:"verticals"`
+		FundingStages []string `json:"funding_stages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &f); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// "Software" + "Artificial Intelligence (AI)" appear in both rows → deduped.
+	wantV := []string{"Artificial Intelligence (AI)", "Cloud Computing", "Developer Platform", "Software"}
+	if !reflect.DeepEqual(f.Verticals, wantV) {
+		t.Errorf("verticals = %v, want %v", f.Verticals, wantV)
+	}
+	if wantS := []string{"Series A", "Series B"}; !reflect.DeepEqual(f.FundingStages, wantS) {
+		t.Errorf("funding_stages = %v, want %v", f.FundingStages, wantS)
 	}
 }

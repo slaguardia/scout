@@ -129,3 +129,32 @@ func (db *DB) CountCompanies() (int, error) {
 	err := db.QueryRow(`SELECT COUNT(1) FROM companies`).Scan(&n)
 	return n, err
 }
+
+// DistinctValues returns the sorted (case-insensitive) distinct non-empty
+// values of a company column. The column name is validated against a fixed
+// allow-list and never interpolated from caller input, so this can't be a SQL
+// injection vector. Used to populate the Add-company dropdowns from whatever's
+// currently in the set.
+func (db *DB) DistinctValues(column string) ([]string, error) {
+	switch column {
+	case "funding_stage", "vertical": // allow-list — keep in sync with callers
+	default:
+		return nil, fmt.Errorf("distinct values: unsupported column %q", column)
+	}
+	rows, err := db.Query(`SELECT DISTINCT ` + column + ` FROM companies
+WHERE ` + column + ` IS NOT NULL AND ` + column + ` <> ''
+ORDER BY ` + column + ` COLLATE NOCASE`)
+	if err != nil {
+		return nil, fmt.Errorf("distinct %s: %w", column, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
