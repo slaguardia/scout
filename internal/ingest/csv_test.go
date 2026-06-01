@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -189,6 +190,88 @@ func TestIngestAutoMergesDomainlessIntoDomain(t *testing.T) {
 	}
 	if !d.HasEnrichment {
 		t.Errorf("enrichment from the name-keyed row did not survive the merge")
+	}
+}
+
+// TestAddManual covers the hand-entered single-company path: website is the
+// only required field, the website is normalized to a bare domain, a blank name
+// defaults to that domain, and a re-add of the same domain is REJECTED with
+// ErrCompanyExists (manual adds never overwrite) without touching the row.
+func TestAddManual(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "scout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Missing/unusable website → validation error, nothing written.
+	for _, bad := range []string{"", "   ", "https://", "notadomain"} {
+		if _, err := AddManual(db, ManualCompany{Website: bad}); err == nil {
+			t.Errorf("website %q: want error, got nil", bad)
+		}
+	}
+	if n, _ := db.CountCompanies(); n != 0 {
+		t.Fatalf("companies=%d after only-invalid adds, want 0", n)
+	}
+
+	// Happy path: scheme + www + trailing path stripped; optional fields stored;
+	// headcount range → upper bound (mirrors the CSV cell parser).
+	id, err := AddManual(db, ManualCompany{
+		Website:      "https://www.acme.com/careers",
+		Name:         "Acme",
+		Headcount:    "11-50",
+		FundingStage: "Series A",
+		Location:     "Remote",
+		Vertical:     "Developer Tools",
+	})
+	if err != nil {
+		t.Fatalf("add Acme: %v", err)
+	}
+	if id != store.CompanyID("acme.com", "Acme") {
+		t.Errorf("id = %q, want domain-keyed id for acme.com", id)
+	}
+	d, err := db.GetCompanyDetail(id)
+	if err != nil || d == nil {
+		t.Fatalf("detail: err=%v nil=%v", err, d == nil)
+	}
+	if d.Source != "manual" || d.Domain != "acme.com" || d.Headcount != 50 ||
+		d.FundingStage != "Series A" || d.Location != "Remote" || d.Vertical != "Developer Tools" {
+		t.Errorf("stored fields wrong: %+v", d)
+	}
+
+	// Re-adding the same domain is rejected and leaves the existing row intact —
+	// the blank Location must NOT clobber the stored "Remote".
+	dupID, err := AddManual(db, ManualCompany{Website: "https://acme.com", Location: "NYC"})
+	if !errors.Is(err, ErrCompanyExists) {
+		t.Errorf("re-add acme.com: err=%v, want ErrCompanyExists", err)
+	}
+	if dupID != id {
+		t.Errorf("re-add returned id %q, want the existing %q", dupID, id)
+	}
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Fatalf("companies=%d after rejected re-add, want 1", n)
+	}
+	if d2, _ := db.GetCompanyDetail(id); d2 == nil || d2.Location != "Remote" {
+		t.Errorf("rejected re-add altered the row: location now %q, want Remote", func() string {
+			if d2 == nil {
+				return "<nil>"
+			}
+			return d2.Location
+		}())
+	}
+
+	// Blank name defaults to the domain.
+	gid, err := AddManual(db, ManualCompany{Website: "globex.io"})
+	if err != nil {
+		t.Fatalf("add globex: %v", err)
+	}
+	if g, _ := db.GetCompanyDetail(gid); g == nil || g.Name != "globex.io" {
+		name := "<nil>"
+		if g != nil {
+			name = g.Name
+		}
+		t.Errorf("blank-name default: name = %q, want globex.io", name)
 	}
 }
 

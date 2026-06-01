@@ -25,6 +25,7 @@ import (
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
 	"github.com/slaguardia/scout/internal/criteria"
+	"github.com/slaguardia/scout/internal/ingest"
 	"github.com/slaguardia/scout/internal/jobs"
 	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
@@ -144,16 +145,73 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompanies(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := s.DB.TriageRows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
+	case http.MethodPost:
+		s.handleAddCompany(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAddCompany adds one hand-entered company (source "manual"). POST
+// /api/companies with a JSON body — website is the only required field. It does
+// not need the job Runner (a direct upsert, like adding a posting), so it works
+// whenever the server is up. The created/updated id and a `created` flag come
+// back so the UI can refresh and, on a domain collision with an existing row,
+// tell the user it updated rather than inserted.
+func (s *Server) handleAddCompany(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Website      string `json:"website"`
+		Name         string `json:"name"`
+		Headcount    string `json:"headcount"`
+		FundingStage string `json:"funding_stage"`
+		Location     string `json:"location"`
+		Vertical     string `json:"vertical"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	rows, err := s.DB.TriageRows()
-	if err != nil {
+	id, err := ingest.AddManual(s.DB, ingest.ManualCompany{
+		Website:      body.Website,
+		Name:         body.Name,
+		Headcount:    body.Headcount,
+		FundingStage: body.FundingStage,
+		Location:     body.Location,
+		Vertical:     body.Vertical,
+	})
+	switch {
+	case errors.Is(err, ingest.ErrCompanyExists): // already present — don't overwrite
+		http.Error(w, alreadyInListMsg(s.DB, id), http.StatusConflict)
+		return
+	case err != nil && strings.HasPrefix(err.Error(), "website "): // missing/unusable website
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	case err != nil:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
+	writeJSON(w, http.StatusOK, map[string]any{"company_id": id})
+}
+
+// alreadyInListMsg builds the 409 body for a duplicate manual add, naming the
+// company already present so the user knows what they collided with.
+func alreadyInListMsg(db *store.DB, id string) string {
+	name, domain, err := db.GetCompanyName(id)
+	if err != nil || name == "" {
+		return "company already in the list"
+	}
+	if domain != "" {
+		return fmt.Sprintf("%s (%s) is already in the list", name, domain)
+	}
+	return fmt.Sprintf("%s is already in the list", name)
 }
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -96,51 +97,125 @@ func (c *CSV) Run(path string) (*Result, error) {
 			Vertical:     nullStr(pick(idx, row, "vertical")),
 			RawJSON:      string(rawJSON),
 		}
-		// Classify the write and auto-merge a domain-less arrival into its later
-		// domain-bearing twin. A company first seen without a domain is keyed by
-		// name ("name:<lower>"); the same company arriving WITH a domain keys on
-		// the domain instead, so the two would otherwise live as separate rows.
-		// Compute the id once and reuse the existence check for both the merge
-		// decision and the new-vs-merged count.
-		domainKey := store.CompanyID(company.Domain.String, company.Name)
-		domainExists, err := c.DB.CompanyExists(domainKey)
+		_, overwrote, err := upsertWithMerge(c.DB, company)
 		if err != nil {
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
-		merge := false
-		nameKey := ""
-		if company.Domain.Valid && !domainExists {
-			// Only a brand-new domain-keyed row can fold in a name-keyed twin.
-			nameKey = store.CompanyID("", company.Name)
-			if nameKey != domainKey {
-				nameExists, err := c.DB.CompanyExists(nameKey)
-				if err != nil {
-					res.Errors = append(res.Errors, err.Error())
-					continue
-				}
-				merge = nameExists
-			}
-		}
-
-		if err := c.DB.UpsertCompanyWithID(domainKey, company); err != nil {
-			res.Errors = append(res.Errors, err.Error())
-			continue
-		}
-		if merge {
-			if err := c.DB.MergeCompany(nameKey, domainKey); err != nil {
-				res.Errors = append(res.Errors, err.Error())
-				continue
-			}
-		}
 		res.Upserted++
 		// An existing domain-keyed row, or a folded-in name-keyed twin, both
 		// count as merges (overwrote or absorbed an existing company).
-		if domainExists || merge {
+		if overwrote {
 			res.Merged++
 		}
 	}
 	return res, nil
+}
+
+// upsertWithMerge writes c under its deterministic identity key and auto-merges
+// a domain-less arrival into its later domain-bearing twin. A company first
+// seen without a domain is keyed by name ("name:<lower>"); the same company
+// arriving WITH a domain keys on the domain instead, so the two would otherwise
+// live as separate rows — when a brand-new domain-keyed row has a name-keyed
+// twin already stored, MergeCompany folds the old row in. The id is computed
+// once and its existence check reused for both the merge decision and the
+// new-vs-overwritten signal. Returns the row id and whether it overwrote or
+// absorbed an existing company (vs. a fresh insert).
+func upsertWithMerge(db *store.DB, c store.Company) (string, bool, error) {
+	domainKey := store.CompanyID(c.Domain.String, c.Name)
+	domainExists, err := db.CompanyExists(domainKey)
+	if err != nil {
+		return "", false, err
+	}
+	merge, nameKey := false, ""
+	if c.Domain.Valid && !domainExists {
+		nameKey = store.CompanyID("", c.Name)
+		if nameKey != domainKey {
+			nameExists, err := db.CompanyExists(nameKey)
+			if err != nil {
+				return "", false, err
+			}
+			merge = nameExists
+		}
+	}
+	if err := db.UpsertCompanyWithID(domainKey, c); err != nil {
+		return "", false, err
+	}
+	if merge {
+		if err := db.MergeCompany(nameKey, domainKey); err != nil {
+			return "", false, err
+		}
+	}
+	return domainKey, domainExists || merge, nil
+}
+
+// ManualCompany is a single hand-entered company from the web "Add company"
+// modal. Website is the only required field; the rest are optional and mirror
+// the columns the CSV path fills (headcount is a free-form string so it accepts
+// ranges like "11-50", parsed the same way as a CSV cell).
+type ManualCompany struct {
+	Website      string
+	Name         string
+	Headcount    string
+	FundingStage string
+	Location     string
+	Vertical     string
+}
+
+// ErrCompanyExists is returned by AddManual when a company with the same
+// website (domain) is already in the store. Manual adds refuse to touch an
+// existing row — re-running a CSV ingest is the path that updates in place.
+var ErrCompanyExists = errors.New("company already in the list")
+
+// AddManual inserts one hand-entered company (source "manual"). It normalizes
+// the website to a bare domain (the row's identity) and defaults a blank name
+// to that domain. If a company with that domain is already present it does NOT
+// overwrite it — it returns the existing row's id with ErrCompanyExists so the
+// caller can report the duplicate. The other validation error is a missing or
+// unusable website, prefixed "website " so the web layer can map it to a 400.
+func AddManual(db *store.DB, m ManualCompany) (string, error) {
+	domain := normalizeDomain(m.Website)
+	if domain == "" || !strings.Contains(domain, ".") {
+		return "", errors.New("website is required (e.g. acme.com)")
+	}
+	name := strings.TrimSpace(m.Name)
+	if name == "" {
+		name = domain
+	}
+	// Identity is the domain (CompanyID ignores the name once a domain is
+	// present), so this is exactly "is this website already in the list?".
+	id := store.CompanyID(domain, name)
+	exists, err := db.CompanyExists(id)
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return id, ErrCompanyExists
+	}
+	// raw_json mirrors the entered fields so the detail pane's raw view shows
+	// what was typed, the same way a CSV row preserves its original cells.
+	raw := map[string]string{"name": name, "website": domain}
+	for k, v := range map[string]string{
+		"headcount": m.Headcount, "funding_stage": m.FundingStage,
+		"location": m.Location, "vertical": m.Vertical,
+	} {
+		if s := strings.TrimSpace(v); s != "" {
+			raw[k] = s
+		}
+	}
+	rawJSON, _ := json.Marshal(raw)
+
+	company := store.Company{
+		Source:       "manual",
+		Name:         name,
+		Domain:       nullStr(domain),
+		Headcount:    nullHeadcount(m.Headcount),
+		FundingStage: nullStr(strings.TrimSpace(m.FundingStage)),
+		Location:     nullStr(strings.TrimSpace(m.Location)),
+		Vertical:     nullStr(strings.TrimSpace(m.Vertical)),
+		RawJSON:      string(rawJSON),
+	}
+	return id, db.UpsertCompanyWithID(id, company)
 }
 
 // indexHeader returns canonical-field -> column index, picking the first alias that matches.

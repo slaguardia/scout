@@ -714,6 +714,12 @@
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
 
+  /* ---- add-company form ---- */
+  .form-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .form-field label { font-size: 12px; color: var(--fg-mute); }
+  .form-field label .req { color: var(--no); margin-left: 2px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
   /* ---- docs overlay ("how it works") ---- */
   .doc-btn {
     display: inline-flex; align-items: center; gap: 6px;
@@ -915,6 +921,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
         <span class="grow">Ingest CSV…</span>
       </button>
+      <button class="run-btn" id="btn-add-company">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+        <span class="grow">Add company…</span>
+      </button>
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
         <span class="grow">Enrich</span>
@@ -1082,6 +1092,51 @@
     </div>
     <div class="modal-foot">
       <button class="btn" id="profile-modal-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- add-company modal (manual single-company import) -->
+<div class="modal-scrim" id="add-scrim">
+  <div class="modal" style="width:560px">
+    <div class="modal-head">
+      <h2>Add company</h2>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label for="add-website">Website<span class="req">*</span></label>
+        <input class="input" id="add-website" placeholder="acme.com" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="form-field">
+        <label for="add-name">Name</label>
+        <input class="input" id="add-name" placeholder="defaults to the domain" autocomplete="off">
+      </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label for="add-vertical">Vertical</label>
+          <input class="input" id="add-vertical" autocomplete="off">
+        </div>
+        <div class="form-field">
+          <label for="add-location">Location</label>
+          <input class="input" id="add-location" autocomplete="off">
+        </div>
+        <div class="form-field">
+          <label for="add-headcount">Headcount</label>
+          <input class="input" id="add-headcount" type="number" min="0" inputmode="numeric" autocomplete="off">
+        </div>
+        <div class="form-field">
+          <label for="add-stage">Funding stage</label>
+          <input class="input" id="add-stage" placeholder="e.g. Seed, Series A" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="add-cancel">Cancel</button>
+      <button class="btn btn-primary" id="add-save">Add company</button>
     </div>
   </div>
 </div>
@@ -1761,6 +1816,55 @@ async function uploadCSV(file) {
   streamJob("ingest", job_id);
 }
 
+// ---- manual add-company ----
+const ADD_FIELDS = ["add-website","add-name","add-vertical","add-location","add-headcount","add-stage"];
+function openAddCompany() {
+  ADD_FIELDS.forEach(id => { document.getElementById(id).value = ""; });
+  document.getElementById("add-scrim").classList.add("open");
+  document.getElementById("add-website").focus();
+}
+function closeAddCompany() {
+  document.getElementById("add-scrim").classList.remove("open");
+}
+async function submitAddCompany() {
+  const website = document.getElementById("add-website").value.trim();
+  if (!website) { toast("Website is required."); document.getElementById("add-website").focus(); return; }
+  const btn = document.getElementById("add-save");
+  btn.disabled = true;
+  const body = {
+    website,
+    name: document.getElementById("add-name").value.trim(),
+    vertical: document.getElementById("add-vertical").value.trim(),
+    location: document.getElementById("add-location").value.trim(),
+    headcount: document.getElementById("add-headcount").value.trim(),
+    funding_stage: document.getElementById("add-stage").value.trim(),
+  };
+  let resp;
+  try {
+    resp = await fetch("/api/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { toast(`add failed: ${e.message}`); btn.disabled = false; return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    btn.disabled = false;
+    if (resp.status === 409) { // already in the list — keep the form open to edit the website
+      toast(txt || "That company is already in the list.");
+      const w = document.getElementById("add-website");
+      w.focus(); w.select();
+      return;
+    }
+    toast(`add failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    return;
+  }
+  btn.disabled = false;
+  closeAddCompany();
+  toast("company added");
+  loadList(); loadStats();
+}
+
 function streamJob(stage, jobId) {
   activeJob = jobId;
   const drawer = document.getElementById("drawer");
@@ -1858,6 +1962,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
+  if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
   closeDetail();
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
@@ -1866,6 +1971,14 @@ document.addEventListener("keydown", e => {
 document.getElementById("btn-enrich").onclick = () => startRun("enrich", {});
 document.getElementById("btn-verdict").onclick = () => startRun("verdict", {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
+document.getElementById("btn-add-company").onclick = openAddCompany;
+document.getElementById("add-cancel").onclick = closeAddCompany;
+document.getElementById("add-save").onclick = submitAddCompany;
+document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAddCompany(); };
+// Enter in any add-company field submits (keydown bubbles from the focused input).
+document.getElementById("add-scrim").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); submitAddCompany(); }
+});
 document.getElementById("csv-file").onchange = e => {
   const f = e.target.files && e.target.files[0];
   if (f) uploadCSV(f);
