@@ -75,7 +75,10 @@ func (s *Server) ReloadTaste() {
 	}
 	pb, _ := playbook.Load(s.PlaybookPath)
 	if tb != nil && pb != "" {
-		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Text)
+		// Fold the playbook into the version (not the brief text): tb.Version is
+		// already the stable basis hash, so a playbook edit re-scores while
+		// cosmetic brief drift does not.
+		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Version)
 		tb.Source = tb.Source + " + " + s.PlaybookPath
 	}
 	s.mu.Lock()

@@ -6,6 +6,7 @@
 //	scout filter              Apply taste.toml rules; print survivors.
 //	scout enrich              Fetch about-pages for survivors (parallel).
 //	scout verdict             Score enriched survivors with Haiku.
+//	scout distill             Print the company-fit brief (recall + synthesis); debug.
 //	scout serve               Web control surface + triage UI (primary interface).
 //	scout stats               Show DB row counts.
 package main
@@ -25,6 +26,7 @@ import (
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
 	"github.com/slaguardia/scout/internal/criteria"
+	"github.com/slaguardia/scout/internal/distill"
 	"github.com/slaguardia/scout/internal/enrich"
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/ingest"
@@ -41,9 +43,9 @@ import (
 // default — scout falls back to taste.md only when it's genuinely unreachable.
 const defaultBrainURL = "http://127.0.0.1:8100"
 
-// defaultBrainCacheTTL is how long a locally-cached brain profile is reused
-// before scout refetches it. The profile changes rarely, so a few hours keeps
-// runs from re-hitting the brain without serving badly stale criteria.
+// defaultBrainCacheTTL is how long a locally-cached distilled brief is reused
+// before scout re-distills. The brief changes rarely, so a few hours keeps runs
+// from re-hitting the brain (and the LLM) without serving badly stale criteria.
 const defaultBrainCacheTTL = 6 * time.Hour
 
 func main() {
@@ -64,6 +66,8 @@ func main() {
 		exit(cmdEnrich(args))
 	case "verdict":
 		exit(cmdVerdict(args))
+	case "distill":
+		exit(cmdDistill(args))
 	case "serve":
 		exit(cmdServe(args))
 	case "stats":
@@ -90,6 +94,7 @@ Usage:
   scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
   scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--db scout.db]
+  scout distill [--brainbot URL] [--model claude-haiku-4-5] [--k N]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
@@ -241,18 +246,29 @@ func cmdVerdict(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	// Resolve criteria via the shared resolver: a TTL-cached brain profile
+	// Resolve criteria via the shared resolver: a TTL-cached distilled brief
 	// (primary), with taste.md as the offline fallback. See internal/criteria.
-	var bc *brainbot.Client
-	if *brainbotURL != "" {
-		bc = brainbot.New(*brainbotURL)
-	}
+	// One Anthropic client serves both the distiller and the verdict scorer.
+	logLine := func(line string) { fmt.Fprintln(os.Stderr, line) }
+	ac := anthropic.New("")
 	resolver := &criteria.Resolver{
-		Brain:       bc,
 		Store:       db,
 		TasteMDPath: *tasteMD,
 		TTL:         *cacheTTL,
-		Log:         func(line string) { fmt.Fprintln(os.Stderr, line) },
+		Log:         logLine,
+	}
+	// Only set Brain+Distiller when the brain is configured — assigning a nil
+	// *Distiller to the interface field would make it a non-nil typed nil and
+	// defeat the resolver's nil check.
+	if *brainbotURL != "" {
+		bc := brainbot.New(*brainbotURL)
+		resolver.Brain = bc
+		resolver.Distiller = &distill.Distiller{
+			Brain:  bc,
+			Client: ac,
+			Model:  *model,
+			Log:    logLine,
+		}
 	}
 	tb, err := resolver.Resolve(ctx)
 	if err != nil {
@@ -266,7 +282,10 @@ func cmdVerdict(args []string) error {
 		return err
 	}
 	if pbText != "" {
-		tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Text)
+		// Fold the playbook into the version (not the brief text): tb.Version is
+		// already the stable basis hash, so a playbook edit re-scores while
+		// cosmetic brief drift does not.
+		tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Version)
 		tb.Source = tb.Source + " + " + *playbookPath
 	}
 
@@ -276,7 +295,7 @@ func cmdVerdict(args []string) error {
 		DB:       db,
 		Taste:    tb,
 		Filter:   ft,
-		Client:   anthropic.New(""),
+		Client:   ac,
 		Model:    *model,
 		Playbook: pbText,
 		Force:    *force,
@@ -305,6 +324,60 @@ func cmdVerdict(args []string) error {
 	return nil
 }
 
+// --- distill (debug) ---
+
+// cmdDistill runs the company-fit distillation and prints the recalled chunks
+// and the synthesized brief, without scoring anything. It's the CLI tuning
+// instrument: eyeball what the brain returned and what the distiller made of it.
+func cmdDistill(args []string) error {
+	fs := flag.NewFlagSet("distill", flag.ExitOnError)
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
+	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for synthesis")
+	k := fs.Int("k", 0, "per-question recall depth (0 = distiller default)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *brainbotURL == "" {
+		return fmt.Errorf("distill: --brainbot is required (nothing to distill without a brain)")
+	}
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	d := &distill.Distiller{
+		Brain:  brainbot.New(*brainbotURL),
+		Client: anthropic.New(""),
+		Model:  *model,
+		K:      *k,
+		Log:    func(line string) { fmt.Fprintln(os.Stderr, line) },
+	}
+	res, err := d.Run(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\n=== chunks (%d) ===\n", len(res.Chunks))
+	for _, c := range res.Chunks {
+		fmt.Printf("\n--- %s (score %.4f) ---\n%s\n", chunkSourceLabel(c), c.Score, c.Text)
+	}
+	fmt.Printf("\n=== brief ===\n%s\n", res.Brief)
+	return nil
+}
+
+// chunkSourceLabel mirrors the distiller's internal label for display.
+func chunkSourceLabel(c brainbot.Chunk) string {
+	switch {
+	case c.Path != "" && c.Heading != "" && c.Path != c.Heading:
+		return c.Path + " — " + c.Heading
+	case c.Path != "":
+		return c.Path
+	case c.Heading != "":
+		return c.Heading
+	default:
+		return "(untitled)"
+	}
+}
+
 // --- serve ---
 
 func cmdServe(args []string) error {
@@ -326,26 +399,33 @@ func cmdServe(args []string) error {
 	}
 	defer db.Close()
 
+	logLine := func(line string) { fmt.Fprintln(os.Stderr, line) }
+	ac := anthropic.New("") // key from ANTHROPIC_API_KEY; verdict + distill gated on it
+
 	var bc *brainbot.Client
+	resolver := &criteria.Resolver{
+		Store:       db,
+		TasteMDPath: *tasteMD,
+		TTL:         *cacheTTL,
+		Log:         logLine,
+	}
+	// See cmdVerdict: set Brain+Distiller only when the brain is configured, to
+	// avoid a typed-nil interface defeating the resolver's nil check.
 	if *brainbotURL != "" {
-		bc = brainbot.New(*brainbotURL)
+		bc = brainbot.New(*brainbotURL) // shared with the server's health probes
+		resolver.Brain = bc
+		resolver.Distiller = &distill.Distiller{Brain: bc, Client: ac, Log: logLine}
 	}
 
 	srv := &web.Server{
 		DB:            db,
 		Brainbot:      bc,
-		Anthropic:     anthropic.New(""), // key from ANTHROPIC_API_KEY; verdict runs gated on it
+		Anthropic:     ac,
 		TasteMDPath:   *tasteMD,
 		TasteTOMLPath: *tasteTOML,
 		PlaybookPath:  *playbookPath,
 		IngestSource:  *source,
-		Resolver: &criteria.Resolver{
-			Brain:       bc, // same client instance the server uses for health probes
-			Store:       db,
-			TasteMDPath: *tasteMD,
-			TTL:         *cacheTTL,
-			Log:         func(line string) { fmt.Fprintln(os.Stderr, line) },
-		},
+		Resolver:      resolver,
 	}
 	// Load taste + playbook into the server (folds playbook into the version,
 	// matching `scout verdict`). Re-run after every editor PUT.

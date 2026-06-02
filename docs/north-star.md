@@ -74,8 +74,8 @@ only in scout's SQLite — scout makes no external writes.
   rules, hard exclusions, history — lives there. Scout never stores or
   duplicates it.
 - **Scout owns the intelligence.** It brings its own LLM (Haiku) and a small
-  operating *playbook* (how to decide). It reads the brain's knowledge and
-  reasons over it.
+  operating *playbook* (how to decide). It reads the brain's prose, **distills**
+  it into a company-fit brief, and reasons over that brief.
 
 This split is non-negotiable. Anything that pulls the user's preferences into a
 scout-local file (the legacy `taste.md`) is a **fallback for when the brain is
@@ -102,15 +102,15 @@ A single verdict decision combines four things from three sources:
 |---|---|---|
 | **Output contract** | Go constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
-| **The user's criteria** | **the brain** (`profile` → structured facts, rendered into a grouped criteria block, cached locally) | *what* the user wants + their rules/exclusions |
+| **The user's criteria** | **the brain** (`recall` → prose chunks, distilled by scout into a company-fit brief, cached locally) | *what* the user wants + their rules/exclusions |
 | **This company** | scout SQLite | Crunchbase fields + enriched site text |
 
 ```
   output contract (Go, fixed) ─┐
   playbook — how to decide ────┤
   the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
-    (brain: profile facts,     │
-     cached locally)           │
+    (brain: recall → distilled │
+     brief, cached locally)    │
   this company ────────────────┘
     (scout SQLite only)
 ```
@@ -123,13 +123,13 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | Store | Holds | Disposable? |
 |---|---|---|
 | **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
-| **brain profile cache** (in scout SQLite) | the last `/profile` body scout fetched, per brain URL — reused within `--brain-cache-ttl`, stale-fallback when the brain is down | yes — a disposable cache; the brain is the source of truth |
+| **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — reused within `--brain-cache-ttl`, stale-fallback when the brain is down | yes — a disposable cache; the brain is the source of truth |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
-scout-local), reading it via `profile` only.
+scout-local), reading it via `recall` only.
 
 ## The pipeline, with brain touchpoints
 
@@ -138,49 +138,67 @@ ingest    CSV → companies                              (no brain — pure data
 filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard gates,
           headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
-verdict   reads  the user's criteria  ← brain: profile facts → criteria block
+verdict   reads  the user's criteria  ← brain: recall → distilled brief
                                          (cached locally, TTL)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
 triage    browse / promote                             (no brain)
 ```
 
-The brain is touched in exactly one place — reading the user's criteria from
-`/profile` inside `verdict` (cached locally), a read. Everything else is
-brain-free.
+The brain is touched in exactly one place — distilling the user's criteria
+(`recall` + a synthesis call) before `verdict`, cached locally. The synthesis
+LLM call and the verdict scoring are scout's. Everything else is brain-free.
 
 ## How scout talks to the brain
 
-Plain **HTTP/JSON** (no MCP — that's for Claude Code). Scout reads the brain in
-exactly one way (the brain also exposes `POST /capture`, but scout doesn't
-write):
+Plain **HTTP/JSON** (no MCP — that's for Claude Code). The brain is a pgvector
+**document substrate** (graphiti is gone) — a librarian that returns the prose
+most relevant to a question and never a verdict. Scout reads it through exactly
+one call:
 
-- `GET /profile` — the user's full current picture, the source of the criteria.
-  Each fact carries a polarity (positive/negative/null) and strength
-  (hard/soft/null) scout renders into a grouped criteria block (see below). The
-  fetched profile is cached in scout's SQLite and reused within
-  `--brain-cache-ttl` (default 6h); a stale cache covers a brain that's gone
-  unreachable before scout falls back to `taste.md`.
-- `GET /recall?q=` — scored facts for a query; scout does **not** use it for
-  criteria (`/profile` already returns every fact). It is **not** a per-company
-  lookup; scout never queries the brain per company.
+- `GET /recall?q=&k=` — hybrid search; returns the top-k matching sections as
+  **prose chunks** `{heading, text, score, path}`. There are no polarity/strength
+  tags — the meaning is in the text. Scout fans out a few company-fit recalls and
+  distills the results into a brief (see below).
 
-Authoritative contract: `brainbot/docs/consumer-api.md` +
-`consumer-integration.md`. Scout's client mirrors `brainbot/migrate/graphiti_clients.py`.
+Scout must **not** call `/profile` (now scope-required, owner-only) or `/map`,
+and must never pass a `scope` it had to "know" — `recall(query)` is the whole
+interface; the brain's folder taxonomy is the brain's business. There is no
+write path (no `capture`): the brain is fed only by sources (Notion sync),
+through the human, never by scout.
 
-### Reading the facts (polarity + strength drive the gates)
+Authoritative contract: the brain's own `brain/brain/api.py` and the migration
+spec `brainbot/plans/scout-migration.md`. (The old graph reference client
+`brainbot/migrate/graphiti_clients.py` speaks the dead contract — do not use it.)
 
-`/profile` returns **structured facts**, each tagged with a **polarity**
-(positive = seeks/values/requires, negative = avoids/rejects/excludes, null =
-neutral) and a **strength** (hard = gate/dealbreaker, soft = preference, null =
-biographical context). Scout renders them into a grouped criteria block: hard
-facts become **HARD REQUIREMENTS / DEALBREAKERS** (gates), soft facts become
-**PREFERENCES** (weights), and null-strength facts become **CONTEXT**. The
-stance metadata is what lets scout treat a hard+negative fact ("fintech is
-excluded") as a hard skip rather than another positive signal.
+### Distilling the criteria (recall → brief)
 
-> **Rule:** scout gates on each fact's polarity/strength — hard+negative is a
-> dealbreaker, hard+positive a requirement, soft either way a weight.
+With the user's small corpus, recall is **coarse**: it returns whole pages,
+scored almost flat, mixing the relevant with the irrelevant. So scout adds an
+intelligence layer — the **distiller** (`internal/distill`) — in front of it:
+
+1. Fan out a few **company-fit** recalls ("what kind of company does the user
+   want", "what does the user avoid", stage/size, verticals). *Companies only —
+   role/title fit is a separate, later concern.*
+2. Dedup the returned chunks (coarse recall hands back the same pages for several
+   questions) and make **one grounded LLM call** to synthesize a concise
+   **company-fit brief**, with prose sections scout's LLM writes itself:
+   *Hard dealbreakers*, *Strong preferences*, *Context*.
+3. Cache the brief and judge every company against it.
+
+The structure (dealbreakers / preferences / context) is the distiller's
+**output**, written in prose — not tags handed over by the brain. Tagged facts
+as *input* fight how an LLM reasons; structure that the LLM derives from prose
+does not. The brief is scout-local: a re-derived view of brain knowledge, never
+written back, never a verdict.
+
+The synthesis prompt that does this review is shown verbatim in
+[`verdict.md` → *The distiller prompt*](./verdict.md#the-distiller-prompt-recall--brief)
+— it's the single place to tune *how* the raw notes become criteria.
+
+> **Rule:** scout gates on the brief's prose — what it states as a dealbreaker is
+> a hard skip, a requirement is a gate, a preference is a weight, context is
+> background.
 
 ## Invariants (don't break these)
 
@@ -191,8 +209,9 @@ excluded") as a hard skip rather than another positive signal.
    scout logs and falls back to local criteria; it never hard-crashes a run.
 3. **Editor isolation.** The UI taste/playbook editor writes local files only
    and never touches the brain client.
-4. **Gate on fact polarity/strength.** Hard facts are gates, soft facts are
-   weights, null-strength facts are context. (See above.)
+4. **Gate on the brief's prose.** What the distilled brief states as a
+   dealbreaker is a gate; preferences are weights; context is background. There
+   are no polarity/strength tags — the stance is in the words. (See above.)
 5. **Web-first.** The browser is the interface; the CLI is the secondary
    automation/debug surface, kept but not primary.
 
@@ -205,7 +224,7 @@ really right for the user") happens only at verdict time, grounded in the brain.
 The name is historical; treat it as the mechanical layer. Any vertical
 *judgment* currently in `taste.toml` (`verticals.allowed`/`excluded`) should be
 thinned to coarse cheap culls at most, with the real exclusion logic living in
-the brain's facts (hard+negative dealbreakers).
+the brain (the user's notes), surfaced via recall and the distilled brief.
 
 ## How this relates to the other docs
 

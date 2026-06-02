@@ -60,6 +60,10 @@ type Request struct {
 	MaxTokens int       `json:"-"`
 	Messages  []Message `json:"-"`
 	Cached    bool      `json:"-"`
+	// Temperature, when set, is sent to the API; nil omits it (API default).
+	// The distiller pins it to 0 so the same chunks yield a stable brief and
+	// tuning changes trace to the prompt/corpus, not sampling noise.
+	Temperature *float64 `json:"-"`
 }
 
 // systemBlock is the structured form for cache_control on the system prompt.
@@ -76,10 +80,11 @@ type cacheControl struct {
 // wireRequest is the JSON-on-the-wire shape. System can be either a plain
 // string (cache disabled) or an array of structured blocks (cache enabled).
 type wireRequest struct {
-	Model     string    `json:"model"`
-	System    any       `json:"system,omitempty"`
-	MaxTokens int       `json:"max_tokens"`
-	Messages  []Message `json:"messages"`
+	Model       string    `json:"model"`
+	System      any       `json:"system,omitempty"`
+	MaxTokens   int       `json:"max_tokens"`
+	Messages    []Message `json:"messages"`
+	Temperature *float64  `json:"temperature,omitempty"`
 }
 
 // Response is the shape we care about from the API.
@@ -126,9 +131,10 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 	}
 
 	wire := wireRequest{
-		Model:     req.Model,
-		MaxTokens: req.MaxTokens,
-		Messages:  req.Messages,
+		Model:       req.Model,
+		MaxTokens:   req.MaxTokens,
+		Messages:    req.Messages,
+		Temperature: req.Temperature,
 	}
 	if req.System != "" {
 		if req.Cached {
