@@ -123,8 +123,8 @@ func cmdIngest(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("read=%d upserted=%d (%d new, %d merged) skipped=%d errors=%d\n",
-		res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Skipped, len(res.Errors))
+	fmt.Printf("read=%d upserted=%d (%d new, %d merged, %d name-collisions) skipped=%d errors=%d\n",
+		res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Collisions, res.Skipped, len(res.Errors))
 	for _, e := range res.Errors {
 		fmt.Fprintln(os.Stderr, "  err:", e)
 	}
