@@ -259,25 +259,24 @@ const builtinRubric = `Verdict rubric:
 
 The reason must be specific — name the vertical, stage, or trait that drove the call. Don't say "matches taste" or "good fit"; say "AI infra for ML teams, Series B" or "crypto wallet (excluded)".`
 
-// hardGateRubric tells the LLM how to apply the HARD REQUIREMENTS block. The
-// hard section mixes two logically different kinds of [requires]: an OR-set of
-// target markets/verticals (qualify on ANY one) and standalone gates like
-// location (must hold on their own). The brain deliberately reports each target
-// domain as a separate hard fact to preserve its individual hardness; treating
-// them as alternatives is scout's job, so this lives in prompt prose, not in
-// renderFacts grouping.
-const hardGateRubric = `Items under "HARD REQUIREMENTS / DEALBREAKERS" are gates — apply them with this logic:
-• [excludes] items are independent dealbreakers: if the company matches ANY one, the verdict is "no" (red).
-• [requires] items that name a target market, domain, or vertical are ALTERNATIVES: the company only needs to match ONE of them. Matching none of the target domains is "no" (red); failing to match the others is expected and is NOT a strike.
-• any other [requires] or [gate] item (e.g. location / work arrangement) is an independent gate that must hold on its own.
-Items under "PREFERENCES" are weights: a miss leans "maybe" (yellow), never an automatic "no".
+// hardGateRubric tells the LLM how to read the criteria brief. The brief is a
+// distilled, prose company-fit summary (from the distiller, or taste.md
+// offline) — there are no [requires]/[excludes] tags to key on; the stance is
+// in the words. The brief states acceptable alternatives explicitly ("any one
+// of: X, Y, Z"), so the OR-set logic lives in the brief's prose, and this rubric
+// only has to say how to weigh dealbreakers vs preferences vs context.
+const hardGateRubric = `The criteria below are a distilled company-fit brief in the user's own terms. Read it and apply it like this:
+• Anything stated as a hard dealbreaker or exclusion is a gate: if the company hits it, the verdict is "no" (red). Name the dealbreaker in the reason.
+• Anything stated as a hard requirement is a gate that must hold on its own. Where the brief lists acceptable alternatives ("any one of: X, Y, Z"), matching ONE satisfies it — not matching the others is expected and is NOT a strike.
+• Strong preferences are weights, not gates: a miss leans "maybe" (yellow), never an automatic "no".
+• Context is background for judgment, not a rule to gate on.
 
 `
 
 // buildSystemPrompt assembles three layers: the hard JSON contract (fixed),
 // the playbook / how-to-decide (operator-editable, falls back to the builtin
-// rubric), then the taste / what-the-user-wants block.
-func buildSystemPrompt(playbook, taste string) string {
+// rubric), then the criteria / what-the-user-wants block.
+func buildSystemPrompt(playbook, criteria string) string {
 	var b strings.Builder
 	b.WriteString(hardContract)
 
@@ -288,9 +287,9 @@ func buildSystemPrompt(playbook, taste string) string {
 		b.WriteString(builtinRubric)
 	}
 
-	b.WriteString("\n\n--- TASTE (what the user wants) ---\n")
+	b.WriteString("\n\n--- CRITERIA (what the user wants) ---\n")
 	b.WriteString(hardGateRubric)
-	b.WriteString(strings.TrimSpace(taste))
+	b.WriteString(strings.TrimSpace(criteria))
 	return b.String()
 }
 

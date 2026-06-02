@@ -35,12 +35,18 @@ them even when the site is persuasive:
 
 - Pure crypto / web3 / blockchain.
 - Legal tech, insurance / insurtech.
-- Voice AI as the core product.
+- Voice AI (broad), **including voice-first products pitched as "agent platforms" or "AI agents"** — voice-first is a hard pass.
 - Consulting shops, agencies, services-first businesses.
 - "AI for [non-technical vertical]" with no real engineering depth.
 
 If a company hits one of these, it's **no** regardless of how good the pitch
 reads. Name the exclusion in the reason (e.g. "crypto wallet (excluded)").
+
+**Exclusions beat preferences — always.** When a company straddles a preferred
+category and an excluded one, the exclusion wins. A company can look like a
+strong "AI agent platform" (a preference) *and* be Voice AI (an exclusion) — it's
+still **no**. Don't let a preference match talk you out of applying a hard
+exclusion: check the exclusions first, and if one fires, stop there.
 
 ## Writing the reason
 

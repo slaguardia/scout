@@ -13,9 +13,9 @@ ingest → filter → enrich → verdict → triage
 ```
 
 `ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict`, and only for reads — scout reads the user's criteria from `/profile`
-(cached locally) and never writes back (verdicts stay scout-local). Default
-`--brainbot` is `http://127.0.0.1:8100`; empty disables it.
+`verdict`, and only for reads — scout recalls the user's criteria and distills
+them into a brief (cached locally) and never writes back (verdicts stay
+scout-local). Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it.
 
 ---
 
@@ -132,7 +132,7 @@ happens at verdict time, grounded in the brain.
 empty disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
 `--workers 4`, `--force`.
 
-### Resolving the criteria (brain-primary, cached)
+### Resolving the criteria (distilled brief, cached)
 
 The criteria are **the user's** — they come from the brain, not a scout file.
 Resolution is centralized in `internal/criteria` (`criteria.Resolver`), shared by
@@ -140,27 +140,33 @@ both `cmdVerdict` and the web server, with a local SQLite cache in front of the
 brain:
 
 ```
-fresh cached profile? (age < --brain-cache-ttl) ──yes──▶ use it
+fresh cached brief? (age < --brain-cache-ttl) ──yes──▶ use it
        │ no
-GET /profile facts ──▶ render criteria block ──▶ cache + use
-       │ unreachable
-stale cached profile? ──yes──▶ use it (brain is down)
+recall + distill (internal/distill) ──▶ brief ──▶ cache + use
+       │ unreachable / distill failed
+stale cached brief? ──yes──▶ use it (brain is down)
        │ no
 fall back to taste.md (offline criteria)
 ```
 
-- The brain client reads **structured FACTS** (`/profile`) and renders them into
-  a grouped criteria block: each fact's polarity (positive/negative/null) and
-  strength (hard/soft/null) decide whether it is a gate, a weight, or context.
-  See `north-star.md` → *Reading the facts*. `/profile` returns every fact, so
-  there is no `/recall` criteria fallback; `/recall` is never a per-company lookup.
-- A fetched profile is written to `brain_profile_cache` and reused within
-  `--brain-cache-ttl` (default 6h). If the brain is unreachable, a *stale* cached
-  profile is used before scout drops to `taste.md`.
+- The brief comes from the **distiller** (`internal/distill`): it fans out a few
+  **company-fit** recalls (`GET /recall`), dedups the prose chunks, then runs a
+  two-step pass — classify each excerpt as COMPANY vs ROLE_OR_OTHER, then
+  synthesize a company-fit brief from the COMPANY items only — sections (*Hard
+  dealbreakers / Strong preferences / Context*) the LLM writes in prose, not tags
+  handed over by the brain. Runs on `--distill-model` (default Sonnet). See
+  `north-star.md` → *Distilling the criteria*.
+  `/recall` is the **only** brain call; scout never passes a `scope` and never
+  queries per company.
+- A distilled brief is written to `brain_profile_cache` and reused within
+  `--brain-cache-ttl` (default 6h). If the brain is unreachable *or* distillation
+  fails, a *stale* cached brief is used before scout drops to `taste.md`.
 - A brain that's **unreachable with no cache** *or* **healthy-but-empty** falls
   back to `taste.md`. The fallback is offline-only — scout never invests in it.
 - The resolved block becomes a `taste.Block`: `Text`, `Source`
-  (`brain:profile@<url>` or `file:taste.md`), and `Version`.
+  (`brain:brief@<url>` or `file:taste.md`), and `Version`.
+- `scout distill` prints the recalled chunks + the brief without scoring — the
+  debug/tuning instrument for the recall → brief step.
 
 ### `taste_version` = criteria + playbook hash
 
@@ -205,8 +211,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
-| `GET /api/profile` | **read-only** cached brain profile + freshness (the active criteria) |
-| `POST /api/profile/refresh` | force a refetch of `/profile` from the brain |
+| `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |
+| `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
 | `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |
 | `GET /healthz` | `ok` |
@@ -224,8 +230,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
 - `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server resolves criteria
-  through the same `internal/criteria` resolver the CLI uses (cached profile →
-  live `/profile` → stale cache → `taste.md`).
+  through the same `internal/criteria` resolver the CLI uses (cached brief →
+  live recall + distill → stale cache → `taste.md`).
 
 **Editor — local files only, never the brain**
 

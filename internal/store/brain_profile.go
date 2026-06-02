@@ -32,7 +32,10 @@ FROM brain_profile_cache WHERE source_url = ?`
 }
 
 // PutBrainProfile upserts the cached profile for sourceURL, stamping fetched_at
-// to now. content_hash is taste.Hash(body) (computed by the caller).
+// to now. content_hash is the caller's stable change-detection / version key —
+// for the brain brief that's the distill basis hash (synthesis prompt + recalled
+// chunks), NOT a hash of the body, so a cosmetically-drifted brief over the same
+// inputs keeps the same key.
 func (db *DB) PutBrainProfile(sourceURL, body, contentHash string) error {
 	const q = `
 INSERT INTO brain_profile_cache (source_url, body, content_hash, fetched_at)

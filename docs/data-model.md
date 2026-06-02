@@ -106,7 +106,7 @@ did the user think before" lives in the brain. Indexes on `verdict` and
 **`taste_version` is the criteria version** (legacy column name; the concept is
 *the user's criteria from the brain* — see north-star's terminology table). It is
 `sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
-criteria text is the brain's facts rendered into a grouped criteria block (or the offline `taste.md`
+criteria text is the distilled company-fit brief (or the offline `taste.md`
 fallback). When the brain learns something — or the playbook is edited — the
 hash changes, and the next `verdict` run re-scores rows whose stored
 `taste_version` no longer matches. That re-scoring is intended.
@@ -205,18 +205,19 @@ low-thousands of companies × a few re-scores that's single-digit MB.
 brain_profile_cache (
     source_url   TEXT PK,              -- the brain base URL the profile came from
     body         TEXT NOT NULL,        -- the resolved criteria text (fact-derived block)
-    content_hash TEXT NOT NULL,        -- hash of body, for change detection
+    content_hash TEXT NOT NULL,        -- stable change-detection / version key (distill basis hash, not the body)
     fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
-Migration `0013`. One row per brain URL — the last profile scout fetched from
-that brain, cached locally so a verdict run (or the web server) doesn't refetch
-on every invocation. Read by the `internal/criteria` resolver: a row younger
-than `--brain-cache-ttl` (default 6h) is reused as-is; older, the resolver
-refetches `/profile` and overwrites the row, and only when the brain is
-unreachable does it fall back to the stale cached row (then to offline
-`taste.md`). This is a **disposable cache, not a system-of-record** — the brain
+Migration `0013`. One row per brain URL — the last distilled company-fit brief
+scout produced from that brain, cached locally so a verdict run (or the web
+server) doesn't re-distill on every invocation. Read by the `internal/criteria`
+resolver: a row younger than `--brain-cache-ttl` (default 6h) is reused as-is;
+older, the resolver re-distills (recall + synthesis) and overwrites the row, and
+only when the brain is unreachable (or distillation fails) does it fall back to
+the stale cached row (then to offline `taste.md`). This is a **disposable cache,
+not a system-of-record** — the brain
 remains the source of truth; deleting the row just forces a refetch. Like
 `runs`, it is **standalone** — no company FK, no cascade.
 
@@ -257,7 +258,7 @@ with it. `runs` is independent of any company (the optional
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
 | verdict_trace | n/a — append-only, one row per scoring pass | never deduped; deleted only with its company |
-| brain profile | `brain_profile_cache.fetched_at` within `--brain-cache-ttl` | TTL expiry, or `POST /api/profile/refresh` |
+| brain brief | `brain_profile_cache.fetched_at` within `--brain-cache-ttl` | TTL expiry, or `POST /api/profile/refresh` (re-distill) |
 
 ## Why not Postgres / per-stage tables / event sourcing
 
