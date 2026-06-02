@@ -181,20 +181,24 @@ intelligence layer — the **distiller** (`internal/distill`) — in front of it
    want", "what does the user avoid", stage/size, verticals). *Companies only —
    role/title fit is a separate, later concern.*
 2. Dedup the returned chunks (coarse recall hands back the same pages for several
-   questions) and make **one grounded LLM call** to synthesize a concise
-   **company-fit brief**, with prose sections scout's LLM writes itself:
-   *Hard dealbreakers*, *Strong preferences*, *Context*.
+   questions), then run a **two-step** LLM pass: **classify** each excerpt as
+   COMPANY vs ROLE_OR_OTHER (quarantining role/career material), then
+   **synthesize** a concise **company-fit brief** from the COMPANY items only,
+   with prose sections scout's LLM writes itself: *Hard dealbreakers*, *Strong
+   preferences*, *Context*. Runs on `--distill-model` (default Sonnet).
 3. Cache the brief and judge every company against it.
 
 The structure (dealbreakers / preferences / context) is the distiller's
 **output**, written in prose — not tags handed over by the brain. Tagged facts
 as *input* fight how an LLM reasons; structure that the LLM derives from prose
-does not. The brief is scout-local: a re-derived view of brain knowledge, never
-written back, never a verdict.
+does not. The two-step split matters: a single pass leaks the user's *role*
+wants into the company brief (reframed as "company traits") even on a stronger
+model — classifying first quarantines them. The brief is scout-local: a
+re-derived view of brain knowledge, never written back, never a verdict.
 
-The synthesis prompt that does this review is shown verbatim in
-[`verdict.md` → *The distiller prompt*](./verdict.md#the-distiller-prompt-recall--brief)
-— it's the single place to tune *how* the raw notes become criteria.
+The classify + synthesize prompts are shown verbatim in
+[`verdict.md` → *The distiller prompts*](./verdict.md#the-distiller-prompts-classify--synthesize)
+— the place to tune *how* the raw notes become criteria.
 
 > **Rule:** scout gates on the brief's prose — what it states as a dealbreaker is
 > a hard skip, a requirement is a gate, a preference is a weight, context is

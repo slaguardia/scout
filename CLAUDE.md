@@ -38,9 +38,11 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
   tags). Scout's **distiller** (`internal/distill`) fans out a few company-fit
-  recalls, dedups, and makes one grounded LLM call to synthesize a **company-fit
-  brief** (Hard dealbreakers / Strong preferences / Context, in prose); the
-  verdict engine reasons over that brief. The brief is cached locally in SQLite
+  recalls, dedups, then runs a two-step pass — classify each excerpt as COMPANY
+  vs ROLE_OR_OTHER (quarantines role/career leak), then synthesize a
+  **company-fit brief** (Hard dealbreakers / Strong preferences / Context, in
+  prose) from the COMPANY items — on `--distill-model` (default Sonnet; verdict
+  scoring stays on Haiku). The verdict engine reasons over that brief. The brief is cached locally in SQLite
   (table `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual
   re-distill from the UI's Criteria panel); `taste.md` is the offline fallback
   when the brain is unreachable and the cache is gone. Scout must **not** call

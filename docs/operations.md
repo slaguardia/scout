@@ -146,7 +146,8 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`recall`, distilled into a brief). **Empty disables** → `taste.md` fallback. |
 | `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before the resolver re-distills. |
-| `--model` | `claude-haiku-4-5` | Anthropic model for scoring. |
+| `--model` | `claude-haiku-4-5` | Anthropic model for per-company scoring. |
+| `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 | `--workers` | `4` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
 
@@ -161,6 +162,7 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`recall` → distilled brief), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
 | `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before a re-distill (shared resolver). |
+| `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 
 ### `scout stats`
 

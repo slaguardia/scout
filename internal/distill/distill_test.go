@@ -35,12 +35,13 @@ func brainStub(t *testing.T, hits *int32, wantK string, chunksJSON string) *brai
 	return brainbot.New(srv.URL)
 }
 
-// anthropicStub captures the request body and returns a canned text reply.
-func anthropicStub(t *testing.T, captured *string, reply string) *anthropic.Client {
+// anthropicStub records every request body (the distiller makes two calls:
+// classify, then synthesize) and returns a canned text reply for each.
+func anthropicStub(t *testing.T, bodies *[]string, reply string) *anthropic.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		*captured = string(b)
+		*bodies = append(*bodies, string(b))
 		fmt.Fprintf(w, `{"content":[{"type":"text","text":%q}]}`, reply)
 	}))
 	t.Cleanup(srv.Close)
@@ -49,18 +50,18 @@ func anthropicStub(t *testing.T, captured *string, reply string) *anthropic.Clie
 	return c
 }
 
-func TestDistillFanOutAndDedup(t *testing.T) {
+func TestDistillFanOutClassifyThenSynthesize(t *testing.T) {
 	var hits int32
-	var body string
+	var bodies []string
 	// Every question gets the same two chunks back — coarse retrieval in the
-	// real world. Dedup must collapse them so the prompt carries each once.
+	// real world. Dedup must collapse them so the classify prompt carries each once.
 	chunks := `{"chunks":[
 		{"heading":"Target company","text":"Wants zero-to-one product companies.","score":0.5,"path":"Job Hunting/Target company"},
 		{"heading":"Job Hunting","text":"Avoids fintech and crypto.","score":0.4,"path":"Job Hunting"}
 	]}`
 	d := &Distiller{
 		Brain:  brainStub(t, &hits, "7", chunks),
-		Client: anthropicStub(t, &body, "## Hard dealbreakers\n- Avoids fintech and crypto."),
+		Client: anthropicStub(t, &bodies, "## Hard dealbreakers\n- Avoids fintech and crypto."),
 		K:      7,
 	}
 
@@ -77,20 +78,30 @@ func TestDistillFanOutAndDedup(t *testing.T) {
 	if len(res.Chunks) != 2 {
 		t.Fatalf("deduped chunks = %d, want 2", len(res.Chunks))
 	}
-	// The brief is the LLM's text verbatim.
+	// Two LLM calls: classify then synthesize.
+	if len(bodies) != 2 {
+		t.Fatalf("anthropic calls = %d, want 2 (classify + synthesize)", len(bodies))
+	}
+	// The classify call (first) carries each unique chunk's text exactly once.
+	classify := bodies[0]
+	if n := strings.Count(classify, "Wants zero-to-one product companies."); n != 1 {
+		t.Fatalf("chunk text appears %d times in the classify prompt, want 1 (dedup):\n%s", n, classify)
+	}
+	if !strings.Contains(classify, "Avoids fintech and crypto.") {
+		t.Fatalf("second chunk missing from classify prompt:\n%s", classify)
+	}
+	// Both calls pin temperature to 0.
+	for i, b := range bodies {
+		if !strings.Contains(b, `"temperature":0`) {
+			t.Fatalf("call %d should pin temperature to 0:\n%s", i, b)
+		}
+	}
+	// The brief is the (second) LLM reply; Items is the classify output.
 	if !strings.Contains(res.Brief, "Hard dealbreakers") {
 		t.Fatalf("brief = %q", res.Brief)
 	}
-	// The synthesis prompt carried each unique chunk's text exactly once.
-	if n := strings.Count(body, "Wants zero-to-one product companies."); n != 1 {
-		t.Fatalf("chunk text appears %d times in the prompt, want 1 (dedup):\n%s", n, body)
-	}
-	if !strings.Contains(body, "Avoids fintech and crypto.") {
-		t.Fatalf("second chunk missing from prompt:\n%s", body)
-	}
-	// Temperature is pinned to 0 for a stable brief.
-	if !strings.Contains(body, `"temperature":0`) {
-		t.Fatalf("synthesis request should pin temperature to 0:\n%s", body)
+	if res.Items == "" {
+		t.Fatal("Result.Items (classification) should be populated")
 	}
 	// The stable version basis is derived and non-empty.
 	if res.Basis == "" {
@@ -123,17 +134,17 @@ func TestBasisIgnoresScoreAndOrder(t *testing.T) {
 
 func TestDistillEmptyBrainErrors(t *testing.T) {
 	var hits int32
-	var body string
+	var bodies []string
 	d := &Distiller{
 		Brain:  brainStub(t, &hits, "", `{"chunks":[]}`),
-		Client: anthropicStub(t, &body, "should not be reached"),
+		Client: anthropicStub(t, &bodies, "should not be reached"),
 	}
 	if _, err := d.Run(context.Background()); err == nil {
 		t.Fatal("want an error when the brain returns no chunks")
 	}
-	// Synthesis must not run when there's nothing to distill.
-	if body != "" {
-		t.Fatalf("LLM was called with no chunks to distill: %s", body)
+	// Neither classify nor synthesize should run when there's nothing to distill.
+	if len(bodies) != 0 {
+		t.Fatalf("LLM was called with no chunks to distill: %v", bodies)
 	}
 }
 

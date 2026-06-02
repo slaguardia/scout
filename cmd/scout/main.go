@@ -43,6 +43,12 @@ import (
 // default — scout falls back to taste.md only when it's genuinely unreachable.
 const defaultBrainURL = "http://127.0.0.1:8100"
 
+// defaultDistillModel is the model for the once-per-run distiller (classify +
+// synthesize). It defaults to Sonnet — the call is cheap (twice per run) and
+// fidelity there matters: a weaker model drops sub-exclusions. Per-company
+// verdict scoring stays on the cheaper anthropic.DefaultModel (Haiku).
+const defaultDistillModel = "claude-sonnet-4-6"
+
 // defaultBrainCacheTTL is how long a locally-cached distilled brief is reused
 // before scout re-distills. The brief changes rarely, so a few hours keeps runs
 // from re-hitting the brain (and the LLM) without serving badly stale criteria.
@@ -94,7 +100,7 @@ Usage:
   scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
   scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--db scout.db]
-  scout distill [--brainbot URL] [--model claude-haiku-4-5] [--k N]
+  scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
@@ -226,6 +232,7 @@ func cmdVerdict(args []string) error {
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); criteria come from here when healthy, else --taste-md. Empty disables.")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for scoring")
+	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
 	workers := fs.Int("workers", 4, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
 	if err := fs.Parse(args); err != nil {
@@ -266,7 +273,7 @@ func cmdVerdict(args []string) error {
 		resolver.Distiller = &distill.Distiller{
 			Brain:  bc,
 			Client: ac,
-			Model:  *model,
+			Model:  *distillModel,
 			Log:    logLine,
 		}
 	}
@@ -332,7 +339,7 @@ func cmdVerdict(args []string) error {
 func cmdDistill(args []string) error {
 	fs := flag.NewFlagSet("distill", flag.ExitOnError)
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
-	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for synthesis")
+	model := fs.String("model", defaultDistillModel, "Anthropic model for the distiller (classify+synthesize)")
 	k := fs.Int("k", 0, "per-question recall depth (0 = distiller default)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -360,6 +367,7 @@ func cmdDistill(args []string) error {
 	for _, c := range res.Chunks {
 		fmt.Printf("\n--- %s (score %.4f) ---\n%s\n", chunkSourceLabel(c), c.Score, c.Text)
 	}
+	fmt.Printf("\n=== classified items ===\n%s\n", res.Items)
 	fmt.Printf("\n=== brief ===\n%s\n", res.Brief)
 	return nil
 }
@@ -390,6 +398,7 @@ func cmdServe(args []string) error {
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
+	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -414,7 +423,7 @@ func cmdServe(args []string) error {
 	if *brainbotURL != "" {
 		bc = brainbot.New(*brainbotURL) // shared with the server's health probes
 		resolver.Brain = bc
-		resolver.Distiller = &distill.Distiller{Brain: bc, Client: ac, Log: logLine}
+		resolver.Distiller = &distill.Distiller{Brain: bc, Client: ac, Model: *distillModel, Log: logLine}
 	}
 
 	srv := &web.Server{

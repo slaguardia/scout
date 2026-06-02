@@ -150,10 +150,12 @@ fall back to taste.md (offline criteria)
 ```
 
 - The brief comes from the **distiller** (`internal/distill`): it fans out a few
-  **company-fit** recalls (`GET /recall`), dedups the prose chunks, and makes one
-  grounded LLM call to synthesize a company-fit brief — sections (*Hard
+  **company-fit** recalls (`GET /recall`), dedups the prose chunks, then runs a
+  two-step pass — classify each excerpt as COMPANY vs ROLE_OR_OTHER, then
+  synthesize a company-fit brief from the COMPANY items only — sections (*Hard
   dealbreakers / Strong preferences / Context*) the LLM writes in prose, not tags
-  handed over by the brain. See `north-star.md` → *Distilling the criteria*.
+  handed over by the brain. Runs on `--distill-model` (default Sonnet). See
+  `north-star.md` → *Distilling the criteria*.
   `/recall` is the **only** brain call; scout never passes a `scope` and never
   queries per company.
 - A distilled brief is written to `brain_profile_cache` and reused within
