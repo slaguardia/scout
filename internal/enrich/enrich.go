@@ -143,7 +143,7 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 	var lastStatus string
 	for _, path := range candidatePaths {
 		url := "https://" + t.Domain + path
-		body, code, err := e.get(ctx, url)
+		body, code, finalURL, err := e.get(ctx, url)
 		if err != nil {
 			lastErr = err.Error()
 			lastStatus = classifyErr(err)
@@ -151,7 +151,18 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 		}
 		if code >= 200 && code < 300 && len(body) > 0 {
 			text := extractText(body)
-			rec.WebsiteURL = store.NullString(url)
+			// Soft 404: many sites serve HTTP 200 with a "page not found"
+			// body for a missing path. Don't accept it as the about page —
+			// try the next candidate so we never hand the user a link that's
+			// dead in everything but status code. Checked before we store
+			// anything so a trailing soft-404 leaves no stale URL behind.
+			if looksLikeNotFound(text) {
+				lastStatus = "soft_404"
+				continue
+			}
+			// Store where we actually landed, not the path we guessed: the
+			// client may have followed redirects to get this 200.
+			rec.WebsiteURL = store.NullString(finalURL)
 			rec.WebsiteSummary = store.NullString(truncRunes(text, maxSummaryRunes))
 			// Order matters: challenge pages are often short AND match the
 			// challenge keywords, so check the more-specific signal first.
@@ -182,26 +193,36 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 	return rec
 }
 
-func (e *Enricher) get(ctx context.Context, url string) ([]byte, int, error) {
+// get fetches url and returns the body, status code, and the *final* URL after
+// any redirects the client followed. Callers should store the final URL, not the
+// requested one: a link that 301s at fetch time but resolves to 200 must point at
+// the page that actually answered, or it 404s when a user clicks it.
+func (e *Enricher) get(ctx context.Context, url string) ([]byte, int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, url, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	resp, err := e.Client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, url, err
 	}
 	defer resp.Body.Close()
+	// resp.Request is the last request in the redirect chain; its URL is where
+	// we actually landed. Fall back to the requested url if it's somehow nil.
+	finalURL := url
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "html") {
-		return nil, resp.StatusCode, fmt.Errorf("non-html content-type: %s", ct)
+		return nil, resp.StatusCode, finalURL, fmt.Errorf("non-html content-type: %s", ct)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return nil, resp.StatusCode, err
+		return nil, resp.StatusCode, finalURL, err
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, finalURL, nil
 }
 
 func classifyErr(err error) string {
@@ -308,6 +329,39 @@ func looksLikeChallenge(text string) bool {
 	}
 	lower := strings.ToLower(text)
 	for _, p := range challengePhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// notFoundPhrases are case-insensitive substrings that strongly imply a
+// soft 404 — a missing page served with a 200 status. Kept specific so a
+// real about page that merely mentions "not found" in passing doesn't trip.
+var notFoundPhrases = []string{
+	"page not found",
+	"page can't be found",
+	"page cannot be found",
+	"page could not be found",
+	"page you requested could not be found",
+	"page you are looking for",
+	"page you were looking for",
+	"page doesn't exist",
+	"page does not exist",
+	"404 error",
+	"error 404",
+}
+
+// looksLikeNotFound returns true if the stripped text matches known
+// not-found boilerplate AND is short enough that the *whole* page is the
+// error (not just an incidental mention buried in real content).
+func looksLikeNotFound(text string) bool {
+	if runeCount(text) >= 1000 {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, p := range notFoundPhrases {
 		if strings.Contains(lower, p) {
 			return true
 		}
