@@ -202,6 +202,11 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 		if err != nil {
 			return nil, 0, 0, err
 		}
+		// A hand-set verdict is sticky: leave it untouched unless --force. A manual
+		// correction that auto-reverts on the next run would be pointless.
+		if existing != nil && existing.Model == store.ManualModel {
+			return nil, 0, 0, nil // manual override, skip
+		}
 		if existing != nil && existing.TasteVersion == s.Taste.Version {
 			return nil, 0, 0, nil // up to date, skip
 		}

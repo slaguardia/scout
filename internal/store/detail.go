@@ -188,9 +188,12 @@ func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, 
 		}
 	}
 	if currentTasteVersion != "" {
+		// Manual overrides are sticky — a re-run skips them — so they'd never
+		// clear from this count. Exclude them so the badge reflects only rows a
+		// verdict run would actually re-score.
 		if err := db.QueryRow(
-			`SELECT COUNT(1) FROM verdicts WHERE taste_version != ?`,
-			currentTasteVersion,
+			`SELECT COUNT(1) FROM verdicts WHERE taste_version != ? AND model != ?`,
+			currentTasteVersion, ManualModel,
 		).Scan(&s.StaleVerdicts); err != nil {
 			return nil, err
 		}

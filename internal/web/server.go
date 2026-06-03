@@ -282,9 +282,82 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyPostings(w, r, id)
 	case len(parts) == 2 && parts[1] == "trace":
 		s.handleCompanyTrace(w, r, id)
+	case len(parts) == 2 && parts[1] == "verdict":
+		s.handleCompanyVerdict(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handleCompanyVerdict sets a verdict by hand from the UI. PUT
+// /api/companies/:id/verdict with {"verdict":"yes|maybe|no","reason":"…"}. The
+// row is stamped model="manual" so the scorer treats it as sticky (a normal
+// verdict run leaves it; only --force re-scores over it). A decision-trail row
+// is appended so the override shows in the company's timeline. Returns the
+// refreshed company detail so the client can re-render the pane.
+func (s *Server) handleCompanyVerdict(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Verdict string `json:"verdict"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	v := strings.ToLower(strings.TrimSpace(body.Verdict))
+	switch v {
+	case "yes", "maybe", "no":
+	default:
+		http.Error(w, `verdict must be "yes", "maybe", or "no"`, http.StatusBadRequest)
+		return
+	}
+	// Reject an unknown company up front so a bad id can't create a dangling verdict.
+	if _, _, err := s.DB.GetCompanyName(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	reason := strings.TrimSpace(body.Reason)
+	version := s.CurrentTasteVersion() // record the criteria in effect when overridden
+	if err := s.DB.UpsertVerdict(store.Verdict{
+		CompanyID:    id,
+		Verdict:      v,
+		Reason:       reason,
+		TasteVersion: version,
+		Model:        store.ManualModel,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Best-effort trail row — mirrors the scorer, so the manual call shows in the
+	// timeline alongside the LLM passes. A failure here must not sink the write.
+	_ = s.DB.InsertVerdictTrace(store.VerdictTrace{
+		CompanyID:      id,
+		Model:          store.ManualModel,
+		TasteVersion:   version,
+		CriteriaSource: "manual override",
+		Verdict:        v,
+		Reason:         reason,
+	})
+
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 // handleCompanyTrace returns the decision trail for one company — the

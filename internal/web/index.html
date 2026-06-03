@@ -899,6 +899,23 @@
   .posting-add .prow .input { flex: 1; min-width: 0; }
   .posting-add .prow .btn { flex: none; }
 
+  /* manual verdict override (detail pane) */
+  .verdict-edit { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .verdict-edit .ve-label { text-transform: uppercase; letter-spacing: 0.06em; }
+  .ve-pick { display: flex; gap: 6px; }
+  .ve-opt {
+    flex: 1; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--panel); color: var(--fg-dim); font: inherit; font-size: 12px;
+    cursor: pointer; transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .ve-opt:hover { border-color: var(--line-2); color: var(--fg); }
+  .ve-opt.is-on[data-v="yes"]   { background: var(--yes-bg);   color: var(--yes);   border-color: var(--yes); }
+  .ve-opt.is-on[data-v="maybe"] { background: var(--maybe-bg); color: var(--maybe); border-color: var(--maybe); }
+  .ve-opt.is-on[data-v="no"]    { background: var(--no-bg);    color: var(--no);    border-color: var(--no); }
+  .verdict-edit .prow { display: flex; gap: 8px; }
+  .verdict-edit .prow .input { flex: 1; min-width: 0; }
+  .verdict-edit .prow .btn { flex: none; }
+
   /* criteria block (sidebar) */
   .crit-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -1570,15 +1587,33 @@ function renderDetail(d) {
     ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)} ↗</a>`
     : '<span class="muted">no domain</span>';
 
+  const manual = d.model === "manual";
   const verdictBlock = d.has_verdict ? `
     <dl class="kv">
-      <dt>verdict</dt><dd><span class="${pillClass(d.verdict)}">${escapeHTML(d.verdict)}</span></dd>
+      <dt>verdict</dt><dd><span class="${pillClass(d.verdict)}">${escapeHTML(d.verdict)}</span>${manual ? ' <span class="small muted">· set by hand</span>' : ''}</dd>
       <dt>reason</dt><dd>${escapeHTML(d.reason || "")}</dd>
       <dt>model</dt><dd class="small muted">${escapeHTML(d.model || "")}</dd>
       <dt>taste version</dt><dd class="small muted"><span class="tooltip" title="scored ${escapeHTML(d.scored_at)} · model ${escapeHTML(d.model)}">${escapeHTML(d.taste_version || "")}</span></dd>
       <dt>scored at</dt><dd class="small muted">${escapeHTML(d.scored_at || "")}</dd>
     </dl>
-  ` : '<div class="muted">Not yet scored. Run <code>scout verdict</code>.</div>';
+  ` : '<div class="muted">Not yet scored. Run <code>scout verdict</code>, or set one by hand below.</div>';
+
+  // Inline override editor — set or correct the verdict by hand. A manual verdict
+  // is sticky (the scorer skips it unless re-run with --force). Reason prefills
+  // only when the current verdict is already manual, so flipping an LLM call
+  // starts from a blank reason rather than the model's stale wording.
+  const verdictEditor = `
+    <div class="verdict-edit" id="verdict-edit">
+      <div class="ve-label muted small">${d.has_verdict ? "Override by hand" : "Set by hand"}</div>
+      <div class="ve-pick" id="ve-pick">
+        ${["yes","maybe","no"].map(v =>
+          `<button type="button" class="ve-opt${d.has_verdict && d.verdict === v ? " is-on" : ""}" data-v="${v}">${v}</button>`).join("")}
+      </div>
+      <div class="prow">
+        <input class="input" id="ve-reason" placeholder="reason (optional)" value="${manual ? escapeHTML(d.reason || "") : ""}">
+        <button class="btn btn-primary" id="ve-save-btn">Save</button>
+      </div>
+    </div>`;
 
   const enrichBlock = d.has_enrichment ? `
     <dl class="kv">
@@ -1638,6 +1673,7 @@ function renderDetail(d) {
         Verdict
       </h3>
       ${verdictBlock}
+      ${verdictEditor}
     </section>
 
     <section class="pane-section">
@@ -1660,6 +1696,50 @@ function renderDetail(d) {
 
   const addPostBtn = document.getElementById("posting-add-btn");
   if (addPostBtn) addPostBtn.addEventListener("click", () => onAddPosting(d));
+
+  // Verdict override: single-select the yes/maybe/no buttons, then Save.
+  document.querySelectorAll("#ve-pick .ve-opt").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#ve-pick .ve-opt").forEach(b => b.classList.remove("is-on"));
+      btn.classList.add("is-on");
+    });
+  });
+  const saveVerdictBtn = document.getElementById("ve-save-btn");
+  if (saveVerdictBtn) saveVerdictBtn.addEventListener("click", () => onSaveVerdict(d));
+}
+
+// ---- manual verdict override ----
+async function onSaveVerdict(d) {
+  const picked = document.querySelector("#ve-pick .ve-opt.is-on");
+  if (!picked) { toast("Pick yes, maybe, or no."); return; }
+  const verdict = picked.dataset.v;
+  const reason = document.getElementById("ve-reason").value.trim();
+  const btn = document.getElementById("ve-save-btn");
+  btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${d.company_id}/verdict`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verdict, reason }),
+    });
+  } catch (e) {
+    toast(`save failed: ${e.message}`);
+    btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`save failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  renderDetail(fresh);            // re-render pane with the new verdict + editor
+  loadTrace(fresh.company_id);    // pull the appended trail row
+  loadList();                     // refresh the table pill / reason / sort
+  loadStats();                    // refresh the sidebar by-verdict counts
+  toast("verdict saved");
 }
 
 // ---- job postings ----
