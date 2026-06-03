@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -325,6 +326,13 @@ func (s *Server) handleCompanyVerdict(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
+	// Capture the verdict being replaced (if any) before the upsert, so the
+	// durable override log records the from → to delta.
+	var fromVerdict string
+	if prev, err := s.DB.GetVerdict(id); err == nil && prev != nil {
+		fromVerdict = prev.Verdict
+	}
+
 	reason := strings.TrimSpace(body.Reason)
 	version := s.CurrentTasteVersion() // record the criteria in effect when overridden
 	if err := s.DB.UpsertVerdict(store.Verdict{
@@ -336,6 +344,18 @@ func (s *Server) handleCompanyVerdict(w http.ResponseWriter, r *http.Request, id
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Durable record of intent — the override log the user can mine later. A
+	// failure must not sink the write (the verdict is already set), but log it
+	// since this table is meant to be a kept record, not a disposable aid.
+	if err := s.DB.InsertVerdictOverride(store.VerdictOverride{
+		CompanyID:       id,
+		FromVerdict:     fromVerdict,
+		ToVerdict:       v,
+		Reason:          reason,
+		CriteriaVersion: version,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "verdict override log %s: %v\n", id, err)
 	}
 	// Best-effort trail row — mirrors the scorer, so the manual call shows in the
 	// timeline alongside the LLM passes. A failure here must not sink the write.

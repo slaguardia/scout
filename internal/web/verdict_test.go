@@ -61,6 +61,29 @@ func TestManualVerdictAPI(t *testing.T) {
 		t.Errorf("trace rows = %d, want 2", len(events))
 	}
 
+	// Each call also appends a durable override row. The two calls form a
+	// timeline: (unscored → no), then (no → yes).
+	var overrideCount int
+	if err := s.DB.QueryRow(`SELECT COUNT(1) FROM verdict_override WHERE company_id = ?`, cid).
+		Scan(&overrideCount); err != nil {
+		t.Fatalf("count overrides: %v", err)
+	}
+	if overrideCount != 2 {
+		t.Errorf("override rows = %d, want 2", overrideCount)
+	}
+	// The first override had no prior verdict (from NULL); the latest records the
+	// no → yes delta with the criteria version stamped.
+	var from, to, version string
+	if err := s.DB.QueryRow(
+		`SELECT COALESCE(from_verdict,''), to_verdict, COALESCE(criteria_version,'')
+		   FROM verdict_override WHERE company_id = ? ORDER BY id DESC LIMIT 1`, cid,
+	).Scan(&from, &to, &version); err != nil {
+		t.Fatalf("read latest override: %v", err)
+	}
+	if from != "no" || to != "yes" {
+		t.Errorf("latest override delta = %q → %q, want no → yes", from, to)
+	}
+
 	// Invalid verdict value → 400.
 	for _, bad := range []string{`{"verdict":"strong-yes"}`, `{"verdict":""}`, `{"reason":"x"}`} {
 		if rec := put(cid, bad); rec.Code != http.StatusBadRequest {

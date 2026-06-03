@@ -130,7 +130,7 @@ var companyChildTables1to1 = []string{"enrichment", "verdicts"}
 
 // companyChildTablesMany hold many rows per company (company_id is non-unique),
 // so both sides' rows coexist and a plain re-point can't conflict.
-var companyChildTablesMany = []string{"verdict_trace", "job_postings"}
+var companyChildTablesMany = []string{"verdict_trace", "job_postings", "verdict_override"}
 
 // companyChildTables is every table whose company_id FKs companies(id). A merge
 // must handle ALL of them before the old parent is deleted — a table missing
