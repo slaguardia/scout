@@ -24,6 +24,8 @@ type TriageRow struct {
 	WebsiteURLStr  string         `json:"website_url"`
 	WebsiteSummary sql.NullString `json:"-"`
 	WebsiteSumStr  string         `json:"website_summary"`
+	ReviewedAt     sql.NullString `json:"-"`
+	Reviewed       bool           `json:"reviewed"` // true once the user has triaged it
 }
 
 // TriageRows pulls every company joined with optional enrichment and verdict.
@@ -31,7 +33,8 @@ func (db *DB) TriageRows() ([]TriageRow, error) {
 	const q = `
 SELECT c.id, c.name, c.domain, c.location, c.vertical, c.headcount, c.funding_stage,
        v.verdict, v.reason,
-       e.website_url, e.website_summary
+       e.website_url, e.website_summary,
+       c.reviewed_at
 FROM companies c
 LEFT JOIN verdicts v ON v.company_id = c.id
 LEFT JOIN enrichment e ON e.company_id = c.id
@@ -52,7 +55,7 @@ ORDER BY
 	for rows.Next() {
 		var r TriageRow
 		if err := rows.Scan(&r.CompanyID, &r.Name, &r.Domain, &r.Location, &r.Vertical, &r.Headcount, &r.Stage,
-			&r.Verdict, &r.Reason, &r.WebsiteURL, &r.WebsiteSummary); err != nil {
+			&r.Verdict, &r.Reason, &r.WebsiteURL, &r.WebsiteSummary, &r.ReviewedAt); err != nil {
 			return nil, err
 		}
 		r.DomainStr = r.Domain.String
@@ -64,6 +67,7 @@ ORDER BY
 		r.ReasonStr = r.Reason.String
 		r.WebsiteURLStr = r.WebsiteURL.String
 		r.WebsiteSumStr = r.WebsiteSummary.String
+		r.Reviewed = r.ReviewedAt.Valid
 		out = append(out, r)
 	}
 	return out, rows.Err()

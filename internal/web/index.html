@@ -216,32 +216,6 @@
   }
   .stat-row .v.zero { color: var(--fg-dim); font-weight: 400; }
 
-  .pipeline-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 6px 12px;
-    padding-top: 2px;
-  }
-  .pipeline-grid .pcard {
-    padding: 8px 10px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-  }
-  .pipeline-grid .pnum {
-    font-size: 18px; font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--fg);
-    line-height: 1.1;
-  }
-  .pipeline-grid .pnum.zero { color: var(--fg-dim); }
-  .pipeline-grid .plabel {
-    font-size: 10.5px;
-    color: var(--fg-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-top: 4px;
-  }
-
   .stale {
     margin-top: 8px;
     padding: 8px 10px;
@@ -331,6 +305,28 @@
     transition: color var(--dur-fast) var(--ease);
   }
   td .row-name:hover { color: var(--link); }
+
+  /* "new / not yet reviewed" indicator — a pulsing blue dot */
+  .new-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--link); margin-right: 7px; vertical-align: middle;
+    animation: new-pulse 1.8s ease-out infinite;
+  }
+  @keyframes new-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(122,169,255,0.55); }
+    70%  { box-shadow: 0 0 0 6px rgba(122,169,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(122,169,255,0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .new-dot { animation: none; } }
+
+  /* review state bar at the top of the detail pane */
+  .review-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
+  .review-bar .rb-state { display: inline-flex; align-items: center; font-size: 13px; }
+  .review-bar .rb-state.is-new      { color: var(--link); }
+  .review-bar .rb-state.is-reviewed { color: var(--fg-mute); }
 
   /* ---- empty state ---- */
   .empty {
@@ -999,28 +995,12 @@
     </div>
   </div>
 
-  <div class="block" id="block-pipeline">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg>
-      Pipeline
-    </h3>
-    <div id="pipeline-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-  </div>
-
-  <div class="block" id="block-verdicts">
+  <div class="block" id="block-unscored">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
-      By verdict
+      Triage
     </h3>
-    <div id="verdict-stats"></div>
-  </div>
-
-  <div class="block" id="block-fetch" style="display:none">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v6m0 0l-2.5-2.5M8 8l2.5-2.5M3 12h10"/></svg>
-      Enrichment failures
-    </h3>
-    <div id="fetch-stats"></div>
+    <div id="unscored-stat"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
   </div>
 
   <div class="block" id="block-criteria">
@@ -1299,7 +1279,7 @@
             <li>Results are cached. A company is re-fetched only if it was re-ingested since the last fetch, or you force it. <strong>Failures are remembered</strong>, not retried in a hot loop.</li>
           </ul>
           <h4>Fetch status — what each outcome means</h4>
-          <p>Every company gets exactly one status. Only <span class="pill pill-yes">ok</span> rows go on to the verdict stage; the rest are visible under <strong>Enrichment failures</strong> in the sidebar.</p>
+          <p>Every company gets exactly one status. Only <span class="pill pill-yes">ok</span> rows go on to the verdict stage; the rest carry a non-<code>ok</code> status you can see in each company's <strong>Enrichment</strong> detail.</p>
           <table class="dt">
             <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
             <tbody>
@@ -1387,9 +1367,10 @@ Return the JSON verdict now.</pre>
 
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
-          <p class="lede">The main table is where you actually work. Each row is a company with its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict or search by name, vertical, or reason.</p>
+          <p class="lede">The main table is where you actually work. Each row is a company with its verdict pill, the one-line reason, and the structured fields. A <strong>pulsing blue dot</strong> marks companies you haven't reviewed yet. Sort by any column; filter by verdict or search by name, vertical, or reason.</p>
           <h4>Opening a company</h4>
-          <p>Click any company name to slide open its detail pane, which gathers everything scout knows in one place:</p>
+          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the review state with a <strong>Mark reviewed</strong> toggle — your acknowledgement that you've triaged it, independent of the verdict.</p>
+          <p>The detail pane includes:</p>
           <ul>
             <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
             <li><strong>Verdict</strong> — the call, the reason, the model used, and the criteria version it was scored under.</li>
@@ -1397,7 +1378,7 @@ Return the JSON verdict now.</pre>
             <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
-          <p>The sidebar's <strong>Pipeline</strong> counters (total → survivors → enriched → scored) and <strong>Current taste</strong> block show the state at a glance. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+          <p>The sidebar's <strong>Triage</strong> count (companies still without a verdict) and <strong>Current taste</strong> block show the state at a glance. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
         </section>
 
       </div>
@@ -1431,7 +1412,7 @@ async function loadStats() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     s = await r.json();
   } catch (e) {
-    document.getElementById("pipeline-stats").innerHTML =
+    document.getElementById("unscored-stat").innerHTML =
       `<div class="muted small">stats failed: ${escapeHTML(e.message)}</div>`;
     return;
   }
@@ -1444,40 +1425,11 @@ function statLine(k, v) {
   return `<div class="stat-row"><span class="k">${escapeHTML(k)}</span><span class="${cls}">${v}</span></div>`;
 }
 
-function pcard(label, n) {
-  const cls = (Number(n) === 0) ? "pnum zero" : "pnum";
-  return `<div class="pcard"><div class="${cls}">${n}</div><div class="plabel">${escapeHTML(label)}</div></div>`;
-}
-
 function renderStats() {
   const s = state.stats || {};
-  const survivors = filtered().length;
-
-  // Pipeline: 2-column card grid for the big numbers.
-  document.getElementById("pipeline-stats").innerHTML =
-    `<div class="pipeline-grid">
-       ${pcard("total", s.total_companies ?? 0)}
-       ${pcard("survivors", survivors)}
-       ${pcard("enriched", s.enriched_ok ?? 0)}
-       ${pcard("scored", s.scored ?? 0)}
-     </div>`;
-
-  // By verdict
-  const v = s.by_verdict || {};
-  document.getElementById("verdict-stats").innerHTML =
-    ["yes","maybe","no"].map(k => statLine(k, v[k] || 0)).join("") +
-    statLine("unscored", s.unscored ?? 0);
-
-  // Fetch failures: show only non-ok statuses.
-  const fs = s.fetch_status || {};
-  const failures = Object.keys(fs).filter(k => k !== "ok").sort();
-  if (failures.length === 0) {
-    document.getElementById("block-fetch").style.display = "none";
-  } else {
-    document.getElementById("block-fetch").style.display = "";
-    document.getElementById("fetch-stats").innerHTML =
-      failures.map(k => statLine(k, fs[k])).join("");
-  }
+  // The only count worth surfacing: companies still awaiting a verdict.
+  document.getElementById("unscored-stat").innerHTML =
+    statLine("without a verdict", s.unscored ?? 0);
 
   // Criteria block (source + playbook + stale badge) reads stats too.
   renderCriteria();
@@ -1517,23 +1469,13 @@ function renderList() {
   tbody.innerHTML = "";
   const rows = sortRows(filtered());
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
-  // Sidebar "survivors" card updates with the current filter.
-  if (state.stats) {
-    const cards = document.querySelectorAll("#pipeline-stats .pipeline-grid .pcard");
-    if (cards[1]) {
-      const num = cards[1].querySelector(".pnum");
-      if (num) {
-        num.textContent = rows.length;
-        num.classList.toggle("zero", rows.length === 0);
-      }
-    }
-  }
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
+    const newDot = r.reviewed ? "" : '<span class="new-dot" title="new — not yet reviewed"></span>';
     tr.innerHTML = `
       <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
-      <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
+      <td><span class="row-name" data-id="${r.company_id}">${newDot}${escapeHTML(r.name)}</span></td>
       <td class="reason">${escapeHTML(r.reason || "")}</td>
       <td>${escapeHTML(r.vertical || "")}</td>
       <td>${escapeHTML(r.location || "")}</td>
@@ -1644,7 +1586,20 @@ function renderDetail(d) {
     </details>
   `;
 
+  const reviewBar = `
+    <div class="review-bar">
+      <span class="rb-state ${d.reviewed ? "is-reviewed" : "is-new"}">
+        ${d.reviewed
+          ? `reviewed${d.reviewed_at ? ` <span class="small muted">· ${escapeHTML(d.reviewed_at)}</span>` : ""}`
+          : `<span class="new-dot"></span>new — not yet reviewed`}
+      </span>
+      <button class="btn ${d.reviewed ? "" : "btn-primary"}" id="review-toggle-btn">
+        ${d.reviewed ? "Mark as new" : "Mark reviewed"}
+      </button>
+    </div>`;
+
   document.getElementById("pane-body").innerHTML = `
+    ${reviewBar}
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
@@ -1716,6 +1671,39 @@ function renderDetail(d) {
   });
   const saveVerdictBtn = document.getElementById("ve-save-btn");
   if (saveVerdictBtn) saveVerdictBtn.addEventListener("click", () => onSaveVerdict(d));
+
+  const reviewBtn = document.getElementById("review-toggle-btn");
+  if (reviewBtn) reviewBtn.addEventListener("click", () => onToggleReviewed(d));
+}
+
+// ---- review state ----
+async function onToggleReviewed(d) {
+  const btn = document.getElementById("review-toggle-btn");
+  const next = !d.reviewed;
+  btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${d.company_id}/reviewed`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewed: next }),
+    });
+  } catch (e) {
+    toast(`failed: ${e.message}`);
+    btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  renderDetail(fresh);          // re-render with the new review state + button label
+  loadTrace(fresh.company_id);  // renderDetail reset the trace body to a spinner
+  loadList();                   // clear / restore the pulsing dot in the table
+  toast(next ? "marked reviewed" : "marked new");
 }
 
 // ---- manual verdict override ----
