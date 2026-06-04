@@ -234,6 +234,30 @@
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
+  /* "hide rejected" toggle, jobs view only — mirrors the Notion tracker's
+     default view, which filtered Rejected out. */
+  .hide-rejected {
+    margin-left: auto; align-self: center;
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--fg-mute); font-size: 12.5px; cursor: pointer; user-select: none;
+  }
+  .hide-rejected input { accent-color: var(--link); cursor: pointer; }
+
+  /* response pill (jobs table) — interview gets the link blue */
+  .pill-info { background: var(--link-bg); color: var(--link); }
+
+  /* per-posting application tracking (detail pane) */
+  .ptrack {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
+    font-size: 12.5px; color: var(--fg-mute);
+  }
+  .ptrack label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+  .ptrack input[type="checkbox"] { accent-color: var(--yes); cursor: pointer; }
+  .ptrack .input { width: auto; padding: 3px 8px; font-size: 12px; }
+  .ptrack input[type="date"].input { color-scheme: dark; }
+  .ptrack .btn { padding: 3px 10px; font-size: 12px; }
+  .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
   .table-wrap {
     border: 1px solid var(--line);
@@ -1044,6 +1068,9 @@
   <div class="tabs">
     <button class="tab active" id="tab-companies">companies</button>
     <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+    <label class="hide-rejected" id="hide-rejected-wrap" style="display:none">
+      <input type="checkbox" id="hide-rejected" checked> hide rejected
+    </label>
   </div>
 
   <div class="table-wrap" id="companies-view">
@@ -1076,11 +1103,11 @@
     <table id="jt">
       <thead>
         <tr>
-          <th data-jk="title">role</th>
           <th data-jk="company">company</th>
-          <th data-jk="verdict">company verdict</th>
-          <th data-jk="location">location</th>
-          <th data-jk="created_at">added</th>
+          <th data-jk="applied_at">applied</th>
+          <th data-jk="response">response</th>
+          <th data-jk="outreach_count">outreach</th>
+          <th data-jk="last_outreach_at">last outreach</th>
           <th>link</th>
         </tr>
       </thead>
@@ -1442,7 +1469,8 @@ Return the JSON verdict now.</pre>
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict, by status (new / reviewed / flagged), or search by name, vertical, or reason.</p>
           <h4>The jobs view &amp; Add by link</h4>
-          <p>The <strong>jobs</strong> tab lists every saved posting across companies — role, company, the company's verdict, location, and when it was added. The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
+          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, and <strong>last outreach</strong>. Everything else about the company and role lives in the slide-in panel, where each posting card carries the tracking controls (applied toggle + date, response select, a "+1 outreach" logger). Rejected rows are hidden by default — flip the toggle to see them.</p>
+          <p>The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the review state with a <strong>Mark reviewed</strong> toggle — your acknowledgement that you've triaged it, independent of the verdict.</p>
           <p>The detail pane includes:</p>
@@ -1505,6 +1533,7 @@ function setView(v) {
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
+  document.getElementById("hide-rejected-wrap").style.display = v === "jobs" ? "" : "none";
   if (v === "jobs") renderJobs(); else renderList();
 }
 
@@ -1606,14 +1635,18 @@ function renderList() {
 }
 
 // ---- jobs view ----
-// The sidebar filters apply here too: search matches the posting (title,
-// location, summary) and the company name; verdict/status filter on the
-// posting's COMPANY (its verdict, review state, flag).
+// The tracker: one row per saved posting, company name + application
+// lifecycle (everything else lives in the side panel). The sidebar filters
+// apply here too: search matches company/title/location/summary;
+// verdict/status filter on the posting's COMPANY. "Hide rejected" mirrors the
+// Notion tracker's default view.
 function filteredJobs() {
   const q = document.getElementById("q").value.trim().toLowerCase();
   const v = document.getElementById("verdict").value;
   const st = document.getElementById("status").value;
+  const hideRej = document.getElementById("hide-rejected").checked;
   return state.jobs.filter(j => {
+    if (hideRej && j.response === "rejected") return false;
     if (v === "__none__" && j.verdict) return false;
     if (v && v !== "__none__" && j.verdict !== v) return false;
     if (st === "new" && j.reviewed) return false;
@@ -1627,13 +1660,33 @@ function filteredJobs() {
   });
 }
 
+// Response display: pill class + label. Triage-ordered for sorting (an offer
+// outranks an interview outranks a screening; rejected sinks).
+const RESPONSE_META = {
+  offer:     { cls: "pill-yes",   label: "offer",          order: 0 },
+  interview: { cls: "pill-info",  label: "interview",      order: 1 },
+  screening: { cls: "pill-maybe", label: "screening call", order: 2 },
+  "":        { cls: "pill-none",  label: "—",              order: 3 },
+  rejected:  { cls: "pill-no",    label: "rejected",       order: 4 },
+};
+
 function compareJobs(a, b, k) {
   if (k === "verdict") {
     const order = { yes: 0, maybe: 1, no: 2, "": 3 };
     return (order[a.verdict] ?? 3) - (order[b.verdict] ?? 3);
   }
-  if (k === "created_at") // newest first on the first click
-    return String(b.created_at).localeCompare(String(a.created_at));
+  if (k === "response")
+    return (RESPONSE_META[a.response]?.order ?? 3) - (RESPONSE_META[b.response]?.order ?? 3);
+  if (k === "outreach_count")
+    return (b.outreach_count|0) - (a.outreach_count|0); // most-contacted first
+  if (k === "created_at" || k === "applied_at" || k === "last_outreach_at") {
+    // Newest first on the first click; blanks sink regardless of direction.
+    const av = a[k] || "", bv = b[k] || "";
+    if (!av && !bv) return 0;
+    if (!av) return state.jsort.dir;   // undo the outer dir so blanks stay last
+    if (!bv) return -state.jsort.dir;
+    return String(bv).localeCompare(String(av));
+  }
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
@@ -1643,21 +1696,22 @@ function renderJobs() {
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
   for (const j of rows) {
+    const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
     tr.dataset.id = j.company_id;
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.title || j.url)}</span>
-        ${j.summary ? `<div class="small dim">${escapeHTML(j.summary)}</div>` : ""}</td>
-      <td>${escapeHTML(j.company)}</td>
-      <td><span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict || "—")}</span></td>
-      <td>${escapeHTML(j.location || "")}</td>
-      <td class="small dim">${escapeHTML((j.created_at || "").slice(0, 10))}</td>
+      <td><span class="row-name">${escapeHTML(j.company)}</span>
+        ${j.title ? `<div class="small dim">${escapeHTML(j.title)}</div>` : ""}</td>
+      <td class="small">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
+      <td><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
+      <td class="small">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
+      <td class="small">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
     `;
     tbody.appendChild(tr);
   }
-  // Row click opens the company's detail pane (the posting lives there);
-  // the external "open ↗" link is guarded out.
+  // Row click opens the company's detail pane (posting details + tracking
+  // controls live there); the external "open ↗" link is guarded out.
   tbody.querySelectorAll("tr").forEach(tr => {
     tr.addEventListener("click", e => {
       if (e.target.closest("a")) return;
@@ -1836,6 +1890,7 @@ function renderDetail(d) {
 
   const addPostBtn = document.getElementById("posting-add-btn");
   if (addPostBtn) addPostBtn.addEventListener("click", () => onAddPosting(d));
+  wirePostingTracking(d);
 
   // Verdict override: single-select the yes/maybe/no buttons, then Save.
   document.querySelectorAll("#ve-pick .ve-opt").forEach(btn => {
@@ -1962,13 +2017,88 @@ function postingsListHTML(d) {
       p.source === "capture" ? "captured" : "added",
       (p.created_at || "").slice(0, 10),
     ].filter(Boolean).map(escapeHTML).join(" · ");
+    const outreachMeta = p.outreach_count
+      ? `${p.outreach_count}× · last ${escapeHTML(p.last_outreach_at || "?")}`
+      : "no outreach yet";
     return `
     <div class="brain-node">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
+      <div class="ptrack" data-pid="${escapeHTML(p.id)}">
+        <label><input type="checkbox" class="pt-applied" ${p.applied_at ? "checked" : ""}> applied</label>
+        <input type="date" class="input pt-applied-date" value="${escapeHTML(p.applied_at || "")}"
+               style="display:${p.applied_at ? "" : "none"}" title="application date">
+        <select class="input pt-response" title="furthest response reached">
+          <option value="">response: —</option>
+          <option value="screening" ${p.response === "screening" ? "selected" : ""}>screening call</option>
+          <option value="interview" ${p.response === "interview" ? "selected" : ""}>interview</option>
+          <option value="offer" ${p.response === "offer" ? "selected" : ""}>offer</option>
+          <option value="rejected" ${p.response === "rejected" ? "selected" : ""}>rejected</option>
+        </select>
+        <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
+        <span class="pt-meta">${outreachMeta}</span>
+      </div>
     </div>`;
   }).join("");
+}
+
+// wirePostingTracking binds the per-posting tracking controls inside
+// #postings-list. Re-run after every list re-render (the nodes are rebuilt).
+function wirePostingTracking(d) {
+  const today = () => new Date().toISOString().slice(0, 10);
+  document.querySelectorAll("#postings-list .ptrack").forEach(row => {
+    const p = (d.postings || []).find(x => x.id === row.dataset.pid);
+    if (!p) return;
+    row.querySelector(".pt-applied").addEventListener("change", e => {
+      savePostingTracking(d, p, { applied_at: e.target.checked ? (p.applied_at || today()) : "" });
+    });
+    row.querySelector(".pt-applied-date").addEventListener("change", e => {
+      savePostingTracking(d, p, { applied_at: e.target.value });
+    });
+    row.querySelector(".pt-response").addEventListener("change", e => {
+      savePostingTracking(d, p, { response: e.target.value });
+    });
+    row.querySelector(".pt-outreach").addEventListener("click", () => {
+      savePostingTracking(d, p, {
+        outreach_count: (p.outreach_count || 0) + 1,
+        last_outreach_at: today(),
+      });
+    });
+  });
+}
+
+// savePostingTracking PUTs the posting's full lifecycle state (current values
+// overlaid with the change), refreshes the pane card from the response, and
+// keeps the jobs table in sync.
+async function savePostingTracking(d, p, patch) {
+  const body = {
+    applied_at: p.applied_at || "",
+    response: p.response || "",
+    outreach_count: p.outreach_count || 0,
+    last_outreach_at: p.last_outreach_at || "",
+    ...patch,
+  };
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${p.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  const i = (d.postings || []).findIndex(x => x.id === p.id);
+  if (i >= 0) d.postings[i] = fresh;
+  const list = document.getElementById("postings-list");
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
+  loadJobs();
+  toast("tracking saved");
 }
 
 async function onAddPosting(d) {
@@ -2000,7 +2130,7 @@ async function onAddPosting(d) {
   d.postings = d.postings || [];
   d.postings.unshift(p);
   const list = document.getElementById("postings-list");
-  if (list) list.innerHTML = postingsListHTML(d);
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
   loadJobs(); // keep the jobs view in sync
@@ -2387,6 +2517,7 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
+document.getElementById("hide-rejected").onchange = renderJobs;
 document.getElementById("q").oninput = renderActive;
 document.getElementById("verdict").onchange = renderActive;
 document.getElementById("status").onchange = renderActive;

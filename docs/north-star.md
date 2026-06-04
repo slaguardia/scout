@@ -25,11 +25,13 @@ a "Solutions Engineer" role is on- or off-target depending on whether it's
 context is real (the brain), the pipeline is cheap to re-run, and the output
 feeds the existing workflow instead of replacing it.
 
-**Non-goals.** Not a pipeline tracker — scout surfaces and scores candidates;
-what the user does with a committed candidate is out of scope.
-Not a job-board scraper — scout works on company-level data, not listings. Not
-real-time; it's a batch tool, run on a fresh dump. Not auto-applying. Not
-multi-user — it's the user's tool.
+**Non-goals.** Not an outreach/CRM tool — saved postings carry a lean
+application lifecycle (applied date, response stage, outreach count; the jobs
+view replaced the user's external tracker), but the *content* of outreach —
+contacts, messages, templates — stays out of scope.
+Not a job-board scraper — scout works on company-level data plus individually
+captured posting links, not bulk listings. Not real-time; it's a batch tool,
+run on a fresh dump. Not auto-applying. Not multi-user — it's the user's tool.
 
 ## System at a glance
 

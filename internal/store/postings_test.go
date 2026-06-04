@@ -197,3 +197,67 @@ func TestListJobRows(t *testing.T) {
 		t.Errorf("unexpected job row: %+v", r)
 	}
 }
+
+func TestUpdatePostingTracking(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// Fresh posting starts blank.
+	if p.AppliedAt != "" || p.Response != "" || p.OutreachCount != 0 || p.LastOutreachAt != "" {
+		t.Errorf("expected blank lifecycle, got %+v", p)
+	}
+
+	// Full update round-trips.
+	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{
+		AppliedAt: "2026-05-22", Response: "Screening", OutreachCount: 2, LastOutreachAt: "2026-05-30",
+	})
+	if err != nil {
+		t.Fatalf("UpdatePostingTracking: %v", err)
+	}
+	if got.AppliedAt != "2026-05-22" || got.Response != "screening" || // response is case-folded
+		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" {
+		t.Errorf("unexpected tracking: %+v", got)
+	}
+
+	// Clearing works (un-applied, response reset).
+	got, err = db.UpdatePostingTracking(p.ID, PostingTracking{})
+	if err != nil {
+		t.Fatalf("clear tracking: %v", err)
+	}
+	if got.AppliedAt != "" || got.Response != "" || got.OutreachCount != 0 || got.LastOutreachAt != "" {
+		t.Errorf("tracking not cleared: %+v", got)
+	}
+
+	// The jobs view carries the lifecycle columns.
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-01", Response: "offer", OutreachCount: 1, LastOutreachAt: "2026-06-02"}); err != nil {
+		t.Fatalf("re-set tracking: %v", err)
+	}
+	rows, err := db.ListJobRows()
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
+	}
+	if r := rows[0]; r.AppliedAt != "2026-06-01" || r.Response != "offer" || r.OutreachCount != 1 || r.LastOutreachAt != "2026-06-02" {
+		t.Errorf("job row lifecycle mismatch: %+v", r)
+	}
+
+	// Validation: bad date, bad response, negative count, unknown posting.
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "May 22"}); err == nil || !strings.HasPrefix(err.Error(), "applied_at ") {
+		t.Errorf("bad date: want applied_at error, got %v", err)
+	}
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{Response: "ghosted"}); err == nil || !strings.HasPrefix(err.Error(), "response ") {
+		t.Errorf("bad response: want response error, got %v", err)
+	}
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachCount: -1}); err == nil || !strings.HasPrefix(err.Error(), "outreach_count ") {
+		t.Errorf("negative count: want outreach_count error, got %v", err)
+	}
+	if _, err := db.UpdatePostingTracking("no-such-posting", PostingTracking{}); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("unknown posting: want sql.ErrNoRows, got %v", err)
+	}
+}

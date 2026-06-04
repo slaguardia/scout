@@ -126,7 +126,11 @@ job_postings (
     source       TEXT,              -- 'manual' | 'capture' (NULL reads as manual)
     fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    captured_at  DATETIME           -- last agent-pass fill (M19)
+    captured_at  DATETIME,          -- last agent-pass fill (M19)
+    applied_at       DATE,          -- application lifecycle (M20); NULL = not applied
+    response         TEXT,          -- 'screening' | 'interview' | 'offer' | 'rejected'
+    outreach_count   INTEGER NOT NULL DEFAULT 0,
+    last_outreach_at DATE
 )
 ```
 
@@ -142,11 +146,19 @@ duplicating; both the pasted and the final post-redirect URL are matched.
 Unlike `enrichment`/`verdicts` (0..1 per company, keyed on `company_id`), this
 is **one-to-many**: a company can have any number of postings, so it gets its
 own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
-deterministic TEXT uuid). Postings still carry no application status / workflow
-state, which keeps scout on the right side of its "not a pipeline/applicant
-tracker" non-goal. `ListPostings` returns one company's postings newest-first;
-`ListJobRows` joins every posting with its company's name/verdict/marks for the
-UI's jobs view.
+deterministic TEXT uuid).
+
+**Application lifecycle (M20).** The jobs view doubles as the user's
+application tracker (it replaced the external Notion one), so each posting
+carries the lifecycle columns: `applied_at` (NULL = not applied; the checkbox
+and its date are one nullable field), `response` (the furthest reply reached),
+and the outreach cadence (`outreach_count` + `last_outreach_at`). Set as full
+state via `UpdatePostingTracking` (`PUT /api/postings/{id}`); response values
+are case-folded and validated, dates are bare ISO dates. Outreach *content*
+(contacts, messages) stays out of scout — see the non-goals in
+`north-star.md`. `ListPostings` returns one company's postings newest-first;
+`ListJobRows` joins every posting with its company's name/verdict/marks plus
+the lifecycle columns for the UI's jobs view.
 
 ---
 

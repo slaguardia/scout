@@ -224,7 +224,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /api/companies` | every company joined with verdict and enrichment |
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
-| `GET /api/postings` | every posting joined with its company's name/verdict/marks (the **jobs view**) |
+| `GET /api/postings` | every posting joined with its company's name/verdict/marks + application lifecycle (the **jobs view / tracker**) |
+| `PUT /api/postings/{id}` | set a posting's application lifecycle (applied date, response, outreach count/date) |
 | `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
 | `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |

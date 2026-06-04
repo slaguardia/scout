@@ -5,6 +5,7 @@ import (
 	"fmt"
 	neturl "net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -29,17 +30,27 @@ type Posting struct {
 	FetchStatus string `json:"fetch_status"` // capture taxonomy; "" for manual adds
 	CreatedAt   string `json:"created_at"`
 	CapturedAt  string `json:"captured_at"` // "" when never captured
+
+	// Application lifecycle (M20) — the jobs view doubles as the user's
+	// application tracker. AppliedAt "" means not applied; Response is the
+	// furthest reply reached ("screening"|"interview"|"offer"|"rejected").
+	AppliedAt      string `json:"applied_at"`
+	Response       string `json:"response"`
+	OutreachCount  int    `json:"outreach_count"`
+	LastOutreachAt string `json:"last_outreach_at"`
 }
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
 const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location, ''),
        COALESCE(summary, ''), COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
-       created_at, COALESCE(captured_at, '')`
+       created_at, COALESCE(captured_at, ''),
+       COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, '')`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
 	err := row.Scan(&p.ID, &p.CompanyID, &p.URL, &p.Title, &p.Location,
-		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt)
+		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
+		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt)
 	return p, err
 }
 
@@ -156,6 +167,65 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 	return out, false, err
 }
 
+// PostingTracking is the application-lifecycle payload for one posting. All
+// fields are full-state (not deltas): the UI sends the complete picture and
+// the row is set to it. Empty strings clear the dates/response; a negative
+// OutreachCount is rejected.
+type PostingTracking struct {
+	AppliedAt      string `json:"applied_at"`       // "YYYY-MM-DD" or "" (not applied)
+	Response       string `json:"response"`         // ""|"screening"|"interview"|"offer"|"rejected"
+	OutreachCount  int    `json:"outreach_count"`   // >= 0
+	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
+}
+
+// validTrackingDate accepts "" (unset) or a bare ISO date. Validation errors
+// are prefixed with the field name so the web layer can map them to 400s.
+func validTrackingDate(field, s string) (sql.NullString, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return sql.NullString{}, nil
+	}
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		return sql.NullString{}, fmt.Errorf("%s must be a YYYY-MM-DD date", field)
+	}
+	return sql.NullString{String: s, Valid: true}, nil
+}
+
+// UpdatePostingTracking sets a posting's application-lifecycle fields and
+// returns the refreshed row. Returns sql.ErrNoRows for an unknown posting;
+// validation errors carry the offending field's name as a prefix.
+func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, error) {
+	applied, err := validTrackingDate("applied_at", t.AppliedAt)
+	if err != nil {
+		return Posting{}, err
+	}
+	lastOutreach, err := validTrackingDate("last_outreach_at", t.LastOutreachAt)
+	if err != nil {
+		return Posting{}, err
+	}
+	response := strings.ToLower(strings.TrimSpace(t.Response))
+	switch response {
+	case "", "screening", "interview", "offer", "rejected":
+	default:
+		return Posting{}, fmt.Errorf(`response must be "screening", "interview", "offer", "rejected", or empty`)
+	}
+	if t.OutreachCount < 0 {
+		return Posting{}, fmt.Errorf("outreach_count must be >= 0")
+	}
+
+	const q = `UPDATE job_postings SET
+	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?
+	 WHERE id = ?`
+	res, err := db.Exec(q, applied, NullString(response), t.OutreachCount, lastOutreach, id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
 func (db *DB) readPosting(id string) (Posting, error) {
 	p, err := scanPosting(db.QueryRow(`SELECT `+postingCols+` FROM job_postings WHERE id = ?`, id))
 	if err != nil {
@@ -203,6 +273,12 @@ type JobRow struct {
 	Reason      string `json:"reason"`
 	Reviewed    bool   `json:"reviewed"`
 	Flagged     bool   `json:"flagged"`
+
+	// Application lifecycle (M20) — the tracker columns of the jobs view.
+	AppliedAt      string `json:"applied_at"`
+	Response       string `json:"response"`
+	OutreachCount  int    `json:"outreach_count"`
+	LastOutreachAt string `json:"last_outreach_at"`
 }
 
 // ListJobRows returns every posting across all companies, newest first, for
@@ -212,7 +288,8 @@ func (db *DB) ListJobRows() ([]JobRow, error) {
 SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.location, ''),
        COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
        p.created_at, COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
-       c.reviewed_at, c.flagged_at
+       c.reviewed_at, c.flagged_at,
+       COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -229,7 +306,8 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 		var reviewedAt, flaggedAt sql.NullString
 		if err := rows.Scan(&r.PostingID, &r.CompanyID, &r.Company, &r.URL, &r.Title, &r.Location,
 			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt, &r.Verdict, &r.Reason,
-			&reviewedAt, &flaggedAt); err != nil {
+			&reviewedAt, &flaggedAt,
+			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid

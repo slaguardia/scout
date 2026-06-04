@@ -43,6 +43,13 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   identities), and a captured company page seeds the enrichment row from the
   fetched text. Unfetchable pages report their honest fetch status and write
   nothing.
+- **The jobs view is the application tracker** (replaced the user's Notion
+  tracker): a lean table — company name + applied date, response
+  (screening/interview/offer/rejected), outreach count, last outreach — with
+  everything else in the slide-in panel, where each posting card has the
+  tracking controls (`PUT /api/postings/{id}`). "Hide rejected" is on by
+  default. Outreach *content* stays in Notion; see the amended non-goals in
+  `north-star.md`.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength

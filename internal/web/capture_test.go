@@ -120,3 +120,69 @@ func TestCaptureFetchFailureIs422(t *testing.T) {
 		t.Errorf("want fetch_status http_403, got %+v (err=%v)", body, err)
 	}
 }
+
+func TestPostingTrackingAPI(t *testing.T) {
+	s, cid := newTestServer(t)
+	h := s.Handler()
+
+	p, err := s.DB.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	put := func(id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/api/postings/"+id, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Happy path: tracking lands and the refreshed posting comes back.
+	rec := put(p.ID, `{"applied_at":"2026-05-22","response":"screening","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("track: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		AppliedAt     string `json:"applied_at"`
+		Response      string `json:"response"`
+		OutreachCount int    `json:"outreach_count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.AppliedAt != "2026-05-22" || got.Response != "screening" || got.OutreachCount != 2 {
+		t.Errorf("unexpected tracking payload: %+v", got)
+	}
+
+	// Validation → 400; unknown posting → 404; GET → 405.
+	if rec := put(p.ID, `{"response":"ghosted"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad response: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := put("nope", `{}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown posting: want 404, got %d", rec.Code)
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/api/postings/"+p.ID, nil)
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET posting: want 405, got %d", getRec.Code)
+	}
+
+	// The jobs view reflects the update.
+	jr := httptest.NewRequest(http.MethodGet, "/api/postings", nil)
+	jrec := httptest.NewRecorder()
+	h.ServeHTTP(jrec, jr)
+	var jobs struct {
+		Rows []struct {
+			AppliedAt string `json:"applied_at"`
+			Response  string `json:"response"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(jrec.Body.Bytes(), &jobs); err != nil || len(jobs.Rows) != 1 {
+		t.Fatalf("jobs decode: rows=%d err=%v", len(jobs.Rows), err)
+	}
+	if jobs.Rows[0].AppliedAt != "2026-05-22" || jobs.Rows[0].Response != "screening" {
+		t.Errorf("jobs view lifecycle mismatch: %+v", jobs.Rows[0])
+	}
+}
