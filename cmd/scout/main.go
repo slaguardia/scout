@@ -198,6 +198,7 @@ func cmdEnrich(args []string) error {
 	workers := fs.Int("workers", 8, "parallel fetchers")
 	timeout := fs.Duration("timeout", 12*time.Second, "per-request timeout")
 	force := fs.Bool("force", false, "re-fetch even if cached")
+	onlyBlanks := fs.Bool("only-blanks", false, "only companies with no enrichment row yet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -211,7 +212,7 @@ func cmdEnrich(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout}
+	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout, OnlyBlanks: *onlyBlanks}
 	res, err := e.Run(ctx, *force)
 	if err != nil {
 		return err
@@ -235,6 +236,7 @@ func cmdVerdict(args []string) error {
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
 	workers := fs.Int("workers", 4, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
+	onlyBlanksV := fs.Bool("only-blanks", false, "only companies with no verdict row yet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -299,14 +301,15 @@ func cmdVerdict(args []string) error {
 	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
 
 	s := &verdict.Scorer{
-		DB:       db,
-		Taste:    tb,
-		Filter:   ft,
-		Client:   ac,
-		Model:    *model,
-		Playbook: pbText,
-		Force:    *force,
-		Workers:  *workers,
+		DB:         db,
+		Taste:      tb,
+		Filter:     ft,
+		Client:     ac,
+		Model:      *model,
+		Playbook:   pbText,
+		Force:      *force,
+		OnlyBlanks: *onlyBlanksV,
+		Workers:    *workers,
 	}
 	res, err := s.Run(ctx)
 	if err != nil {

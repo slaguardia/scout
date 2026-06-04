@@ -29,6 +29,11 @@ type Scorer struct {
 	Model  string
 	Force  bool // re-score even if taste_version matches
 
+	// OnlyBlanks limits the run to companies with no verdict row at all — the
+	// cheap "just the new arrivals" pass. Stale and manual verdicts are left
+	// untouched. Takes precedence over Force.
+	OnlyBlanks bool
+
 	// Playbook is the agent's operating manual (how to decide) — distinct from
 	// Taste (what the user wants). Empty means fall back to the built-in rubric.
 	// The caller is responsible for folding the playbook text into
@@ -197,18 +202,24 @@ func buildInQuery(prefix string, ids []string) (string, []any) {
 // cache_creation and cache_read input-token counts from the response so
 // Run() can aggregate them.
 func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
-	if !s.Force {
+	if s.OnlyBlanks || !s.Force {
 		existing, err := s.DB.GetVerdict(c.CompanyID)
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		// A hand-set verdict is sticky: leave it untouched unless --force. A manual
-		// correction that auto-reverts on the next run would be pointless.
-		if existing != nil && existing.Model == store.ManualModel {
-			return nil, 0, 0, nil // manual override, skip
-		}
-		if existing != nil && existing.TasteVersion == s.Taste.Version {
-			return nil, 0, 0, nil // up to date, skip
+		if existing != nil {
+			// Blanks-only run: anything already scored is out of scope.
+			if s.OnlyBlanks {
+				return nil, 0, 0, nil
+			}
+			// A hand-set verdict is sticky: leave it untouched unless --force. A
+			// manual correction that auto-reverts on the next run would be pointless.
+			if existing.Model == store.ManualModel {
+				return nil, 0, 0, nil // manual override, skip
+			}
+			if existing.TasteVersion == s.Taste.Version {
+				return nil, 0, 0, nil // up to date, skip
+			}
 		}
 	}
 

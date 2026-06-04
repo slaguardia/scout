@@ -25,15 +25,17 @@ type Enrichment struct {
 // EnrichmentTargets returns companies that need enrichment. A company is considered
 // "needs enrichment" if it has no enrichment row, OR companies.ingested_at is newer
 // than enrichment.fetched_at (re-ingest invalidates the cache).
-// If force is true, every company with a non-empty domain is returned.
-func (db *DB) EnrichmentTargets(force bool) ([]EnrichmentTarget, error) {
+// If force is true, every company with a non-empty domain is returned. If
+// onlyBlanks, only companies with no enrichment row at all are returned — the
+// re-ingest refresh clause is skipped. force wins over onlyBlanks.
+func (db *DB) EnrichmentTargets(force, onlyBlanks bool) ([]EnrichmentTarget, error) {
 	q := `
 SELECT c.id, c.name, COALESCE(c.domain, '')
 FROM companies c
 LEFT JOIN enrichment e ON e.company_id = c.id
 WHERE COALESCE(c.domain, '') <> ''
-  AND (? OR e.company_id IS NULL OR datetime(c.ingested_at) > datetime(e.fetched_at))`
-	rows, err := db.Query(q, force)
+  AND (? OR e.company_id IS NULL OR (NOT ? AND datetime(c.ingested_at) > datetime(e.fetched_at)))`
+	rows, err := db.Query(q, force, onlyBlanks)
 	if err != nil {
 		return nil, fmt.Errorf("select enrichment targets: %w", err)
 	}

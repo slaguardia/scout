@@ -39,6 +39,10 @@ type Enricher struct {
 	Timeout time.Duration
 	Client  *http.Client
 
+	// OnlyBlanks limits the run to companies with no enrichment row at all —
+	// the cheap "just the new arrivals" pass. Ignored when Run is forced.
+	OnlyBlanks bool
+
 	// Progress, if set, receives one line per fetched company. Called from
 	// worker goroutines — must be safe for concurrent use.
 	Progress func(string)
@@ -126,7 +130,7 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 		e.Client = NewHTTPClient(e.Timeout)
 	}
 
-	targets, err := e.DB.EnrichmentTargets(force)
+	targets, err := e.DB.EnrichmentTargets(force, e.OnlyBlanks)
 	if err != nil {
 		return nil, err
 	}

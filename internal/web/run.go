@@ -20,6 +20,9 @@ import (
 // runOptions is the optional JSON body for POST /api/run/{stage}.
 type runOptions struct {
 	Force bool `json:"force"`
+	// OnlyBlanks limits the run to companies the stage has never touched —
+	// no enrichment row / no verdict row. The cheap post-ingest pass.
+	OnlyBlanks bool `json:"only_blanks"`
 }
 
 // handleRun starts a pipeline stage as a job. POST /api/run/{stage}.
@@ -69,7 +72,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) enrichJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
-		e := &enrich.Enricher{DB: s.DB, Progress: emit}
+		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks}
 		res, err := e.Run(ctx, opts.Force)
 		if err != nil {
 			return nil, err
@@ -96,15 +99,16 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			return nil, fmt.Errorf("no taste loaded (check %s)", s.TasteMDPath)
 		}
 		sc := &verdict.Scorer{
-			DB:       s.DB,
-			Taste:    tb,
-			Filter:   ft,
-			Client:   s.Anthropic,
-			Playbook: s.currentPlaybook(),
-			RunID:    id, // tags decision-trail rows with this run
-			Force:    opts.Force,
-			Workers:  4,
-			Progress: emit,
+			DB:         s.DB,
+			Taste:      tb,
+			Filter:     ft,
+			Client:     s.Anthropic,
+			Playbook:   s.currentPlaybook(),
+			RunID:      id, // tags decision-trail rows with this run
+			Force:      opts.Force,
+			OnlyBlanks: opts.OnlyBlanks,
+			Workers:    4,
+			Progress:   emit,
 		}
 		res, err := sc.Run(ctx)
 		if err != nil {
