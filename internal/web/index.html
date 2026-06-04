@@ -93,7 +93,6 @@
 
   /* ---- brand / logo (top of sidebar) ---- */
   .sidebar-brand {
-    margin-bottom: 20px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--line);
   }
@@ -139,17 +138,20 @@
   }
   /* pins the docs button to the bottom of the nav (after the last block when
      content overflows). */
-  .sidebar-foot { margin-top: auto; padding-top: 18px; }
-  aside.sidebar .block { margin-bottom: 24px; }
-  aside.sidebar .block:last-child { margin-bottom: 0; }
+  .sidebar-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+  .sidebar-foot .doc-btn { width: 100%; justify-content: center; }
+  /* one rhythm: every section is a padded band, hairlines between bands (the
+     brand row draws the first divider). */
+  aside.sidebar .block { padding: 18px 0; }
+  aside.sidebar .block + .block { border-top: 1px solid var(--line); }
   aside.sidebar h3 {
-    margin: 0 0 10px;
+    margin: 0 0 12px;
     font-size: 10.5px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.1em;
+    text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--fg-dim);
     display: flex; align-items: center; gap: 6px;
   }
-  aside.sidebar h3 svg { width: 12px; height: 12px; opacity: 0.9; }
+  aside.sidebar h3 svg { width: 12px; height: 12px; opacity: 0.7; }
 
   /* filter inputs */
   .filter-row { margin-bottom: 8px; }
@@ -325,23 +327,59 @@
     transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
   }
   .stat-chip:hover { border-color: var(--line-2); color: var(--fg); }
-  .stat-chip .v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg); }
-  .stat-chip .v.zero { color: var(--fg-dim); font-weight: 400; }
+  .stat-chip .v {
+    font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11.5px;
+    color: var(--link); background: var(--link-bg);
+    padding: 1px 8px; border-radius: 999px;
+  }
+  .stat-chip .v.zero { color: var(--fg-dim); background: var(--panel-3); font-weight: 400; }
 
-  /* chip toggles — column show/hide and the multi-select verdict filter */
+  /* chip toggles — the one small-control vocabulary: verdict filter, flag
+     filter, and column show/hide all share this base. */
   .col-toggles, .verdict-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .col-chip, .v-chip {
+    display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 10px; font: inherit; font-size: 11.5px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
     color: var(--fg-dim); cursor: pointer;
-    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
   }
   .col-chip:hover, .v-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
-  .col-chip.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+
+  /* verdict chips carry their pill color as a dot, so the off state still
+     reads as a clickable filter rather than a disabled control. */
+  .v-chip[data-v]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .v-chip[data-v="yes"]::before      { background: var(--yes); }
+  .v-chip[data-v="maybe"]::before    { background: var(--maybe); }
+  .v-chip[data-v="no"]::before       { background: var(--no); }
+  .v-chip[data-v="__none__"]::before { background: var(--fg-dim); }
+  .v-chip[data-v]:not(.is-on)::before { opacity: 0.45; }
   .v-chip.is-on[data-v="yes"]      { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
   .v-chip.is-on[data-v="maybe"]    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
   .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
   .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
+  .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+
+  /* column chips stay quiet — a set-once preference shouldn't outshine the
+     filters. Lit = visible column. */
+  .col-chip.is-on { color: var(--fg-mute); background: var(--panel-3); border-color: transparent; }
+
+  /* Columns lives behind a disclosure, styled like the section headers. */
+  .cols-details summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--fg-dim);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .cols-details summary::-webkit-details-marker { display: none; }
+  .cols-details summary:hover { color: var(--fg-mute); }
+  .cols-details summary svg { width: 12px; height: 12px; opacity: 0.7; flex: none; }
+  .cols-details summary .chev { margin-left: auto; opacity: 0.9; transition: transform var(--dur-fast) var(--ease); }
+  .cols-details[open] summary .chev { transform: rotate(90deg); }
+  .cols-details .col-toggles { margin-top: 12px; }
 
   /* ---- empty state ---- */
   .empty {
@@ -1005,13 +1043,8 @@
         <button class="v-chip" data-v="maybe">maybe</button>
         <button class="v-chip" data-v="no">no</button>
         <button class="v-chip" data-v="__none__">unscored</button>
+        <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
-    </div>
-    <div class="filter-row">
-      <select id="status">
-        <option value="">flag: all</option>
-        <option value="flagged">flagged only</option>
-      </select>
     </div>
     <button class="stat-chip" id="unscored-chip" title="filter to companies awaiting a verdict">
       <span class="k">without a verdict</span>
@@ -1020,11 +1053,14 @@
   </div>
 
   <div class="block" id="block-columns">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
-      Columns
-    </h3>
-    <div class="col-toggles" id="col-toggles"></div>
+    <details class="cols-details">
+      <summary>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
+        Columns
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>
+      </summary>
+      <div class="col-toggles" id="col-toggles"></div>
+    </details>
   </div>
 
   <div class="block" id="block-criteria">
@@ -1480,19 +1516,19 @@ function sortRows(rows) {
 // Multi-select verdict filter: the set holds the chips currently on
 // ("yes"/"maybe"/"no"/"__none__" for unscored). Empty set = no filter.
 const verdictFilter = new Set();
+let flagOnly = false; // the ⚑ chip: show flagged companies only
 
 function renderVerdictChips() {
-  document.querySelectorAll("#verdict-chips .v-chip").forEach(b => {
+  document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
     b.classList.toggle("is-on", verdictFilter.has(b.dataset.v));
   });
 }
 
 function filtered() {
   const q = document.getElementById("q").value.trim().toLowerCase();
-  const st = document.getElementById("status").value;
   return state.rows.filter(r => {
     if (verdictFilter.size && !verdictFilter.has(r.verdict || "__none__")) return false;
-    if (st === "flagged" && !r.flagged) return false;
+    if (flagOnly && !r.flagged) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -2218,14 +2254,18 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   };
 });
 document.getElementById("q").oninput = renderList;
-document.getElementById("status").onchange = renderList;
-document.querySelectorAll("#verdict-chips .v-chip").forEach(b => {
+document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
   b.addEventListener("click", () => {
     const v = b.dataset.v;
     if (verdictFilter.has(v)) verdictFilter.delete(v); else verdictFilter.add(v);
     renderVerdictChips();
     renderList();
   });
+});
+document.getElementById("flag-filter").addEventListener("click", e => {
+  flagOnly = !flagOnly;
+  e.currentTarget.classList.toggle("is-on", flagOnly);
+  renderList();
 });
 // The "without a verdict" chip is a shortcut: filter to unscored only.
 document.getElementById("unscored-chip").onclick = () => {
