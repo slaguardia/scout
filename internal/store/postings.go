@@ -31,7 +31,7 @@ type Posting struct {
 	CreatedAt   string `json:"created_at"`
 	CapturedAt  string `json:"captured_at"` // "" when never captured
 
-	// Application lifecycle (M20) — the jobs view doubles as the user's
+	// Application lifecycle (M23) — the jobs view doubles as the user's
 	// application tracker. AppliedAt "" means not applied; Response is the
 	// furthest reply reached ("screening"|"interview"|"offer"|"rejected").
 	AppliedAt      string `json:"applied_at"`
@@ -39,7 +39,7 @@ type Posting struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
-	// Contacts (M21): free-form outreach contacts for this role —
+	// Contacts (M24): free-form outreach contacts for this role —
 	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
 	Contacts string `json:"contacts"`
 }
@@ -282,12 +282,12 @@ type JobRow struct {
 	Reviewed    bool   `json:"reviewed"`
 	Flagged     bool   `json:"flagged"`
 
-	// Application lifecycle (M20) — the tracker columns of the jobs view.
+	// Application lifecycle (M23) — the tracker columns of the jobs view.
 	AppliedAt      string `json:"applied_at"`
 	Response       string `json:"response"`
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
-	Contacts       string `json:"contacts"` // outreach contacts (M21)
+	Contacts       string `json:"contacts"` // outreach contacts (M24)
 }
 
 // ListJobRows returns every posting across all companies, newest first, for

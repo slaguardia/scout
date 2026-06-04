@@ -1,4 +1,4 @@
--- scout schema, M20
+-- scout schema, M23
 -- Application lifecycle on postings: the jobs view takes over the user's
 -- external application tracker. Applied-or-not and its date collapse into one
 -- nullable applied_at; response is the furthest reply reached; outreach is a

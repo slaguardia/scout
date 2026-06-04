@@ -1,4 +1,4 @@
--- scout schema, M21
+-- scout schema, M24
 -- Outreach contacts on postings: a free-form text field for the people the
 -- user can reach out to about this role ("Jane Doe <jane@acme.com>, cto@…").
 -- Deliberately not a contacts table — one tracker column, comma-separated;

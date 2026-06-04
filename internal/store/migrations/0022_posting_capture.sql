@@ -1,4 +1,4 @@
--- scout schema, M19
+-- scout schema, M22
 -- Link capture: job_postings grows the fields the capture agent pass extracts
 -- from a pasted posting URL (location, summary) plus provenance — how the row
 -- got here (source), how the fetch went (fetch_status), and when the agent

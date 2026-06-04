@@ -121,22 +121,22 @@ job_postings (
     company_id   TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
     url          TEXT NOT NULL,     -- the posting link (final, post-redirect URL)
     title        TEXT,              -- optional label / extracted role title
-    location     TEXT,              -- extracted by capture (M19)
-    summary      TEXT,              -- 1-2 sentence role summary, extracted (M19)
+    location     TEXT,              -- extracted by capture (M22)
+    summary      TEXT,              -- 1-2 sentence role summary, extracted (M22)
     source       TEXT,              -- 'manual' | 'capture' (NULL reads as manual)
     fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    captured_at  DATETIME,          -- last agent-pass fill (M19)
-    applied_at       DATE,          -- application lifecycle (M20); NULL = not applied
+    captured_at  DATETIME,          -- last agent-pass fill (M22)
+    applied_at       DATE,          -- application lifecycle (M23); NULL = not applied
     response         TEXT,          -- 'screening' | 'interview' | 'offer' | 'rejected'
     outreach_count   INTEGER NOT NULL DEFAULT 0,
     last_outreach_at DATE,
-    contacts         TEXT           -- outreach contacts (M21), free-form comma-separated
+    contacts         TEXT           -- outreach contacts (M24), free-form comma-separated
 )
 ```
 
 Links to actual job/role postings found at a company. Migrations `0011` +
-`0019`. Two ways in: **by hand** from the triage detail pane (`AddPosting`,
+`0022`–`0024`. Two ways in: **by hand** from the triage detail pane (`AddPosting`,
 source `manual` — url + optional title only), or **by link-capture**
 (`UpsertCapturedPosting`, source `capture`): the user pastes a URL, and one
 Haiku pass (`internal/capture`) classifies the page and extracts
@@ -149,12 +149,12 @@ is **one-to-many**: a company can have any number of postings, so it gets its
 own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
 deterministic TEXT uuid).
 
-**Application lifecycle (M20).** The jobs view doubles as the user's
+**Application lifecycle (M23).** The jobs view doubles as the user's
 application tracker (it replaced the external Notion one), so each posting
 carries the lifecycle columns: `applied_at` (NULL = not applied; the checkbox
 and its date are one nullable field), `response` (the furthest reply reached),
 the outreach cadence (`outreach_count` + `last_outreach_at`), and `contacts`
-(M21) — a free-form comma-separated list of outreach contacts ("Jane Doe
+(M24) — a free-form comma-separated list of outreach contacts ("Jane Doe
 <jane@acme.com>, cto@…"; the UI renders email-shaped tokens as mailto links).
 Set as full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`);
 response values are case-folded and validated, dates are bare ISO dates,
