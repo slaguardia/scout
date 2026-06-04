@@ -318,21 +318,13 @@
   .flag-bar .fb-state.is-flagged { color: var(--maybe); }
   .flag-bar .fb-actions { display: flex; gap: 8px; flex: none; }
 
-  /* clickable count chip in the Filter block */
-  .stat-chip {
-    width: 100%; display: flex; align-items: center; justify-content: space-between;
-    margin-top: 8px; padding: 7px 10px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
-    color: var(--fg-mute); font: inherit; font-size: 12px; cursor: pointer;
-    transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  /* the one count that matters rides the unscored chip as a small badge */
+  .v-chip .v-count {
+    font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;
+    padding: 0 6px; border-radius: 999px;
+    background: var(--panel-3); color: var(--fg-mute);
   }
-  .stat-chip:hover { border-color: var(--line-2); color: var(--fg); }
-  .stat-chip .v {
-    font-weight: 600; font-variant-numeric: tabular-nums; font-size: 11.5px;
-    color: var(--link); background: var(--link-bg);
-    padding: 1px 8px; border-radius: 999px;
-  }
-  .stat-chip .v.zero { color: var(--fg-dim); background: var(--panel-3); font-weight: 400; }
+  .v-chip.is-on .v-count { background: rgba(0,0,0,0.25); color: inherit; }
 
   /* chip toggles — the one small-control vocabulary: verdict filter, flag
      filter, and column show/hide all share this base. */
@@ -1042,14 +1034,10 @@
         <button class="v-chip" data-v="yes">yes</button>
         <button class="v-chip" data-v="maybe">maybe</button>
         <button class="v-chip" data-v="no">no</button>
-        <button class="v-chip" data-v="__none__">unscored</button>
+        <button class="v-chip" data-v="__none__" title="companies awaiting a verdict">unscored <span class="v-count" id="unscored-n">–</span></button>
         <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
     </div>
-    <button class="stat-chip" id="unscored-chip" title="filter to companies awaiting a verdict">
-      <span class="k">without a verdict</span>
-      <span class="v" id="unscored-n">–</span>
-    </button>
   </div>
 
   <div class="block" id="block-columns">
@@ -1440,7 +1428,7 @@ Return the JSON verdict now.</pre>
             <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
-          <p>The sidebar's <strong>without a verdict</strong> chip shows how many companies still await scoring — click it to filter to them. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+          <p>The <strong>unscored</strong> filter chip carries a live count of companies still awaiting a verdict. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
         </section>
 
       </div>
@@ -1476,9 +1464,9 @@ async function loadStats() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     s = await r.json();
   } catch (e) {
-    const chip = document.getElementById("unscored-chip");
-    chip.title = `stats failed: ${e.message}`;
-    document.getElementById("unscored-n").textContent = "–";
+    const el = document.getElementById("unscored-n");
+    el.textContent = "–";
+    el.title = `stats failed: ${e.message}`;
     return;
   }
   state.stats = s;
@@ -1487,12 +1475,8 @@ async function loadStats() {
 
 function renderStats() {
   const s = state.stats || {};
-  // The only count worth surfacing: companies still awaiting a verdict. The
-  // chip doubles as a control — clicking it applies the (unscored) filter.
-  const n = s.unscored ?? 0;
-  const el = document.getElementById("unscored-n");
-  el.textContent = n;
-  el.classList.toggle("zero", Number(n) === 0);
+  // The only count worth surfacing — riding the unscored filter chip itself.
+  document.getElementById("unscored-n").textContent = s.unscored ?? 0;
 
   // Criteria block (source + playbook + stale badge) reads stats too.
   renderCriteria();
@@ -2267,15 +2251,9 @@ document.getElementById("flag-filter").addEventListener("click", e => {
   e.currentTarget.classList.toggle("is-on", flagOnly);
   renderList();
 });
-// The "without a verdict" chip is a shortcut: filter to unscored only.
-document.getElementById("unscored-chip").onclick = () => {
-  verdictFilter.clear();
-  verdictFilter.add("__none__");
-  renderVerdictChips();
-  renderList();
-};
 renderColToggles();
 applyColumnVisibility(); // hide chosen thead cells before the first data load
+
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
