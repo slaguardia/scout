@@ -225,23 +225,26 @@
   /* ---- main / table ---- */
   main { padding: 16px 24px 60px; min-width: 0; }
 
-  /* view tabs (companies | jobs) */
-  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  /* view switch (companies | jobs) — top of the sidebar; the whole main area
+     follows it. */
+  .view-switch { display: flex; gap: 6px; }
   .tab {
+    flex: 1;
     background: var(--panel); color: var(--fg-mute);
     border: 1px solid var(--line); border-radius: var(--r-md);
-    padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer;
+    padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer;
+    text-align: center;
     transition: all var(--dur-fast) var(--ease);
   }
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
-  /* "hide rejected" toggle, jobs view only — mirrors the Notion tracker's
-     default view, which filtered Rejected out. */
+  /* "hide rejected" toggle (Filter block, jobs view only) — mirrors the Notion
+     tracker's default view, which filtered Rejected out. */
   .hide-rejected {
-    margin-left: auto; align-self: center;
     display: inline-flex; align-items: center; gap: 6px;
     color: var(--fg-mute); font-size: 12.5px; cursor: pointer; user-select: none;
+    padding: 2px 1px;
   }
   .hide-rejected input { accent-color: var(--link); cursor: pointer; }
 
@@ -1027,6 +1030,13 @@
 <div class="layout">
 <aside class="sidebar">
   <div class="sidebar-brand"><div class="brand">scout</div></div>
+  <div class="block" id="block-view">
+    <div class="view-switch" title="which table the main area shows">
+      <button class="tab active" id="tab-companies">companies</button>
+      <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+    </div>
+  </div>
+
   <div class="block" id="block-run">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
@@ -1080,6 +1090,11 @@
         <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
     </div>
+    <div class="filter-row" id="hide-rejected-wrap" style="display:none">
+      <label class="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">
+        <input type="checkbox" id="hide-rejected" checked> hide rejected
+      </label>
+    </div>
   </div>
 
   <div class="block" id="block-columns">
@@ -1110,14 +1125,6 @@
 </aside>
 
 <main>
-  <div class="tabs">
-    <button class="tab active" id="tab-companies">companies</button>
-    <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
-    <label class="hide-rejected" id="hide-rejected-wrap" style="display:none">
-      <input type="checkbox" id="hide-rejected" checked> hide rejected
-    </label>
-  </div>
-
   <div class="table-wrap" id="companies-view">
     <table id="t">
       <thead>
@@ -1150,12 +1157,12 @@
       <thead>
         <tr>
           <th data-jk="company">company</th>
-          <th data-jk="applied_at">applied</th>
-          <th data-jk="response">response</th>
-          <th data-jk="outreach_count">outreach</th>
-          <th data-jk="last_outreach_at">last outreach</th>
-          <th data-jk="contacts">contacts</th>
-          <th>link</th>
+          <th data-jk="applied_at" data-col="applied">applied</th>
+          <th data-jk="response" data-col="response">response</th>
+          <th data-jk="outreach_count" data-col="outreach">outreach</th>
+          <th data-jk="last_outreach_at" data-col="last_outreach">last outreach</th>
+          <th data-jk="contacts" data-col="contacts">contacts</th>
+          <th data-col="link">link</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -1581,6 +1588,7 @@ function setView(v) {
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
   document.getElementById("hide-rejected-wrap").style.display = v === "jobs" ? "" : "none";
+  renderColToggles(); // the Columns block follows the active view
   if (v === "jobs") renderJobs(); else renderList();
 }
 
@@ -1649,8 +1657,9 @@ function filtered() {
 }
 
 // ---- column visibility ----
-// Every column except name (the row anchor) can be hidden. Hidden keys persist
-// in localStorage so the table layout survives reloads.
+// Every column except the row anchor (name / company) can be hidden. Each view
+// has its own column set and its own persisted hidden-keys, and the sidebar
+// Columns block always shows the ACTIVE view's toggles.
 const COLUMNS = [
   { k: "flag",     label: "flag" },
   { k: "verdict",  label: "verdict" },
@@ -1662,31 +1671,49 @@ const COLUMNS = [
   { k: "reviewed", label: "reviewed" },
   { k: "site",     label: "site" },
 ];
+const JCOLUMNS = [
+  { k: "applied",       label: "applied" },
+  { k: "response",      label: "response" },
+  { k: "outreach",      label: "outreach" },
+  { k: "last_outreach", label: "last outreach" },
+  { k: "contacts",      label: "contacts" },
+  { k: "link",          label: "link" },
+];
 
-const hiddenCols = (() => {
-  try { return new Set(JSON.parse(localStorage.getItem("scout-hidden-cols") || "[]")); }
+function loadHidden(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
-})();
+}
+const hiddenCols = loadHidden("scout-hidden-cols");   // companies table
+const jHiddenCols = loadHidden("scout-hidden-jcols"); // jobs table
 
-function saveHiddenCols() {
-  localStorage.setItem("scout-hidden-cols", JSON.stringify([...hiddenCols]));
+// colState resolves the active view's column set, hidden-keys, and store key.
+function colState() {
+  return state.view === "jobs"
+    ? { cols: JCOLUMNS, hidden: jHiddenCols, key: "scout-hidden-jcols" }
+    : { cols: COLUMNS, hidden: hiddenCols, key: "scout-hidden-cols" };
 }
 
 function applyColumnVisibility() {
   document.querySelectorAll("#t [data-col]").forEach(el => {
     el.style.display = hiddenCols.has(el.dataset.col) ? "none" : "";
   });
+  document.querySelectorAll("#jt [data-col]").forEach(el => {
+    el.style.display = jHiddenCols.has(el.dataset.col) ? "none" : "";
+  });
 }
 
 function renderColToggles() {
-  document.getElementById("col-toggles").innerHTML = COLUMNS.map(c =>
-    `<button class="col-chip${hiddenCols.has(c.k) ? "" : " is-on"}" data-col="${c.k}" title="${hiddenCols.has(c.k) ? "show" : "hide"} ${c.label}">${c.label}</button>`
+  const cs = colState();
+  document.getElementById("col-toggles").innerHTML = cs.cols.map(c =>
+    `<button class="col-chip${cs.hidden.has(c.k) ? "" : " is-on"}" data-col="${c.k}" title="${cs.hidden.has(c.k) ? "show" : "hide"} ${c.label}">${c.label}</button>`
   ).join("");
   document.querySelectorAll("#col-toggles .col-chip").forEach(b => {
     b.addEventListener("click", () => {
+      const cs = colState(); // re-resolve: the view may have changed since render
       const k = b.dataset.col;
-      if (hiddenCols.has(k)) hiddenCols.delete(k); else hiddenCols.add(k);
-      saveHiddenCols();
+      if (cs.hidden.has(k)) cs.hidden.delete(k); else cs.hidden.add(k);
+      localStorage.setItem(cs.key, JSON.stringify([...cs.hidden]));
       renderColToggles();
       applyColumnVisibility();
     });
@@ -1806,15 +1833,16 @@ function renderJobs() {
     tr.innerHTML = `
       <td><span class="row-name">${escapeHTML(j.company)}</span>
         ${j.title ? `<div class="small dim">${escapeHTML(j.title)}</div>` : ""}</td>
-      <td class="small">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
-      <td><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
-      <td class="small">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
-      <td class="small">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
-      <td class="small td-contacts">${contactsHTML(j.contacts)}</td>
-      <td><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
+      <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
+      <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
+      <td class="small" data-col="outreach">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
+      <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
+      <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
+      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
     `;
     tbody.appendChild(tr);
   }
+  applyColumnVisibility();
   // Row click opens the company's detail pane (posting details + tracking
   // controls live there); the external "open ↗" link is guarded out.
   tbody.querySelectorAll("tr").forEach(tr => {
