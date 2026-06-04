@@ -393,6 +393,8 @@
   .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
   .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
   .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+  .run-mode { margin-top: 8px; }
+  #only-blanks.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
      filters. Lit = visible column. */
@@ -1063,6 +1065,9 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
         <span class="grow">Verdict</span>
       </button>
+    </div>
+    <div class="run-mode">
+      <button class="v-chip" id="only-blanks" title="when lit, Enrich and Verdict only touch companies they've never seen — no enrichment row / no verdict yet">only blanks</button>
     </div>
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
@@ -2693,8 +2698,13 @@ document.addEventListener("keydown", e => {
 });
 
 // run controls
-document.getElementById("btn-enrich").onclick = () => startRun("enrich", {});
-document.getElementById("btn-verdict").onclick = () => startRun("verdict", {});
+let onlyBlanks = false; // when lit, Enrich/Verdict only touch never-seen companies
+document.getElementById("only-blanks").onclick = e => {
+  onlyBlanks = !onlyBlanks;
+  e.currentTarget.classList.toggle("is-on", onlyBlanks);
+};
+document.getElementById("btn-enrich").onclick = () => startRun("enrich", onlyBlanks ? { only_blanks: true } : {});
+document.getElementById("btn-verdict").onclick = () => startRun("verdict", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("btn-add-company").onclick = openAddCompany;
 document.getElementById("add-cancel").onclick = closeAddCompany;
