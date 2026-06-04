@@ -56,7 +56,21 @@ re-ingest, a manual add for a website **already present is rejected (`409`),
 never overwritten** — it returns the existing company. See `ingest.AddManual` /
 `ingest.ErrCompanyExists`.
 
----
+**Link capture (UI only).** The third way in: the **Add by link** modal posts a
+single URL to `POST /api/capture`, and an agent pass (`internal/capture`, one
+Haiku call) fetches the page with the enrichment fetch stack, classifies it —
+**job posting vs company page vs other** — and extracts structured fields. A
+job posting is stored in `job_postings` (title/location/summary) attached to
+its company, with the company created first (source `capture`, via
+`ingest.EnsureCompany`) when it isn't in the list; the company's own domain is
+resolved from the extraction with ATS/job-board hosts (greenhouse, lever,
+ashby, …) explicitly rejected as identities. A company page upserts the company
+and **seeds its enrichment row from the already-fetched text** (only when no
+enrichment exists), so the next verdict run can score it immediately. Unlike
+`AddManual`, an existing company is the happy path (the posting just attaches),
+and capture is idempotent by URL — re-pasting refreshes the same posting.
+Unfetchable pages (login walls, bot challenges) return their honest
+`fetch_status` (`422`) and write nothing; `kind=other` pages write nothing too.
 
 ## `scout filter`
 
@@ -210,11 +224,13 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /api/companies` | every company joined with verdict and enrichment |
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
+| `GET /api/postings` | every posting joined with its company's name/verdict/marks (the **jobs view**) |
+| `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
 | `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |
 | `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
-| `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |
+| `GET /api/meta` | capability flags (control on, brain healthy, verdict/capture key, source) |
 | `GET /healthz` | `ok` |
 
 **Run the pipeline as background jobs**

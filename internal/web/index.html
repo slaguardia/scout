@@ -223,6 +223,18 @@
   /* ---- main / table ---- */
   main { padding: 16px 24px 60px; min-width: 0; }
 
+  /* view tabs (companies | jobs) */
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab {
+    background: var(--panel); color: var(--fg-mute);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .tab:hover { border-color: var(--line-2); color: var(--fg); }
+  .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+  .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
+
   .table-wrap {
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
@@ -959,6 +971,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
         <span class="grow">Add company…</span>
       </button>
+      <button class="run-btn" id="btn-add-link" title="paste a job posting or company page URL — an agent pass fills in the details">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.7 9.3l2.6-2.6M5.6 7.2L4 8.8a2.3 2.3 0 003.2 3.2l1.6-1.6M10.4 8.8L12 7.2A2.3 2.3 0 008.8 4L7.2 5.6"/></svg>
+        <span class="grow">Add by link…</span>
+      </button>
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
         <span class="grow">Enrich</span>
@@ -1025,7 +1041,12 @@
 </aside>
 
 <main>
-  <div class="table-wrap">
+  <div class="tabs">
+    <button class="tab active" id="tab-companies">companies</button>
+    <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+  </div>
+
+  <div class="table-wrap" id="companies-view">
     <table id="t">
       <thead>
         <tr>
@@ -1048,6 +1069,29 @@
       </svg>
       <div class="t">No companies match the current filters.</div>
       <div class="small dim">Clear a filter, or run <code>scout ingest &lt;csv&gt;</code>.</div>
+    </div>
+  </div>
+
+  <div class="table-wrap" id="jobs-view" style="display:none">
+    <table id="jt">
+      <thead>
+        <tr>
+          <th data-jk="title">role</th>
+          <th data-jk="company">company</th>
+          <th data-jk="verdict">company verdict</th>
+          <th data-jk="location">location</th>
+          <th data-jk="created_at">added</th>
+          <th>link</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="jobs-empty" class="empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m-13 0h18a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z"/>
+      </svg>
+      <div class="t">No jobs match the current filters.</div>
+      <div class="small dim">Paste a posting URL via <strong>Add by link…</strong> — the agent pass fills in the rest.</div>
     </div>
   </div>
 </main>
@@ -1161,6 +1205,29 @@
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>
       <button class="btn btn-primary" id="add-save">Add company</button>
+    </div>
+  </div>
+</div>
+
+<!-- add-by-link modal (the link-capture agent pass) -->
+<div class="modal-scrim" id="capture-scrim">
+  <div class="modal" style="width:560px">
+    <div class="modal-head">
+      <h2>Add by link</h2>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label for="capture-url">URL<span class="req">*</span></label>
+        <input class="input" id="capture-url" placeholder="https://… job posting or company page" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Paste a job posting or a company page. scout fetches it and an agent pass figures out which it is and fills in the details — a job posting attaches to its company, adding the company first if it isn't in the list yet. Pages behind a login wall (LinkedIn) usually can't be fetched.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="capture-cancel">Cancel</button>
+      <button class="btn btn-primary" id="capture-save">Capture</button>
     </div>
   </div>
 </div>
@@ -1374,6 +1441,8 @@ Return the JSON verdict now.</pre>
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict, by status (new / reviewed / flagged), or search by name, vertical, or reason.</p>
+          <h4>The jobs view &amp; Add by link</h4>
+          <p>The <strong>jobs</strong> tab lists every saved posting across companies — role, company, the company's verdict, location, and when it was added. The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the review state with a <strong>Mark reviewed</strong> toggle — your acknowledgement that you've triaged it, independent of the verdict.</p>
           <p>The detail pane includes:</p>
@@ -1395,7 +1464,11 @@ Return the JSON verdict now.</pre>
 <div class="toast" id="toast"></div>
 
 <script>
-const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null };
+const state = {
+  rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
+  view: "companies",                       // "companies" | "jobs"
+  jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
+};
 
 const pillClass = v => "pill pill-" + (v || "none");
 // The flag bookmark glyph — pole first, banner last (the .is-on CSS fills the banner).
@@ -1411,6 +1484,28 @@ async function loadList() {
   const data = await r.json();
   state.rows = data.rows || [];
   renderList();
+}
+
+async function loadJobs() {
+  let data;
+  try {
+    const r = await fetch("/api/postings");
+    if (!r.ok) return;
+    data = await r.json();
+  } catch { return; }
+  state.jobs = data.rows || [];
+  document.getElementById("jobs-n").textContent = state.jobs.length ? ` ${state.jobs.length}` : "";
+  renderJobs();
+}
+
+// ---- view tabs ----
+function setView(v) {
+  state.view = v;
+  document.getElementById("tab-companies").classList.toggle("active", v === "companies");
+  document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
+  document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
+  document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
+  if (v === "jobs") renderJobs(); else renderList();
 }
 
 async function loadStats() {
@@ -1507,6 +1602,67 @@ function renderList() {
   });
   tbody.querySelectorAll(".flag-btn").forEach(b => {
     b.addEventListener("click", () => onToggleFlag(b.dataset.id));
+  });
+}
+
+// ---- jobs view ----
+// The sidebar filters apply here too: search matches the posting (title,
+// location, summary) and the company name; verdict/status filter on the
+// posting's COMPANY (its verdict, review state, flag).
+function filteredJobs() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const v = document.getElementById("verdict").value;
+  const st = document.getElementById("status").value;
+  return state.jobs.filter(j => {
+    if (v === "__none__" && j.verdict) return false;
+    if (v && v !== "__none__" && j.verdict !== v) return false;
+    if (st === "new" && j.reviewed) return false;
+    if (st === "reviewed" && !j.reviewed) return false;
+    if (st === "flagged" && !j.flagged) return false;
+    if (q) {
+      const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function compareJobs(a, b, k) {
+  if (k === "verdict") {
+    const order = { yes: 0, maybe: 1, no: 2, "": 3 };
+    return (order[a.verdict] ?? 3) - (order[b.verdict] ?? 3);
+  }
+  if (k === "created_at") // newest first on the first click
+    return String(b.created_at).localeCompare(String(a.created_at));
+  return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
+}
+
+function renderJobs() {
+  const tbody = document.querySelector("#jt tbody");
+  tbody.innerHTML = "";
+  const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
+  document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
+  for (const j of rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = j.company_id;
+    tr.innerHTML = `
+      <td><span class="row-name">${escapeHTML(j.title || j.url)}</span>
+        ${j.summary ? `<div class="small dim">${escapeHTML(j.summary)}</div>` : ""}</td>
+      <td>${escapeHTML(j.company)}</td>
+      <td><span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict || "—")}</span></td>
+      <td>${escapeHTML(j.location || "")}</td>
+      <td class="small dim">${escapeHTML((j.created_at || "").slice(0, 10))}</td>
+      <td><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  // Row click opens the company's detail pane (the posting lives there);
+  // the external "open ↗" link is guarded out.
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("click", e => {
+      if (e.target.closest("a")) return;
+      openDetail(tr.dataset.id);
+    });
   });
 }
 
@@ -1726,6 +1882,7 @@ async function onToggleFlag(id) {
     renderDetail(fresh);
     loadTrace(id); // renderDetail reset the trace body to a spinner
   }
+  loadJobs(); // the jobs view filters on the company's flag
   toast(fresh.flagged ? "flagged" : "unflagged");
 }
 
@@ -1756,6 +1913,7 @@ async function onToggleReviewed(d) {
   renderDetail(fresh);          // re-render with the new review state + button label
   loadTrace(fresh.company_id);  // renderDetail reset the trace body to a spinner
   loadList();                   // refresh the table so the status filter stays accurate
+  loadJobs();
   toast(next ? "marked reviewed" : "marked new");
 }
 
@@ -1790,6 +1948,7 @@ async function onSaveVerdict(d) {
   loadTrace(fresh.company_id);    // pull the appended trail row
   loadList();                     // refresh the table pill / reason / sort
   loadStats();                    // refresh the sidebar by-verdict counts
+  loadJobs();                     // job rows carry the company verdict
   toast("verdict saved");
 }
 
@@ -1797,11 +1956,19 @@ async function onSaveVerdict(d) {
 function postingsListHTML(d) {
   const ps = d.postings || [];
   if (!ps.length) return '<div class="muted">No job links yet.</div>';
-  return ps.map(p => `
+  return ps.map(p => {
+    const meta = [
+      p.location,
+      p.source === "capture" ? "captured" : "added",
+      (p.created_at || "").slice(0, 10),
+    ].filter(Boolean).map(escapeHTML).join(" · ");
+    return `
     <div class="brain-node">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
-      ${p.created_at ? `<div class="l">${escapeHTML(p.created_at)}</div>` : ""}
-    </div>`).join("");
+      ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
+      ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
+    </div>`;
+  }).join("");
 }
 
 async function onAddPosting(d) {
@@ -1836,6 +2003,7 @@ async function onAddPosting(d) {
   if (list) list.innerHTML = postingsListHTML(d);
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
+  loadJobs(); // keep the jobs view in sync
   toast("link added");
 }
 
@@ -1912,6 +2080,10 @@ async function loadMeta() {
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  // Capture needs only the API key (no Runner — it's a direct synchronous pass).
+  const cb = document.getElementById("btn-add-link");
+  cb.disabled = !state.meta.capture;
+  if (!state.meta.capture) cb.title = "set ANTHROPIC_API_KEY in the server env to enable";
 }
 
 // ---- control surface: runs history ----
@@ -2056,6 +2228,64 @@ async function submitAddCompany() {
   loadList(); loadStats();
 }
 
+// ---- add by link (the link-capture agent pass) ----
+function openCapture() {
+  document.getElementById("capture-url").value = "";
+  document.getElementById("capture-scrim").classList.add("open");
+  document.getElementById("capture-url").focus();
+}
+function closeCapture() {
+  document.getElementById("capture-scrim").classList.remove("open");
+}
+async function submitCapture() {
+  const urlEl = document.getElementById("capture-url");
+  const url = urlEl.value.trim();
+  if (!url) { toast("Enter a URL first."); urlEl.focus(); return; }
+  const btn = document.getElementById("capture-save");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "reading page…";
+  const restore = () => { btn.disabled = false; btn.textContent = label; };
+
+  let resp;
+  try {
+    resp = await fetch("/api/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  } catch (e) { toast(`capture failed: ${e.message}`); restore(); return; }
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const t = await resp.text();
+      try { msg = JSON.parse(t).error || msg; } catch { msg = t.trim() || msg; }
+    } catch {}
+    toast(`capture failed: ${msg}`);
+    restore();
+    return;
+  }
+  const res = await resp.json();
+  restore();
+
+  // Nothing-written outcomes are reported honestly, with the modal kept open
+  // so the URL can be corrected.
+  if (!res.company_id) {
+    toast(res.note || "couldn't classify that page");
+    return;
+  }
+  closeCapture();
+  loadList(); loadStats(); loadJobs();
+  if (res.kind === "job_posting" && res.posting) {
+    const what = res.posting.title || "job link";
+    toast(`captured: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
+    setView("jobs");
+  } else {
+    toast(res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`);
+    openDetail(res.company_id);
+  }
+}
+
 function streamJob(stage, jobId) {
   activeJob = jobId;
   const drawer = document.getElementById("drawer");
@@ -2086,7 +2316,7 @@ function streamJob(stage, jobId) {
     document.getElementById("drawer-close").style.display = "";
     toast(`${stage} ${e.data}`);
     // Refresh everything the run could have changed.
-    loadList(); loadStats(); loadRuns();
+    loadList(); loadStats(); loadRuns(); loadJobs();
   });
   es.onerror = () => { es.close(); }; // server closed or network; 'end' usually fired first
 }
@@ -2138,6 +2368,9 @@ async function saveEditor() {
 }
 
 // ---- wiring ----
+// The sidebar filters drive whichever view is active.
+function renderActive() { if (state.view === "jobs") renderJobs(); else renderList(); }
+
 document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   th.onclick = () => {
     const k = th.dataset.k;
@@ -2145,13 +2378,22 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
     renderList();
   };
 });
-document.getElementById("q").oninput = renderList;
-document.getElementById("verdict").onchange = renderList;
-document.getElementById("status").onchange = renderList;
+document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.jk;
+    if (state.jsort.k === k) state.jsort.dir *= -1; else { state.jsort.k = k; state.jsort.dir = 1; }
+    renderJobs();
+  };
+});
+document.getElementById("tab-companies").onclick = () => setView("companies");
+document.getElementById("tab-jobs").onclick = () => setView("jobs");
+document.getElementById("q").oninput = renderActive;
+document.getElementById("verdict").onchange = renderActive;
+document.getElementById("status").onchange = renderActive;
 // The "without a verdict" chip is a shortcut: apply the (unscored) filter.
 document.getElementById("unscored-chip").onclick = () => {
   document.getElementById("verdict").value = "__none__";
-  renderList();
+  renderActive();
 };
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
@@ -2160,6 +2402,7 @@ document.addEventListener("keydown", e => {
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
+  if (document.getElementById("capture-scrim").classList.contains("open")) { closeCapture(); return; }
   closeDetail();
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
@@ -2172,6 +2415,13 @@ document.getElementById("btn-add-company").onclick = openAddCompany;
 document.getElementById("add-cancel").onclick = closeAddCompany;
 document.getElementById("add-save").onclick = submitAddCompany;
 document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAddCompany(); };
+document.getElementById("btn-add-link").onclick = openCapture;
+document.getElementById("capture-cancel").onclick = closeCapture;
+document.getElementById("capture-save").onclick = submitCapture;
+document.getElementById("capture-scrim").onclick = e => { if (e.target.id === "capture-scrim") closeCapture(); };
+document.getElementById("capture-url").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); submitCapture(); }
+});
 // Enter in a text field submits — but not in the vertical filter (where Enter
 // would prematurely submit while narrowing chips), nor on chips/select.
 document.getElementById("add-scrim").addEventListener("keydown", e => {
@@ -2350,6 +2600,7 @@ document.querySelectorAll("#docs-nav a").forEach(a => {
 })();
 
 loadList();
+loadJobs();
 loadStats();
 loadMeta();
 loadRuns();

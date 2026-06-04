@@ -200,10 +200,12 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	hasKey := s.Anthropic != nil && s.Anthropic.APIKey != ""
 	writeJSON(w, http.StatusOK, map[string]any{
 		"control": s.Runner != nil,
 		"brain":   s.brainHealthy(r.Context()),
-		"verdict": s.Anthropic != nil && s.Anthropic.APIKey != "",
+		"verdict": hasKey,
+		"capture": hasKey, // the link-capture agent pass needs the same key
 		"source":  s.IngestSource,
 	})
 }

@@ -117,23 +117,36 @@ hash changes, and the next `verdict` run re-scores rows whose stored
 
 ```sql
 job_postings (
-    id         TEXT PK,           -- uuid
-    company_id TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
-    url        TEXT NOT NULL,     -- the posting link
-    title      TEXT,              -- optional label
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id           TEXT PK,           -- uuid
+    company_id   TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
+    url          TEXT NOT NULL,     -- the posting link (final, post-redirect URL)
+    title        TEXT,              -- optional label / extracted role title
+    location     TEXT,              -- extracted by capture (M19)
+    summary      TEXT,              -- 1-2 sentence role summary, extracted (M19)
+    source       TEXT,              -- 'manual' | 'capture' (NULL reads as manual)
+    fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    captured_at  DATETIME           -- last agent-pass fill (M19)
 )
 ```
 
-Links to actual job/role postings found at a company — added by hand from the
-triage detail pane. Migration `0011`. Unlike `enrichment`/`verdicts` (0..1 per
-company, keyed on `company_id`), this is **one-to-many**: a company can have any
-number of postings, so it gets its own uuid `id` PK (like `runs`) plus an index
-on `company_id` (the company's deterministic TEXT uuid). Postings carry only a
-labeled link — no application status / workflow state, which keeps scout on the
-right side of its "not a pipeline/applicant tracker" non-goal. `AddPosting`
-validates the company exists and a non-empty `url`; `ListPostings` returns
-newest-first.
+Links to actual job/role postings found at a company. Migrations `0011` +
+`0019`. Two ways in: **by hand** from the triage detail pane (`AddPosting`,
+source `manual` — url + optional title only), or **by link-capture**
+(`UpsertCapturedPosting`, source `capture`): the user pastes a URL, and one
+Haiku pass (`internal/capture`) classifies the page and extracts
+title/location/summary. Capture is **idempotent by URL** — re-pasting a link
+(or capturing a hand-added one) refreshes the same row in place rather than
+duplicating; both the pasted and the final post-redirect URL are matched.
+
+Unlike `enrichment`/`verdicts` (0..1 per company, keyed on `company_id`), this
+is **one-to-many**: a company can have any number of postings, so it gets its
+own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
+deterministic TEXT uuid). Postings still carry no application status / workflow
+state, which keeps scout on the right side of its "not a pipeline/applicant
+tracker" non-goal. `ListPostings` returns one company's postings newest-first;
+`ListJobRows` joins every posting with its company's name/verdict/marks for the
+UI's jobs view.
 
 ---
 

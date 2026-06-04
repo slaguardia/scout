@@ -59,6 +59,61 @@ type Result struct {
 	Skipped    int
 }
 
+// NewHTTPClient returns the HTTP client the fetch paths share: a per-request
+// timeout and a redirect cap. Exported so the link-capture flow fetches with
+// the same posture as enrichment. A non-positive timeout uses the default.
+func NewHTTPClient(timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	return &http.Client{
+		Timeout: timeout,
+		// Cap redirects so we don't follow forever.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+// FetchPage fetches one URL and returns its stripped text, the final URL after
+// any redirects, and a status from the same taxonomy fetchOne records ("ok",
+// "low_content", "challenge", "soft_404", "http_<code>", "dns", "refused",
+// "timeout", "error"). Exported for the link-capture flow, which fetches a
+// single pasted URL rather than walking a domain's candidate paths. Text is
+// returned (truncated to maxRunes; <=0 means the enrichment default) for the
+// "ok" and "low_content" outcomes only — the other statuses carry no real
+// content worth reading.
+func FetchPage(ctx context.Context, client *http.Client, url string, maxRunes int) (text, finalURL, status string) {
+	if client == nil {
+		client = NewHTTPClient(0)
+	}
+	if maxRunes <= 0 {
+		maxRunes = maxSummaryRunes
+	}
+	body, code, finalURL, err := get(ctx, client, url)
+	if err != nil {
+		return "", finalURL, classifyErr(err)
+	}
+	if code < 200 || code >= 300 || len(body) == 0 {
+		return "", finalURL, fmt.Sprintf("http_%d", code)
+	}
+	text = extractText(body)
+	switch {
+	case looksLikeNotFound(text):
+		return "", finalURL, "soft_404"
+	case looksLikeChallenge(text):
+		return "", finalURL, "challenge"
+	case runeCount(text) < minContentRunes:
+		// Keep the residual text — a JS-shell's title/meta can still carry
+		// enough signal for the capture extractor to work with.
+		return truncRunes(text, maxRunes), finalURL, "low_content"
+	}
+	return truncRunes(text, maxRunes), finalURL, "ok"
+}
+
 // Run enriches every company that needs it. If force, every company with a domain is re-fetched.
 func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 	if e.Workers <= 0 {
@@ -68,16 +123,7 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 		e.Timeout = defaultTimeout
 	}
 	if e.Client == nil {
-		e.Client = &http.Client{
-			Timeout: e.Timeout,
-			// Cap redirects so we don't follow forever.
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return errors.New("too many redirects")
-				}
-				return nil
-			},
-		}
+		e.Client = NewHTTPClient(e.Timeout)
 	}
 
 	targets, err := e.DB.EnrichmentTargets(force)
@@ -143,7 +189,7 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 	var lastStatus string
 	for _, path := range candidatePaths {
 		url := "https://" + t.Domain + path
-		body, code, finalURL, err := e.get(ctx, url)
+		body, code, finalURL, err := get(ctx, e.Client, url)
 		if err != nil {
 			lastErr = err.Error()
 			lastStatus = classifyErr(err)
@@ -197,14 +243,14 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 // any redirects the client followed. Callers should store the final URL, not the
 // requested one: a link that 301s at fetch time but resolves to 200 must point at
 // the page that actually answered, or it 404s when a user clicks it.
-func (e *Enricher) get(ctx context.Context, url string) ([]byte, int, string, error) {
+func get(ctx context.Context, client *http.Client, url string) ([]byte, int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, 0, url, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	resp, err := e.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, url, err
 	}

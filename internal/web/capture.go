@@ -1,0 +1,71 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/slaguardia/scout/internal/capture"
+)
+
+// handleCapture runs the link-capture agent pass on one pasted URL: fetch the
+// page, classify it (job posting vs company page) with one Haiku call, and
+// upsert the company/posting. POST /api/capture {"url": "..."}. Synchronous —
+// a single fetch + a single LLM call — so it doesn't need the job Runner; like
+// verdict it needs only the Anthropic key.
+func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Anthropic == nil || s.Anthropic.APIKey == "" {
+		http.Error(w, "capture needs ANTHROPIC_API_KEY in the server environment", http.StatusPreconditionFailed)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// One fetch (≤12s) plus one LLM call (≤45s); the margin covers redirects.
+	ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+	defer cancel()
+	c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+	res, err := c.Run(ctx, body.URL)
+	if err != nil {
+		var fe capture.FetchError
+		switch {
+		case strings.HasPrefix(err.Error(), "url "): // url required / url must be http(s)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.As(err, &fe): // page unfetchable — honest status for the UI
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": err.Error(), "fetch_status": fe.Status,
+			})
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handlePostings serves the jobs view: every posting across all companies,
+// joined with the company's name/verdict/marks. GET /api/postings.
+func (s *Server) handlePostings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rows, err := s.DB.ListJobRows()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
+}

@@ -1,0 +1,122 @@
+package web
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/slaguardia/scout/internal/anthropic"
+	"github.com/slaguardia/scout/internal/capture"
+)
+
+func postCapture(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/capture", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestCaptureNeedsAPIKey(t *testing.T) {
+	s, _ := newTestServer(t) // no Anthropic client configured
+	rec := postCapture(t, s.Handler(), `{"url":"https://acme.com/jobs/1"}`)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Errorf("want 412 without key, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCaptureEndToEnd(t *testing.T) {
+	// A posting page with enough text to pass the low-content gate.
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "<html><body><h1>Platform Engineer</h1>%s</body></html>",
+			strings.Repeat("<p>Acme builds AI infrastructure. </p>", 30))
+	}))
+	t.Cleanup(page.Close)
+
+	// A fake Anthropic endpoint returning a job-posting extraction.
+	ext := `{"kind":"job_posting","company_name":"Acme","company_domain":"acme.com",` +
+		`"job_title":"Platform Engineer","job_location":"NYC","summary":"Infra role.",` +
+		`"vertical":"AI infra","company_location":""}`
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "msg_1", "model": "test",
+			"content":     []map[string]string{{"type": "text", "text": ext}},
+			"stop_reason": "end_turn",
+		})
+	}))
+	t.Cleanup(llm.Close)
+
+	s, cid := newTestServer(t) // seeds Acme (acme.com) — capture must attach to it
+	s.Anthropic = &anthropic.Client{APIKey: "test-key", Endpoint: llm.URL, HTTP: llm.Client()}
+	h := s.Handler()
+
+	// Bad URL → 400.
+	if rec := postCapture(t, h, `{"url":"javascript:alert(1)"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad url: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Happy path: the posting attaches to the seeded company (no duplicate row)
+	// and the result is echoed back.
+	rec := postCapture(t, h, `{"url":"`+page.URL+`/jobs/1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capture: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var res capture.Result
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if res.Kind != "job_posting" || res.CompanyCreated || res.CompanyID != cid ||
+		res.Posting == nil || res.Posting.Title != "Platform Engineer" {
+		t.Errorf("unexpected result: %+v", res)
+	}
+
+	// The jobs view now serves the captured posting joined with its company.
+	jr := httptest.NewRequest(http.MethodGet, "/api/postings", nil)
+	jrec := httptest.NewRecorder()
+	h.ServeHTTP(jrec, jr)
+	if jrec.Code != http.StatusOK {
+		t.Fatalf("postings: want 200, got %d", jrec.Code)
+	}
+	var jobs struct {
+		Rows []struct {
+			Company string `json:"company"`
+			Title   string `json:"title"`
+			Source  string `json:"source"`
+		} `json:"rows"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(jrec.Body.Bytes(), &jobs); err != nil {
+		t.Fatalf("decode jobs: %v", err)
+	}
+	if jobs.Count != 1 || jobs.Rows[0].Company != "Acme" ||
+		jobs.Rows[0].Title != "Platform Engineer" || jobs.Rows[0].Source != "capture" {
+		t.Errorf("unexpected jobs payload: %+v", jobs)
+	}
+}
+
+func TestCaptureFetchFailureIs422(t *testing.T) {
+	deadPage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "<html><body>forbidden</body></html>")
+	}))
+	t.Cleanup(deadPage.Close)
+
+	s, _ := newTestServer(t)
+	s.Anthropic = &anthropic.Client{APIKey: "test-key"} // never reached: fetch fails first
+	rec := postCapture(t, s.Handler(), `{"url":"`+deadPage.URL+`/jobs/1"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		FetchStatus string `json:"fetch_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.FetchStatus != "http_403" {
+		t.Errorf("want fetch_status http_403, got %+v (err=%v)", body, err)
+	}
+}

@@ -34,6 +34,15 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 - **Built:** the pipeline (ingest → filter → enrich → verdict → triage) and the
   full web control surface — run everything from the browser (CSV upload, live
   progress, run history), plus a brain-isolated playbook editor.
+- **Jobs view + link capture:** the UI has a companies | jobs tab; **Add by
+  link** posts any URL to `POST /api/capture`, where a one-shot Haiku pass
+  (`internal/capture`) classifies the page (job posting / company page / other)
+  and extracts details. Postings land in `job_postings` (title, location,
+  summary; idempotent by URL), unknown companies are created via
+  `ingest.EnsureCompany` (source `capture`; ATS/job-board hosts rejected as
+  identities), and a captured company page seeds the enrichment row from the
+  fetched text. Unfetchable pages report their honest fetch status and write
+  nothing.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
