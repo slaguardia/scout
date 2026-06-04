@@ -287,9 +287,40 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyVerdict(w, r, id)
 	case len(parts) == 2 && parts[1] == "flagged":
 		s.handleCompanyFlagged(w, r, id)
+	case len(parts) == 2 && parts[1] == "reviewed":
+		s.handleCompanyReviewed(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handleCompanyReviewed stamps the company as reviewed now. POST (or PUT)
+// /api/companies/:id/reviewed — no body needed; every call moves reviewed_at
+// forward so the table's last-reviewed sort cycles companies oldest-first.
+// Returns the refreshed detail so the client can re-render.
+func (s *Server) handleCompanyReviewed(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.DB.TouchReviewed(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 // handleCompanyFlagged sets the hand-set bookmark. PUT

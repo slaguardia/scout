@@ -312,8 +312,9 @@
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
   }
-  .flag-bar .fb-state { display: inline-flex; align-items: center; font-size: 13px; color: var(--fg-dim); }
+  .flag-bar .fb-state { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--fg-dim); flex-wrap: wrap; }
   .flag-bar .fb-state.is-flagged { color: var(--maybe); }
+  .flag-bar .fb-actions { display: flex; gap: 8px; flex: none; }
 
   /* clickable count chip in the Filter block */
   .stat-chip {
@@ -327,16 +328,20 @@
   .stat-chip .v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg); }
   .stat-chip .v.zero { color: var(--fg-dim); font-weight: 400; }
 
-  /* column show/hide chips — lit chip = column visible */
-  .col-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
-  .col-chip {
+  /* chip toggles — column show/hide and the multi-select verdict filter */
+  .col-toggles, .verdict-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .col-chip, .v-chip {
     padding: 4px 10px; font: inherit; font-size: 11.5px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
     color: var(--fg-dim); cursor: pointer;
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
   }
-  .col-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .col-chip:hover, .v-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
   .col-chip.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  .v-chip.is-on[data-v="yes"]      { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
+  .v-chip.is-on[data-v="maybe"]    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+  .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
+  .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
 
   /* ---- empty state ---- */
   .empty {
@@ -995,13 +1000,12 @@
       </div>
     </div>
     <div class="filter-row">
-      <select id="verdict">
-        <option value="">verdict: any</option>
-        <option value="yes">yes</option>
-        <option value="maybe">maybe</option>
-        <option value="no">no</option>
-        <option value="__none__">(unscored)</option>
-      </select>
+      <div class="verdict-chips" id="verdict-chips" title="verdict — pick any combination; none selected = all">
+        <button class="v-chip" data-v="yes">yes</button>
+        <button class="v-chip" data-v="maybe">maybe</button>
+        <button class="v-chip" data-v="no">no</button>
+        <button class="v-chip" data-v="__none__">unscored</button>
+      </div>
     </div>
     <div class="filter-row">
       <select id="status">
@@ -1052,6 +1056,7 @@
           <th data-k="location" data-col="location">location</th>
           <th data-k="headcount" data-col="hc">hc</th>
           <th data-k="stage" data-col="stage">stage</th>
+          <th data-k="reviewed_at" data-col="reviewed">reviewed</th>
           <th data-col="site">site</th>
         </tr>
       </thead>
@@ -1388,9 +1393,9 @@ Return the JSON verdict now.</pre>
 
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
-          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict or flag, or search by name, vertical, or reason.</p>
+          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
           <h4>Opening a company</h4>
-          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state with a <strong>flag / unflag</strong> toggle — a hand-set bookmark, independent of the verdict.</p>
+          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
           <p>The detail pane includes:</p>
           <ul>
             <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
@@ -1472,13 +1477,21 @@ function sortRows(rows) {
   return rows.slice().sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
 }
 
+// Multi-select verdict filter: the set holds the chips currently on
+// ("yes"/"maybe"/"no"/"__none__" for unscored). Empty set = no filter.
+const verdictFilter = new Set();
+
+function renderVerdictChips() {
+  document.querySelectorAll("#verdict-chips .v-chip").forEach(b => {
+    b.classList.toggle("is-on", verdictFilter.has(b.dataset.v));
+  });
+}
+
 function filtered() {
   const q = document.getElementById("q").value.trim().toLowerCase();
-  const v = document.getElementById("verdict").value;
   const st = document.getElementById("status").value;
   return state.rows.filter(r => {
-    if (v === "__none__" && r.verdict) return false;
-    if (v && v !== "__none__" && r.verdict !== v) return false;
+    if (verdictFilter.size && !verdictFilter.has(r.verdict || "__none__")) return false;
     if (st === "flagged" && !r.flagged) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
@@ -1499,6 +1512,7 @@ const COLUMNS = [
   { k: "location", label: "location" },
   { k: "hc",       label: "hc" },
   { k: "stage",    label: "stage" },
+  { k: "reviewed", label: "reviewed" },
   { k: "site",     label: "site" },
 ];
 
@@ -1549,6 +1563,7 @@ function renderList() {
       <td data-col="location">${escapeHTML(r.location || "")}</td>
       <td data-col="hc">${r.headcount || ""}</td>
       <td data-col="stage">${escapeHTML(r.stage || "")}</td>
+      <td data-col="reviewed" class="muted" title="${escapeHTML(r.reviewed_at || "never reviewed")}">${r.reviewed_at ? escapeHTML(r.reviewed_at.slice(0, 10)) : "—"}</td>
       <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
     `;
     tbody.appendChild(tr);
@@ -1661,13 +1676,17 @@ function renderDetail(d) {
   const flagBar = `
     <div class="flag-bar">
       <span class="fb-state${d.flagged ? " is-flagged" : ""}">
-        ${d.flagged
-          ? `⚑ flagged${d.flagged_at ? ` <span class="small muted">· ${escapeHTML(d.flagged_at)}</span>` : ""}`
-          : `not flagged`}
+        ${d.flagged ? "⚑ flagged" : "not flagged"}
+        <span class="small muted">· ${d.reviewed_at ? `last reviewed ${escapeHTML(d.reviewed_at)}` : "never reviewed"}</span>
       </span>
-      <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
-        ${d.flagged ? "⚑ unflag" : "⚐ flag"}
-      </button>
+      <span class="fb-actions">
+        <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
+          ${d.flagged ? "⚑ unflag" : "⚐ flag"}
+        </button>
+        <button class="btn btn-primary" id="review-stamp-btn" title="stamp this company as reviewed now — the table sorts on it">
+          Mark reviewed
+        </button>
+      </span>
     </div>`;
 
   document.getElementById("pane-body").innerHTML = `
@@ -1746,6 +1765,39 @@ function renderDetail(d) {
 
   const flagBtn = document.getElementById("flag-toggle-btn");
   if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
+
+  const reviewBtn = document.getElementById("review-stamp-btn");
+  if (reviewBtn) reviewBtn.addEventListener("click", () => onMarkReviewed(d.company_id));
+}
+
+// ---- last-reviewed stamp ----
+// "Mark reviewed" stamps reviewed_at = now; the table's reviewed column sorts
+// on it, so cycling oldest-reviewed-first never lands on the same company twice.
+async function onMarkReviewed(id) {
+  const btn = document.getElementById("review-stamp-btn");
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${id}/reviewed`, { method: "POST" });
+  } catch (e) {
+    toast(`failed: ${e.message}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  const row = state.rows.find(r => r.company_id === id);
+  if (row) { row.reviewed_at = fresh.reviewed_at; renderList(); }
+  if (state.openId === id) {
+    renderDetail(fresh);
+    loadTrace(id); // renderDetail reset the trace body to a spinner
+  }
+  toast("reviewed");
 }
 
 // ---- flag (hand-set bookmark) ----
@@ -2166,11 +2218,20 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   };
 });
 document.getElementById("q").oninput = renderList;
-document.getElementById("verdict").onchange = renderList;
 document.getElementById("status").onchange = renderList;
-// The "without a verdict" chip is a shortcut: apply the (unscored) filter.
+document.querySelectorAll("#verdict-chips .v-chip").forEach(b => {
+  b.addEventListener("click", () => {
+    const v = b.dataset.v;
+    if (verdictFilter.has(v)) verdictFilter.delete(v); else verdictFilter.add(v);
+    renderVerdictChips();
+    renderList();
+  });
+});
+// The "without a verdict" chip is a shortcut: filter to unscored only.
 document.getElementById("unscored-chip").onclick = () => {
-  document.getElementById("verdict").value = "__none__";
+  verdictFilter.clear();
+  verdictFilter.add("__none__");
+  renderVerdictChips();
   renderList();
 };
 renderColToggles();

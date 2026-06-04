@@ -68,12 +68,57 @@ func TestFlaggedAPI(t *testing.T) {
 		t.Errorf("GET flagged: want 405, got %d", getRec.Code)
 	}
 
-	// The reviewed route is gone → 404.
-	revReq := httptest.NewRequest(http.MethodPut, "/api/companies/"+cid+"/reviewed",
-		bytes.NewBufferString(`{"reviewed":true}`))
-	revRec := httptest.NewRecorder()
-	h.ServeHTTP(revRec, revReq)
-	if revRec.Code != http.StatusNotFound {
-		t.Errorf("PUT reviewed: want 404 (removed), got %d", revRec.Code)
+}
+
+func TestReviewedStampAPI(t *testing.T) {
+	s, cid := newTestServer(t)
+	h := s.Handler()
+
+	stamp := func(id string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/companies/"+id+"/reviewed", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A fresh company has never been reviewed.
+	if rows, err := s.DB.TriageRows(); err != nil {
+		t.Fatalf("triage: %v", err)
+	} else if rows[0].ReviewedAtStr != "" {
+		t.Fatalf("seed company should start never-reviewed, got %q", rows[0].ReviewedAtStr)
+	}
+
+	// Stamp → 200 with a reviewed_at in the detail; triage row carries it too.
+	rec := stamp(cid)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stamp: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var d store.CompanyDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if d.ReviewedAt == "" {
+		t.Errorf("after stamp: reviewed_at should be set")
+	}
+	rows, _ := s.DB.TriageRows()
+	if rows[0].ReviewedAtStr == "" {
+		t.Errorf("triage row should carry reviewed_at")
+	}
+
+	// Stamping again still succeeds (the stamp moves forward; same-second
+	// timestamps make an inequality check flaky, so just require it stays set).
+	if rec := stamp(cid); rec.Code != http.StatusOK {
+		t.Fatalf("re-stamp: want 200, got %d", rec.Code)
+	}
+
+	// Unknown company → 404; wrong method → 405.
+	if rec := stamp("no-such-company-uuid"); rec.Code != http.StatusNotFound {
+		t.Errorf("bad company: want 404, got %d", rec.Code)
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/api/companies/"+cid+"/reviewed", nil)
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET reviewed: want 405, got %d", getRec.Code)
 	}
 }
