@@ -307,15 +307,13 @@
   .flag-btn.is-on svg path:last-child { fill: currentColor; }
   .btn.flag-on { background: var(--maybe-bg); border-color: var(--maybe); color: var(--maybe); }
 
-  /* review/flag state bar at the top of the detail pane */
-  .review-bar {
+  /* flag bar at the top of the detail pane */
+  .flag-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
   }
-  .review-bar .rb-state { display: inline-flex; align-items: center; font-size: 13px; }
-  .review-bar .rb-state.is-new      { color: var(--link); }
-  .review-bar .rb-state.is-reviewed { color: var(--fg-mute); }
-  .review-bar .rb-actions { display: flex; gap: 8px; flex: none; }
+  .flag-bar .fb-state { display: inline-flex; align-items: center; font-size: 13px; color: var(--fg-dim); }
+  .flag-bar .fb-state.is-flagged { color: var(--maybe); }
 
   /* clickable count chip in the Filter block */
   .stat-chip {
@@ -328,6 +326,17 @@
   .stat-chip:hover { border-color: var(--line-2); color: var(--fg); }
   .stat-chip .v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg); }
   .stat-chip .v.zero { color: var(--fg-dim); font-weight: 400; }
+
+  /* column show/hide chips — lit chip = column visible */
+  .col-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+  .col-chip {
+    padding: 4px 10px; font: inherit; font-size: 11.5px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .col-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .col-chip.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
 
   /* ---- empty state ---- */
   .empty {
@@ -996,16 +1005,22 @@
     </div>
     <div class="filter-row">
       <select id="status">
-        <option value="">status: any</option>
-        <option value="new">new (unreviewed)</option>
-        <option value="reviewed">reviewed</option>
-        <option value="flagged">flagged</option>
+        <option value="">flag: all</option>
+        <option value="flagged">flagged only</option>
       </select>
     </div>
     <button class="stat-chip" id="unscored-chip" title="filter to companies awaiting a verdict">
       <span class="k">without a verdict</span>
       <span class="v" id="unscored-n">–</span>
     </button>
+  </div>
+
+  <div class="block" id="block-columns">
+    <h3>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
+      Columns
+    </h3>
+    <div class="col-toggles" id="col-toggles"></div>
   </div>
 
   <div class="block" id="block-criteria">
@@ -1029,15 +1044,15 @@
     <table id="t">
       <thead>
         <tr>
-          <th class="th-flag" title="flagged"></th>
-          <th data-k="verdict">verdict</th>
+          <th class="th-flag" data-col="flag" title="flagged"></th>
+          <th data-k="verdict" data-col="verdict">verdict</th>
           <th data-k="name">name</th>
-          <th data-k="reason">reason</th>
-          <th data-k="vertical">vertical</th>
-          <th data-k="location">location</th>
-          <th data-k="headcount">hc</th>
-          <th data-k="stage">stage</th>
-          <th>site</th>
+          <th data-k="reason" data-col="reason">reason</th>
+          <th data-k="vertical" data-col="vertical">vertical</th>
+          <th data-k="location" data-col="location">location</th>
+          <th data-k="headcount" data-col="hc">hc</th>
+          <th data-k="stage" data-col="stage">stage</th>
+          <th data-col="site">site</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -1373,9 +1388,9 @@ Return the JSON verdict now.</pre>
 
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
-          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict, by status (new / reviewed / flagged), or search by name, vertical, or reason.</p>
+          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict or flag, or search by name, vertical, or reason.</p>
           <h4>Opening a company</h4>
-          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the review state with a <strong>Mark reviewed</strong> toggle — your acknowledgement that you've triaged it, independent of the verdict.</p>
+          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state with a <strong>flag / unflag</strong> toggle — a hand-set bookmark, independent of the verdict.</p>
           <p>The detail pane includes:</p>
           <ul>
             <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
@@ -1464,14 +1479,56 @@ function filtered() {
   return state.rows.filter(r => {
     if (v === "__none__" && r.verdict) return false;
     if (v && v !== "__none__" && r.verdict !== v) return false;
-    if (st === "new" && r.reviewed) return false;
-    if (st === "reviewed" && !r.reviewed) return false;
     if (st === "flagged" && !r.flagged) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
+  });
+}
+
+// ---- column visibility ----
+// Every column except name (the row anchor) can be hidden. Hidden keys persist
+// in localStorage so the table layout survives reloads.
+const COLUMNS = [
+  { k: "flag",     label: "flag" },
+  { k: "verdict",  label: "verdict" },
+  { k: "reason",   label: "reason" },
+  { k: "vertical", label: "vertical" },
+  { k: "location", label: "location" },
+  { k: "hc",       label: "hc" },
+  { k: "stage",    label: "stage" },
+  { k: "site",     label: "site" },
+];
+
+const hiddenCols = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem("scout-hidden-cols") || "[]")); }
+  catch { return new Set(); }
+})();
+
+function saveHiddenCols() {
+  localStorage.setItem("scout-hidden-cols", JSON.stringify([...hiddenCols]));
+}
+
+function applyColumnVisibility() {
+  document.querySelectorAll("#t [data-col]").forEach(el => {
+    el.style.display = hiddenCols.has(el.dataset.col) ? "none" : "";
+  });
+}
+
+function renderColToggles() {
+  document.getElementById("col-toggles").innerHTML = COLUMNS.map(c =>
+    `<button class="col-chip${hiddenCols.has(c.k) ? "" : " is-on"}" data-col="${c.k}" title="${hiddenCols.has(c.k) ? "show" : "hide"} ${c.label}">${c.label}</button>`
+  ).join("");
+  document.querySelectorAll("#col-toggles .col-chip").forEach(b => {
+    b.addEventListener("click", () => {
+      const k = b.dataset.col;
+      if (hiddenCols.has(k)) hiddenCols.delete(k); else hiddenCols.add(k);
+      saveHiddenCols();
+      renderColToggles();
+      applyColumnVisibility();
+    });
   });
 }
 
@@ -1484,18 +1541,19 @@ function renderList() {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
     tr.innerHTML = `
-      <td class="td-flag"><button class="flag-btn${r.flagged ? " is-on" : ""}" data-id="${r.company_id}" title="${r.flagged ? "unflag" : "flag"}">${FLAG_SVG}</button></td>
-      <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
+      <td class="td-flag" data-col="flag"><button class="flag-btn${r.flagged ? " is-on" : ""}" data-id="${r.company_id}" title="${r.flagged ? "unflag" : "flag"}">${FLAG_SVG}</button></td>
+      <td data-col="verdict"><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
       <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
-      <td class="reason">${escapeHTML(r.reason || "")}</td>
-      <td>${escapeHTML(r.vertical || "")}</td>
-      <td>${escapeHTML(r.location || "")}</td>
-      <td>${r.headcount || ""}</td>
-      <td>${escapeHTML(r.stage || "")}</td>
-      <td>${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
+      <td class="reason" data-col="reason">${escapeHTML(r.reason || "")}</td>
+      <td data-col="vertical">${escapeHTML(r.vertical || "")}</td>
+      <td data-col="location">${escapeHTML(r.location || "")}</td>
+      <td data-col="hc">${r.headcount || ""}</td>
+      <td data-col="stage">${escapeHTML(r.stage || "")}</td>
+      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
     `;
     tbody.appendChild(tr);
   }
+  applyColumnVisibility();
   // The whole row opens the detail pane; clicks on the "about ↗" link or the
   // flag button do their own thing instead (closest() guards them). Rows are
   // recreated each render, so these listeners don't stack.
@@ -1600,25 +1658,20 @@ function renderDetail(d) {
     </details>
   `;
 
-  const reviewBar = `
-    <div class="review-bar">
-      <span class="rb-state ${d.reviewed ? "is-reviewed" : "is-new"}">
-        ${d.reviewed
-          ? `reviewed${d.reviewed_at ? ` <span class="small muted">· ${escapeHTML(d.reviewed_at)}</span>` : ""}`
-          : `new — not yet reviewed`}
+  const flagBar = `
+    <div class="flag-bar">
+      <span class="fb-state${d.flagged ? " is-flagged" : ""}">
+        ${d.flagged
+          ? `⚑ flagged${d.flagged_at ? ` <span class="small muted">· ${escapeHTML(d.flagged_at)}</span>` : ""}`
+          : `not flagged`}
       </span>
-      <span class="rb-actions">
-        <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
-          ${d.flagged ? "⚑ flagged" : "⚐ flag"}
-        </button>
-        <button class="btn ${d.reviewed ? "" : "btn-primary"}" id="review-toggle-btn">
-          ${d.reviewed ? "Mark as new" : "Mark reviewed"}
-        </button>
-      </span>
+      <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
+        ${d.flagged ? "⚑ unflag" : "⚐ flag"}
+      </button>
     </div>`;
 
   document.getElementById("pane-body").innerHTML = `
-    ${reviewBar}
+    ${flagBar}
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
@@ -1691,9 +1744,6 @@ function renderDetail(d) {
   const saveVerdictBtn = document.getElementById("ve-save-btn");
   if (saveVerdictBtn) saveVerdictBtn.addEventListener("click", () => onSaveVerdict(d));
 
-  const reviewBtn = document.getElementById("review-toggle-btn");
-  if (reviewBtn) reviewBtn.addEventListener("click", () => onToggleReviewed(d));
-
   const flagBtn = document.getElementById("flag-toggle-btn");
   if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
 }
@@ -1727,36 +1777,6 @@ async function onToggleFlag(id) {
     loadTrace(id); // renderDetail reset the trace body to a spinner
   }
   toast(fresh.flagged ? "flagged" : "unflagged");
-}
-
-// ---- review state ----
-async function onToggleReviewed(d) {
-  const btn = document.getElementById("review-toggle-btn");
-  const next = !d.reviewed;
-  btn.disabled = true;
-  let resp;
-  try {
-    resp = await fetch(`/api/companies/${d.company_id}/reviewed`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviewed: next }),
-    });
-  } catch (e) {
-    toast(`failed: ${e.message}`);
-    btn.disabled = false;
-    return;
-  }
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => "");
-    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
-    btn.disabled = false;
-    return;
-  }
-  const fresh = await resp.json();
-  renderDetail(fresh);          // re-render with the new review state + button label
-  loadTrace(fresh.company_id);  // renderDetail reset the trace body to a spinner
-  loadList();                   // refresh the table so the status filter stays accurate
-  toast(next ? "marked reviewed" : "marked new");
 }
 
 // ---- manual verdict override ----
@@ -2153,6 +2173,8 @@ document.getElementById("unscored-chip").onclick = () => {
   document.getElementById("verdict").value = "__none__";
   renderList();
 };
+renderColToggles();
+applyColumnVisibility(); // hide chosen thead cells before the first data load
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
