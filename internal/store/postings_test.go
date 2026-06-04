@@ -217,12 +217,14 @@ func TestUpdatePostingTracking(t *testing.T) {
 	// Full update round-trips.
 	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{
 		AppliedAt: "2026-05-22", Response: "Screening", OutreachCount: 2, LastOutreachAt: "2026-05-30",
+		Contacts: "  Jane Doe <jane@acme.com>, cto@acme.com  ",
 	})
 	if err != nil {
 		t.Fatalf("UpdatePostingTracking: %v", err)
 	}
 	if got.AppliedAt != "2026-05-22" || got.Response != "screening" || // response is case-folded
-		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" {
+		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" ||
+		got.Contacts != "Jane Doe <jane@acme.com>, cto@acme.com" { // trimmed
 		t.Errorf("unexpected tracking: %+v", got)
 	}
 
@@ -231,19 +233,21 @@ func TestUpdatePostingTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clear tracking: %v", err)
 	}
-	if got.AppliedAt != "" || got.Response != "" || got.OutreachCount != 0 || got.LastOutreachAt != "" {
+	if got.AppliedAt != "" || got.Response != "" || got.OutreachCount != 0 ||
+		got.LastOutreachAt != "" || got.Contacts != "" {
 		t.Errorf("tracking not cleared: %+v", got)
 	}
 
 	// The jobs view carries the lifecycle columns.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-01", Response: "offer", OutreachCount: 1, LastOutreachAt: "2026-06-02"}); err != nil {
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-01", Response: "offer", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
 		t.Fatalf("re-set tracking: %v", err)
 	}
 	rows, err := db.ListJobRows()
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
 	}
-	if r := rows[0]; r.AppliedAt != "2026-06-01" || r.Response != "offer" || r.OutreachCount != 1 || r.LastOutreachAt != "2026-06-02" {
+	if r := rows[0]; r.AppliedAt != "2026-06-01" || r.Response != "offer" || r.OutreachCount != 1 ||
+		r.LastOutreachAt != "2026-06-02" || r.Contacts != "jane@acme.com" {
 		t.Errorf("job row lifecycle mismatch: %+v", r)
 	}
 

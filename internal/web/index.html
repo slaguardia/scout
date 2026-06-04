@@ -258,6 +258,8 @@
   .ptrack input[type="date"].input { color-scheme: dark; }
   .ptrack .btn { padding: 3px 10px; font-size: 12px; }
   .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ptrack .pt-contacts { flex: 1 1 100%; }
+  td.td-contacts { max-width: 220px; overflow-wrap: anywhere; }
 
   .table-wrap {
     border: 1px solid var(--line);
@@ -1108,6 +1110,7 @@
           <th data-jk="response">response</th>
           <th data-jk="outreach_count">outreach</th>
           <th data-jk="last_outreach_at">last outreach</th>
+          <th data-jk="contacts">contacts</th>
           <th>link</th>
         </tr>
       </thead>
@@ -1660,6 +1663,19 @@ function filteredJobs() {
   });
 }
 
+// contactsHTML renders a free-form contacts string ("Jane <jane@a.com>, cto@b.io")
+// as comma-separated entries with email-shaped tokens turned into mailto links.
+const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+function contactsHTML(s) {
+  const parts = String(s || "").split(",").map(t => t.trim()).filter(Boolean);
+  if (!parts.length) return '<span class="dim">—</span>';
+  return parts.map(part => {
+    const m = part.match(RE_EMAIL);
+    if (!m) return escapeHTML(part);
+    return `<a href="mailto:${escapeHTML(m[0])}" title="${escapeHTML(part)}">${escapeHTML(part)}</a>`;
+  }).join('<span class="dim">, </span>');
+}
+
 // Response display: pill class + label. Triage-ordered for sorting (an offer
 // outranks an interview outranks a screening; rejected sinks).
 const RESPONSE_META = {
@@ -1706,6 +1722,7 @@ function renderJobs() {
       <td><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
       <td class="small">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
       <td class="small">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
+      <td class="small td-contacts">${contactsHTML(j.contacts)}</td>
       <td><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
     `;
     tbody.appendChild(tr);
@@ -2038,6 +2055,9 @@ function postingsListHTML(d) {
         </select>
         <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
         <span class="pt-meta">${outreachMeta}</span>
+        <input class="input pt-contacts" value="${escapeHTML(p.contacts || "")}"
+               placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
+               title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
       </div>
     </div>`;
   }).join("");
@@ -2065,6 +2085,14 @@ function wirePostingTracking(d) {
         last_outreach_at: today(),
       });
     });
+    // Contacts save on change (blur with a new value); Enter blurs to commit.
+    const contacts = row.querySelector(".pt-contacts");
+    contacts.addEventListener("change", e => {
+      savePostingTracking(d, p, { contacts: e.target.value.trim() });
+    });
+    contacts.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    });
   });
 }
 
@@ -2077,6 +2105,7 @@ async function savePostingTracking(d, p, patch) {
     response: p.response || "",
     outreach_count: p.outreach_count || 0,
     last_outreach_at: p.last_outreach_at || "",
+    contacts: p.contacts || "",
     ...patch,
   };
   let resp;

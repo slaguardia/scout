@@ -45,10 +45,11 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   nothing.
 - **The jobs view is the application tracker** (replaced the user's Notion
   tracker): a lean table — company name + applied date, response
-  (screening/interview/offer/rejected), outreach count, last outreach — with
-  everything else in the slide-in panel, where each posting card has the
-  tracking controls (`PUT /api/postings/{id}`). "Hide rejected" is on by
-  default. Outreach *content* stays in Notion; see the amended non-goals in
+  (screening/interview/offer/rejected), outreach count, last outreach, and
+  contacts (free-form emails, rendered as mailto links) — with everything else
+  in the slide-in panel, where each posting card has the tracking controls
+  (`PUT /api/postings/{id}`). "Hide rejected" is on by default. Outreach
+  *message content* stays in Notion; see the amended non-goals in
   `north-star.md`.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,

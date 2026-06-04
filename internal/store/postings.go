@@ -38,19 +38,25 @@ type Posting struct {
 	Response       string `json:"response"`
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
+
+	// Contacts (M21): free-form outreach contacts for this role —
+	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
+	Contacts string `json:"contacts"`
 }
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
 const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location, ''),
        COALESCE(summary, ''), COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
        created_at, COALESCE(captured_at, ''),
-       COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, '')`
+       COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
+       COALESCE(contacts, '')`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
 	err := row.Scan(&p.ID, &p.CompanyID, &p.URL, &p.Title, &p.Location,
 		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
-		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt)
+		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
+		&p.Contacts)
 	return p, err
 }
 
@@ -176,6 +182,7 @@ type PostingTracking struct {
 	Response       string `json:"response"`         // ""|"screening"|"interview"|"offer"|"rejected"
 	OutreachCount  int    `json:"outreach_count"`   // >= 0
 	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
+	Contacts       string `json:"contacts"`         // free-form; trimmed, no validation
 }
 
 // validTrackingDate accepts "" (unset) or a bare ISO date. Validation errors
@@ -214,9 +221,10 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	}
 
 	const q = `UPDATE job_postings SET
-	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?
+	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, applied, NullString(response), t.OutreachCount, lastOutreach, id)
+	res, err := db.Exec(q, applied, NullString(response), t.OutreachCount, lastOutreach,
+		NullString(strings.TrimSpace(t.Contacts)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
 	}
@@ -279,6 +287,7 @@ type JobRow struct {
 	Response       string `json:"response"`
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
+	Contacts       string `json:"contacts"` // outreach contacts (M21)
 }
 
 // ListJobRows returns every posting across all companies, newest first, for
@@ -289,7 +298,8 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
        p.created_at, COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at,
-       COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, '')
+       COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
+       COALESCE(p.contacts, '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -307,7 +317,8 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 		if err := rows.Scan(&r.PostingID, &r.CompanyID, &r.Company, &r.URL, &r.Title, &r.Location,
 			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt, &r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt,
-			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt); err != nil {
+			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
+			&r.Contacts); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid
