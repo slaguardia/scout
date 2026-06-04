@@ -201,21 +201,6 @@
     width: 13px; height: 13px; color: var(--fg-dim); pointer-events: none;
   }
 
-  /* stat rows in sidebar */
-  .stat-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0;
-    font-size: 13px;
-    border-bottom: 1px solid transparent;
-  }
-  .stat-row .k { color: var(--fg-mute); }
-  .stat-row .v {
-    color: var(--fg);
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-  .stat-row .v.zero { color: var(--fg-dim); font-weight: 400; }
-
   .stale {
     margin-top: 8px;
     padding: 8px 10px;
@@ -306,20 +291,23 @@
   }
   td .row-name:hover { color: var(--link); }
 
-  /* "new / not yet reviewed" indicator — a pulsing blue dot */
-  .new-dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--link); margin-right: 7px; vertical-align: middle;
-    animation: new-pulse 1.8s ease-out infinite;
+  /* flag — a hand-set bookmark, toggled from the row or the detail pane */
+  td.td-flag, th.th-flag { width: 28px; padding-right: 0; }
+  .flag-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0;
+    background: none; border: none; border-radius: var(--r-sm);
+    color: var(--fg-dim); opacity: 0.3; cursor: pointer;
+    transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
   }
-  @keyframes new-pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(122,169,255,0.55); }
-    70%  { box-shadow: 0 0 0 6px rgba(122,169,255,0); }
-    100% { box-shadow: 0 0 0 0 rgba(122,169,255,0); }
-  }
-  @media (prefers-reduced-motion: reduce) { .new-dot { animation: none; } }
+  tbody tr:hover .flag-btn { opacity: 1; }
+  .flag-btn:hover { color: var(--maybe); }
+  .flag-btn.is-on { opacity: 1; color: var(--maybe); }
+  .flag-btn svg { width: 13px; height: 13px; }
+  .flag-btn.is-on svg path:last-child { fill: currentColor; }
+  .btn.flag-on { background: var(--maybe-bg); border-color: var(--maybe); color: var(--maybe); }
 
-  /* review state bar at the top of the detail pane */
+  /* review/flag state bar at the top of the detail pane */
   .review-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
@@ -327,6 +315,19 @@
   .review-bar .rb-state { display: inline-flex; align-items: center; font-size: 13px; }
   .review-bar .rb-state.is-new      { color: var(--link); }
   .review-bar .rb-state.is-reviewed { color: var(--fg-mute); }
+  .review-bar .rb-actions { display: flex; gap: 8px; flex: none; }
+
+  /* clickable count chip in the Filter block */
+  .stat-chip {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    margin-top: 8px; padding: 7px 10px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    color: var(--fg-mute); font: inherit; font-size: 12px; cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .stat-chip:hover { border-color: var(--line-2); color: var(--fg); }
+  .stat-chip .v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg); }
+  .stat-chip .v.zero { color: var(--fg-dim); font-weight: 400; }
 
   /* ---- empty state ---- */
   .empty {
@@ -993,14 +994,18 @@
         <option value="__none__">(unscored)</option>
       </select>
     </div>
-  </div>
-
-  <div class="block" id="block-unscored">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
-      Triage
-    </h3>
-    <div id="unscored-stat"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+    <div class="filter-row">
+      <select id="status">
+        <option value="">status: any</option>
+        <option value="new">new (unreviewed)</option>
+        <option value="reviewed">reviewed</option>
+        <option value="flagged">flagged</option>
+      </select>
+    </div>
+    <button class="stat-chip" id="unscored-chip" title="filter to companies awaiting a verdict">
+      <span class="k">without a verdict</span>
+      <span class="v" id="unscored-n">–</span>
+    </button>
   </div>
 
   <div class="block" id="block-criteria">
@@ -1024,6 +1029,7 @@
     <table id="t">
       <thead>
         <tr>
+          <th class="th-flag" title="flagged"></th>
           <th data-k="verdict">verdict</th>
           <th data-k="name">name</th>
           <th data-k="reason">reason</th>
@@ -1367,7 +1373,7 @@ Return the JSON verdict now.</pre>
 
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
-          <p class="lede">The main table is where you actually work. Each row is a company with its verdict pill, the one-line reason, and the structured fields. A <strong>pulsing blue dot</strong> marks companies you haven't reviewed yet. Sort by any column; filter by verdict or search by name, vertical, or reason.</p>
+          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict, by status (new / reviewed / flagged), or search by name, vertical, or reason.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the review state with a <strong>Mark reviewed</strong> toggle — your acknowledgement that you've triaged it, independent of the verdict.</p>
           <p>The detail pane includes:</p>
@@ -1378,7 +1384,7 @@ Return the JSON verdict now.</pre>
             <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
-          <p>The sidebar's <strong>Triage</strong> count (companies still without a verdict) and <strong>Current taste</strong> block show the state at a glance. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+          <p>The sidebar's <strong>without a verdict</strong> chip shows how many companies still await scoring — click it to filter to them. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
         </section>
 
       </div>
@@ -1392,6 +1398,8 @@ Return the JSON verdict now.</pre>
 const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null };
 
 const pillClass = v => "pill pill-" + (v || "none");
+// The flag bookmark glyph — pole first, banner last (the .is-on CSS fills the banner).
+const FLAG_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 14V2.5"/><path d="M3.5 2.5c3-1.2 6 1.2 9 0V9c-3 1.2-6-1.2-9 0z"/></svg>';
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // safeHref neutralizes hostile schemes (e.g. javascript:) for user-derived URLs:
 // returns the URL only when it is http(s), otherwise "#". escapeHTML still guards
@@ -1412,24 +1420,23 @@ async function loadStats() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     s = await r.json();
   } catch (e) {
-    document.getElementById("unscored-stat").innerHTML =
-      `<div class="muted small">stats failed: ${escapeHTML(e.message)}</div>`;
+    const chip = document.getElementById("unscored-chip");
+    chip.title = `stats failed: ${e.message}`;
+    document.getElementById("unscored-n").textContent = "–";
     return;
   }
   state.stats = s;
   renderStats();
 }
 
-function statLine(k, v) {
-  const cls = (Number(v) === 0) ? "v zero" : "v";
-  return `<div class="stat-row"><span class="k">${escapeHTML(k)}</span><span class="${cls}">${v}</span></div>`;
-}
-
 function renderStats() {
   const s = state.stats || {};
-  // The only count worth surfacing: companies still awaiting a verdict.
-  document.getElementById("unscored-stat").innerHTML =
-    statLine("without a verdict", s.unscored ?? 0);
+  // The only count worth surfacing: companies still awaiting a verdict. The
+  // chip doubles as a control — clicking it applies the (unscored) filter.
+  const n = s.unscored ?? 0;
+  const el = document.getElementById("unscored-n");
+  el.textContent = n;
+  el.classList.toggle("zero", Number(n) === 0);
 
   // Criteria block (source + playbook + stale badge) reads stats too.
   renderCriteria();
@@ -1453,9 +1460,13 @@ function sortRows(rows) {
 function filtered() {
   const q = document.getElementById("q").value.trim().toLowerCase();
   const v = document.getElementById("verdict").value;
+  const st = document.getElementById("status").value;
   return state.rows.filter(r => {
     if (v === "__none__" && r.verdict) return false;
     if (v && v !== "__none__" && r.verdict !== v) return false;
+    if (st === "new" && r.reviewed) return false;
+    if (st === "reviewed" && !r.reviewed) return false;
+    if (st === "flagged" && !r.flagged) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -1472,10 +1483,10 @@ function renderList() {
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
-    const newDot = r.reviewed ? "" : '<span class="new-dot" title="new — not yet reviewed"></span>';
     tr.innerHTML = `
+      <td class="td-flag"><button class="flag-btn${r.flagged ? " is-on" : ""}" data-id="${r.company_id}" title="${r.flagged ? "unflag" : "flag"}">${FLAG_SVG}</button></td>
       <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
-      <td><span class="row-name" data-id="${r.company_id}">${newDot}${escapeHTML(r.name)}</span></td>
+      <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
       <td class="reason">${escapeHTML(r.reason || "")}</td>
       <td>${escapeHTML(r.vertical || "")}</td>
       <td>${escapeHTML(r.location || "")}</td>
@@ -1485,14 +1496,17 @@ function renderList() {
     `;
     tbody.appendChild(tr);
   }
-  // The whole row opens the detail pane; a click on the "about ↗" link still
-  // navigates instead (closest("a") guards it). Rows are recreated each render,
-  // so these listeners don't stack.
+  // The whole row opens the detail pane; clicks on the "about ↗" link or the
+  // flag button do their own thing instead (closest() guards them). Rows are
+  // recreated each render, so these listeners don't stack.
   tbody.querySelectorAll("tr").forEach(tr => {
     tr.addEventListener("click", e => {
-      if (e.target.closest("a")) return;
+      if (e.target.closest("a, .flag-btn")) return;
       openDetail(tr.dataset.id);
     });
+  });
+  tbody.querySelectorAll(".flag-btn").forEach(b => {
+    b.addEventListener("click", () => onToggleFlag(b.dataset.id));
   });
 }
 
@@ -1591,11 +1605,16 @@ function renderDetail(d) {
       <span class="rb-state ${d.reviewed ? "is-reviewed" : "is-new"}">
         ${d.reviewed
           ? `reviewed${d.reviewed_at ? ` <span class="small muted">· ${escapeHTML(d.reviewed_at)}</span>` : ""}`
-          : `<span class="new-dot"></span>new — not yet reviewed`}
+          : `new — not yet reviewed`}
       </span>
-      <button class="btn ${d.reviewed ? "" : "btn-primary"}" id="review-toggle-btn">
-        ${d.reviewed ? "Mark as new" : "Mark reviewed"}
-      </button>
+      <span class="rb-actions">
+        <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
+          ${d.flagged ? "⚑ flagged" : "⚐ flag"}
+        </button>
+        <button class="btn ${d.reviewed ? "" : "btn-primary"}" id="review-toggle-btn">
+          ${d.reviewed ? "Mark as new" : "Mark reviewed"}
+        </button>
+      </span>
     </div>`;
 
   document.getElementById("pane-body").innerHTML = `
@@ -1674,6 +1693,40 @@ function renderDetail(d) {
 
   const reviewBtn = document.getElementById("review-toggle-btn");
   if (reviewBtn) reviewBtn.addEventListener("click", () => onToggleReviewed(d));
+
+  const flagBtn = document.getElementById("flag-toggle-btn");
+  if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
+}
+
+// ---- flag (hand-set bookmark) ----
+// Shared by the row flag buttons and the pane toggle: flips the flag, then
+// refreshes the table row and — if it's the open company — the detail pane.
+async function onToggleFlag(id) {
+  const row = state.rows.find(r => r.company_id === id);
+  const next = !(row && row.flagged);
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${id}/flagged`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flagged: next }),
+    });
+  } catch (e) {
+    toast(`failed: ${e.message}`);
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    return;
+  }
+  const fresh = await resp.json();
+  if (row) { row.flagged = fresh.flagged; renderList(); }
+  if (state.openId === id) {
+    renderDetail(fresh);
+    loadTrace(id); // renderDetail reset the trace body to a spinner
+  }
+  toast(fresh.flagged ? "flagged" : "unflagged");
 }
 
 // ---- review state ----
@@ -1702,7 +1755,7 @@ async function onToggleReviewed(d) {
   const fresh = await resp.json();
   renderDetail(fresh);          // re-render with the new review state + button label
   loadTrace(fresh.company_id);  // renderDetail reset the trace body to a spinner
-  loadList();                   // clear / restore the pulsing dot in the table
+  loadList();                   // refresh the table so the status filter stays accurate
   toast(next ? "marked reviewed" : "marked new");
 }
 
@@ -2094,6 +2147,12 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
 });
 document.getElementById("q").oninput = renderList;
 document.getElementById("verdict").onchange = renderList;
+document.getElementById("status").onchange = renderList;
+// The "without a verdict" chip is a shortcut: apply the (unscored) filter.
+document.getElementById("unscored-chip").onclick = () => {
+  document.getElementById("verdict").value = "__none__";
+  renderList();
+};
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {

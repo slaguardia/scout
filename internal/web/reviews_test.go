@@ -70,3 +70,50 @@ func TestReviewedAPI(t *testing.T) {
 		t.Errorf("GET reviewed: want 405, got %d", getRec.Code)
 	}
 }
+
+func TestFlaggedAPI(t *testing.T) {
+	s, cid := newTestServer(t)
+	h := s.Handler()
+
+	put := func(id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut,
+			"/api/companies/"+id+"/flagged",
+			bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Flag → 200, detail and triage row reflect it; flag is independent of reviewed.
+	rec := put(cid, `{"flagged":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("flag: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var d store.CompanyDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if !d.Flagged || d.FlaggedAt == "" {
+		t.Errorf("after flag: flagged=%v at=%q", d.Flagged, d.FlaggedAt)
+	}
+	if d.Reviewed {
+		t.Errorf("flagging must not touch reviewed state")
+	}
+	if rows, _ := s.DB.TriageRows(); !rows[0].Flagged {
+		t.Errorf("triage row should be flagged")
+	}
+
+	// Unflag → cleared.
+	if rec := put(cid, `{"flagged":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("unflag: want 200, got %d", rec.Code)
+	}
+	if rows, _ := s.DB.TriageRows(); rows[0].Flagged {
+		t.Errorf("triage row should be unflagged")
+	}
+
+	// Unknown company → 404.
+	if rec := put("no-such-company-uuid", `{"flagged":true}`); rec.Code != http.StatusNotFound {
+		t.Errorf("bad company: want 404, got %d", rec.Code)
+	}
+}

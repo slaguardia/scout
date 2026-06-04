@@ -24,6 +24,8 @@ type CompanyDetail struct {
 
 	Reviewed   bool   `json:"reviewed"`
 	ReviewedAt string `json:"reviewed_at"`
+	Flagged    bool   `json:"flagged"`
+	FlaggedAt  string `json:"flagged_at"`
 
 	HasVerdict   bool   `json:"has_verdict"`
 	Verdict      string `json:"verdict"`
@@ -49,7 +51,7 @@ func (db *DB) GetCompanyDetail(companyID string) (*CompanyDetail, error) {
 SELECT c.id, c.name, c.source, COALESCE(c.source_id, ''),
        COALESCE(c.domain, ''), COALESCE(c.headcount, 0),
        COALESCE(c.funding_stage, ''), COALESCE(c.location, ''),
-       COALESCE(c.vertical, ''), c.ingested_at, c.raw_json, c.reviewed_at,
+       COALESCE(c.vertical, ''), c.ingested_at, c.raw_json, c.reviewed_at, c.flagged_at,
        v.verdict, v.reason, v.taste_version, v.model, v.scored_at,
        e.website_url, e.website_summary, e.fetch_status, e.fetch_error, e.fetched_at
 FROM companies c
@@ -59,14 +61,14 @@ WHERE c.id = ?`
 
 	var d CompanyDetail
 	var rawJSON string
-	var reviewedAt sql.NullString
+	var reviewedAt, flaggedAt sql.NullString
 	var verdict, reason, tasteVersion, model, scoredAt sql.NullString
 	var websiteURL, websiteSummary, fetchStatus, fetchError, fetchedAt sql.NullString
 
 	err := db.QueryRow(q, companyID).Scan(
 		&d.CompanyID, &d.Name, &d.Source, &d.SourceID,
 		&d.Domain, &d.Headcount, &d.FundingStage, &d.Location, &d.Vertical,
-		&d.IngestedAt, &rawJSON, &reviewedAt,
+		&d.IngestedAt, &rawJSON, &reviewedAt, &flaggedAt,
 		&verdict, &reason, &tasteVersion, &model, &scoredAt,
 		&websiteURL, &websiteSummary, &fetchStatus, &fetchError, &fetchedAt,
 	)
@@ -80,6 +82,8 @@ WHERE c.id = ?`
 	d.RawJSON = parseRawJSON(rawJSON)
 	d.Reviewed = reviewedAt.Valid
 	d.ReviewedAt = reviewedAt.String
+	d.Flagged = flaggedAt.Valid
+	d.FlaggedAt = flaggedAt.String
 	if verdict.Valid {
 		d.HasVerdict = true
 		d.Verdict = verdict.String

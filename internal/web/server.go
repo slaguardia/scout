@@ -286,30 +286,30 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 2 && parts[1] == "verdict":
 		s.handleCompanyVerdict(w, r, id)
 	case len(parts) == 2 && parts[1] == "reviewed":
-		s.handleCompanyReviewed(w, r, id)
+		s.handleCompanyMark(w, r, id, "reviewed", s.DB.SetReviewed)
+	case len(parts) == 2 && parts[1] == "flagged":
+		s.handleCompanyMark(w, r, id, "flagged", s.DB.SetFlagged)
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-// handleCompanyReviewed sets a company's triage review state. PUT
-// /api/companies/:id/reviewed with {"reviewed":true|false}. Review state is the
-// user's acknowledgement that they've looked at the company — independent of the
-// verdict; a new (un-reviewed) company shows a pulsing dot in the table. Returns
-// the refreshed detail so the client can re-render.
-func (s *Server) handleCompanyReviewed(w http.ResponseWriter, r *http.Request, id string) {
+// handleCompanyMark sets one of the two hand-set, verdict-independent company
+// marks. PUT /api/companies/:id/reviewed {"reviewed":bool} — the user's triage
+// acknowledgement — or PUT /api/companies/:id/flagged {"flagged":bool} — a
+// bookmark. Both are filterable in the table. Returns the refreshed detail so
+// the client can re-render.
+func (s *Server) handleCompanyMark(w http.ResponseWriter, r *http.Request, id, field string, set func(string, bool) error) {
 	if r.Method != http.MethodPut && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var body struct {
-		Reviewed bool `json:"reviewed"`
-	}
+	var body map[string]bool
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.DB.SetReviewed(id, body.Reviewed); err != nil {
+	if err := set(id, body[field]); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
