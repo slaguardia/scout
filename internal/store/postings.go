@@ -301,18 +301,28 @@ type JobRow struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 	Contacts       string `json:"contacts"` // outreach contacts (M24)
+
+	// OutreachDraftStatus is the latest outreach draft's status for this
+	// posting ("" when none) — drives the jobs-table "draft ready" badge so
+	// the fire-and-forget UX surfaces a finished draft on the next refresh.
+	OutreachDraftStatus string `json:"outreach_draft_status"`
 }
 
 // ListJobRows returns every posting across all companies, newest first, for
 // the jobs view. Returns an empty (non-nil) slice when there are none.
 func (db *DB) ListJobRows() ([]JobRow, error) {
+	// The latest-draft status rides a correlated subquery (newest by id) rather
+	// than a JOIN so the existing verdicts LEFT JOIN keeps its one-row-per-posting
+	// shape — it feeds the jobs-table "draft ready" badge, nothing more.
 	const q = `
 SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.location, ''),
        COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
        p.created_at, COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
-       COALESCE(p.contacts, '')
+       COALESCE(p.contacts, ''),
+       COALESCE((SELECT od.status FROM outreach_drafts od
+                 WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -331,7 +341,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt, &r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
-			&r.Contacts); err != nil {
+			&r.Contacts, &r.OutreachDraftStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid

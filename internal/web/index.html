@@ -52,6 +52,7 @@
 
     /* layout */
     --pane-w:    560px;
+    --pursuit-w: 720px;   /* the role/pipeline/outreach panel needs more room */
     --sidebar-w: 280px;
   }
 
@@ -627,6 +628,128 @@
     text-transform: uppercase; letter-spacing: 0.06em;
     font-weight: 500;
   }
+
+  /* ---- pursuit panel (jobs-view side panel: role + pipeline + outreach) ---- */
+  .pane-pursuit { width: var(--pursuit-w); }
+
+  /* role header — title, link, location, secondary company */
+  .role-head .role-url { font-size: 13px; word-break: break-all; }
+  .role-head .role-meta {
+    margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;
+    color: var(--fg-mute); font-size: 12.5px; align-items: center;
+  }
+  .role-head .role-company { color: var(--fg-dim); }
+  .role-head .role-summary {
+    margin-top: 10px; color: var(--fg-mute);
+    font-size: 13px; line-height: 1.55;
+  }
+
+  /* pipeline section — the relocated tracker controls, with room to breathe */
+  .pipeline-grid {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .pipeline-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pipeline-row > .pl-label {
+    width: 84px; flex: none; color: var(--fg-mute);
+    font-size: 12px; font-weight: 500;
+  }
+  .pipeline-row .input { width: auto; padding: 5px 10px; font-size: 13px; }
+  .pipeline-row input[type="date"].input { color-scheme: dark; }
+
+  /* outreach section */
+  .outreach-meta {
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px;
+  }
+  .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
+  .outreach-contacts { margin-bottom: 14px; }
+  .outreach-contacts .input { width: 100%; }
+  .outreach-contacts .oc-rendered {
+    margin-top: 6px; font-size: 12.5px; color: var(--fg-mute);
+  }
+
+  /* draft card — one pipeline run, by status */
+  .draft-card {
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--line-2);
+    border-radius: var(--r-md);
+    padding: 14px 16px;
+    background: var(--panel);
+    margin-bottom: 12px;
+  }
+  .draft-card.dc-review  { border-left-color: var(--maybe); }
+  .draft-card.dc-nohook  { border-left-color: var(--link); }
+  .draft-card.dc-sent    { border-left-color: var(--yes); }
+  .draft-card.dc-failed  { border-left-color: var(--no); }
+  .draft-card.dc-busy    { border-left-color: var(--accent); }
+  .draft-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .draft-head .dh-time { margin-left: auto; color: var(--fg-dim); font-size: 11.5px; }
+  .draft-note {
+    color: var(--fg-mute); font-size: 12.5px; line-height: 1.5;
+    margin-bottom: 10px;
+  }
+  .draft-textarea {
+    width: 100%; min-height: 200px; resize: vertical;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 12px 14px;
+    font: 13px/1.6 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+  }
+  .draft-textarea:focus { outline: none; border-color: var(--line-2); }
+  .draft-sentbody {
+    width: 100%;
+    background: var(--bg); color: var(--fg-mute);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 12px 14px;
+    font: 13px/1.6 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* lint chips — small warnings, never error-styled */
+  .lint-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .lint-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--maybe-bg); color: var(--maybe);
+    border-radius: 999px; padding: 2px 9px;
+    font-size: 11.5px; font-weight: 500;
+  }
+  .lint-chip code { color: inherit; font-size: 10.5px; opacity: 0.85; }
+
+  /* violations — the honesty/fail list */
+  .violation-list { margin: 8px 0 0; padding-left: 18px; }
+  .violation-list li { color: var(--no); font-size: 12.5px; margin-bottom: 4px; }
+  .violation-list li .vl-why { color: var(--fg-mute); }
+
+  /* missing-blocks gate (412) */
+  .blocks-gate {
+    border: 1px solid var(--line); border-left: 2px solid var(--no);
+    border-radius: var(--r-md); padding: 12px 14px; background: var(--panel);
+  }
+  .blocks-gate .bg-list { margin: 6px 0 10px; padding-left: 18px; color: var(--fg-mute); font-size: 12.5px; }
+
+  /* draft history disclosure */
+  details.draft-history { margin-top: 6px; }
+  details.draft-history summary {
+    cursor: pointer; color: var(--fg-mute); font-size: 12px;
+    padding: 4px 0; user-select: none;
+  }
+  details.draft-history summary::-webkit-details-marker { display: none; }
+
+  /* "draft ready" badge on the jobs-table row */
+  .draft-badge {
+    display: inline-block; vertical-align: 1px; margin-left: 8px;
+    background: var(--maybe-bg); color: var(--maybe);
+    border-radius: 999px; padding: 1px 8px;
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .draft-badge.db-nohook { background: var(--link-bg); color: var(--link); }
 
   /* ---- decision trail ---- */
   .trail-event {
@@ -1240,6 +1363,22 @@
   <div class="pane-body" id="pane-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
 </aside>
 
+<!-- the pursuit panel: jobs-view side panel, role-centric (wider than the
+     company pane). Built from the clicked jobs row; the outreach queue polls. -->
+<div class="scrim" id="pursuit-scrim"></div>
+<aside class="pane pane-pursuit" id="pursuit-pane" aria-hidden="true">
+  <div class="pane-head">
+    <h2 id="pursuit-title">—</h2>
+    <span id="pursuit-pills" class="pills-inline"></span>
+    <button class="close-btn" id="pursuit-close" aria-label="close">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>
+      </svg>
+    </button>
+  </div>
+  <div class="pane-body" id="pursuit-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+</aside>
+
 <!-- progress drawer -->
 <div class="drawer" id="drawer">
   <div class="drawer-head">
@@ -1626,6 +1765,16 @@ async function loadJobs() {
   state.jobs = data.rows || [];
   document.getElementById("jobs-n").textContent = state.jobs.length ? ` ${state.jobs.length}` : "";
   renderJobs();
+  // The pursuit panel holds a reference into the old array; re-bind it to the
+  // fresh row so its header/pipeline reflect server-side moves (e.g. a sent
+  // draft bumping outreach_count). It re-renders on its own actions.
+  if (pursuit.postingId) {
+    const fresh = state.jobs.find(j => j.posting_id === pursuit.postingId);
+    if (fresh) {
+      pursuit.row = fresh;
+      if (document.getElementById("pursuit-pane").classList.contains("open")) renderPursuit();
+    }
+  }
 }
 
 // ---- view tabs ----
@@ -1884,9 +2033,9 @@ function renderJobs() {
   for (const j of rows) {
     const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
-    tr.dataset.id = j.company_id;
+    tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>
+      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
       <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
@@ -1898,14 +2047,510 @@ function renderJobs() {
     tbody.appendChild(tr);
   }
   applyColumnVisibility();
-  // Row click opens the company's detail pane (posting details + tracking
-  // controls live there); the external "open ↗" link is guarded out.
+  // Row click opens the pursuit panel (role + pipeline + the outreach queue);
+  // the external "open ↗" link is guarded out.
   tbody.querySelectorAll("tr").forEach(tr => {
     tr.addEventListener("click", e => {
       if (e.target.closest("a")) return;
-      openDetail(tr.dataset.id);
+      openPursuit(tr.dataset.id);
     });
   });
+}
+
+// draftBadgeHTML marks a row whose latest draft is sitting in the review queue
+// (awaiting_review / no_hook) — the fire-and-forget "draft ready" signal.
+function draftBadgeHTML(status) {
+  if (status === "awaiting_review")
+    return '<span class="draft-badge" title="an outreach draft is ready to review">draft ready</span>';
+  if (status === "no_hook")
+    return '<span class="draft-badge db-nohook" title="no honest hook — mass-send template ready to review">draft ready</span>';
+  return "";
+}
+
+// ---- pursuit panel (jobs-view side panel) ----
+// Redesigned around THE PURSUIT, not the company: role header + pipeline
+// (tracking) + the outreach review queue + a "view company" footer. Built from
+// the clicked jobs row (it already carries posting + company fields); the
+// outreach queue fetches drafts and polls while one is researching.
+const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false };
+
+function openPursuit(postingId) {
+  const row = state.jobs.find(j => j.posting_id === postingId);
+  if (!row) { toast("posting not found — refresh"); return; }
+  stopPursuitPoll();
+  pursuit.postingId = postingId;
+  pursuit.row = row;
+  pursuit.drafts = [];
+  pursuit.openHist = false;
+  document.getElementById("pursuit-pane").classList.add("open");
+  document.getElementById("pursuit-scrim").classList.add("open");
+  document.getElementById("pursuit-pane").setAttribute("aria-hidden", "false");
+  renderPursuit();
+  loadDrafts();
+}
+
+function closePursuit() {
+  stopPursuitPoll();
+  pursuit.postingId = null; pursuit.row = null; pursuit.drafts = [];
+  document.getElementById("pursuit-pane").classList.remove("open");
+  document.getElementById("pursuit-scrim").classList.remove("open");
+  document.getElementById("pursuit-pane").setAttribute("aria-hidden", "true");
+}
+
+function stopPursuitPoll() {
+  if (pursuit.poll) { clearInterval(pursuit.poll); pursuit.poll = null; }
+}
+
+// loadDrafts fetches the posting's drafts (newest first) and renders the queue.
+// While the newest draft is still researching, it keeps a ~4s poll alive so the
+// open panel updates itself; the closed-panel path relies on the row badge.
+async function loadDrafts() {
+  if (!pursuit.postingId) return;
+  let data;
+  try {
+    const r = await fetch(`/api/postings/${pursuit.postingId}/outreach`);
+    if (!r.ok) { renderOutreachSection(); return; }
+    data = await r.json();
+  } catch { renderOutreachSection(); return; }
+  pursuit.drafts = data.drafts || [];
+  renderOutreachSection();
+  const latest = pursuit.drafts[0];
+  if (latest && latest.status === "researching") startPursuitPoll();
+  else stopPursuitPoll();
+}
+
+function startPursuitPoll() {
+  if (pursuit.poll) return;
+  pursuit.poll = setInterval(loadDrafts, 4000);
+}
+
+// renderPursuit lays out the whole panel: role header, pipeline, outreach,
+// footer. The outreach queue is re-rendered on its own (renderOutreachSection)
+// so polling doesn't rebuild the pipeline controls under the user's cursor.
+function renderPursuit() {
+  const j = pursuit.row;
+  if (!j) return;
+  document.getElementById("pursuit-title").textContent = j.title || j.company;
+  const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
+  document.getElementById("pursuit-pills").innerHTML =
+    `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>` +
+    (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
+
+  document.getElementById("pursuit-body").innerHTML = `
+    <section class="pane-section role-head">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
+        Role
+      </h3>
+      <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
+      <div class="role-meta">
+        ${j.location ? `<span>${escapeHTML(j.location)}</span>` : ""}
+        <span class="role-company">${escapeHTML(j.company)}</span>
+      </div>
+      ${j.summary ? `<div class="role-summary">${escapeHTML(j.summary)}</div>` : ""}
+    </section>
+
+    <section class="pane-section">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h12M8 2v12"/></svg>
+        Pipeline
+      </h3>
+      <div class="pipeline-grid">
+        <div class="pipeline-row">
+          <span class="pl-label">applied</span>
+          <button class="pt-chip pt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
+            applied
+          </button>
+          <input type="date" class="input pl-applied-date" value="${escapeHTML(j.applied_at || "")}"
+                 style="display:${j.applied_at ? "" : "none"}" title="application date">
+        </div>
+        <div class="pipeline-row">
+          <span class="pl-label">response</span>
+          <select class="input pl-response" title="furthest response reached">
+            <option value="">— none yet</option>
+            <option value="screening" ${j.response === "screening" ? "selected" : ""}>screening call</option>
+            <option value="interview" ${j.response === "interview" ? "selected" : ""}>interview</option>
+            <option value="offer" ${j.response === "offer" ? "selected" : ""}>offer</option>
+            <option value="rejected" ${j.response === "rejected" ? "selected" : ""}>rejected</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane-section">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v8H2z"/><path d="M2 4l6 5 6-5"/></svg>
+        Outreach
+      </h3>
+      <div id="outreach-section"></div>
+    </section>
+
+    <section class="pane-section">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M5 6h6M5 9h4"/></svg>
+        Company
+      </h3>
+      <button class="btn" id="pursuit-view-company">View company ↗</button>
+    </section>
+  `;
+
+  wirePipeline();
+  const vc = document.getElementById("pursuit-view-company");
+  if (vc) vc.addEventListener("click", () => openDetail(j.company_id));
+  renderOutreachSection();
+}
+
+// wirePipeline binds the relocated tracker controls; they PUT the posting and
+// keep state.jobs + the table in sync via savePursuitTracking.
+function wirePipeline() {
+  const j = pursuit.row;
+  const today = () => new Date().toISOString().slice(0, 10);
+  const applied = document.querySelector("#pursuit-body .pt-applied");
+  if (applied) applied.addEventListener("click", () =>
+    savePursuitTracking({ applied_at: j.applied_at ? "" : today() }));
+  const date = document.querySelector("#pursuit-body .pl-applied-date");
+  if (date) date.addEventListener("change", e =>
+    savePursuitTracking({ applied_at: e.target.value }));
+  const sel = document.querySelector("#pursuit-body .pl-response");
+  if (sel) sel.addEventListener("change", e =>
+    savePursuitTracking({ response: e.target.value }));
+}
+
+// savePursuitTracking PUTs the posting's full lifecycle (current overlaid with
+// the change), updates the cached row, the table, and re-renders the panel.
+async function savePursuitTracking(patch) {
+  const j = pursuit.row;
+  const body = {
+    applied_at: j.applied_at || "",
+    response: j.response || "",
+    outreach_count: j.outreach_count || 0,
+    last_outreach_at: j.last_outreach_at || "",
+    contacts: j.contacts || "",
+    ...patch,
+  };
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  // Fold the posting fields back into the row (keep company/verdict/badge etc).
+  Object.assign(j, {
+    applied_at: fresh.applied_at, response: fresh.response,
+    outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
+    contacts: fresh.contacts,
+  });
+  renderJobs();
+  renderPursuit();
+  toast("tracking saved");
+}
+
+// renderOutreachSection draws the outreach count/contacts header plus the
+// draft queue (current draft expanded, history collapsed under it).
+function renderOutreachSection() {
+  const host = document.getElementById("outreach-section");
+  if (!host) return;
+  const j = pursuit.row;
+  const drafts = pursuit.drafts;
+  const current = drafts[0] || null;
+  const history = drafts.slice(1);
+
+  const meta = `
+    <div class="outreach-meta">
+      <span><span class="om-count">${j.outreach_count || 0}</span> sent</span>
+      ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
+    </div>
+    <div class="outreach-contacts">
+      <input class="input oc-input" value="${escapeHTML(j.contacts || "")}"
+             placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
+             title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
+      <div class="oc-rendered">${contactsHTML(j.contacts)}</div>
+    </div>`;
+
+  // The outer start button: hidden while a draft is active (it's shown in the
+  // card) and while the current draft is failed (its in-card Retry covers it).
+  const suppressStart = current && (isActiveStatus(current.status) || current.status === "failed");
+  const draftBtn = suppressStart
+    ? ""
+    : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>`;
+
+  const histBlock = history.length ? `
+    <details class="draft-history" ${pursuit.openHist ? "open" : ""}>
+      <summary>${history.length} earlier draft${history.length > 1 ? "s" : ""}</summary>
+      <div id="draft-history-body">${history.map(d => draftCardHTML(d, true)).join("")}</div>
+    </details>` : "";
+
+  host.innerHTML = meta +
+    `<div id="draft-current">${current ? draftCardHTML(current, false) : ""}</div>` +
+    `<div class="draft-actions">${draftBtn}</div>` +
+    histBlock;
+
+  wireOutreach();
+}
+
+function isActiveStatus(st) {
+  return st === "researching" || st === "awaiting_review" || st === "no_hook";
+}
+
+// draftCardHTML renders one draft by status. `readonly` collapses history items
+// to a read-only summary (no edit/save controls).
+function draftCardHTML(d, readonly) {
+  const when = (d.updated_at || d.created_at || "").replace("T", " ").slice(0, 16);
+  const head = (cls, label) => `
+    <div class="draft-head">
+      <span class="${cls}">${label}</span>
+      <span class="dh-time">${escapeHTML(when)}</span>
+    </div>`;
+
+  if (d.status === "researching") {
+    return `<div class="draft-card dc-busy">
+      ${head("loading-row", '<span class="spinner"></span><span>researching…</span>')}
+      <div class="draft-note">Gathering hook candidates and drafting — this usually takes a minute or two.</div>
+    </div>`;
+  }
+
+  if (d.status === "failed") {
+    const vio = renderViolations(d.violations);
+    return `<div class="draft-card dc-failed" data-did="${d.id}">
+      ${head("pill pill-no", "failed")}
+      ${d.fail_reason ? `<div class="draft-note">${escapeHTML(d.fail_reason)}</div>` : ""}
+      ${vio}
+      ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">Retry</button></div>`}
+    </div>`;
+  }
+
+  if (d.status === "sent") {
+    return `<div class="draft-card dc-sent" data-did="${d.id}">
+      ${head("pill pill-yes", "sent")}
+      ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
+      <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+    </div>`;
+  }
+
+  // awaiting_review or no_hook — both editable; no_hook is NEUTRAL, not an error.
+  const text = draftText(d);
+  const noHook = d.status === "no_hook";
+  const label = noHook
+    ? `<span class="pill pill-info">no honest hook</span>`
+    : `<span class="pill pill-maybe">awaiting review</span>`;
+  // no_hook with empty draft means the mass-send template wasn't pinned/ready.
+  const note = noHook
+    ? (text
+        ? `<div class="draft-note">No honest hook found — the mass-send template is filled in and ready to review.</div>`
+        : `<div class="draft-note">No honest hook found, but no template is ready${d.fail_reason ? ` — ${escapeHTML(d.fail_reason)}` : " (template not pinned)"}.</div>`)
+    : "";
+
+  if (readonly) {
+    return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
+      <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
+      ${note}
+      <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
+    </div>`;
+  }
+
+  const editable = text || noHook; // show the editor unless there's truly nothing
+  return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
+    <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
+    ${note}
+    ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
+    ${renderLintChips(d.lint)}
+    <div class="draft-actions">
+      <button class="btn draft-save-btn">Save</button>
+      <button class="btn btn-primary draft-sent-btn">Mark sent</button>
+    </div>` : ""}
+  </div>`;
+}
+
+// draftText resolves the body shown/edited: the user's edit wins over the
+// pipeline's draft (mirrors the server's edited-non-empty-wins rule).
+function draftText(d) {
+  return (d.edited && d.edited.trim()) ? d.edited : (d.draft || "");
+}
+
+function renderLintChips(lintJSON) {
+  let findings = [];
+  try { findings = JSON.parse(lintJSON || "[]") || []; } catch { findings = []; }
+  if (!findings.length) return "";
+  return `<div class="lint-chips">` + findings.map(f =>
+    `<span class="lint-chip" title="${escapeHTML(f.message || "")}"><code>${escapeHTML(f.code || "")}</code>${escapeHTML(f.message || "")}</span>`
+  ).join("") + `</div>`;
+}
+
+function renderViolations(vioJSON) {
+  let vios = [];
+  try { vios = JSON.parse(vioJSON || "[]") || []; } catch { vios = []; }
+  if (!vios.length) return "";
+  return `<ul class="violation-list">` + vios.map(v =>
+    `<li>${escapeHTML(v.claim || v.message || String(v))}${v.why ? ` <span class="vl-why">— ${escapeHTML(v.why)}</span>` : ""}</li>`
+  ).join("") + `</ul>`;
+}
+
+// wireOutreach binds the outreach-section controls after each render.
+function wireOutreach() {
+  const host = document.getElementById("outreach-section");
+  if (!host) return;
+
+  // contacts — save on change (blur w/ a new value); Enter blurs to commit.
+  const oc = host.querySelector(".oc-input");
+  if (oc) {
+    oc.addEventListener("change", e => savePursuitTracking({ contacts: e.target.value.trim() }));
+    oc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+  }
+
+  const start = host.querySelector("#draft-start-btn");
+  if (start) start.addEventListener("click", startDraft);
+
+  host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", startDraft));
+
+  host.querySelectorAll(".draft-card[data-did]").forEach(card => {
+    const id = card.dataset.did;
+    const save = card.querySelector(".draft-save-btn");
+    if (save) save.addEventListener("click", () => saveDraftEdit(id));
+    const sent = card.querySelector(".draft-sent-btn");
+    if (sent) sent.addEventListener("click", () => markDraftSent(id));
+  });
+
+  // Keep the history open-state sticky across polls.
+  const hist = host.querySelector("details.draft-history");
+  if (hist) hist.addEventListener("toggle", () => { pursuit.openHist = hist.open; });
+}
+
+// startDraft POSTs the draft pipeline. 202 -> show researching + poll;
+// 412 -> the missing-blocks gate with a Sync button; 503 -> quiet dev notice;
+// 409 -> reload (the active draft already exists, surface it).
+async function startDraft() {
+  const host = document.getElementById("outreach-section");
+  const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn"));
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${pursuit.postingId}/outreach`, { method: "POST" });
+  } catch (e) {
+    toast(`draft failed: ${e.message}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  if (resp.status === 202) {
+    await loadDrafts();        // the new researching row + poll
+    return;
+  }
+  if (resp.status === 409) {   // an active draft already exists — just show it
+    await loadDrafts();
+    toast("a draft is already active");
+    return;
+  }
+  if (resp.status === 412) {
+    let body = {};
+    try { body = await resp.json(); } catch {}
+    renderBlocksGate(body.missing_blocks || []);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (resp.status === 503) {
+    const host2 = document.getElementById("outreach-section");
+    if (host2) {
+      const slot = document.createElement("div");
+      slot.className = "draft-note";
+      slot.textContent = "Outreach engine not running in this build.";
+      host2.appendChild(slot);
+    }
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const txt = (await resp.text().catch(() => "")).trim();
+  toast(`draft failed: ${txt || "HTTP " + resp.status}`);
+  if (btn) btn.disabled = false;
+}
+
+// renderBlocksGate replaces the start button with the missing-blocks list +
+// a Sync button (POST /api/outreach/sync) that refreshes blocks then retries.
+function renderBlocksGate(missing) {
+  const host = document.getElementById("outreach-section");
+  if (!host) return;
+  const acts = host.querySelector(".draft-actions");
+  const gate = document.createElement("div");
+  gate.className = "blocks-gate";
+  gate.innerHTML = `
+    <div class="draft-note">Outreach needs context blocks that aren't synced yet:</div>
+    <ul class="bg-list">${(missing.length ? missing : ["(unknown)"]).map(b => `<li>${escapeHTML(b)}</li>`).join("")}</ul>
+    <button class="btn btn-primary" id="blocks-sync-btn">Sync blocks</button>`;
+  if (acts) acts.replaceWith(gate); else host.appendChild(gate);
+  const sb = gate.querySelector("#blocks-sync-btn");
+  if (sb) sb.addEventListener("click", syncBlocks);
+}
+
+async function syncBlocks() {
+  const btn = document.getElementById("blocks-sync-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+  let resp;
+  try {
+    resp = await fetch(`/api/outreach/sync`, { method: "POST" });
+  } catch (e) { toast(`sync failed: ${e.message}`); if (btn) { btn.disabled = false; btn.textContent = "Sync blocks"; } return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`sync failed: ${txt || "HTTP " + resp.status}`);
+    if (btn) { btn.disabled = false; btn.textContent = "Sync blocks"; }
+    return;
+  }
+  toast("blocks synced");
+  renderOutreachSection();  // restore the start button, then the user retries
+}
+
+// saveDraftEdit PUTs the edited body; the server re-lints and returns fresh
+// lint findings, which we splice back in without rebuilding the textarea.
+async function saveDraftEdit(id) {
+  const ta = document.getElementById(`draft-edit-${id}`);
+  if (!ta) return;
+  let resp;
+  try {
+    resp = await fetch(`/api/outreach/drafts/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ edited: ta.value }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  const i = pursuit.drafts.findIndex(d => String(d.id) === String(id));
+  if (i >= 0) pursuit.drafts[i] = fresh;
+  // Replace just the lint chips so the user keeps their cursor/scroll.
+  const card = ta.closest(".draft-card");
+  if (card) {
+    const chips = card.querySelector(".lint-chips");
+    const fresh_chips = renderLintChips(fresh.lint);
+    if (chips) chips.outerHTML = fresh_chips || "";
+    else if (fresh_chips) ta.insertAdjacentHTML("afterend", fresh_chips);
+  }
+  toast("saved");
+}
+
+// markDraftSent flips the draft to sent and bumps the posting's outreach count
+// server-side; refresh the row from the response and re-render.
+async function markDraftSent(id) {
+  let resp;
+  try {
+    resp = await fetch(`/api/outreach/drafts/${id}/sent`, { method: "POST" });
+  } catch (e) { toast(`failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  toast("marked sent");
+  await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
+  loadJobs();           // the posting's outreach_count/last_outreach moved server-side
 }
 
 // ---- detail pane ----
@@ -2785,13 +3430,18 @@ applyColumnVisibility(); // hide chosen thead cells before the first data load
 
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
+document.getElementById("pursuit-close").onclick = closePursuit;
+document.getElementById("pursuit-scrim").onclick = closePursuit;
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
   if (document.getElementById("capture-scrim").classList.contains("open")) { closeCapture(); return; }
-  closeDetail();
+  // The pursuit panel can sit over the company pane (View company opens it on
+  // top); close the company pane first so Escape peels them back in order.
+  if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
+  if (document.getElementById("pursuit-pane").classList.contains("open")) { closePursuit(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
 
