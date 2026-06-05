@@ -42,6 +42,9 @@ const (
 	stageMaxTokens = 2000
 	// cardMaxTokens covers the ~150-word experience card.
 	cardMaxTokens = 600
+	// maxContinuations bounds pause_turn resumes of the hosted web_search
+	// server-side loop (per stage call); past it the partial output is used.
+	maxContinuations = 4
 	// webSearchMaxUses caps the researcher's hosted searches per run.
 	webSearchMaxUses = 6
 )
@@ -472,18 +475,34 @@ Email to verify:
 // tools is passed through (the researcher uses web_search; the rest pass nil).
 func (e *Engine) callJSON(ctx context.Context, system, user string, maxTokens int, tools []any) (string, error) {
 	send := func(msgs []anthropic.Message) (string, error) {
-		resp, err := e.Client.Send(ctx, anthropic.Request{
-			Model:     e.model(),
-			System:    system,
-			MaxTokens: maxTokens,
-			Messages:  msgs,
-			Cached:    true,
-			Tools:     tools,
-		})
-		if err != nil {
-			return "", err
+		// The hosted web_search server tool runs a server-side loop; at its
+		// iteration cap the API returns stop_reason "pause_turn" mid-turn.
+		// Resume by replaying the assistant content verbatim and re-sending —
+		// no extra user message — accumulating text until the turn completes.
+		var text strings.Builder
+		for cont := 0; ; cont++ {
+			resp, err := e.Client.Send(ctx, anthropic.Request{
+				Model:     e.model(),
+				System:    system,
+				MaxTokens: maxTokens,
+				Messages:  msgs,
+				Cached:    true,
+				Tools:     tools,
+			})
+			if err != nil {
+				return "", err
+			}
+			text.WriteString(resp.Text())
+			if resp.StopReason != "pause_turn" {
+				return text.String(), nil
+			}
+			if cont >= maxContinuations {
+				e.log("outreach: server tool loop still paused after %d continuations, using partial output", cont)
+				return text.String(), nil
+			}
+			e.log("outreach: server tool loop paused, continuing (%d)", cont+1)
+			msgs = append(msgs, anthropic.Message{Role: "assistant", Content: resp.RawContent()})
 		}
-		return resp.Text(), nil
 	}
 
 	msgs := []anthropic.Message{{Role: "user", Content: user}}

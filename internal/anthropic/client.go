@@ -41,10 +41,12 @@ func New(apiKey string) *Client {
 	}
 }
 
-// Message is a single turn.
+// Message is a single turn. Content is a plain string for normal turns; pass
+// a Response.RawContent() to replay a prior assistant turn verbatim (the
+// pause_turn continuation — see Engine callers).
 type Message struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
 }
 
 // Request mirrors the Anthropic /v1/messages request body.
@@ -120,15 +122,36 @@ type wireRequest struct {
 	Tools       []any     `json:"tools,omitempty"`
 }
 
-// Response is the shape we care about from the API.
-type Response struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Content []struct {
+// ContentBlock is one response content block. Type/Text cover the text blocks
+// scout reads; Raw preserves the block verbatim (server_tool_use,
+// web_search_tool_result, ...) so a pause_turn continuation can replay the
+// assistant turn byte-exact.
+type ContentBlock struct {
+	Type string
+	Text string
+	Raw  json.RawMessage
+}
+
+// UnmarshalJSON keeps the verbatim block alongside the decoded type/text.
+func (b *ContentBlock) UnmarshalJSON(data []byte) error {
+	var v struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	b.Type, b.Text = v.Type, v.Text
+	b.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+// Response is the shape we care about from the API.
+type Response struct {
+	ID         string         `json:"id"`
+	Model      string         `json:"model"`
+	Content    []ContentBlock `json:"content"`
+	StopReason string         `json:"stop_reason"`
 	Usage      struct {
 		InputTokens              int `json:"input_tokens"`
 		OutputTokens             int `json:"output_tokens"`
@@ -149,6 +172,19 @@ func (r *Response) Text() string {
 		}
 	}
 	return s
+}
+
+// RawContent returns the response's content array verbatim — for replaying
+// the assistant turn in a continuation request after stop_reason "pause_turn"
+// (the hosted web_search server tool pauses at its server-side iteration cap;
+// re-sending the conversation with this appended resumes it).
+func (r *Response) RawContent() json.RawMessage {
+	parts := make([]json.RawMessage, len(r.Content))
+	for i, c := range r.Content {
+		parts[i] = c.Raw
+	}
+	out, _ := json.Marshal(parts)
+	return out
 }
 
 // Send posts a single Messages API request.
