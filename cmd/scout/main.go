@@ -221,12 +221,17 @@ func cmdEnrich(args []string) error {
 	defer cancel()
 
 	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout, OnlyBlanks: *onlyBlanks, CompanyIDs: splitIDs(*companies)}
+	// Fact extraction is best-effort: with a key, blank company columns are
+	// filled from the fetched page; without one, enrichment is fetch-only.
+	if ac := anthropic.New(""); ac.APIKey != "" {
+		e.LLM = ac
+	}
 	res, err := e.Run(ctx, *force)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("considered=%d fetched=%d ok=%d failed=%d\n",
-		res.Considered, res.Fetched, res.OK, res.Failed)
+	fmt.Printf("considered=%d fetched=%d ok=%d failed=%d filled=%d\n",
+		res.Considered, res.Fetched, res.OK, res.Failed, res.Filled)
 	return nil
 }
 

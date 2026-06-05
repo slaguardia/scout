@@ -76,13 +76,18 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) enrichJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
 		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks, CompanyIDs: opts.CompanyIDs}
+		// Fact extraction needs the API key; without it enrichment still runs,
+		// just purely mechanical (fetch + summary only).
+		if s.Anthropic != nil && s.Anthropic.APIKey != "" {
+			e.LLM = s.Anthropic
+		}
 		res, err := e.Run(ctx, opts.Force)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{
 			"considered": res.Considered, "fetched": res.Fetched,
-			"ok": res.OK, "failed": res.Failed,
+			"ok": res.OK, "failed": res.Failed, "filled": res.Filled,
 		}, nil
 	}
 }

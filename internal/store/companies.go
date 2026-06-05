@@ -122,6 +122,56 @@ WHERE id = ?;`
 	return nil
 }
 
+// EditableCompany are the hand-editable company fields — everything the
+// Add-company form collects except the website (the domain is the row's
+// identity and never changes after insert).
+type EditableCompany struct {
+	Name         string
+	Headcount    sql.NullInt64
+	FundingStage sql.NullString
+	Location     sql.NullString
+	Vertical     sql.NullString
+}
+
+// UpdateCompanyEditable replaces the editable fields on one company (full
+// replace — the edit form submits every field, blanks clear). name_key tracks
+// the new name so the dedup fold keeps matching (see normName). Returns
+// sql.ErrNoRows for an unknown id.
+func (db *DB) UpdateCompanyEditable(id string, e EditableCompany) error {
+	const q = `
+UPDATE companies SET
+    name = ?, name_key = ?, headcount = ?, funding_stage = ?, location = ?, vertical = ?
+WHERE id = ?;`
+	res, err := db.Exec(q, e.Name, normName(e.Name), e.Headcount, e.FundingStage, e.Location, e.Vertical, id)
+	if err != nil {
+		return fmt.Errorf("update company %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// FillCompanyNamePlaceholder sets the company name only when the stored name is
+// still the domain placeholder (a manual add with no name defaults to the bare
+// domain) or empty. A real name — typed or ingested — is never overwritten.
+// Reports whether a row changed.
+func (db *DB) FillCompanyNamePlaceholder(id, name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, nil
+	}
+	const q = `
+UPDATE companies SET name = ?, name_key = ?
+WHERE id = ? AND (name = '' OR name = COALESCE(domain, ''));`
+	res, err := db.Exec(q, name, normName(name), id)
+	if err != nil {
+		return false, fmt.Errorf("fill company name %q: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // companyChildTables1to1 hold at most one row per company (company_id is the
 // PRIMARY KEY). On a fold, newID may ALREADY have its own row (the merge can
 // target an existing, enriched/scored company), so a blind re-point would hit

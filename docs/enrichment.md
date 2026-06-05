@@ -127,6 +127,31 @@ in all three cases; only `ok` survives to verdict.
 Retry strategy is manual: `enrich --force`. We don't auto-retry on a schedule.
 Most failures are persistent (dead domains).
 
+## Fact extraction (fill-only-blanks)
+
+When the Enricher has an Anthropic client (the web server passes its key
+through; the CLI picks up `ANTHROPIC_API_KEY`), every `ok` fetch gets one extra
+Haiku call over the page text that extracts `{name, vertical, location,
+headcount, funding_stage}` — see `internal/enrich/facts.go`. The write is
+strictly fill-only-blanks:
+
+- The **name** is replaced only when it's still the bare-domain placeholder a
+  name-less "Add company" gets (`FillCompanyNamePlaceholder`). A typed or
+  ingested name is never touched.
+- The other columns go through `BackfillCompanyBlanks`, which guards per
+  column — a CSV value always wins over an extracted one.
+- The prompt forbids guessing: headcount and stage are filled only when the
+  page states them, so most sites fill name + vertical and honestly leave the
+  rest blank.
+
+Without a key, enrichment is purely mechanical (fetch + summary), as before.
+Errors in the extraction call never fail the enrichment row — they're reported
+on the progress stream and skipped.
+
+The companion surface: `PUT /api/companies/:id` edits the same fields by hand
+from the detail panel's "Company facts" section (full replace, name required,
+domain immutable — it's the row's identity).
+
 ## What we're NOT fetching (yet)
 
 Single about/landing page only. These are the obvious next moves if verdict

@@ -7,10 +7,16 @@ import (
 )
 
 // EnrichmentTarget is a company that still needs (or could refresh) enrichment.
+// The fact columns ride along so the fact-extraction pass can see which fields
+// are still blank without a second query per company.
 type EnrichmentTarget struct {
-	CompanyID string
-	Name      string
-	Domain    string
+	CompanyID    string
+	Name         string
+	Domain       string
+	Headcount    int64 // 0 = unknown
+	FundingStage string
+	Location     string
+	Vertical     string
 }
 
 // Enrichment is the cached about-page record.
@@ -34,7 +40,9 @@ type Enrichment struct {
 // force/onlyBlanks are ignored.
 func (db *DB) EnrichmentTargets(force, onlyBlanks bool, companyIDs []string) ([]EnrichmentTarget, error) {
 	q := `
-SELECT c.id, c.name, COALESCE(c.domain, '')
+SELECT c.id, c.name, COALESCE(c.domain, ''),
+       COALESCE(c.headcount, 0), COALESCE(c.funding_stage, ''),
+       COALESCE(c.location, ''), COALESCE(c.vertical, '')
 FROM companies c
 LEFT JOIN enrichment e ON e.company_id = c.id
 WHERE COALESCE(c.domain, '') <> ''
@@ -58,7 +66,8 @@ WHERE COALESCE(c.domain, '') <> ''
 	var out []EnrichmentTarget
 	for rows.Next() {
 		var t EnrichmentTarget
-		if err := rows.Scan(&t.CompanyID, &t.Name, &t.Domain); err != nil {
+		if err := rows.Scan(&t.CompanyID, &t.Name, &t.Domain,
+			&t.Headcount, &t.FundingStage, &t.Location, &t.Vertical); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
