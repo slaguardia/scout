@@ -541,6 +541,17 @@
     display: flex; align-items: center; gap: 6px;
   }
   .pane-section h3 svg { width: 12px; height: 12px; opacity: 0.85; }
+  /* per-section action (re-enrich / re-score) — quiet, right-aligned */
+  .pane-section h3 .h3-action {
+    margin-left: auto;
+    font: inherit; font-size: 11px; text-transform: none; letter-spacing: normal;
+    color: var(--fg-mute); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 10px; cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .pane-section h3 .h3-action:hover { color: var(--fg); border-color: var(--line-2); background: var(--panel-2); }
+  .pane-section h3 .h3-action:disabled { opacity: 0.5; cursor: default; }
 
   /* kv grid */
   .kv {
@@ -1984,6 +1995,14 @@ function renderDetail(d) {
     ${d.website_summary ? `<div class="summary-box">${escapeHTML(d.website_summary)}</div>` : ""}
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
 
+  // Per-company stage actions: targeted runs (company_ids) always re-run, so
+  // re-score even overwrites a manual verdict. Gated like the sidebar buttons.
+  const canControl = !state.meta || state.meta.control !== false;
+  const rescoreBtn = canControl && state.meta && state.meta.verdict
+    ? '<button class="h3-action" id="rescore-btn" title="re-score just this company — replaces the current verdict, manual or not">↻ re-score</button>' : "";
+  const reenrichBtn = canControl && d.domain
+    ? '<button class="h3-action" id="reenrich-btn" title="re-fetch this company’s site now">↻ re-enrich</button>' : "";
+
   const rawRows = Object.keys(d.raw_json || {}).sort();
   const rawHTML = rawRows.length === 0 ? '' : `
     <details class="raw-json">
@@ -2048,6 +2067,7 @@ function renderDetail(d) {
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
         Verdict
+        ${rescoreBtn}
       </h3>
       ${verdictBlock}
       ${verdictEditor}
@@ -2057,6 +2077,7 @@ function renderDetail(d) {
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 3 4 3 6s-1 4-3 6c-2-2-3-4-3-6s1-4 3-6z"/></svg>
         Enrichment
+        ${reenrichBtn}
       </h3>
       ${enrichBlock}
     </section>
@@ -2090,6 +2111,13 @@ function renderDetail(d) {
 
   const reviewBtn = document.getElementById("review-stamp-btn");
   if (reviewBtn) reviewBtn.addEventListener("click", () => onMarkReviewed(d.company_id));
+
+  // Targeted stage runs for this one company. streamJob re-opens the pane on
+  // job end, so the fresh enrichment/verdict shows up without a manual reload.
+  const rescore = document.getElementById("rescore-btn");
+  if (rescore) rescore.addEventListener("click", () => startRun("verdict", { company_ids: [d.company_id] }));
+  const reenrich = document.getElementById("reenrich-btn");
+  if (reenrich) reenrich.addEventListener("click", () => startRun("enrich", { company_ids: [d.company_id] }));
 }
 
 // ---- last-reviewed stamp ----
@@ -2656,6 +2684,7 @@ function streamJob(stage, jobId) {
     toast(`${stage} ${e.data}`);
     // Refresh everything the run could have changed.
     loadList(); loadStats(); loadRuns(); loadJobs();
+    if (state.openId) openDetail(state.openId); // open pane: show fresh enrichment/verdict
   });
   es.onerror = () => { es.close(); }; // server closed or network; 'end' usually fired first
 }

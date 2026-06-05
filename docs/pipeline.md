@@ -103,12 +103,16 @@ happens at verdict time, grounded in the brain.
 | **Input** | `companies` with a non-empty domain. |
 | **Output** | `considered=N fetched=N ok=N failed=N`. |
 | **Idempotent** | Yes — re-fetches only rows re-ingested since last fetch. |
-| **Flags** | `--db`, `--workers 8`, `--timeout 12s`, `--force`. |
+| **Flags** | `--db`, `--workers 8`, `--timeout 12s`, `--force`, `--only-blanks`, `--company id,...`. |
 
 **Behavior:**
 - Targets every company whose domain has no enrichment row, or whose
   `companies.ingested_at` is newer than its `enrichment.fetched_at`
-  (`--force` re-fetches all). Failure rows are NOT auto-retried — use `--force`.
+  (`--force` re-fetches all; `--only-blanks` restricts to companies with no
+  enrichment row at all). Failure rows are NOT auto-retried — use `--force`.
+- `--company id,...` (web: `company_ids` in the run body) runs exactly those
+  companies and always re-fetches — targeted implies force. The UI's
+  per-company **re-enrich** button in the detail pane uses this.
 - N workers (default 8). Each tries `https://<domain>/about` → `/about-us` →
   `/company` → `/`; first 2xx HTML response wins.
 - Strips `<script>`/`<style>`/`<noscript>`/`<svg>` and all tags, decodes common
@@ -144,7 +148,14 @@ happens at verdict time, grounded in the brain.
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
 `--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
 empty disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
-`--workers 4`, `--force`.
+`--workers 4`, `--force`, `--only-blanks`, `--company id,...`.
+
+`--company id,...` (web: `company_ids` in the run body) scores exactly those
+companies and always re-scores — even a sticky manual verdict is replaced,
+since a targeted run is an explicit ask. Filter survival and an `ok`
+enrichment row are still required; companies that don't qualify are reported
+in the progress lines, not scored. The UI's per-company **re-score** button
+in the detail pane uses this.
 
 ### Resolving the criteria (distilled brief, cached)
 
@@ -239,7 +250,7 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | Route | Does |
 |---|---|
 | `POST /api/ingest` | multipart CSV upload (field `csv`) → temp file → ingest job |
-| `POST /api/run/{stage}` | start `enrich`/`verdict` as a job |
+| `POST /api/run/{stage}` | start `enrich`/`verdict` as a job; optional JSON body `{force, only_blanks, company_ids}` — `company_ids` runs exactly those companies and implies force |
 | `GET /api/jobs/{id}/stream` | **live SSE progress** (one line per company) |
 | `POST /api/jobs/{id}/cancel` | cancel a running job |
 | `GET /api/runs` | **durable run history** (last 30, from the `runs` table) + busy stage |

@@ -34,6 +34,14 @@ type Scorer struct {
 	// untouched. Takes precedence over Force.
 	OnlyBlanks bool
 
+	// CompanyIDs limits the run to exactly these companies and always
+	// re-scores them — a targeted run is an explicit ask, so up-to-date and
+	// even manual verdicts are overwritten. Overrides Force and OnlyBlanks.
+	// Filter and enrichment eligibility still apply: a company that doesn't
+	// survive the static filter or lacks an 'ok' enrichment row is reported,
+	// not scored.
+	CompanyIDs []string
+
 	// Playbook is the agent's operating manual (how to decide) — distinct from
 	// Taste (what the user wants). Empty means fall back to the built-in rubric.
 	// The caller is responsible for folding the playbook text into
@@ -145,11 +153,27 @@ func (s *Scorer) candidates() ([]store.VerdictCandidate, error) {
 	if len(fres.Survivors) == 0 {
 		return nil, nil
 	}
+	// Targeted run: keep only the requested IDs, and say why anything asked
+	// for is missing — a silent zero-company run reads as a bug.
+	wanted := make(map[string]bool, len(s.CompanyIDs))
+	for _, id := range s.CompanyIDs {
+		wanted[id] = true
+	}
+
 	ids := make([]string, 0, len(fres.Survivors))
 	byID := make(map[string]filter.Survivor, len(fres.Survivors))
 	for _, sv := range fres.Survivors {
+		if len(wanted) > 0 && !wanted[sv.ID] {
+			continue
+		}
 		ids = append(ids, sv.ID)
 		byID[sv.ID] = sv
+	}
+	if len(wanted) > 0 && len(ids) < len(wanted) {
+		s.emit(fmt.Sprintf("targeted: %d of %d requested companies survive the static filter", len(ids), len(wanted)))
+	}
+	if len(ids) == 0 {
+		return nil, nil
 	}
 
 	// Pull enrichment summaries for those IDs.
@@ -182,6 +206,9 @@ WHERE fetch_status = 'ok' AND company_id IN `, ids)
 			WebsiteSummary: summary,
 		})
 	}
+	if len(wanted) > 0 && len(out) < len(ids) {
+		s.emit(fmt.Sprintf("targeted: %d of %d requested companies have an ok enrichment row", len(out), len(ids)))
+	}
 	return out, rows.Err()
 }
 
@@ -202,7 +229,9 @@ func buildInQuery(prefix string, ids []string) (string, []any) {
 // cache_creation and cache_read input-token counts from the response so
 // Run() can aggregate them.
 func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
-	if s.OnlyBlanks || !s.Force {
+	// A targeted run always re-scores — the user pointed at this company on
+	// purpose, so even a sticky manual verdict is fair game.
+	if len(s.CompanyIDs) == 0 && (s.OnlyBlanks || !s.Force) {
 		existing, err := s.DB.GetVerdict(c.CompanyID)
 		if err != nil {
 			return nil, 0, 0, err

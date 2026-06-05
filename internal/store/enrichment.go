@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // EnrichmentTarget is a company that still needs (or could refresh) enrichment.
@@ -28,14 +29,27 @@ type Enrichment struct {
 // If force is true, every company with a non-empty domain is returned. If
 // onlyBlanks, only companies with no enrichment row at all are returned — the
 // re-ingest refresh clause is skipped. force wins over onlyBlanks.
-func (db *DB) EnrichmentTargets(force, onlyBlanks bool) ([]EnrichmentTarget, error) {
+// If companyIDs is non-empty, exactly those companies (with a domain) are
+// returned regardless of freshness — a targeted run is always a re-fetch, so
+// force/onlyBlanks are ignored.
+func (db *DB) EnrichmentTargets(force, onlyBlanks bool, companyIDs []string) ([]EnrichmentTarget, error) {
 	q := `
 SELECT c.id, c.name, COALESCE(c.domain, '')
 FROM companies c
 LEFT JOIN enrichment e ON e.company_id = c.id
 WHERE COALESCE(c.domain, '') <> ''
   AND (? OR e.company_id IS NULL OR (NOT ? AND datetime(c.ingested_at) > datetime(e.fetched_at)))`
-	rows, err := db.Query(q, force, onlyBlanks)
+	args := []any{force, onlyBlanks}
+	if len(companyIDs) > 0 {
+		ph := make([]string, len(companyIDs))
+		args = []any{true, false} // targeted implies force
+		for i, id := range companyIDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		q += "\n  AND c.id IN (" + strings.Join(ph, ",") + ")"
+	}
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("select enrichment targets: %w", err)
 	}
