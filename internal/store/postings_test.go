@@ -196,6 +196,26 @@ func TestListJobRows(t *testing.T) {
 		r.Verdict != "yes" || r.Source != "capture" || !r.Flagged || r.Reviewed {
 		t.Errorf("unexpected job row: %+v", r)
 	}
+	// No outreach draft yet — the badge field stays empty.
+	if r.OutreachDraftStatus != "" {
+		t.Errorf("OutreachDraftStatus = %q, want empty", r.OutreachDraftStatus)
+	}
+
+	// The latest draft's status surfaces on the row (newest by id wins).
+	d1, err := db.CreateOutreachDraft(r.PostingID)
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if err := db.SetOutreachDraftResult(d1.ID, DraftNoHook, "", "", "tpl", "[]", "", ""); err != nil {
+		t.Fatalf("set draft result: %v", err)
+	}
+	rows, err = db.ListJobRows()
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ListJobRows after draft: rows=%d err=%v", len(rows), err)
+	}
+	if got := rows[0].OutreachDraftStatus; got != DraftNoHook {
+		t.Errorf("OutreachDraftStatus = %q, want %q", got, DraftNoHook)
+	}
 }
 
 func TestUpdatePostingTracking(t *testing.T) {
