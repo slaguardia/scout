@@ -257,8 +257,24 @@
     margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
     font-size: 12.5px; color: var(--fg-mute);
   }
-  .ptrack label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
-  .ptrack input[type="checkbox"] { accent-color: var(--yes); cursor: pointer; }
+  /* applied toggle — same chip vocabulary as the sidebar filters; lights
+     green with its checkmark when on. */
+  .ptrack .pt-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
+  }
+  .ptrack .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .ptrack .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
+  .ptrack .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  .ptrack .pt-chip.is-on svg { opacity: 1; }
+  /* outreach stepper — the − undoes a mis-click */
+  .ptrack .pt-stepper { display: inline-flex; gap: 4px; }
+  .ptrack .pt-outreach-dec { padding: 3px 9px; }
+  .ptrack .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
   .ptrack .input { width: auto; padding: 3px 8px; font-size: 12px; }
   .ptrack input[type="date"].input { color-scheme: dark; }
   .ptrack .btn { padding: 3px 10px; font-size: 12px; }
@@ -1161,7 +1177,7 @@
     <table id="jt">
       <thead>
         <tr>
-          <th data-jk="company">company</th>
+          <th data-jk="company">role · company</th>
           <th data-jk="applied_at" data-col="applied">applied</th>
           <th data-jk="response" data-col="response">response</th>
           <th data-jk="outreach_count" data-col="outreach">outreach</th>
@@ -1836,8 +1852,8 @@ function renderJobs() {
     const tr = document.createElement("tr");
     tr.dataset.id = j.company_id;
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.company)}</span>
-        ${j.title ? `<div class="small dim">${escapeHTML(j.title)}</div>` : ""}</td>
+      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>
+        ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
       <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
       <td class="small" data-col="outreach">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
@@ -2162,7 +2178,10 @@ function postingsListHTML(d) {
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
       <div class="ptrack" data-pid="${escapeHTML(p.id)}">
-        <label><input type="checkbox" class="pt-applied" ${p.applied_at ? "checked" : ""}> applied</label>
+        <button class="pt-chip pt-applied${p.applied_at ? " is-on" : ""}" title="${p.applied_at ? "mark as not applied" : "mark applied today"}">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
+          applied
+        </button>
         <input type="date" class="input pt-applied-date" value="${escapeHTML(p.applied_at || "")}"
                style="display:${p.applied_at ? "" : "none"}" title="application date">
         <select class="input pt-response" title="furthest response reached">
@@ -2172,7 +2191,10 @@ function postingsListHTML(d) {
           <option value="offer" ${p.response === "offer" ? "selected" : ""}>offer</option>
           <option value="rejected" ${p.response === "rejected" ? "selected" : ""}>rejected</option>
         </select>
-        <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
+        <span class="pt-stepper">
+          <button class="btn pt-outreach-dec" title="undo one outreach" ${p.outreach_count ? "" : "disabled"}>−</button>
+          <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
+        </span>
         <span class="pt-meta">${outreachMeta}</span>
         <input class="input pt-contacts" value="${escapeHTML(p.contacts || "")}"
                placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
@@ -2189,8 +2211,8 @@ function wirePostingTracking(d) {
   document.querySelectorAll("#postings-list .ptrack").forEach(row => {
     const p = (d.postings || []).find(x => x.id === row.dataset.pid);
     if (!p) return;
-    row.querySelector(".pt-applied").addEventListener("change", e => {
-      savePostingTracking(d, p, { applied_at: e.target.checked ? (p.applied_at || today()) : "" });
+    row.querySelector(".pt-applied").addEventListener("click", () => {
+      savePostingTracking(d, p, { applied_at: p.applied_at ? "" : today() });
     });
     row.querySelector(".pt-applied-date").addEventListener("change", e => {
       savePostingTracking(d, p, { applied_at: e.target.value });
@@ -2202,6 +2224,15 @@ function wirePostingTracking(d) {
       savePostingTracking(d, p, {
         outreach_count: (p.outreach_count || 0) + 1,
         last_outreach_at: today(),
+      });
+    });
+    // Undo a mis-click: step the count back down (never below 0); at 0 the
+    // last-outreach date is cleared too, since it no longer describes anything.
+    row.querySelector(".pt-outreach-dec").addEventListener("click", () => {
+      const n = Math.max(0, (p.outreach_count || 0) - 1);
+      savePostingTracking(d, p, {
+        outreach_count: n,
+        ...(n === 0 ? { last_outreach_at: "" } : {}),
       });
     });
     // Contacts save on change (blur with a new value); Enter blurs to commit.
