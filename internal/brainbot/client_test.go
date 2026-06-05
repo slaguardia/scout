@@ -147,3 +147,95 @@ func TestNewTrimsTrailingSlash(t *testing.T) {
 		t.Fatalf("BaseURL = %q, want trailing slash trimmed", c.BaseURL)
 	}
 }
+
+func TestRecallComplete(t *testing.T) {
+	_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("complete"); got != "true" {
+			t.Errorf("complete = %q, want true", got)
+		}
+		if got := r.URL.Query().Get("k"); got != "50" {
+			t.Errorf("k = %q, want 50", got)
+		}
+		io.WriteString(w, `{"chunks":[{"id":"u1","heading":"h","text":"t","score":0.9,"path":"p"}]}`)
+	})
+	got, err := c.RecallComplete(context.Background(), "dealbreakers", 50)
+	if err != nil {
+		t.Fatalf("RecallComplete: %v", err)
+	}
+	if len(got.Chunks) != 1 || got.Chunks[0].ID != "u1" {
+		t.Fatalf("chunks = %+v", got.Chunks)
+	}
+}
+
+func TestDoc(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/doc" {
+				t.Errorf("path = %q, want /doc", r.URL.Path)
+			}
+			if got := r.URL.Query().Get("id"); got != "abc-123" {
+				t.Errorf("id = %q", got)
+			}
+			io.WriteString(w, `{"id":"abc-123","title":"T","path":"A/T","version":"v9","text":"verbatim — body"}`)
+		})
+		got, err := c.Doc(context.Background(), "abc-123")
+		if err != nil {
+			t.Fatalf("Doc: %v", err)
+		}
+		if got.Version != "v9" || got.Text != "verbatim — body" {
+			t.Fatalf("doc = %+v", got)
+		}
+	})
+
+	t.Run("404 is IsNotFound", func(t *testing.T) {
+		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":"unknown id"}`)
+		})
+		_, err := c.Doc(context.Background(), "gone")
+		if err == nil {
+			t.Fatal("Doc: want error on 404")
+		}
+		if !IsNotFound(err) {
+			t.Fatalf("IsNotFound = false for %v", err)
+		}
+		if !strings.Contains(err.Error(), "unknown id") {
+			t.Errorf("error detail lost: %v", err)
+		}
+	})
+
+	t.Run("400 is not IsNotFound", func(t *testing.T) {
+		_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"malformed id"}`)
+		})
+		_, err := c.Doc(context.Background(), "???")
+		if err == nil || IsNotFound(err) {
+			t.Fatalf("want non-404 error, got %v", err)
+		}
+	})
+}
+
+func TestMap(t *testing.T) {
+	_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/map" {
+			t.Errorf("path = %q, want /map", r.URL.Path)
+		}
+		io.WriteString(w, `{"sources":[
+			{"id":"root1","title":"Outreach","path":"Outreach","parent_id":null,"version":"v1"},
+			{"id":"kid1","title":"Templates","path":"Outreach/Templates","parent_id":"root1","version":"v2"}]}`)
+	})
+	got, err := c.Map(context.Background())
+	if err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if len(got.Sources) != 2 {
+		t.Fatalf("sources = %+v", got.Sources)
+	}
+	if got.Sources[0].ParentID != nil {
+		t.Errorf("root parent = %v, want nil", *got.Sources[0].ParentID)
+	}
+	if got.Sources[1].ParentID == nil || *got.Sources[1].ParentID != "root1" {
+		t.Errorf("child parent = %v", got.Sources[1].ParentID)
+	}
+}
