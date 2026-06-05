@@ -471,8 +471,62 @@ func (s *Server) handleCompanyTrace(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPut:
+		s.handleCompanyEdit(w, r, id)
+		return
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyEdit updates the hand-editable company fields. PUT
+// /api/companies/:id with {"name","headcount","funding_stage","location",
+// "vertical"} — a full replace of the editable set (blanks clear), name
+// required. The website/domain is the row's identity and is not editable.
+// Returns the refreshed detail so the client can re-render.
+func (s *Server) handleCompanyEdit(w http.ResponseWriter, r *http.Request, id string) {
+	var body struct {
+		Name         string `json:"name"`
+		Headcount    string `json:"headcount"`
+		FundingStage string `json:"funding_stage"`
+		Location     string `json:"location"`
+		Vertical     string `json:"vertical"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	err := s.DB.UpdateCompanyEditable(id, store.EditableCompany{
+		Name:         name,
+		Headcount:    ingest.ParseHeadcount(body.Headcount),
+		FundingStage: store.NullString(strings.TrimSpace(body.FundingStage)),
+		Location:     store.NullString(strings.TrimSpace(body.Location)),
+		Vertical:     store.NullString(strings.TrimSpace(body.Vertical)),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	d, err := s.DB.GetCompanyDetail(id)

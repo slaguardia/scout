@@ -1131,6 +1131,12 @@
   .posting-add .prow .btn { flex: none; }
 
   /* manual verdict override (detail pane) */
+  /* company facts inline edit (mirrors the verdict editor's form rhythm) */
+  .facts-edit { margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+  .facts-edit .prow { display: flex; gap: 8px; }
+  .facts-edit .prow .input { flex: 1; min-width: 0; }
+  .facts-edit .prow .btn { flex: none; }
+
   .verdict-edit { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
   .verdict-edit .ve-label { text-transform: uppercase; letter-spacing: 0.06em; }
   .ve-pick { display: flex; gap: 6px; }
@@ -2592,10 +2598,6 @@ function renderDetail(d) {
     <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
   `;
 
-  const domainLine = d.domain
-    ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)} ↗</a>`
-    : '<span class="muted">no domain</span>';
-
   const manual = d.model === "manual";
   const verdictBlock = d.has_verdict ? `
     <dl class="kv">
@@ -2640,6 +2642,9 @@ function renderDetail(d) {
     ? '<button class="h3-action" id="rescore-btn" title="re-score just this company — replaces the current verdict, manual or not">↻ re-score</button>' : "";
   const reenrichBtn = canControl && d.domain
     ? '<button class="h3-action" id="reenrich-btn" title="re-fetch this company’s site now">↻ re-enrich</button>' : "";
+  // Facts editing is a direct DB write (like the verdict override), so it
+  // doesn't need the job Runner and isn't gated on it.
+  const factsBtn = '<button class="h3-action" id="facts-edit-btn" title="edit name, vertical, location, headcount, stage">✎ edit</button>';
 
   const rawRows = Object.keys(d.raw_json || {}).sort();
   const rawHTML = rawRows.length === 0 ? '' : `
@@ -2687,17 +2692,10 @@ function renderDetail(d) {
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M5 6h6M5 9h4"/></svg>
-        Crunchbase facts
+        Company facts
+        ${factsBtn}
       </h3>
-      <dl class="kv">
-        <dt>vertical</dt><dd>${escapeHTML(d.vertical || "—")}</dd>
-        <dt>location</dt><dd>${escapeHTML(d.location || "—")}</dd>
-        <dt>headcount</dt><dd>${d.headcount || "—"}</dd>
-        <dt>stage</dt><dd>${escapeHTML(d.funding_stage || "—")}</dd>
-        <dt>domain</dt><dd>${domainLine}</dd>
-        <dt>source</dt><dd class="small muted">${escapeHTML(d.source)} · ${escapeHTML(d.source_id)}</dd>
-        <dt>ingested</dt><dd class="small muted">${escapeHTML(d.ingested_at)}</dd>
-      </dl>
+      <div id="facts-body">${factsViewHTML(d)}</div>
       ${rawHTML}
     </section>
 
@@ -2744,6 +2742,9 @@ function renderDetail(d) {
   const saveVerdictBtn = document.getElementById("ve-save-btn");
   if (saveVerdictBtn) saveVerdictBtn.addEventListener("click", () => onSaveVerdict(d));
 
+  const factsEdit = document.getElementById("facts-edit-btn");
+  if (factsEdit) factsEdit.addEventListener("click", () => editFacts(d));
+
   const flagBtn = document.getElementById("flag-toggle-btn");
   if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
 
@@ -2756,6 +2757,87 @@ function renderDetail(d) {
   if (rescore) rescore.addEventListener("click", () => startRun("verdict", { company_ids: [d.company_id] }));
   const reenrich = document.getElementById("reenrich-btn");
   if (reenrich) reenrich.addEventListener("click", () => startRun("enrich", { company_ids: [d.company_id] }));
+}
+
+// ---- company facts (view + inline edit) ----
+function factsViewHTML(d) {
+  const domainLine = d.domain
+    ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)} ↗</a>`
+    : '<span class="muted">no domain</span>';
+  return `
+    <dl class="kv">
+      <dt>vertical</dt><dd>${escapeHTML(d.vertical || "—")}</dd>
+      <dt>location</dt><dd>${escapeHTML(d.location || "—")}</dd>
+      <dt>headcount</dt><dd>${d.headcount || "—"}</dd>
+      <dt>stage</dt><dd>${escapeHTML(d.funding_stage || "—")}</dd>
+      <dt>domain</dt><dd>${domainLine}</dd>
+      <dt>source</dt><dd class="small muted">${escapeHTML(d.source)} · ${escapeHTML(d.source_id)}</dd>
+      <dt>ingested</dt><dd class="small muted">${escapeHTML(d.ingested_at)}</dd>
+    </dl>`;
+}
+
+// editFacts swaps the facts list for an inline form. The domain is the row's
+// identity and stays read-only; everything the Add-company form collects is
+// editable here.
+function editFacts(d) {
+  const body = document.getElementById("facts-body");
+  if (!body) return;
+  body.innerHTML = `
+    <div class="facts-edit">
+      <input class="input" id="fe-name" placeholder="name" value="${escapeHTML(d.name || "")}">
+      <input class="input" id="fe-vertical" placeholder="vertical (comma-separated)" value="${escapeHTML(d.vertical || "")}">
+      <input class="input" id="fe-location" placeholder="location" value="${escapeHTML(d.location || "")}">
+      <div class="prow">
+        <input class="input" id="fe-headcount" placeholder="headcount (e.g. 250 or 11-50)" value="${d.headcount || ""}">
+        <input class="input" id="fe-stage" placeholder="funding stage" value="${escapeHTML(d.funding_stage || "")}">
+      </div>
+      <div class="prow">
+        <button class="btn" id="fe-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="fe-save-btn">Save</button>
+      </div>
+    </div>`;
+  document.getElementById("fe-cancel-btn").addEventListener("click", () => {
+    body.innerHTML = factsViewHTML(d);
+  });
+  document.getElementById("fe-save-btn").addEventListener("click", () => onSaveFacts(d));
+  document.getElementById("fe-name").focus();
+}
+
+async function onSaveFacts(d) {
+  const name = document.getElementById("fe-name").value.trim();
+  if (!name) { toast("name is required"); return; }
+  const btn = document.getElementById("fe-save-btn");
+  btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${d.company_id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        headcount: document.getElementById("fe-headcount").value.trim(),
+        funding_stage: document.getElementById("fe-stage").value.trim(),
+        location: document.getElementById("fe-location").value.trim(),
+        vertical: document.getElementById("fe-vertical").value.trim(),
+      }),
+    });
+  } catch (e) {
+    toast(`save failed: ${e.message}`);
+    btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`save failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  renderDetail(fresh);            // re-render pane (title + facts)
+  loadTrace(fresh.company_id);    // renderDetail reset the trace body
+  loadList();                     // the table shows the name
+  loadJobs();                     // job rows carry the company name too
+  toast("company saved");
 }
 
 // ---- last-reviewed stamp ----

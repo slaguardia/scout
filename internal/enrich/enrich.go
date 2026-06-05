@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/store"
 )
 
@@ -50,6 +51,13 @@ type Enricher struct {
 	// Progress, if set, receives one line per fetched company. Called from
 	// worker goroutines — must be safe for concurrent use.
 	Progress func(string)
+
+	// LLM, if set, enables the fact-extraction pass: after a fetch comes back
+	// "ok", blank company columns (placeholder name, vertical, location,
+	// headcount, funding stage) are filled from the page text. Nil disables —
+	// enrichment stays purely mechanical. See facts.go.
+	LLM   *anthropic.Client
+	Model string // extraction model; empty = anthropic.DefaultModel
 }
 
 func (e *Enricher) emit(line string) {
@@ -65,6 +73,7 @@ type Result struct {
 	OK         int
 	Failed     int
 	Skipped    int
+	Filled     int // companies whose blank fact columns got filled (see facts.go)
 }
 
 // NewHTTPClient returns the HTTP client the fetch paths share: a per-request
@@ -158,6 +167,12 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 					fmt.Println("enrich db error:", err)
 					continue
 				}
+				// Fact extraction rides on a good fetch: fill blank company
+				// columns from the page text. Best-effort, never fails the row.
+				filled := false
+				if e.LLM != nil && rec.FetchStatus == "ok" {
+					filled = e.fillFacts(ctx, t, rec.WebsiteSummary.String)
+				}
 				mu.Lock()
 				res.Fetched++
 				if rec.FetchStatus == "ok" {
@@ -165,9 +180,16 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 				} else {
 					res.Failed++
 				}
+				if filled {
+					res.Filled++
+				}
 				done := res.Fetched
 				mu.Unlock()
-				e.emit(fmt.Sprintf("[%d/%d] %s — %s", done, res.Considered, t.Name, rec.FetchStatus))
+				status := rec.FetchStatus
+				if filled {
+					status += " +facts"
+				}
+				e.emit(fmt.Sprintf("[%d/%d] %s — %s", done, res.Considered, t.Name, status))
 			}
 		}()
 	}

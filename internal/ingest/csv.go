@@ -531,6 +531,11 @@ func nullStr(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
+// ParseHeadcount parses a free-form employee-count string ("250", "11-50",
+// "1,200+") exactly like a CSV cell (see nullHeadcount). Exported for the web
+// layer's company-edit form so a typed range round-trips the same as ingest.
+func ParseHeadcount(s string) sql.NullInt64 { return nullHeadcount(s) }
+
 // nullHeadcount parses a free-form employee-count cell into an integer, taking
 // the upper bound of a range. It tolerates the shapes Crunchbase emits ("11-50",
 // "1,001-5,000") and open-ended top buckets ("10001+", "10,000+", "5000+"), plus

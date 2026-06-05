@@ -159,3 +159,88 @@ func TestCompanyDeleteCascades(t *testing.T) {
 		t.Fatalf("enrichment not cascaded: %d remain", rows)
 	}
 }
+
+// TestUpdateCompanyEditable covers the web edit path: a full replace of the
+// editable fields (blanks clear), name_key tracking the new name, and
+// sql.ErrNoRows for an unknown id.
+func TestUpdateCompanyEditable(t *testing.T) {
+	db := openTestDB(t)
+	id, err := db.UpsertCompany(mkCompany("manual", "acme.com", "acme.com"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	err = db.UpdateCompanyEditable(id, EditableCompany{
+		Name:         "Acme Robotics",
+		Headcount:    sql.NullInt64{Int64: 50, Valid: true},
+		FundingStage: sql.NullString{String: "Series A", Valid: true},
+		Location:     sql.NullString{String: "Austin, TX", Valid: true},
+		Vertical:     sql.NullString{String: "Robotics", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	d, err := db.GetCompanyDetail(id)
+	if err != nil || d == nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.Name != "Acme Robotics" || d.Headcount != 50 || d.FundingStage != "Series A" {
+		t.Errorf("fields wrong after edit: %+v", d)
+	}
+
+	// name_key must track the edit so the dedup fold still matches.
+	var key string
+	if err := db.QueryRow(`SELECT name_key FROM companies WHERE id = ?`, id).Scan(&key); err != nil {
+		t.Fatalf("name_key: %v", err)
+	}
+	if key != "acme robotics" {
+		t.Errorf("name_key = %q, want %q", key, "acme robotics")
+	}
+
+	// Blanks clear (full replace).
+	if err := db.UpdateCompanyEditable(id, EditableCompany{Name: "Acme Robotics"}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	d, _ = db.GetCompanyDetail(id)
+	if d.Headcount != 0 || d.FundingStage != "" || d.Location != "" || d.Vertical != "" {
+		t.Errorf("blanks should clear: %+v", d)
+	}
+
+	if err := db.UpdateCompanyEditable("nope", EditableCompany{Name: "x"}); err != sql.ErrNoRows {
+		t.Errorf("unknown id: want sql.ErrNoRows, got %v", err)
+	}
+}
+
+// TestFillCompanyNamePlaceholder pins the enrichment name-fill: only the
+// bare-domain placeholder (or empty) is replaced — a real name never is.
+func TestFillCompanyNamePlaceholder(t *testing.T) {
+	db := openTestDB(t)
+	id, err := db.UpsertCompany(mkCompany("manual", "acme.com", "acme.com"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	ok, err := db.FillCompanyNamePlaceholder(id, "Acme Robotics")
+	if err != nil || !ok {
+		t.Fatalf("fill placeholder: ok=%v err=%v", ok, err)
+	}
+	d, _ := db.GetCompanyDetail(id)
+	if d.Name != "Acme Robotics" {
+		t.Errorf("name = %q, want filled", d.Name)
+	}
+
+	// A real name is sticky.
+	ok, err = db.FillCompanyNamePlaceholder(id, "Acme Inc")
+	if err != nil || ok {
+		t.Fatalf("real name must not be overwritten: ok=%v err=%v", ok, err)
+	}
+	d, _ = db.GetCompanyDetail(id)
+	if d.Name != "Acme Robotics" {
+		t.Errorf("name changed to %q, want sticky", d.Name)
+	}
+
+	// Empty extracted name is a no-op.
+	if ok, err := db.FillCompanyNamePlaceholder(id, "  "); err != nil || ok {
+		t.Errorf("blank fill: ok=%v err=%v, want no-op", ok, err)
+	}
+}
