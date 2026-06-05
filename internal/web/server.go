@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -75,7 +76,10 @@ func (s *Server) ReloadTaste() {
 	}
 	pb, _ := playbook.Load(s.PlaybookPath)
 	if tb != nil && pb != "" {
-		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Text)
+		// Fold the playbook into the version (not the brief text): tb.Version is
+		// already the stable basis hash, so a playbook edit re-scores while
+		// cosmetic brief drift does not.
+		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Version)
 		tb.Source = tb.Source + " + " + s.PlaybookPath
 	}
 	s.mu.Lock()
@@ -116,6 +120,9 @@ func (s *Server) Handler() http.Handler {
 	// read / triage
 	mux.HandleFunc("/api/companies", s.handleCompanies)
 	mux.HandleFunc("/api/companies/", s.handleCompany)
+	mux.HandleFunc("/api/postings", s.handlePostings) // all postings across companies (jobs view)
+	mux.HandleFunc("/api/postings/", s.handlePosting) // PUT {id}: application-lifecycle update
+	mux.HandleFunc("/api/capture", s.handleCapture)   // POST: link-capture agent pass
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 
@@ -279,9 +286,170 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyPostings(w, r, id)
 	case len(parts) == 2 && parts[1] == "trace":
 		s.handleCompanyTrace(w, r, id)
+	case len(parts) == 2 && parts[1] == "verdict":
+		s.handleCompanyVerdict(w, r, id)
+	case len(parts) == 2 && parts[1] == "flagged":
+		s.handleCompanyFlagged(w, r, id)
+	case len(parts) == 2 && parts[1] == "reviewed":
+		s.handleCompanyReviewed(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// handleCompanyReviewed stamps the company as reviewed now. POST (or PUT)
+// /api/companies/:id/reviewed — no body needed; every call moves reviewed_at
+// forward so the table's last-reviewed sort cycles companies oldest-first.
+// Returns the refreshed detail so the client can re-render.
+func (s *Server) handleCompanyReviewed(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.DB.TouchReviewed(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyFlagged sets the hand-set bookmark. PUT
+// /api/companies/:id/flagged with {"flagged":bool}. The flag is orthogonal to
+// the verdict and filterable in the table. Returns the refreshed detail so the
+// client can re-render.
+func (s *Server) handleCompanyFlagged(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Flagged bool `json:"flagged"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.SetFlagged(id, body.Flagged); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyVerdict sets a verdict by hand from the UI. PUT
+// /api/companies/:id/verdict with {"verdict":"yes|maybe|no","reason":"…"}. The
+// row is stamped model="manual" so the scorer treats it as sticky (a normal
+// verdict run leaves it; only --force re-scores over it). A decision-trail row
+// is appended so the override shows in the company's timeline. Returns the
+// refreshed company detail so the client can re-render the pane.
+func (s *Server) handleCompanyVerdict(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Verdict string `json:"verdict"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	v := strings.ToLower(strings.TrimSpace(body.Verdict))
+	switch v {
+	case "yes", "maybe", "no":
+	default:
+		http.Error(w, `verdict must be "yes", "maybe", or "no"`, http.StatusBadRequest)
+		return
+	}
+	// Reject an unknown company up front so a bad id can't create a dangling verdict.
+	if _, _, err := s.DB.GetCompanyName(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Capture the verdict being replaced (if any) before the upsert, so the
+	// durable override log records the from → to delta.
+	var fromVerdict string
+	if prev, err := s.DB.GetVerdict(id); err == nil && prev != nil {
+		fromVerdict = prev.Verdict
+	}
+
+	reason := strings.TrimSpace(body.Reason)
+	version := s.CurrentTasteVersion() // record the criteria in effect when overridden
+	if err := s.DB.UpsertVerdict(store.Verdict{
+		CompanyID:    id,
+		Verdict:      v,
+		Reason:       reason,
+		TasteVersion: version,
+		Model:        store.ManualModel,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Durable record of intent — the override log the user can mine later. A
+	// failure must not sink the write (the verdict is already set), but log it
+	// since this table is meant to be a kept record, not a disposable aid.
+	if err := s.DB.InsertVerdictOverride(store.VerdictOverride{
+		CompanyID:       id,
+		FromVerdict:     fromVerdict,
+		ToVerdict:       v,
+		Reason:          reason,
+		CriteriaVersion: version,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "verdict override log %s: %v\n", id, err)
+	}
+	// Best-effort trail row — mirrors the scorer, so the manual call shows in the
+	// timeline alongside the LLM passes. A failure here must not sink the write.
+	_ = s.DB.InsertVerdictTrace(store.VerdictTrace{
+		CompanyID:      id,
+		Model:          store.ManualModel,
+		TasteVersion:   version,
+		CriteriaSource: "manual override",
+		Verdict:        v,
+		Reason:         reason,
+	})
+
+	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 // handleCompanyTrace returns the decision trail for one company — the

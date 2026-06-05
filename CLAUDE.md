@@ -34,16 +34,40 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 - **Built:** the pipeline (ingest → filter → enrich → verdict → triage) and the
   full web control surface — run everything from the browser (CSV upload, live
   progress, run history), plus a brain-isolated playbook editor.
-- **Brain-first, done:** scout reads the brain's `/profile` (read-only) for the
-  user's criteria as structured facts (each carrying `polarity` and `strength`),
-  which scout renders into a grouped criteria block (hard → gates, soft →
-  weights, null/null → context) and caches locally in SQLite (table
-  `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual refresh from
-  the UI's Criteria panel); `taste.md` is the offline fallback when the brain is
-  unreachable and the cache is gone. `/recall` exists on the client but is not
-  used for criteria (`/profile` returns all facts) and there is no per-company
-  recall. Verdicts stay scout-local — never written to the brain. Default brain
-  URL is `http://127.0.0.1:8100`.
+- **Jobs view + link capture:** the UI has a companies | jobs tab; **Add by
+  link** posts any URL to `POST /api/capture`, where a one-shot Haiku pass
+  (`internal/capture`) classifies the page (job posting / company page / other)
+  and extracts details. Postings land in `job_postings` (title, location,
+  summary; idempotent by URL), unknown companies are created via
+  `ingest.EnsureCompany` (source `capture`; ATS/job-board hosts rejected as
+  identities), and a captured company page seeds the enrichment row from the
+  fetched text. Unfetchable pages report their honest fetch status and write
+  nothing.
+- **The jobs view is the application tracker** (replaced the user's Notion
+  tracker): a lean table — company name + applied date, response
+  (screening/interview/offer/rejected), outreach count, last outreach, and
+  contacts (free-form emails, rendered as mailto links) — with everything else
+  in the slide-in panel, where each posting card has the tracking controls
+  (`PUT /api/postings/{id}`). "Hide rejected" is on by default. Outreach
+  *message content* stays in Notion; see the amended non-goals in
+  `north-star.md`.
+- **Brain-first, done:** the brain is now a pgvector **document substrate**
+  (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
+  returning prose chunks `{heading, text, score, path}` (no polarity/strength
+  tags). Scout's **distiller** (`internal/distill`) fans out a few company-fit
+  recalls, dedups, then runs a two-step pass — classify each excerpt as COMPANY
+  vs ROLE_OR_OTHER (quarantines role/career leak), then synthesize a
+  **company-fit brief** (Hard dealbreakers / Strong preferences / Context, in
+  prose) from the COMPANY items — on `--distill-model` (default Sonnet; verdict
+  scoring stays on Haiku). The verdict engine reasons over that brief. The brief is cached locally in SQLite
+  (table `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual
+  re-distill from the UI's Criteria panel); `taste.md` is the offline fallback
+  when the brain is unreachable and the cache is gone. Scout must **not** call
+  `/profile` or `/map` (owner-only) and never passes a `scope`. Distillation is
+  **companies only** — role/title fit is a separate, later concern. `scout
+  distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
+  never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
+  `brainbot/plans/scout-migration.md` for the migration spec.
 
 ## What's next
 

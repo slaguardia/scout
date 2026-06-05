@@ -88,21 +88,22 @@ Re-running any stage is safe. Each stage skips work it's already done.
 ```
 scout verdict
    │
-   ├─ fresh cached profile? (age < --brain-cache-ttl, default 6h) → use it
+   ├─ fresh cached brief? (age < --brain-cache-ttl, default 6h) → use it
    │
    ├─ else --brainbot set (default :8100) and healthy?
-   │     ├─ yes → GET /profile facts → render grouped criteria block
-   │     │        (gates, preferences, context; tagged by polarity/strength)
+   │     ├─ yes → recall (company-fit questions) + distill → company-fit brief
+   │     │        (Hard dealbreakers / Strong preferences / Context, in prose)
    │     │        ↳ cache it locally (brain_profile_cache), then use it
    │     │        ↳ empty? fall back to taste.md
-   │     └─ no/unreachable → stale cached profile if any, else taste.md  (logged)
+   │     └─ no/unreachable/failed → stale cached brief if any, else taste.md  (logged)
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite
 ```
 
-The brain is touched in exactly one place — reading `/profile` for the user's
-criteria, cached locally (TTL) so repeated runs don't refetch. There is no
-per-company brain query.
+The brain is touched in exactly one place — distilling the user's criteria
+(`recall` + one synthesis call), cached locally (TTL) so repeated runs don't
+re-distill. `recall(query)` is the only brain call; there is no per-company
+brain query and scout never passes a `scope`.
 
 Verdicts are written to scout's SQLite and nowhere else — the brain is
 read-only for scout. The **criteria version** (`taste_version` in the schema) is
@@ -143,9 +144,10 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste` | `taste.toml` | Mechanical pre-filter rules (the SQL gate inside this stage). |
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`/profile`). **Empty disables** → `taste.md` fallback. |
-| `--brain-cache-ttl` | `6h` | How long a cached brain profile stays fresh before the resolver refetches `/profile`. |
-| `--model` | `claude-haiku-4-5` | Anthropic model for scoring. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`recall`, distilled into a brief). **Empty disables** → `taste.md` fallback. |
+| `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before the resolver re-distills. |
+| `--model` | `claude-haiku-4-5` | Anthropic model for per-company scoring. |
+| `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 | `--workers` | `4` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
 
@@ -158,8 +160,9 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste` | `taste.toml` | Mechanical pre-filter rules used by UI verdict runs. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`/profile`), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
-| `--brain-cache-ttl` | `6h` | How long a cached brain profile stays fresh before a refetch (shared resolver). |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`recall` → distilled brief), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
+| `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before a re-distill (shared resolver). |
+| `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 
 ### `scout stats`
 

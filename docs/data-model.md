@@ -106,7 +106,7 @@ did the user think before" lives in the brain. Indexes on `verdict` and
 **`taste_version` is the criteria version** (legacy column name; the concept is
 *the user's criteria from the brain* — see north-star's terminology table). It is
 `sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
-criteria text is the brain's facts rendered into a grouped criteria block (or the offline `taste.md`
+criteria text is the distilled company-fit brief (or the offline `taste.md`
 fallback). When the brain learns something — or the playbook is edited — the
 hash changes, and the next `verdict` run re-scores rows whose stored
 `taste_version` no longer matches. That re-scoring is intended.
@@ -117,23 +117,51 @@ hash changes, and the next `verdict` run re-scores rows whose stored
 
 ```sql
 job_postings (
-    id         TEXT PK,           -- uuid
-    company_id TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
-    url        TEXT NOT NULL,     -- the posting link
-    title      TEXT,              -- optional label
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id           TEXT PK,           -- uuid
+    company_id   TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
+    url          TEXT NOT NULL,     -- the posting link (final, post-redirect URL)
+    title        TEXT,              -- optional label / extracted role title
+    location     TEXT,              -- extracted by capture (M22)
+    summary      TEXT,              -- 1-2 sentence role summary, extracted (M22)
+    source       TEXT,              -- 'manual' | 'capture' (NULL reads as manual)
+    fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    captured_at  DATETIME,          -- last agent-pass fill (M22)
+    applied_at       DATE,          -- application lifecycle (M23); NULL = not applied
+    response         TEXT,          -- 'screening' | 'interview' | 'offer' | 'rejected'
+    outreach_count   INTEGER NOT NULL DEFAULT 0,
+    last_outreach_at DATE,
+    contacts         TEXT           -- outreach contacts (M24), free-form comma-separated
 )
 ```
 
-Links to actual job/role postings found at a company — added by hand from the
-triage detail pane. Migration `0011`. Unlike `enrichment`/`verdicts` (0..1 per
-company, keyed on `company_id`), this is **one-to-many**: a company can have any
-number of postings, so it gets its own uuid `id` PK (like `runs`) plus an index
-on `company_id` (the company's deterministic TEXT uuid). Postings carry only a
-labeled link — no application status / workflow state, which keeps scout on the
-right side of its "not a pipeline/applicant tracker" non-goal. `AddPosting`
-validates the company exists and a non-empty `url`; `ListPostings` returns
-newest-first.
+Links to actual job/role postings found at a company. Migrations `0011` +
+`0022`–`0024`. Two ways in: **by hand** from the triage detail pane (`AddPosting`,
+source `manual` — url + optional title only), or **by link-capture**
+(`UpsertCapturedPosting`, source `capture`): the user pastes a URL, and one
+Haiku pass (`internal/capture`) classifies the page and extracts
+title/location/summary. Capture is **idempotent by URL** — re-pasting a link
+(or capturing a hand-added one) refreshes the same row in place rather than
+duplicating; both the pasted and the final post-redirect URL are matched.
+
+Unlike `enrichment`/`verdicts` (0..1 per company, keyed on `company_id`), this
+is **one-to-many**: a company can have any number of postings, so it gets its
+own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
+deterministic TEXT uuid).
+
+**Application lifecycle (M23).** The jobs view doubles as the user's
+application tracker (it replaced the external Notion one), so each posting
+carries the lifecycle columns: `applied_at` (NULL = not applied; the checkbox
+and its date are one nullable field), `response` (the furthest reply reached),
+the outreach cadence (`outreach_count` + `last_outreach_at`), and `contacts`
+(M24) — a free-form comma-separated list of outreach contacts ("Jane Doe
+<jane@acme.com>, cto@…"; the UI renders email-shaped tokens as mailto links).
+Set as full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`);
+response values are case-folded and validated, dates are bare ISO dates,
+contacts are trimmed only. Outreach *message content* stays out of scout — see
+the non-goals in `north-star.md`. `ListPostings` returns one company's postings newest-first;
+`ListJobRows` joins every posting with its company's name/verdict/marks plus
+the lifecycle columns for the UI's jobs view.
 
 ---
 
@@ -205,18 +233,19 @@ low-thousands of companies × a few re-scores that's single-digit MB.
 brain_profile_cache (
     source_url   TEXT PK,              -- the brain base URL the profile came from
     body         TEXT NOT NULL,        -- the resolved criteria text (fact-derived block)
-    content_hash TEXT NOT NULL,        -- hash of body, for change detection
+    content_hash TEXT NOT NULL,        -- stable change-detection / version key (distill basis hash, not the body)
     fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ```
 
-Migration `0013`. One row per brain URL — the last profile scout fetched from
-that brain, cached locally so a verdict run (or the web server) doesn't refetch
-on every invocation. Read by the `internal/criteria` resolver: a row younger
-than `--brain-cache-ttl` (default 6h) is reused as-is; older, the resolver
-refetches `/profile` and overwrites the row, and only when the brain is
-unreachable does it fall back to the stale cached row (then to offline
-`taste.md`). This is a **disposable cache, not a system-of-record** — the brain
+Migration `0013`. One row per brain URL — the last distilled company-fit brief
+scout produced from that brain, cached locally so a verdict run (or the web
+server) doesn't re-distill on every invocation. Read by the `internal/criteria`
+resolver: a row younger than `--brain-cache-ttl` (default 6h) is reused as-is;
+older, the resolver re-distills (recall + synthesis) and overwrites the row, and
+only when the brain is unreachable (or distillation fails) does it fall back to
+the stale cached row (then to offline `taste.md`). This is a **disposable cache,
+not a system-of-record** — the brain
 remains the source of truth; deleting the row just forces a refetch. Like
 `runs`, it is **standalone** — no company FK, no cascade.
 
@@ -257,7 +286,7 @@ with it. `runs` is independent of any company (the optional
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
 | verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
 | verdict_trace | n/a — append-only, one row per scoring pass | never deduped; deleted only with its company |
-| brain profile | `brain_profile_cache.fetched_at` within `--brain-cache-ttl` | TTL expiry, or `POST /api/profile/refresh` |
+| brain brief | `brain_profile_cache.fetched_at` within `--brain-cache-ttl` | TTL expiry, or `POST /api/profile/refresh` (re-distill) |
 
 ## Why not Postgres / per-stage tables / event sourcing
 

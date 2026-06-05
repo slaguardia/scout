@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// ManualModel is the model tag stamped on a verdict set by hand from the UI
+// (rather than produced by an LLM scoring pass). The scorer treats rows with
+// this tag as sticky — a normal verdict run leaves them alone; only --force
+// re-scores over a manual override.
+const ManualModel = "manual"
+
 // Verdict is a row in the verdicts table.
 type Verdict struct {
 	CompanyID    string

@@ -36,13 +36,13 @@ default to 4 — Anthropic rate limits matter more than local CPU.
 
 ## System prompt — three layers
 
-`buildSystemPrompt(playbook, taste string)` concatenates, in order:
+`buildSystemPrompt(playbook, criteria string)` concatenates, in order:
 
 | # | Layer | Header string | Source | Editable? |
 |---|---|---|---|---|
 | 1 | **Hard contract** | *(none — leads the prompt)* | `hardContract` Go const | No — a broken contract breaks the parser |
 | 2 | **Playbook** (how to decide) | `--- PLAYBOOK (how to decide) ---` | `playbook.md`, else `builtinRubric` | Yes — operator-editable in the UI |
-| 3 | **Criteria** (what the user wants) | `--- TASTE (what the user wants) ---` | **the brain**, else `taste.md` | Brain-owned; local file is offline fallback |
+| 3 | **Criteria** (what the user wants) | `--- CRITERIA (what the user wants) ---` | **the brain** (distilled brief), else `taste.md` | Brain-owned; local file is offline fallback |
 
 The hard contract pins the output shape:
 
@@ -54,36 +54,115 @@ no preamble, no markdown fences. The JSON must have exactly two fields:
 ```
 
 The criteria block is appended verbatim — not summarized, paraphrased, or
-trimmed. (The header text still reads `TASTE`; the concept is "criteria," and
-they come from the brain. See [`north-star.md` Terminology](./north-star.md#terminology-retired-vs-canonical).)
+trimmed (the distiller already did the summarizing). The block leads with a
+short gate rubric (`hardGateRubric`): the brief states dealbreakers, requirements,
+and preferences in prose, and the rubric tells the LLM to gate on dealbreakers/
+requirements and weigh preferences. (The header text reads `CRITERIA`; the
+concept is the user's criteria, from the brain. See
+[`north-star.md` Terminology](./north-star.md#terminology-retired-vs-canonical).)
 
-### Where the criteria come from (cached, brain-primary, file-fallback)
+### Where the criteria come from (distilled brief, cached, file-fallback)
 
 Resolved once per run, before scoring, by the shared `internal/criteria`
 resolver (the same path the web server uses) with a local SQLite cache in front
 of the brain:
 
 ```
-fresh cached profile? (age < --brain-cache-ttl) ── yes ──▶ use it
+fresh cached brief? (age < --brain-cache-ttl) ── yes ──▶ use it
        │ no
-   GET /profile facts ── render criteria block ──▶ scoring (cache it)
+   recall + distill ── brief ──▶ scoring (cache it)
        │ empty ───▶ taste.md (brain knows nothing yet)
-       │                                          unreachable ──▶ stale cached profile?
+       │                                          unreachable / failed ──▶ stale cached brief?
        │                                                              │ yes → use it
        │                                                              │ no  → taste.md
-   brain criteria  ───────────────────────────────────────────────▶ scoring
+   distilled brief  ──────────────────────────────────────────────▶ scoring
 ```
 
-The brain's criteria are the brain's structured **facts** (`Criteria()` →
-`/profile`), rendered into a grouped criteria block (`renderFacts`): hard facts
-become gates (HARD REQUIREMENTS / DEALBREAKERS), soft facts become PREFERENCES
-(weights), and null-strength facts become CONTEXT — polarity tags each line
-([requires]/[excludes]/[seeks]/[avoids]). `/profile` returns every fact, so there
-is no `/recall` fallback. A fetched profile is cached in `brain_profile_cache` and
-reused within `--brain-cache-ttl` (default 6h); when the brain is unreachable
-the resolver serves a *stale* cached profile before dropping to `taste.md`. A
-healthy-but-empty brain falls back to `taste.md` too. Default brain URL:
-`http://127.0.0.1:8100`.
+The criteria are the **distiller's** output (`internal/distill`): a few
+company-fit `GET /recall` calls return prose chunks `{heading, text, score,
+path}`, scout dedups them, then runs a **two-step** pass — (1) **classify** every
+preference in the excerpts as `COMPANY` vs `ROLE_OR_OTHER` (with a verbatim quote
++ polarity), (2) **synthesize** the brief from the `COMPANY` items only, with
+sections it writes itself — *Hard dealbreakers*, *Strong preferences*, *Context*.
+The classify step physically removes the salient role/career material before the
+synthesis runs, which is what reliably keeps it out of the brief (a single pass
+leaks it back in even on a stronger model — structure fixes this, not model
+size). There are no polarity/strength tags from the brain; the stance is in the
+prose, and the brief states acceptable alternatives explicitly ("any one of: X,
+Y, Z"). Both calls run at `temperature: 0` on the **distiller model**
+(`--distill-model`, default Sonnet — the call is once per run, so fidelity is
+worth more than the cost; verdict scoring stays on Haiku). The brief is cached in
+`brain_profile_cache` and reused within `--brain-cache-ttl` (default 6h); when the
+brain is unreachable or distillation fails the resolver serves a *stale* cached
+brief before dropping to `taste.md`. A healthy-but-empty brain falls back to
+`taste.md` too. Default brain URL: `http://127.0.0.1:8100`.
+
+### The distiller prompts (classify → synthesize)
+
+These are the two prompts that turn the brain's chunks into the brief — the
+place to tune *how* the raw notes become criteria. They are `classifySystemPrompt`
+and `synthSystemPrompt` in `internal/distill/distill.go` (shown verbatim here;
+keep these blocks in sync when you edit the consts). Both run as the **system**
+prompt at `temperature: 0`, prompt-cached. The classify step's **user** message
+is the deduped chunks (`formatChunks`), each labeled `[Source: <path> —
+<heading>]`; the synthesize step's **user** message is the classify output.
+
+**Step 1 — classify (the leak gate):**
+
+```
+You are triaging excerpts from a user's personal job-search notes. Do NOT write a brief. Output a structured list only.
+
+For EVERY distinct preference or rule in the excerpts, emit one item in EXACTLY this format:
+
+<item scope="COMPANY|ROLE_OR_OTHER" polarity="INCLUDE|EXCLUDE|NEUTRAL" strength="HARD|SOFT|NEUTRAL">
+quote: "<verbatim text copied exactly from the excerpt>"
+claim: <one neutral sentence restating the preference>
+</item>
+
+Classification rules:
+- scope="COMPANY" ONLY if the preference is about the COMPANY ITSELF: industry / vertical, what the product does, the industry it changes, mission, business model, funding stage, size / headcount, the company's location, ownership / independence.
+- scope="ROLE_OR_OTHER" for ANYTHING about the user's job, day-to-day work, title, seniority, skills, the team/role culture they want, learning, or personal / career goals — EVEN IF it sounds company-flavored. These are all ROLE_OR_OTHER: "engineers do architecture not just coding", "being customer-facing matters", "mix of problems: software architecture, team dynamics", "building toward starting your own company", "maximize learning velocity", "proximity to people who have built and scaled".
+- polarity is read from the QUOTE's literal wording, never inferred. A list of things to skip/avoid is EXCLUDE. A "hard rule" / "no X" / "skip" is EXCLUDE (and strength=HARD if stated as a hard rule). "Ideal / want / drawn to" is INCLUDE.
+- strength=HARD only when the note says so ("hard rule", "always", "regardless", "automatic"). Otherwise SOFT. NEUTRAL for background facts.
+- Cover EVERYTHING; do not judge importance — a later step filters and writes the brief.
+- Copy quotes verbatim. Do not paraphrase or fix wording.
+```
+
+**Step 2 — synthesize (COMPANY items only):**
+
+```
+Below are pre-classified preference items extracted from a user's notes, each tagged with scope, polarity, and strength and carrying a verbatim quote.
+
+Write a concise COMPANY-FIT BRIEF using ONLY items with scope="COMPANY". Silently ignore every scope="ROLE_OR_OTHER" item — never rephrase, summarize, or smuggle it in, not even into Context.
+
+Render exactly these three sections, "- " bullets only (no numbered lists, no sub-headers), one criterion per bullet:
+
+## Hard dealbreakers
+polarity=EXCLUDE items, and strength=HARD INCLUDE requirements. A company that violates one is an automatic "no".
+
+## Strong preferences
+SOFT INCLUDE / EXCLUDE items — strong signals, not absolute.
+
+## Context
+NEUTRAL, company-level background only (e.g. how to weigh domain proximity). No role, career, or personal content.
+
+Faithfulness:
+- Preserve each item's polarity DIRECTION exactly as its quote states it. A skip-list stays a skip-list; never invert it or infer the allowed complement.
+- When the notes list acceptable alternatives (e.g. several okay verticals), state them as alternatives: "any one of: X, Y, Z qualifies."
+- Be specific and compact; name verticals, stages, traits. For hard location / stage gates, mirror the note's own wording.
+- Before finishing, verify: (a) no bullet describes the user's role, work, or personal goals; (b) every include / exclude bullet's direction matches its source. Drop any bullet that fails.
+
+An optional one-line title above the sections is fine. Output only the brief.
+```
+
+Why two calls: a single pass leaks the salient role/career material back into
+the brief (reframed as "company traits") even on a stronger model — separating
+*classify* from *synthesize* quarantines that material before the brief is
+written. Tuning study results live in the commit that introduced this.
+
+Inspect a live run with `scout distill` (prints the recalled chunks, the
+classified items, and the brief); the brief is also viewable, and
+re-distillable, in the UI's Criteria panel.
 
 ## User prompt
 

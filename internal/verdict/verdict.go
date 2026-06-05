@@ -29,6 +29,19 @@ type Scorer struct {
 	Model  string
 	Force  bool // re-score even if taste_version matches
 
+	// OnlyBlanks limits the run to companies with no verdict row at all — the
+	// cheap "just the new arrivals" pass. Stale and manual verdicts are left
+	// untouched. Takes precedence over Force.
+	OnlyBlanks bool
+
+	// CompanyIDs limits the run to exactly these companies and always
+	// re-scores them — a targeted run is an explicit ask, so up-to-date and
+	// even manual verdicts are overwritten. Overrides Force and OnlyBlanks.
+	// Filter and enrichment eligibility still apply: a company that doesn't
+	// survive the static filter or lacks an 'ok' enrichment row is reported,
+	// not scored.
+	CompanyIDs []string
+
 	// Playbook is the agent's operating manual (how to decide) — distinct from
 	// Taste (what the user wants). Empty means fall back to the built-in rubric.
 	// The caller is responsible for folding the playbook text into
@@ -140,11 +153,27 @@ func (s *Scorer) candidates() ([]store.VerdictCandidate, error) {
 	if len(fres.Survivors) == 0 {
 		return nil, nil
 	}
+	// Targeted run: keep only the requested IDs, and say why anything asked
+	// for is missing — a silent zero-company run reads as a bug.
+	wanted := make(map[string]bool, len(s.CompanyIDs))
+	for _, id := range s.CompanyIDs {
+		wanted[id] = true
+	}
+
 	ids := make([]string, 0, len(fres.Survivors))
 	byID := make(map[string]filter.Survivor, len(fres.Survivors))
 	for _, sv := range fres.Survivors {
+		if len(wanted) > 0 && !wanted[sv.ID] {
+			continue
+		}
 		ids = append(ids, sv.ID)
 		byID[sv.ID] = sv
+	}
+	if len(wanted) > 0 && len(ids) < len(wanted) {
+		s.emit(fmt.Sprintf("targeted: %d of %d requested companies survive the static filter", len(ids), len(wanted)))
+	}
+	if len(ids) == 0 {
+		return nil, nil
 	}
 
 	// Pull enrichment summaries for those IDs.
@@ -177,6 +206,9 @@ WHERE fetch_status = 'ok' AND company_id IN `, ids)
 			WebsiteSummary: summary,
 		})
 	}
+	if len(wanted) > 0 && len(out) < len(ids) {
+		s.emit(fmt.Sprintf("targeted: %d of %d requested companies have an ok enrichment row", len(out), len(ids)))
+	}
 	return out, rows.Err()
 }
 
@@ -197,13 +229,26 @@ func buildInQuery(prefix string, ids []string) (string, []any) {
 // cache_creation and cache_read input-token counts from the response so
 // Run() can aggregate them.
 func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store.Verdict, int, int, error) {
-	if !s.Force {
+	// A targeted run always re-scores — the user pointed at this company on
+	// purpose, so even a sticky manual verdict is fair game.
+	if len(s.CompanyIDs) == 0 && (s.OnlyBlanks || !s.Force) {
 		existing, err := s.DB.GetVerdict(c.CompanyID)
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		if existing != nil && existing.TasteVersion == s.Taste.Version {
-			return nil, 0, 0, nil // up to date, skip
+		if existing != nil {
+			// Blanks-only run: anything already scored is out of scope.
+			if s.OnlyBlanks {
+				return nil, 0, 0, nil
+			}
+			// A hand-set verdict is sticky: leave it untouched unless --force. A
+			// manual correction that auto-reverts on the next run would be pointless.
+			if existing.Model == store.ManualModel {
+				return nil, 0, 0, nil // manual override, skip
+			}
+			if existing.TasteVersion == s.Taste.Version {
+				return nil, 0, 0, nil // up to date, skip
+			}
 		}
 	}
 
@@ -259,25 +304,24 @@ const builtinRubric = `Verdict rubric:
 
 The reason must be specific — name the vertical, stage, or trait that drove the call. Don't say "matches taste" or "good fit"; say "AI infra for ML teams, Series B" or "crypto wallet (excluded)".`
 
-// hardGateRubric tells the LLM how to apply the HARD REQUIREMENTS block. The
-// hard section mixes two logically different kinds of [requires]: an OR-set of
-// target markets/verticals (qualify on ANY one) and standalone gates like
-// location (must hold on their own). The brain deliberately reports each target
-// domain as a separate hard fact to preserve its individual hardness; treating
-// them as alternatives is scout's job, so this lives in prompt prose, not in
-// renderFacts grouping.
-const hardGateRubric = `Items under "HARD REQUIREMENTS / DEALBREAKERS" are gates — apply them with this logic:
-• [excludes] items are independent dealbreakers: if the company matches ANY one, the verdict is "no" (red).
-• [requires] items that name a target market, domain, or vertical are ALTERNATIVES: the company only needs to match ONE of them. Matching none of the target domains is "no" (red); failing to match the others is expected and is NOT a strike.
-• any other [requires] or [gate] item (e.g. location / work arrangement) is an independent gate that must hold on its own.
-Items under "PREFERENCES" are weights: a miss leans "maybe" (yellow), never an automatic "no".
+// hardGateRubric tells the LLM how to read the criteria brief. The brief is a
+// distilled, prose company-fit summary (from the distiller, or taste.md
+// offline) — there are no [requires]/[excludes] tags to key on; the stance is
+// in the words. The brief states acceptable alternatives explicitly ("any one
+// of: X, Y, Z"), so the OR-set logic lives in the brief's prose, and this rubric
+// only has to say how to weigh dealbreakers vs preferences vs context.
+const hardGateRubric = `The criteria below are a distilled company-fit brief in the user's own terms. Read it and apply it like this:
+• Anything stated as a hard dealbreaker or exclusion is a gate: if the company hits it, the verdict is "no" (red). Name the dealbreaker in the reason.
+• Anything stated as a hard requirement is a gate that must hold on its own. Where the brief lists acceptable alternatives ("any one of: X, Y, Z"), matching ONE satisfies it — not matching the others is expected and is NOT a strike.
+• Strong preferences are weights, not gates: a miss leans "maybe" (yellow), never an automatic "no".
+• Context is background for judgment, not a rule to gate on.
 
 `
 
 // buildSystemPrompt assembles three layers: the hard JSON contract (fixed),
 // the playbook / how-to-decide (operator-editable, falls back to the builtin
-// rubric), then the taste / what-the-user-wants block.
-func buildSystemPrompt(playbook, taste string) string {
+// rubric), then the criteria / what-the-user-wants block.
+func buildSystemPrompt(playbook, criteria string) string {
 	var b strings.Builder
 	b.WriteString(hardContract)
 
@@ -288,9 +332,9 @@ func buildSystemPrompt(playbook, taste string) string {
 		b.WriteString(builtinRubric)
 	}
 
-	b.WriteString("\n\n--- TASTE (what the user wants) ---\n")
+	b.WriteString("\n\n--- CRITERIA (what the user wants) ---\n")
 	b.WriteString(hardGateRubric)
-	b.WriteString(strings.TrimSpace(taste))
+	b.WriteString(strings.TrimSpace(criteria))
 	return b.String()
 }
 

@@ -27,6 +27,16 @@ type Company struct {
 	RawJSON      string
 }
 
+// normName folds a company name to its identity form: trimmed and lowercased
+// with Go's full-Unicode rules. EVERY name-identity comparison must route through
+// this — CompanyID's name key, the stored name_key column, and the reverse-fold
+// lookup — so accented/non-Latin names ("Évora", "İstanbul", "ΑΘΗΝΑ") fold the
+// same everywhere. (SQLite's built-in lower() folds ASCII only, so name matching
+// must never be done in SQL; see DomainKeyedIDsByName.)
+func normName(name string) string {
+	return strings.TrimSpace(strings.ToLower(name))
+}
+
 // CompanyID derives the deterministic primary key for a company from its
 // identity: the normalized domain, or 'name:<lower(name)>' when there's no
 // domain. The same company — same domain, or same name when domain-less —
@@ -35,7 +45,7 @@ type Company struct {
 func CompanyID(domain, name string) string {
 	key := strings.TrimSpace(strings.ToLower(domain))
 	if key == "" {
-		key = "name:" + strings.TrimSpace(strings.ToLower(name))
+		key = "name:" + normName(name)
 	}
 	return uuid.NewSHA1(companyNamespace, []byte(key)).String()
 }
@@ -54,13 +64,27 @@ func (db *DB) UpsertCompany(c Company) (string, error) {
 // drive cross-source dedup — and passes it straight through, so neither the
 // hash nor the existence lookup is repeated per row.
 func (db *DB) UpsertCompanyWithID(id string, c Company) error {
+	return upsertCompany(db, id, c)
+}
+
+// execer is the subset of *sql.DB / *sql.Tx the upsert needs, so the same
+// statement runs standalone or inside MergeCompany's transaction.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// upsertCompany writes one company row. name_key is the Go-folded identity name
+// (see normName) so the reverse-fold lookup can match on it without SQLite's
+// ASCII-only lower().
+func upsertCompany(x execer, id string, c Company) error {
 	const q = `
-INSERT INTO companies (id, source, source_id, name, domain, headcount, funding_stage, location, vertical, raw_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO companies (id, source, source_id, name, name_key, domain, headcount, funding_stage, location, vertical, raw_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     source        = excluded.source,
     source_id     = excluded.source_id,
     name          = excluded.name,
+    name_key      = excluded.name_key,
     domain        = excluded.domain,
     headcount     = excluded.headcount,
     funding_stage = excluded.funding_stage,
@@ -69,8 +93,8 @@ ON CONFLICT(id) DO UPDATE SET
     raw_json      = excluded.raw_json,
     ingested_at   = CURRENT_TIMESTAMP;`
 
-	if _, err := db.Exec(q,
-		id, c.Source, c.SourceID, c.Name, c.Domain, c.Headcount,
+	if _, err := x.Exec(q,
+		id, c.Source, c.SourceID, c.Name, normName(c.Name), c.Domain, c.Headcount,
 		c.FundingStage, c.Location, c.Vertical, c.RawJSON,
 	); err != nil {
 		return fmt.Errorf("upsert company %q: %w", c.Name, err)
@@ -78,32 +102,113 @@ ON CONFLICT(id) DO UPDATE SET
 	return nil
 }
 
-// MergeCompany collapses a domain-less company (keyed by name, oldID) into the
-// domain-keyed company (newID) that later arrived for the same identity. It
-// re-points every child row from oldID to newID and deletes the old parent — in
-// one transaction so a crash never strands children or orphans them past the
-// ON DELETE CASCADE. Children move BEFORE the delete for the same reason.
-// Caller guarantees newID already exists (upserted) and has no children yet, so
-// the PK-on-company_id tables (enrichment, verdicts) can't conflict.
+// BackfillCompanyBlanks fills only the columns that are currently NULL/empty on
+// the stored row from c's non-empty values, leaving existing data untouched.
+// Used by the reverse fold: when a domain-less arrival is recognized as a
+// duplicate of an existing domain-keyed company, its richer fields (a headcount
+// the stored row lacked, say) are merged in rather than discarded. name/domain/
+// id are identity and never changed here.
+func (db *DB) BackfillCompanyBlanks(id string, c Company) error {
+	const q = `
+UPDATE companies SET
+    headcount     = COALESCE(headcount, ?),
+    funding_stage = CASE WHEN funding_stage IS NULL OR funding_stage = '' THEN ? ELSE funding_stage END,
+    location      = CASE WHEN location      IS NULL OR location      = '' THEN ? ELSE location      END,
+    vertical      = CASE WHEN vertical      IS NULL OR vertical      = '' THEN ? ELSE vertical      END
+WHERE id = ?;`
+	if _, err := db.Exec(q, c.Headcount, c.FundingStage, c.Location, c.Vertical, id); err != nil {
+		return fmt.Errorf("backfill company %q: %w", id, err)
+	}
+	return nil
+}
+
+// companyChildTables1to1 hold at most one row per company (company_id is the
+// PRIMARY KEY). On a fold, newID may ALREADY have its own row (the merge can
+// target an existing, enriched/scored company), so a blind re-point would hit
+// the PK — newID's row is kept (the surviving identity) and oldID's dropped.
+var companyChildTables1to1 = []string{"enrichment", "verdicts"}
+
+// companyChildTablesMany hold many rows per company (company_id is non-unique),
+// so both sides' rows coexist and a plain re-point can't conflict.
+var companyChildTablesMany = []string{"verdict_trace", "job_postings", "verdict_override"}
+
+// companyChildTables is every table whose company_id FKs companies(id). A merge
+// must handle ALL of them before the old parent is deleted — a table missing
+// here would have its rows silently CASCADE-deleted (or block the delete).
+// TestCompanyChildTablesMatchSchema guards this against schema drift.
+var companyChildTables = append(append([]string{}, companyChildTables1to1...), companyChildTablesMany...)
+
+// foldChildren re-points every child row from oldID to newID within tx, then
+// deletes the old parent (children move first so a crash never strands or
+// orphans them past ON DELETE CASCADE). For the 1:1 tables it first drops
+// oldID's row when newID already has one, so the re-point can't violate the
+// company_id primary key — this is what lets a fold target a company that was
+// already enriched/scored (the overwrite path), not only a brand-new row.
+func foldChildren(tx *sql.Tx, oldID, newID string) error {
+	for _, table := range companyChildTables1to1 {
+		if _, err := tx.Exec(
+			`DELETE FROM `+table+` WHERE company_id = ? AND EXISTS (SELECT 1 FROM `+table+` WHERE company_id = ?)`,
+			oldID, newID,
+		); err != nil {
+			return fmt.Errorf("dedup %s: %w", table, err)
+		}
+		if _, err := tx.Exec(
+			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
+		); err != nil {
+			return fmt.Errorf("repoint %s: %w", table, err)
+		}
+	}
+	for _, table := range companyChildTablesMany {
+		if _, err := tx.Exec(
+			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
+		); err != nil {
+			return fmt.Errorf("repoint %s: %w", table, err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM companies WHERE id = ?`, oldID); err != nil {
+		return fmt.Errorf("delete old parent: %w", err)
+	}
+	return nil
+}
+
+// MergeCompany collapses a domain-less company (keyed by name, oldID) into an
+// already-stored domain-keyed company (newID) for the same identity, in one
+// transaction. newID may already carry children — foldChildren resolves any 1:1
+// conflict in newID's favor.
 func (db *DB) MergeCompany(oldID, newID string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("merge %s→%s: begin: %w", oldID, newID, err)
 	}
 	defer tx.Rollback()
-
-	for _, table := range []string{"enrichment", "verdicts", "verdict_trace", "job_postings"} {
-		if _, err := tx.Exec(
-			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
-		); err != nil {
-			return fmt.Errorf("merge %s→%s: repoint %s: %w", oldID, newID, table, err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM companies WHERE id = ?`, oldID); err != nil {
-		return fmt.Errorf("merge %s→%s: delete old parent: %w", oldID, newID, err)
+	if err := foldChildren(tx, oldID, newID); err != nil {
+		return fmt.Errorf("merge %s→%s: %w", oldID, newID, err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("merge %s→%s: commit: %w", oldID, newID, err)
+	}
+	return nil
+}
+
+// UpsertAndFoldName upserts the new domain-keyed company AND folds a pre-existing
+// name-keyed twin (nameKey) into it in a SINGLE transaction, so a crash or a
+// cross-process SQLITE_BUSY can never leave the new row committed with the twin
+// un-folded (a permanent duplicate the next re-ingest wouldn't reconcile). Used
+// by ingest's forward fold; nameKey must already exist.
+func (db *DB) UpsertAndFoldName(domainKey string, c Company, nameKey string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("upsert+fold %s→%s: begin: %w", nameKey, domainKey, err)
+	}
+	defer tx.Rollback()
+	if err := upsertCompany(tx, domainKey, c); err != nil {
+		return fmt.Errorf("upsert+fold %s→%s: %w", nameKey, domainKey, err)
+	}
+	if err := foldChildren(tx, nameKey, domainKey); err != nil {
+		return fmt.Errorf("upsert+fold %s→%s: %w", nameKey, domainKey, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("upsert+fold %s→%s: commit: %w", nameKey, domainKey, err)
 	}
 	return nil
 }
@@ -121,6 +226,58 @@ func (db *DB) CompanyExists(id string) (bool, error) {
 		return false, fmt.Errorf("company exists %q: %w", id, err)
 	}
 	return true, nil
+}
+
+// CompanyNameByID returns the stored name for a company id and whether the row
+// exists, in one query. Ingest uses it in place of CompanyExists on the
+// overwrite path so it can both decide new-vs-overwrite AND notice when an
+// incoming row is about to clobber a row stored under the SAME domain key but a
+// DIFFERENT name (a suspicious cross-identity collision worth surfacing) —
+// without paying a second lookup.
+func (db *DB) CompanyNameByID(id string) (name string, exists bool, err error) {
+	err = db.QueryRow(`SELECT name FROM companies WHERE id = ?`, id).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("company name %q: %w", id, err)
+	}
+	return name, true, nil
+}
+
+// DomainKeyedIDsByName returns the ids of companies that carry a real domain and
+// whose name matches (case-insensitive, trimmed) the given name. Ingest uses it
+// to recognize a domain-LESS arrival as a duplicate of a company already stored
+// WITH a domain — the reverse of MergeCompany's name→domain fold. The name match
+// is the same "same name ⇒ same company" assumption the forward fold already
+// makes; the caller only acts on an unambiguous single hit (a name shared by
+// several domain-keyed rows is left alone).
+func (db *DB) DomainKeyedIDsByName(name string) ([]string, error) {
+	key := normName(name)
+	if key == "" {
+		return nil, nil
+	}
+	// Match on the Go-folded name_key column, NOT SQLite lower(name): the built-in
+	// folds ASCII only, so a SQL match would miss/misjudge accented or non-Latin
+	// names and disagree with the forward fold (see normName).
+	rows, err := db.Query(
+		`SELECT id FROM companies
+		 WHERE name_key = ? AND domain IS NOT NULL AND trim(domain) <> ''`,
+		key,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("domain-keyed ids by name %q: %w", name, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // CountCompanies returns the total number of rows in the companies table.

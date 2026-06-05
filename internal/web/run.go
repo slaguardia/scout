@@ -20,6 +20,12 @@ import (
 // runOptions is the optional JSON body for POST /api/run/{stage}.
 type runOptions struct {
 	Force bool `json:"force"`
+	// OnlyBlanks limits the run to companies the stage has never touched —
+	// no enrichment row / no verdict row. The cheap post-ingest pass.
+	OnlyBlanks bool `json:"only_blanks"`
+	// CompanyIDs limits the run to exactly these companies and always
+	// re-runs them (targeted implies force). Overrides the other knobs.
+	CompanyIDs []string `json:"company_ids"`
 }
 
 // handleRun starts a pipeline stage as a job. POST /api/run/{stage}.
@@ -69,7 +75,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) enrichJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
-		e := &enrich.Enricher{DB: s.DB, Progress: emit}
+		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks, CompanyIDs: opts.CompanyIDs}
 		res, err := e.Run(ctx, opts.Force)
 		if err != nil {
 			return nil, err
@@ -96,15 +102,17 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			return nil, fmt.Errorf("no taste loaded (check %s)", s.TasteMDPath)
 		}
 		sc := &verdict.Scorer{
-			DB:       s.DB,
-			Taste:    tb,
-			Filter:   ft,
-			Client:   s.Anthropic,
-			Playbook: s.currentPlaybook(),
-			RunID:    id, // tags decision-trail rows with this run
-			Force:    opts.Force,
-			Workers:  4,
-			Progress: emit,
+			DB:         s.DB,
+			Taste:      tb,
+			Filter:     ft,
+			Client:     s.Anthropic,
+			Playbook:   s.currentPlaybook(),
+			RunID:      id, // tags decision-trail rows with this run
+			Force:      opts.Force,
+			OnlyBlanks: opts.OnlyBlanks,
+			CompanyIDs: opts.CompanyIDs,
+			Workers:    4,
+			Progress:   emit,
 		}
 		res, err := sc.Run(ctx)
 		if err != nil {
@@ -200,10 +208,12 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	hasKey := s.Anthropic != nil && s.Anthropic.APIKey != ""
 	writeJSON(w, http.StatusOK, map[string]any{
 		"control": s.Runner != nil,
 		"brain":   s.brainHealthy(r.Context()),
-		"verdict": s.Anthropic != nil && s.Anthropic.APIKey != "",
+		"verdict": hasKey,
+		"capture": hasKey, // the link-capture agent pass needs the same key
 		"source":  s.IngestSource,
 	})
 }
@@ -272,12 +282,13 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		emit(fmt.Sprintf("read=%d upserted=%d (%d new, %d merged) skipped=%d errors=%d",
-			res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Skipped, len(res.Errors)))
+		emit(fmt.Sprintf("read=%d upserted=%d (%d new, %d merged, %d name-collisions) skipped=%d errors=%d",
+			res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Collisions, res.Skipped, len(res.Errors)))
 		return map[string]any{
 			"read": res.Read, "upserted": res.Upserted,
 			"inserted": res.Upserted - res.Merged, "merged": res.Merged,
-			"skipped": res.Skipped, "errors": len(res.Errors),
+			"collisions": res.Collisions,
+			"skipped":    res.Skipped, "errors": len(res.Errors),
 			"filename": filename,
 		}, nil
 	}

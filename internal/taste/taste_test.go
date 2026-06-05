@@ -4,11 +4,11 @@ import "testing"
 
 func TestFromBrain(t *testing.T) {
 	text := "  The user wants AI infra roles.\n\nHard no: crypto, legal tech.  "
-	b := FromBrain(text, "brain:profile@http://127.0.0.1:8100")
+	b := FromBrain(text, "brain:brief@http://127.0.0.1:8100")
 	if b.Text != "The user wants AI infra roles.\n\nHard no: crypto, legal tech." {
 		t.Fatalf("Text not trimmed: %q", b.Text)
 	}
-	if b.Source != "brain:profile@http://127.0.0.1:8100" {
+	if b.Source != "brain:brief@http://127.0.0.1:8100" {
 		t.Fatalf("Source = %q", b.Source)
 	}
 	if b.Version != Hash(b.Text) {

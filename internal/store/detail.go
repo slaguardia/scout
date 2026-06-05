@@ -22,6 +22,10 @@ type CompanyDetail struct {
 	IngestedAt   string            `json:"ingested_at"`
 	RawJSON      map[string]string `json:"raw_json"`
 
+	Flagged    bool   `json:"flagged"`
+	FlaggedAt  string `json:"flagged_at"`
+	ReviewedAt string `json:"reviewed_at"` // last-reviewed stamp; "" = never
+
 	HasVerdict   bool   `json:"has_verdict"`
 	Verdict      string `json:"verdict"`
 	Reason       string `json:"reason"`
@@ -46,7 +50,7 @@ func (db *DB) GetCompanyDetail(companyID string) (*CompanyDetail, error) {
 SELECT c.id, c.name, c.source, COALESCE(c.source_id, ''),
        COALESCE(c.domain, ''), COALESCE(c.headcount, 0),
        COALESCE(c.funding_stage, ''), COALESCE(c.location, ''),
-       COALESCE(c.vertical, ''), c.ingested_at, c.raw_json,
+       COALESCE(c.vertical, ''), c.ingested_at, c.raw_json, c.flagged_at, c.reviewed_at,
        v.verdict, v.reason, v.taste_version, v.model, v.scored_at,
        e.website_url, e.website_summary, e.fetch_status, e.fetch_error, e.fetched_at
 FROM companies c
@@ -56,13 +60,14 @@ WHERE c.id = ?`
 
 	var d CompanyDetail
 	var rawJSON string
+	var flaggedAt, reviewedAt sql.NullString
 	var verdict, reason, tasteVersion, model, scoredAt sql.NullString
 	var websiteURL, websiteSummary, fetchStatus, fetchError, fetchedAt sql.NullString
 
 	err := db.QueryRow(q, companyID).Scan(
 		&d.CompanyID, &d.Name, &d.Source, &d.SourceID,
 		&d.Domain, &d.Headcount, &d.FundingStage, &d.Location, &d.Vertical,
-		&d.IngestedAt, &rawJSON,
+		&d.IngestedAt, &rawJSON, &flaggedAt, &reviewedAt,
 		&verdict, &reason, &tasteVersion, &model, &scoredAt,
 		&websiteURL, &websiteSummary, &fetchStatus, &fetchError, &fetchedAt,
 	)
@@ -74,6 +79,9 @@ WHERE c.id = ?`
 	}
 
 	d.RawJSON = parseRawJSON(rawJSON)
+	d.Flagged = flaggedAt.Valid
+	d.FlaggedAt = flaggedAt.String
+	d.ReviewedAt = reviewedAt.String
 	if verdict.Valid {
 		d.HasVerdict = true
 		d.Verdict = verdict.String
@@ -188,9 +196,12 @@ func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, 
 		}
 	}
 	if currentTasteVersion != "" {
+		// Manual overrides are sticky — a re-run skips them — so they'd never
+		// clear from this count. Exclude them so the badge reflects only rows a
+		// verdict run would actually re-score.
 		if err := db.QueryRow(
-			`SELECT COUNT(1) FROM verdicts WHERE taste_version != ?`,
-			currentTasteVersion,
+			`SELECT COUNT(1) FROM verdicts WHERE taste_version != ? AND model != ?`,
+			currentTasteVersion, ManualModel,
 		).Scan(&s.StaleVerdicts); err != nil {
 			return nil, err
 		}

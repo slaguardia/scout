@@ -93,7 +93,6 @@
 
   /* ---- brand / logo (top of sidebar) ---- */
   .sidebar-brand {
-    margin-bottom: 20px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--line);
   }
@@ -139,17 +138,20 @@
   }
   /* pins the docs button to the bottom of the nav (after the last block when
      content overflows). */
-  .sidebar-foot { margin-top: auto; padding-top: 18px; }
-  aside.sidebar .block { margin-bottom: 24px; }
-  aside.sidebar .block:last-child { margin-bottom: 0; }
+  .sidebar-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+  .sidebar-foot .doc-btn { width: 100%; justify-content: center; }
+  /* one rhythm: every section is a padded band, hairlines between bands (the
+     brand row draws the first divider). */
+  aside.sidebar .block { padding: 18px 0; }
+  aside.sidebar .block + .block { border-top: 1px solid var(--line); }
   aside.sidebar h3 {
-    margin: 0 0 10px;
+    margin: 0 0 12px;
     font-size: 10.5px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.1em;
+    text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--fg-dim);
     display: flex; align-items: center; gap: 6px;
   }
-  aside.sidebar h3 svg { width: 12px; height: 12px; opacity: 0.9; }
+  aside.sidebar h3 svg { width: 12px; height: 12px; opacity: 0.7; }
 
   /* filter inputs */
   .filter-row { margin-bottom: 8px; }
@@ -201,47 +203,6 @@
     width: 13px; height: 13px; color: var(--fg-dim); pointer-events: none;
   }
 
-  /* stat rows in sidebar */
-  .stat-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 4px 0;
-    font-size: 13px;
-    border-bottom: 1px solid transparent;
-  }
-  .stat-row .k { color: var(--fg-mute); }
-  .stat-row .v {
-    color: var(--fg);
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-  .stat-row .v.zero { color: var(--fg-dim); font-weight: 400; }
-
-  .pipeline-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 6px 12px;
-    padding-top: 2px;
-  }
-  .pipeline-grid .pcard {
-    padding: 8px 10px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-  }
-  .pipeline-grid .pnum {
-    font-size: 18px; font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--fg);
-    line-height: 1.1;
-  }
-  .pipeline-grid .pnum.zero { color: var(--fg-dim); }
-  .pipeline-grid .plabel {
-    font-size: 10.5px;
-    color: var(--fg-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-top: 4px;
-  }
-
   .stale {
     margin-top: 8px;
     padding: 8px 10px;
@@ -263,6 +224,55 @@
 
   /* ---- main / table ---- */
   main { padding: 16px 24px 60px; min-width: 0; }
+
+  /* view switch (companies | jobs) — top of the sidebar; the whole main area
+     follows it. */
+  .view-switch { display: flex; gap: 6px; }
+  .tab {
+    flex: 1;
+    background: var(--panel); color: var(--fg-mute);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer;
+    text-align: center;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .tab:hover { border-color: var(--line-2); color: var(--fg); }
+  .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+  .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
+
+  /* response pill (jobs table) — interview gets the link blue */
+  .pill-info { background: var(--link-bg); color: var(--link); }
+
+  /* per-posting application tracking (detail pane) */
+  .ptrack {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
+    font-size: 12.5px; color: var(--fg-mute);
+  }
+  /* applied toggle — same chip vocabulary as the sidebar filters; lights
+     green with its checkmark when on. */
+  .ptrack .pt-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
+  }
+  .ptrack .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .ptrack .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
+  .ptrack .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  .ptrack .pt-chip.is-on svg { opacity: 1; }
+  /* outreach stepper — the − undoes a mis-click */
+  .ptrack .pt-stepper { display: inline-flex; gap: 4px; }
+  .ptrack .pt-outreach-dec { padding: 3px 9px; }
+  .ptrack .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
+  .ptrack .input { width: auto; padding: 3px 8px; font-size: 12px; }
+  .ptrack input[type="date"].input { color-scheme: dark; }
+  .ptrack .btn { padding: 3px 10px; font-size: 12px; }
+  .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ptrack .pt-contacts { flex: 1 1 100%; }
+  td.td-contacts { max-width: 220px; overflow-wrap: anywhere; }
 
   .table-wrap {
     border: 1px solid var(--line);
@@ -293,10 +303,13 @@
     font-size: 13.5px;
   }
   tbody tr {
+    cursor: pointer;
     transition: background var(--dur-fast) var(--ease);
   }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: var(--panel); }
+  /* whole row is clickable, so the name takes the link color on row hover too */
+  tbody tr:hover .row-name { color: var(--link); }
 
   /* ---- pills ---- */
   .pill {
@@ -328,6 +341,90 @@
     transition: color var(--dur-fast) var(--ease);
   }
   td .row-name:hover { color: var(--link); }
+
+  /* flag — a hand-set bookmark, toggled from the row or the detail pane */
+  td.td-flag, th.th-flag { width: 28px; padding-right: 0; }
+  .flag-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0;
+    background: none; border: none; border-radius: var(--r-sm);
+    color: var(--fg-dim); opacity: 0.3; cursor: pointer;
+    transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  tbody tr:hover .flag-btn { opacity: 1; }
+  .flag-btn:hover { color: var(--maybe); }
+  .flag-btn.is-on { opacity: 1; color: var(--maybe); }
+  .flag-btn svg { width: 13px; height: 13px; }
+  .flag-btn.is-on svg path:last-child { fill: currentColor; }
+  .btn.flag-on { background: var(--maybe-bg); border-color: var(--maybe); color: var(--maybe); }
+
+  /* flag bar at the top of the detail pane */
+  .flag-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
+  .flag-bar .fb-state { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--fg-dim); flex-wrap: wrap; }
+  .flag-bar .fb-state.is-flagged { color: var(--maybe); }
+  .flag-bar .fb-actions { display: flex; gap: 8px; flex: none; }
+
+  /* the one count that matters rides the unscored chip as a small badge */
+  .v-chip .v-count {
+    font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;
+    padding: 0 6px; border-radius: 999px;
+    background: var(--panel-3); color: var(--fg-mute);
+  }
+  .v-chip.is-on .v-count { background: rgba(0,0,0,0.25); color: inherit; }
+
+  /* chip toggles — the one small-control vocabulary: verdict filter, flag
+     filter, and column show/hide all share this base. */
+  .col-toggles, .verdict-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .col-chip, .v-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; font: inherit; font-size: 11.5px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
+  }
+  .col-chip:hover, .v-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+
+  /* verdict chips carry their pill color as a dot, so the off state still
+     reads as a clickable filter rather than a disabled control. */
+  .v-chip[data-v]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .v-chip[data-v="yes"]::before      { background: var(--yes); }
+  .v-chip[data-v="maybe"]::before    { background: var(--maybe); }
+  .v-chip[data-v="no"]::before       { background: var(--no); }
+  .v-chip[data-v="__none__"]::before { background: var(--fg-dim); }
+  .v-chip[data-v]:not(.is-on)::before { opacity: 0.45; }
+  .v-chip.is-on[data-v="yes"]      { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
+  .v-chip.is-on[data-v="maybe"]    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+  .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
+  .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
+  .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+  .run-mode { margin-top: 8px; }
+  /* mode chips ("only blanks", "hide rejected") light link-blue — a state
+     toggle, not a verdict color. */
+  #only-blanks.is-on, #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+
+  /* column chips stay quiet — a set-once preference shouldn't outshine the
+     filters. Lit = visible column. */
+  .col-chip.is-on { color: var(--fg-mute); background: var(--panel-3); border-color: transparent; }
+
+  /* Columns lives behind a disclosure, styled like the section headers. */
+  .cols-details summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--fg-dim);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .cols-details summary::-webkit-details-marker { display: none; }
+  .cols-details summary:hover { color: var(--fg-mute); }
+  .cols-details summary svg { width: 12px; height: 12px; opacity: 0.7; flex: none; }
+  .cols-details summary .chev { margin-left: auto; opacity: 0.9; transition: transform var(--dur-fast) var(--ease); }
+  .cols-details[open] summary .chev { transform: rotate(90deg); }
+  .cols-details .col-toggles { margin-top: 12px; }
 
   /* ---- empty state ---- */
   .empty {
@@ -438,6 +535,17 @@
     display: flex; align-items: center; gap: 6px;
   }
   .pane-section h3 svg { width: 12px; height: 12px; opacity: 0.85; }
+  /* per-section action (re-enrich / re-score) — quiet, right-aligned */
+  .pane-section h3 .h3-action {
+    margin-left: auto;
+    font: inherit; font-size: 11px; text-transform: none; letter-spacing: normal;
+    color: var(--fg-mute); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 10px; cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .pane-section h3 .h3-action:hover { color: var(--fg); border-color: var(--line-2); background: var(--panel-2); }
+  .pane-section h3 .h3-action:disabled { opacity: 0.5; cursor: default; }
 
   /* kv grid */
   .kv {
@@ -899,6 +1007,23 @@
   .posting-add .prow .input { flex: 1; min-width: 0; }
   .posting-add .prow .btn { flex: none; }
 
+  /* manual verdict override (detail pane) */
+  .verdict-edit { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .verdict-edit .ve-label { text-transform: uppercase; letter-spacing: 0.06em; }
+  .ve-pick { display: flex; gap: 6px; }
+  .ve-opt {
+    flex: 1; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--panel); color: var(--fg-dim); font: inherit; font-size: 12px;
+    cursor: pointer; transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .ve-opt:hover { border-color: var(--line-2); color: var(--fg); }
+  .ve-opt.is-on[data-v="yes"]   { background: var(--yes-bg);   color: var(--yes);   border-color: var(--yes); }
+  .ve-opt.is-on[data-v="maybe"] { background: var(--maybe-bg); color: var(--maybe); border-color: var(--maybe); }
+  .ve-opt.is-on[data-v="no"]    { background: var(--no-bg);    color: var(--no);    border-color: var(--no); }
+  .verdict-edit .prow { display: flex; gap: 8px; }
+  .verdict-edit .prow .input { flex: 1; min-width: 0; }
+  .verdict-edit .prow .btn { flex: none; }
+
   /* criteria block (sidebar) */
   .crit-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -928,6 +1053,13 @@
 <div class="layout">
 <aside class="sidebar">
   <div class="sidebar-brand"><div class="brand">scout</div></div>
+  <div class="block" id="block-view">
+    <div class="view-switch" title="which table the main area shows">
+      <button class="tab active" id="tab-companies">companies</button>
+      <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+    </div>
+  </div>
+
   <div class="block" id="block-run">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
@@ -942,6 +1074,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
         <span class="grow">Add company…</span>
       </button>
+      <button class="run-btn" id="btn-add-link" title="paste a job posting or company page URL — an agent pass fills in the details">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.7 9.3l2.6-2.6M5.6 7.2L4 8.8a2.3 2.3 0 003.2 3.2l1.6-1.6M10.4 8.8L12 7.2A2.3 2.3 0 008.8 4L7.2 5.6"/></svg>
+        <span class="grow">Add by link…</span>
+      </button>
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
         <span class="grow">Enrich</span>
@@ -951,13 +1087,18 @@
         <span class="grow">Verdict</span>
       </button>
     </div>
+    <div class="run-mode">
+      <button class="v-chip" id="only-blanks" title="when lit, Enrich and Verdict only touch companies they've never seen — no enrichment row / no verdict yet">only blanks</button>
+    </div>
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
     </div>
     <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
   </div>
 
-  <div class="block">
+  <!-- Each view owns its filter block — separate search text and separate
+       controls, so switching tabs never carries a filter across. -->
+  <div class="block" id="block-filter-companies">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
       Filter
@@ -969,38 +1110,50 @@
       </div>
     </div>
     <div class="filter-row">
-      <select id="verdict">
-        <option value="">verdict: any</option>
-        <option value="yes">yes</option>
-        <option value="maybe">maybe</option>
-        <option value="no">no</option>
-        <option value="__none__">(unscored)</option>
-      </select>
+      <div class="verdict-chips" id="verdict-chips" title="verdict — pick any combination; none selected = all">
+        <button class="v-chip" data-v="yes">yes</button>
+        <button class="v-chip" data-v="maybe">maybe</button>
+        <button class="v-chip" data-v="no">no</button>
+        <button class="v-chip" data-v="__none__" title="companies awaiting a verdict">unscored <span class="v-count" id="unscored-n">–</span></button>
+        <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
+      </div>
     </div>
   </div>
 
-  <div class="block" id="block-pipeline">
+  <div class="block" id="block-filter-jobs" style="display:none">
     <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg>
-      Pipeline
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+      Filter
     </h3>
-    <div id="pipeline-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+    <div class="filter-row">
+      <div class="search-wrap">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
+        <input id="jq" placeholder="search title, company, contacts…">
+      </div>
+    </div>
+    <div class="filter-row">
+      <div class="verdict-chips" id="response-chips" title="response — pick any combination; none selected = all">
+        <button class="v-chip" data-r="screening">screening</button>
+        <button class="v-chip" data-r="interview">interview</button>
+        <button class="v-chip" data-r="offer">offer</button>
+        <button class="v-chip" data-r="rejected" title="selecting this shows rejected rows even with “hide rejected” on">rejected</button>
+        <button class="v-chip flag-chip" id="jflag-filter" title="show postings at flagged companies only">⚑ flagged</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected</button>
+    </div>
   </div>
 
-  <div class="block" id="block-verdicts">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
-      By verdict
-    </h3>
-    <div id="verdict-stats"></div>
-  </div>
-
-  <div class="block" id="block-fetch" style="display:none">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v6m0 0l-2.5-2.5M8 8l2.5-2.5M3 12h10"/></svg>
-      Enrichment failures
-    </h3>
-    <div id="fetch-stats"></div>
+  <div class="block" id="block-columns">
+    <details class="cols-details">
+      <summary>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
+        Columns
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>
+      </summary>
+      <div class="col-toggles" id="col-toggles"></div>
+    </details>
   </div>
 
   <div class="block" id="block-criteria">
@@ -1020,18 +1173,20 @@
 </aside>
 
 <main>
-  <div class="table-wrap">
+  <div class="table-wrap" id="companies-view">
     <table id="t">
       <thead>
         <tr>
-          <th data-k="verdict">verdict</th>
+          <th class="th-flag" data-col="flag" title="flagged"></th>
+          <th data-k="verdict" data-col="verdict">verdict</th>
           <th data-k="name">name</th>
-          <th data-k="reason">reason</th>
-          <th data-k="vertical">vertical</th>
-          <th data-k="location">location</th>
-          <th data-k="headcount">hc</th>
-          <th data-k="stage">stage</th>
-          <th>site</th>
+          <th data-k="reason" data-col="reason">reason</th>
+          <th data-k="vertical" data-col="vertical">vertical</th>
+          <th data-k="location" data-col="location">location</th>
+          <th data-k="headcount" data-col="hc">hc</th>
+          <th data-k="stage" data-col="stage">stage</th>
+          <th data-k="reviewed_at" data-col="reviewed">reviewed</th>
+          <th data-col="site">site</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -1042,6 +1197,30 @@
       </svg>
       <div class="t">No companies match the current filters.</div>
       <div class="small dim">Clear a filter, or run <code>scout ingest &lt;csv&gt;</code>.</div>
+    </div>
+  </div>
+
+  <div class="table-wrap" id="jobs-view" style="display:none">
+    <table id="jt">
+      <thead>
+        <tr>
+          <th data-jk="company">role · company</th>
+          <th data-jk="applied_at" data-col="applied">applied</th>
+          <th data-jk="response" data-col="response">response</th>
+          <th data-jk="outreach_count" data-col="outreach">outreach</th>
+          <th data-jk="last_outreach_at" data-col="last_outreach">last outreach</th>
+          <th data-jk="contacts" data-col="contacts">contacts</th>
+          <th data-col="link">link</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="jobs-empty" class="empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m-13 0h18a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z"/>
+      </svg>
+      <div class="t">No jobs match the current filters.</div>
+      <div class="small dim">Paste a posting URL via <strong>Add by link…</strong> — the agent pass fills in the rest.</div>
     </div>
   </div>
 </main>
@@ -1155,6 +1334,29 @@
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>
       <button class="btn btn-primary" id="add-save">Add company</button>
+    </div>
+  </div>
+</div>
+
+<!-- add-by-link modal (the link-capture agent pass) -->
+<div class="modal-scrim" id="capture-scrim">
+  <div class="modal" style="width:560px">
+    <div class="modal-head">
+      <h2>Add by link</h2>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label for="capture-url">URL<span class="req">*</span></label>
+        <input class="input" id="capture-url" placeholder="https://… job posting or company page" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Paste a job posting or a company page. scout fetches it and an agent pass figures out which it is and fills in the details — a job posting attaches to its company, adding the company first if it isn't in the list yet. Pages behind a login wall (LinkedIn) usually can't be fetched.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="capture-cancel">Cancel</button>
+      <button class="btn btn-primary" id="capture-save">Capture</button>
     </div>
   </div>
 </div>
@@ -1279,13 +1481,14 @@
             <li>Results are cached. A company is re-fetched only if it was re-ingested since the last fetch, or you force it. <strong>Failures are remembered</strong>, not retried in a hot loop.</li>
           </ul>
           <h4>Fetch status — what each outcome means</h4>
-          <p>Every company gets exactly one status. Only <span class="pill pill-yes">ok</span> rows go on to the verdict stage; the rest are visible under <strong>Enrichment failures</strong> in the sidebar.</p>
+          <p>Every company gets exactly one status. Only <span class="pill pill-yes">ok</span> rows go on to the verdict stage; the rest carry a non-<code>ok</code> status you can see in each company's <strong>Enrichment</strong> detail.</p>
           <table class="dt">
             <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
             <tbody>
               <tr><td class="field">ok</td><td>Fetched real HTML with enough text (≥ ~200 chars) to judge on.</td></tr>
               <tr><td class="field">low_content</td><td>Fetched, but too little text — usually a JavaScript app shell. Cached, but skipped at verdict.</td></tr>
               <tr><td class="field">challenge</td><td>The page is a bot-challenge interstitial (Cloudflare / PerimeterX / Akamai, etc.).</td></tr>
+              <tr><td class="field">soft_404</td><td>Every candidate path returned 200 with a "page not found" body. Skipped so we don't store a dead about link.</td></tr>
               <tr><td class="field">no_domain</td><td>The company has no domain to fetch.</td></tr>
               <tr><td class="field">http_&lt;code&gt;</td><td>A non-2xx response, e.g. <code>http_404</code>, <code>http_503</code>.</td></tr>
               <tr><td class="field">dns / refused / timeout</td><td>DNS lookup failed / connection refused / request timed out.</td></tr>
@@ -1366,9 +1569,13 @@ Return the JSON verdict now.</pre>
 
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
-          <p class="lede">The main table is where you actually work. Each row is a company with its verdict pill, the one-line reason, and the structured fields. Sort by any column; filter by verdict or search by name, vertical, or reason.</p>
+          <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
+          <h4>The jobs view &amp; Add by link</h4>
+          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Everything else about the company and role lives in the slide-in panel, where each posting card carries the tracking controls (applied toggle + date, response select, a "+1 outreach" logger, contacts field). Rejected rows are hidden by default — flip the toggle to see them.</p>
+          <p>The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
-          <p>Click any company name to slide open its detail pane, which gathers everything scout knows in one place:</p>
+          <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
+          <p>The detail pane includes:</p>
           <ul>
             <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
             <li><strong>Verdict</strong> — the call, the reason, the model used, and the criteria version it was scored under.</li>
@@ -1376,7 +1583,7 @@ Return the JSON verdict now.</pre>
             <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
-          <p>The sidebar's <strong>Pipeline</strong> counters (total → survivors → enriched → scored) and <strong>Current taste</strong> block show the state at a glance. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+          <p>The <strong>unscored</strong> filter chip carries a live count of companies still awaiting a verdict. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
         </section>
 
       </div>
@@ -1387,9 +1594,15 @@ Return the JSON verdict now.</pre>
 <div class="toast" id="toast"></div>
 
 <script>
-const state = { rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null };
+const state = {
+  rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
+  view: "companies",                       // "companies" | "jobs"
+  jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
+};
 
 const pillClass = v => "pill pill-" + (v || "none");
+// The flag bookmark glyph — pole first, banner last (the .is-on CSS fills the banner).
+const FLAG_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 14V2.5"/><path d="M3.5 2.5c3-1.2 6 1.2 9 0V9c-3 1.2-6-1.2-9 0z"/></svg>';
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // safeHref neutralizes hostile schemes (e.g. javascript:) for user-derived URLs:
 // returns the URL only when it is http(s), otherwise "#". escapeHTML still guards
@@ -1403,6 +1616,32 @@ async function loadList() {
   renderList();
 }
 
+async function loadJobs() {
+  let data;
+  try {
+    const r = await fetch("/api/postings");
+    if (!r.ok) return;
+    data = await r.json();
+  } catch { return; }
+  state.jobs = data.rows || [];
+  document.getElementById("jobs-n").textContent = state.jobs.length ? ` ${state.jobs.length}` : "";
+  renderJobs();
+}
+
+// ---- view tabs ----
+function setView(v) {
+  state.view = v;
+  document.getElementById("tab-companies").classList.toggle("active", v === "companies");
+  document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
+  document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
+  document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
+  // Each view owns its own Filter block — state stays put across switches.
+  document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
+  document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
+  renderColToggles(); // the Columns block follows the active view
+  if (v === "jobs") renderJobs(); else renderList();
+}
+
 async function loadStats() {
   let s;
   try {
@@ -1410,53 +1649,19 @@ async function loadStats() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     s = await r.json();
   } catch (e) {
-    document.getElementById("pipeline-stats").innerHTML =
-      `<div class="muted small">stats failed: ${escapeHTML(e.message)}</div>`;
+    const el = document.getElementById("unscored-n");
+    el.textContent = "–";
+    el.title = `stats failed: ${e.message}`;
     return;
   }
   state.stats = s;
   renderStats();
 }
 
-function statLine(k, v) {
-  const cls = (Number(v) === 0) ? "v zero" : "v";
-  return `<div class="stat-row"><span class="k">${escapeHTML(k)}</span><span class="${cls}">${v}</span></div>`;
-}
-
-function pcard(label, n) {
-  const cls = (Number(n) === 0) ? "pnum zero" : "pnum";
-  return `<div class="pcard"><div class="${cls}">${n}</div><div class="plabel">${escapeHTML(label)}</div></div>`;
-}
-
 function renderStats() {
   const s = state.stats || {};
-  const survivors = filtered().length;
-
-  // Pipeline: 2-column card grid for the big numbers.
-  document.getElementById("pipeline-stats").innerHTML =
-    `<div class="pipeline-grid">
-       ${pcard("total", s.total_companies ?? 0)}
-       ${pcard("survivors", survivors)}
-       ${pcard("enriched", s.enriched_ok ?? 0)}
-       ${pcard("scored", s.scored ?? 0)}
-     </div>`;
-
-  // By verdict
-  const v = s.by_verdict || {};
-  document.getElementById("verdict-stats").innerHTML =
-    ["yes","maybe","no"].map(k => statLine(k, v[k] || 0)).join("") +
-    statLine("unscored", s.unscored ?? 0);
-
-  // Fetch failures: show only non-ok statuses.
-  const fs = s.fetch_status || {};
-  const failures = Object.keys(fs).filter(k => k !== "ok").sort();
-  if (failures.length === 0) {
-    document.getElementById("block-fetch").style.display = "none";
-  } else {
-    document.getElementById("block-fetch").style.display = "";
-    document.getElementById("fetch-stats").innerHTML =
-      failures.map(k => statLine(k, fs[k])).join("");
-  }
+  // The only count worth surfacing — riding the unscored filter chip itself.
+  document.getElementById("unscored-n").textContent = s.unscored ?? 0;
 
   // Criteria block (source + playbook + stale badge) reads stats too.
   renderCriteria();
@@ -1477,12 +1682,22 @@ function sortRows(rows) {
   return rows.slice().sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
 }
 
+// Multi-select verdict filter: the set holds the chips currently on
+// ("yes"/"maybe"/"no"/"__none__" for unscored). Empty set = no filter.
+const verdictFilter = new Set();
+let flagOnly = false; // the ⚑ chip: show flagged companies only
+
+function renderVerdictChips() {
+  document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
+    b.classList.toggle("is-on", verdictFilter.has(b.dataset.v));
+  });
+}
+
 function filtered() {
   const q = document.getElementById("q").value.trim().toLowerCase();
-  const v = document.getElementById("verdict").value;
   return state.rows.filter(r => {
-    if (v === "__none__" && r.verdict) return false;
-    if (v && v !== "__none__" && r.verdict !== v) return false;
+    if (verdictFilter.size && !verdictFilter.has(r.verdict || "__none__")) return false;
+    if (flagOnly && !r.flagged) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -1491,39 +1706,205 @@ function filtered() {
   });
 }
 
+// ---- column visibility ----
+// Every column except the row anchor (name / company) can be hidden. Each view
+// has its own column set and its own persisted hidden-keys, and the sidebar
+// Columns block always shows the ACTIVE view's toggles.
+const COLUMNS = [
+  { k: "flag",     label: "flag" },
+  { k: "verdict",  label: "verdict" },
+  { k: "reason",   label: "reason" },
+  { k: "vertical", label: "vertical" },
+  { k: "location", label: "location" },
+  { k: "hc",       label: "hc" },
+  { k: "stage",    label: "stage" },
+  { k: "reviewed", label: "reviewed" },
+  { k: "site",     label: "site" },
+];
+const JCOLUMNS = [
+  { k: "applied",       label: "applied" },
+  { k: "response",      label: "response" },
+  { k: "outreach",      label: "outreach" },
+  { k: "last_outreach", label: "last outreach" },
+  { k: "contacts",      label: "contacts" },
+  { k: "link",          label: "link" },
+];
+
+function loadHidden(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
+  catch { return new Set(); }
+}
+const hiddenCols = loadHidden("scout-hidden-cols");   // companies table
+const jHiddenCols = loadHidden("scout-hidden-jcols"); // jobs table
+
+// colState resolves the active view's column set, hidden-keys, and store key.
+function colState() {
+  return state.view === "jobs"
+    ? { cols: JCOLUMNS, hidden: jHiddenCols, key: "scout-hidden-jcols" }
+    : { cols: COLUMNS, hidden: hiddenCols, key: "scout-hidden-cols" };
+}
+
+function applyColumnVisibility() {
+  document.querySelectorAll("#t [data-col]").forEach(el => {
+    el.style.display = hiddenCols.has(el.dataset.col) ? "none" : "";
+  });
+  document.querySelectorAll("#jt [data-col]").forEach(el => {
+    el.style.display = jHiddenCols.has(el.dataset.col) ? "none" : "";
+  });
+}
+
+function renderColToggles() {
+  const cs = colState();
+  document.getElementById("col-toggles").innerHTML = cs.cols.map(c =>
+    `<button class="col-chip${cs.hidden.has(c.k) ? "" : " is-on"}" data-col="${c.k}" title="${cs.hidden.has(c.k) ? "show" : "hide"} ${c.label}">${c.label}</button>`
+  ).join("");
+  document.querySelectorAll("#col-toggles .col-chip").forEach(b => {
+    b.addEventListener("click", () => {
+      const cs = colState(); // re-resolve: the view may have changed since render
+      const k = b.dataset.col;
+      if (cs.hidden.has(k)) cs.hidden.delete(k); else cs.hidden.add(k);
+      localStorage.setItem(cs.key, JSON.stringify([...cs.hidden]));
+      renderColToggles();
+      applyColumnVisibility();
+    });
+  });
+}
+
 function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
   const rows = sortRows(filtered());
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
-  // Sidebar "survivors" card updates with the current filter.
-  if (state.stats) {
-    const cards = document.querySelectorAll("#pipeline-stats .pipeline-grid .pcard");
-    if (cards[1]) {
-      const num = cards[1].querySelector(".pnum");
-      if (num) {
-        num.textContent = rows.length;
-        num.classList.toggle("zero", rows.length === 0);
-      }
-    }
-  }
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
     tr.innerHTML = `
-      <td><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
+      <td class="td-flag" data-col="flag"><button class="flag-btn${r.flagged ? " is-on" : ""}" data-id="${r.company_id}" title="${r.flagged ? "unflag" : "flag"}">${FLAG_SVG}</button></td>
+      <td data-col="verdict"><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
       <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
-      <td class="reason">${escapeHTML(r.reason || "")}</td>
-      <td>${escapeHTML(r.vertical || "")}</td>
-      <td>${escapeHTML(r.location || "")}</td>
-      <td>${r.headcount || ""}</td>
-      <td>${escapeHTML(r.stage || "")}</td>
-      <td>${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
+      <td class="reason" data-col="reason">${escapeHTML(r.reason || "")}</td>
+      <td data-col="vertical">${escapeHTML(r.vertical || "")}</td>
+      <td data-col="location">${escapeHTML(r.location || "")}</td>
+      <td data-col="hc">${r.headcount || ""}</td>
+      <td data-col="stage">${escapeHTML(r.stage || "")}</td>
+      <td data-col="reviewed" class="muted" title="${escapeHTML(r.reviewed_at || "never reviewed")}">${r.reviewed_at ? escapeHTML(r.reviewed_at.slice(0, 10)) : "—"}</td>
+      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
     `;
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll(".row-name").forEach(el => {
-    el.addEventListener("click", () => openDetail(el.dataset.id));
+  applyColumnVisibility();
+  // The whole row opens the detail pane; clicks on the "about ↗" link or the
+  // flag button do their own thing instead (closest() guards them). Rows are
+  // recreated each render, so these listeners don't stack.
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("click", e => {
+      if (e.target.closest("a, .flag-btn")) return;
+      openDetail(tr.dataset.id);
+    });
+  });
+  tbody.querySelectorAll(".flag-btn").forEach(b => {
+    b.addEventListener("click", () => onToggleFlag(b.dataset.id));
+  });
+}
+
+// ---- jobs view ----
+// The tracker: one row per saved posting, company name + application
+// lifecycle (everything else lives in the side panel). The jobs Filter block
+// is its own — search matches title/company/location/summary/contacts,
+// response chips filter on the application lifecycle, and "hide rejected"
+// mirrors the Notion tracker's default view. Picking the "rejected" chip
+// explicitly overrides hide-rejected — an empty table would just confuse.
+const responseFilter = new Set();
+let jflagOnly = false;     // jobs-view ⚑ chip: postings at flagged companies only
+let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
+
+function filteredJobs() {
+  const q = document.getElementById("jq").value.trim().toLowerCase();
+  const hideRej = hideRejected && !responseFilter.has("rejected");
+  return state.jobs.filter(j => {
+    if (hideRej && j.response === "rejected") return false;
+    if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
+    if (jflagOnly && !j.flagged) return false;
+    if (q) {
+      const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+// contactsHTML renders a free-form contacts string ("Jane <jane@a.com>, cto@b.io")
+// as comma-separated entries with email-shaped tokens turned into mailto links.
+const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+function contactsHTML(s) {
+  const parts = String(s || "").split(",").map(t => t.trim()).filter(Boolean);
+  if (!parts.length) return '<span class="dim">—</span>';
+  return parts.map(part => {
+    const m = part.match(RE_EMAIL);
+    if (!m) return escapeHTML(part);
+    return `<a href="mailto:${escapeHTML(m[0])}" title="${escapeHTML(part)}">${escapeHTML(part)}</a>`;
+  }).join('<span class="dim">, </span>');
+}
+
+// Response display: pill class + label. Triage-ordered for sorting (an offer
+// outranks an interview outranks a screening; rejected sinks).
+const RESPONSE_META = {
+  offer:     { cls: "pill-yes",   label: "offer",          order: 0 },
+  interview: { cls: "pill-info",  label: "interview",      order: 1 },
+  screening: { cls: "pill-maybe", label: "screening call", order: 2 },
+  "":        { cls: "pill-none",  label: "—",              order: 3 },
+  rejected:  { cls: "pill-no",    label: "rejected",       order: 4 },
+};
+
+function compareJobs(a, b, k) {
+  if (k === "verdict") {
+    const order = { yes: 0, maybe: 1, no: 2, "": 3 };
+    return (order[a.verdict] ?? 3) - (order[b.verdict] ?? 3);
+  }
+  if (k === "response")
+    return (RESPONSE_META[a.response]?.order ?? 3) - (RESPONSE_META[b.response]?.order ?? 3);
+  if (k === "outreach_count")
+    return (b.outreach_count|0) - (a.outreach_count|0); // most-contacted first
+  if (k === "created_at" || k === "applied_at" || k === "last_outreach_at") {
+    // Newest first on the first click; blanks sink regardless of direction.
+    const av = a[k] || "", bv = b[k] || "";
+    if (!av && !bv) return 0;
+    if (!av) return state.jsort.dir;   // undo the outer dir so blanks stay last
+    if (!bv) return -state.jsort.dir;
+    return String(bv).localeCompare(String(av));
+  }
+  return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
+}
+
+function renderJobs() {
+  const tbody = document.querySelector("#jt tbody");
+  tbody.innerHTML = "";
+  const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
+  document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
+  for (const j of rows) {
+    const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
+    const tr = document.createElement("tr");
+    tr.dataset.id = j.company_id;
+    tr.innerHTML = `
+      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>
+        ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
+      <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
+      <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
+      <td class="small" data-col="outreach">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
+      <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
+      <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
+      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  applyColumnVisibility();
+  // Row click opens the company's detail pane (posting details + tracking
+  // controls live there); the external "open ↗" link is guarded out.
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("click", e => {
+      if (e.target.closest("a")) return;
+      openDetail(tr.dataset.id);
+    });
   });
 }
 
@@ -1570,15 +1951,33 @@ function renderDetail(d) {
     ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)} ↗</a>`
     : '<span class="muted">no domain</span>';
 
+  const manual = d.model === "manual";
   const verdictBlock = d.has_verdict ? `
     <dl class="kv">
-      <dt>verdict</dt><dd><span class="${pillClass(d.verdict)}">${escapeHTML(d.verdict)}</span></dd>
+      <dt>verdict</dt><dd><span class="${pillClass(d.verdict)}">${escapeHTML(d.verdict)}</span>${manual ? ' <span class="small muted">· set by hand</span>' : ''}</dd>
       <dt>reason</dt><dd>${escapeHTML(d.reason || "")}</dd>
       <dt>model</dt><dd class="small muted">${escapeHTML(d.model || "")}</dd>
       <dt>taste version</dt><dd class="small muted"><span class="tooltip" title="scored ${escapeHTML(d.scored_at)} · model ${escapeHTML(d.model)}">${escapeHTML(d.taste_version || "")}</span></dd>
       <dt>scored at</dt><dd class="small muted">${escapeHTML(d.scored_at || "")}</dd>
     </dl>
-  ` : '<div class="muted">Not yet scored. Run <code>scout verdict</code>.</div>';
+  ` : '<div class="muted">Not yet scored. Run <code>scout verdict</code>, or set one by hand below.</div>';
+
+  // Inline override editor — set or correct the verdict by hand. A manual verdict
+  // is sticky (the scorer skips it unless re-run with --force). Reason prefills
+  // only when the current verdict is already manual, so flipping an LLM call
+  // starts from a blank reason rather than the model's stale wording.
+  const verdictEditor = `
+    <div class="verdict-edit" id="verdict-edit">
+      <div class="ve-label muted small">${d.has_verdict ? "override verdict" : "set verdict"}</div>
+      <div class="ve-pick" id="ve-pick">
+        ${["yes","maybe","no"].map(v =>
+          `<button type="button" class="ve-opt${d.has_verdict && d.verdict === v ? " is-on" : ""}" data-v="${v}">${v}</button>`).join("")}
+      </div>
+      <div class="prow">
+        <input class="input" id="ve-reason" placeholder="reason (optional)" value="${manual ? escapeHTML(d.reason || "") : ""}">
+        <button class="btn btn-primary" id="ve-save-btn">Save</button>
+      </div>
+    </div>`;
 
   const enrichBlock = d.has_enrichment ? `
     <dl class="kv">
@@ -1588,6 +1987,14 @@ function renderDetail(d) {
     </dl>
     ${d.website_summary ? `<div class="summary-box">${escapeHTML(d.website_summary)}</div>` : ""}
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
+
+  // Per-company stage actions: targeted runs (company_ids) always re-run, so
+  // re-score even overwrites a manual verdict. Gated like the sidebar buttons.
+  const canControl = !state.meta || state.meta.control !== false;
+  const rescoreBtn = canControl && state.meta && state.meta.verdict
+    ? '<button class="h3-action" id="rescore-btn" title="re-score just this company — replaces the current verdict, manual or not">↻ re-score</button>' : "";
+  const reenrichBtn = canControl && d.domain
+    ? '<button class="h3-action" id="reenrich-btn" title="re-fetch this company’s site now">↻ re-enrich</button>' : "";
 
   const rawRows = Object.keys(d.raw_json || {}).sort();
   const rawHTML = rawRows.length === 0 ? '' : `
@@ -1599,7 +2006,24 @@ function renderDetail(d) {
     </details>
   `;
 
+  const flagBar = `
+    <div class="flag-bar">
+      <span class="fb-state${d.flagged ? " is-flagged" : ""}">
+        ${d.flagged ? "⚑ flagged" : "not flagged"}
+        <span class="small muted">· ${d.reviewed_at ? `last reviewed ${escapeHTML(d.reviewed_at)}` : "never reviewed"}</span>
+      </span>
+      <span class="fb-actions">
+        <button class="btn${d.flagged ? " flag-on" : ""}" id="flag-toggle-btn" title="${d.flagged ? "unflag" : "flag this company"}">
+          ${d.flagged ? "⚑ unflag" : "⚐ flag"}
+        </button>
+        <button class="btn btn-primary" id="review-stamp-btn" title="stamp this company as reviewed now — the table sorts on it">
+          Mark reviewed
+        </button>
+      </span>
+    </div>`;
+
   document.getElementById("pane-body").innerHTML = `
+    ${flagBar}
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
@@ -1636,14 +2060,17 @@ function renderDetail(d) {
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
         Verdict
+        ${rescoreBtn}
       </h3>
       ${verdictBlock}
+      ${verdictEditor}
     </section>
 
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 3 4 3 6s-1 4-3 6c-2-2-3-4-3-6s1-4 3-6z"/></svg>
         Enrichment
+        ${reenrichBtn}
       </h3>
       ${enrichBlock}
     </section>
@@ -1660,17 +2087,248 @@ function renderDetail(d) {
 
   const addPostBtn = document.getElementById("posting-add-btn");
   if (addPostBtn) addPostBtn.addEventListener("click", () => onAddPosting(d));
+  wirePostingTracking(d);
+
+  // Verdict override: single-select the yes/maybe/no buttons, then Save.
+  document.querySelectorAll("#ve-pick .ve-opt").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#ve-pick .ve-opt").forEach(b => b.classList.remove("is-on"));
+      btn.classList.add("is-on");
+    });
+  });
+  const saveVerdictBtn = document.getElementById("ve-save-btn");
+  if (saveVerdictBtn) saveVerdictBtn.addEventListener("click", () => onSaveVerdict(d));
+
+  const flagBtn = document.getElementById("flag-toggle-btn");
+  if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
+
+  const reviewBtn = document.getElementById("review-stamp-btn");
+  if (reviewBtn) reviewBtn.addEventListener("click", () => onMarkReviewed(d.company_id));
+
+  // Targeted stage runs for this one company. streamJob re-opens the pane on
+  // job end, so the fresh enrichment/verdict shows up without a manual reload.
+  const rescore = document.getElementById("rescore-btn");
+  if (rescore) rescore.addEventListener("click", () => startRun("verdict", { company_ids: [d.company_id] }));
+  const reenrich = document.getElementById("reenrich-btn");
+  if (reenrich) reenrich.addEventListener("click", () => startRun("enrich", { company_ids: [d.company_id] }));
+}
+
+// ---- last-reviewed stamp ----
+// "Mark reviewed" stamps reviewed_at = now; the table's reviewed column sorts
+// on it, so cycling oldest-reviewed-first never lands on the same company twice.
+async function onMarkReviewed(id) {
+  const btn = document.getElementById("review-stamp-btn");
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${id}/reviewed`, { method: "POST" });
+  } catch (e) {
+    toast(`failed: ${e.message}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  const row = state.rows.find(r => r.company_id === id);
+  if (row) { row.reviewed_at = fresh.reviewed_at; renderList(); }
+  if (state.openId === id) {
+    renderDetail(fresh);
+    loadTrace(id); // renderDetail reset the trace body to a spinner
+  }
+  toast("reviewed");
+}
+
+// ---- flag (hand-set bookmark) ----
+// Shared by the row flag buttons and the pane toggle: flips the flag, then
+// refreshes the table row and — if it's the open company — the detail pane.
+async function onToggleFlag(id) {
+  const row = state.rows.find(r => r.company_id === id);
+  const next = !(row && row.flagged);
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${id}/flagged`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flagged: next }),
+    });
+  } catch (e) {
+    toast(`failed: ${e.message}`);
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    return;
+  }
+  const fresh = await resp.json();
+  if (row) { row.flagged = fresh.flagged; renderList(); }
+  if (state.openId === id) {
+    renderDetail(fresh);
+    loadTrace(id); // renderDetail reset the trace body to a spinner
+  }
+  loadJobs(); // the jobs view filters on the company's flag
+  toast(fresh.flagged ? "flagged" : "unflagged");
+}
+
+// ---- manual verdict override ----
+async function onSaveVerdict(d) {
+  const picked = document.querySelector("#ve-pick .ve-opt.is-on");
+  if (!picked) { toast("Pick yes, maybe, or no."); return; }
+  const verdict = picked.dataset.v;
+  const reason = document.getElementById("ve-reason").value.trim();
+  const btn = document.getElementById("ve-save-btn");
+  btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/companies/${d.company_id}/verdict`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verdict, reason }),
+    });
+  } catch (e) {
+    toast(`save failed: ${e.message}`);
+    btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`save failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  renderDetail(fresh);            // re-render pane with the new verdict + editor
+  loadTrace(fresh.company_id);    // pull the appended trail row
+  loadList();                     // refresh the table pill / reason / sort
+  loadStats();                    // refresh the sidebar by-verdict counts
+  loadJobs();                     // job rows carry the company verdict
+  toast("verdict saved");
 }
 
 // ---- job postings ----
 function postingsListHTML(d) {
   const ps = d.postings || [];
   if (!ps.length) return '<div class="muted">No job links yet.</div>';
-  return ps.map(p => `
+  return ps.map(p => {
+    const meta = [
+      p.location,
+      p.source === "capture" ? "captured" : "added",
+      (p.created_at || "").slice(0, 10),
+    ].filter(Boolean).map(escapeHTML).join(" · ");
+    const outreachMeta = p.outreach_count
+      ? `${p.outreach_count}× · last ${escapeHTML(p.last_outreach_at || "?")}`
+      : "no outreach yet";
+    return `
     <div class="brain-node">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
-      ${p.created_at ? `<div class="l">${escapeHTML(p.created_at)}</div>` : ""}
-    </div>`).join("");
+      ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
+      ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
+      <div class="ptrack" data-pid="${escapeHTML(p.id)}">
+        <button class="pt-chip pt-applied${p.applied_at ? " is-on" : ""}" title="${p.applied_at ? "mark as not applied" : "mark applied today"}">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
+          applied
+        </button>
+        <input type="date" class="input pt-applied-date" value="${escapeHTML(p.applied_at || "")}"
+               style="display:${p.applied_at ? "" : "none"}" title="application date">
+        <select class="input pt-response" title="furthest response reached">
+          <option value="">response: —</option>
+          <option value="screening" ${p.response === "screening" ? "selected" : ""}>screening call</option>
+          <option value="interview" ${p.response === "interview" ? "selected" : ""}>interview</option>
+          <option value="offer" ${p.response === "offer" ? "selected" : ""}>offer</option>
+          <option value="rejected" ${p.response === "rejected" ? "selected" : ""}>rejected</option>
+        </select>
+        <span class="pt-stepper">
+          <button class="btn pt-outreach-dec" title="undo one outreach" ${p.outreach_count ? "" : "disabled"}>−</button>
+          <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
+        </span>
+        <span class="pt-meta">${outreachMeta}</span>
+        <input class="input pt-contacts" value="${escapeHTML(p.contacts || "")}"
+               placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
+               title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// wirePostingTracking binds the per-posting tracking controls inside
+// #postings-list. Re-run after every list re-render (the nodes are rebuilt).
+function wirePostingTracking(d) {
+  const today = () => new Date().toISOString().slice(0, 10);
+  document.querySelectorAll("#postings-list .ptrack").forEach(row => {
+    const p = (d.postings || []).find(x => x.id === row.dataset.pid);
+    if (!p) return;
+    row.querySelector(".pt-applied").addEventListener("click", () => {
+      savePostingTracking(d, p, { applied_at: p.applied_at ? "" : today() });
+    });
+    row.querySelector(".pt-applied-date").addEventListener("change", e => {
+      savePostingTracking(d, p, { applied_at: e.target.value });
+    });
+    row.querySelector(".pt-response").addEventListener("change", e => {
+      savePostingTracking(d, p, { response: e.target.value });
+    });
+    row.querySelector(".pt-outreach").addEventListener("click", () => {
+      savePostingTracking(d, p, {
+        outreach_count: (p.outreach_count || 0) + 1,
+        last_outreach_at: today(),
+      });
+    });
+    // Undo a mis-click: step the count back down (never below 0); at 0 the
+    // last-outreach date is cleared too, since it no longer describes anything.
+    row.querySelector(".pt-outreach-dec").addEventListener("click", () => {
+      const n = Math.max(0, (p.outreach_count || 0) - 1);
+      savePostingTracking(d, p, {
+        outreach_count: n,
+        ...(n === 0 ? { last_outreach_at: "" } : {}),
+      });
+    });
+    // Contacts save on change (blur with a new value); Enter blurs to commit.
+    const contacts = row.querySelector(".pt-contacts");
+    contacts.addEventListener("change", e => {
+      savePostingTracking(d, p, { contacts: e.target.value.trim() });
+    });
+    contacts.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    });
+  });
+}
+
+// savePostingTracking PUTs the posting's full lifecycle state (current values
+// overlaid with the change), refreshes the pane card from the response, and
+// keeps the jobs table in sync.
+async function savePostingTracking(d, p, patch) {
+  const body = {
+    applied_at: p.applied_at || "",
+    response: p.response || "",
+    outreach_count: p.outreach_count || 0,
+    last_outreach_at: p.last_outreach_at || "",
+    contacts: p.contacts || "",
+    ...patch,
+  };
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${p.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  const i = (d.postings || []).findIndex(x => x.id === p.id);
+  if (i >= 0) d.postings[i] = fresh;
+  const list = document.getElementById("postings-list");
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
+  loadJobs();
+  toast("tracking saved");
 }
 
 async function onAddPosting(d) {
@@ -1702,9 +2360,10 @@ async function onAddPosting(d) {
   d.postings = d.postings || [];
   d.postings.unshift(p);
   const list = document.getElementById("postings-list");
-  if (list) list.innerHTML = postingsListHTML(d);
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
+  loadJobs(); // keep the jobs view in sync
   toast("link added");
 }
 
@@ -1781,6 +2440,10 @@ async function loadMeta() {
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  // Capture needs only the API key (no Runner — it's a direct synchronous pass).
+  const cb = document.getElementById("btn-add-link");
+  cb.disabled = !state.meta.capture;
+  if (!state.meta.capture) cb.title = "set ANTHROPIC_API_KEY in the server env to enable";
 }
 
 // ---- control surface: runs history ----
@@ -1925,6 +2588,64 @@ async function submitAddCompany() {
   loadList(); loadStats();
 }
 
+// ---- add by link (the link-capture agent pass) ----
+function openCapture() {
+  document.getElementById("capture-url").value = "";
+  document.getElementById("capture-scrim").classList.add("open");
+  document.getElementById("capture-url").focus();
+}
+function closeCapture() {
+  document.getElementById("capture-scrim").classList.remove("open");
+}
+async function submitCapture() {
+  const urlEl = document.getElementById("capture-url");
+  const url = urlEl.value.trim();
+  if (!url) { toast("Enter a URL first."); urlEl.focus(); return; }
+  const btn = document.getElementById("capture-save");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "reading page…";
+  const restore = () => { btn.disabled = false; btn.textContent = label; };
+
+  let resp;
+  try {
+    resp = await fetch("/api/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  } catch (e) { toast(`capture failed: ${e.message}`); restore(); return; }
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const t = await resp.text();
+      try { msg = JSON.parse(t).error || msg; } catch { msg = t.trim() || msg; }
+    } catch {}
+    toast(`capture failed: ${msg}`);
+    restore();
+    return;
+  }
+  const res = await resp.json();
+  restore();
+
+  // Nothing-written outcomes are reported honestly, with the modal kept open
+  // so the URL can be corrected.
+  if (!res.company_id) {
+    toast(res.note || "couldn't classify that page");
+    return;
+  }
+  closeCapture();
+  loadList(); loadStats(); loadJobs();
+  if (res.kind === "job_posting" && res.posting) {
+    const what = res.posting.title || "job link";
+    toast(`captured: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
+    setView("jobs");
+  } else {
+    toast(res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`);
+    openDetail(res.company_id);
+  }
+}
+
 function streamJob(stage, jobId) {
   activeJob = jobId;
   const drawer = document.getElementById("drawer");
@@ -1955,7 +2676,8 @@ function streamJob(stage, jobId) {
     document.getElementById("drawer-close").style.display = "";
     toast(`${stage} ${e.data}`);
     // Refresh everything the run could have changed.
-    loadList(); loadStats(); loadRuns();
+    loadList(); loadStats(); loadRuns(); loadJobs();
+    if (state.openId) openDetail(state.openId); // open pane: show fresh enrichment/verdict
   });
   es.onerror = () => { es.close(); }; // server closed or network; 'end' usually fired first
 }
@@ -2014,8 +2736,53 @@ document.querySelectorAll("#t thead th[data-k]").forEach(th => {
     renderList();
   };
 });
+document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.jk;
+    if (state.jsort.k === k) state.jsort.dir *= -1; else { state.jsort.k = k; state.jsort.dir = 1; }
+    renderJobs();
+  };
+});
+document.getElementById("tab-companies").onclick = () => setView("companies");
+document.getElementById("tab-jobs").onclick = () => setView("jobs");
+// Companies filter block — search, verdict chips, flag.
 document.getElementById("q").oninput = renderList;
-document.getElementById("verdict").onchange = renderList;
+document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
+  b.addEventListener("click", () => {
+    const v = b.dataset.v;
+    if (verdictFilter.has(v)) verdictFilter.delete(v); else verdictFilter.add(v);
+    renderVerdictChips();
+    renderList();
+  });
+});
+document.getElementById("flag-filter").addEventListener("click", e => {
+  flagOnly = !flagOnly;
+  e.currentTarget.classList.toggle("is-on", flagOnly);
+  renderList();
+});
+// Jobs filter block — its own search, response chips, flag, hide-rejected.
+document.getElementById("jq").oninput = renderJobs;
+document.getElementById("hide-rejected").addEventListener("click", e => {
+  hideRejected = !hideRejected;
+  e.currentTarget.classList.toggle("is-on", hideRejected);
+  renderJobs();
+});
+document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
+  b.addEventListener("click", () => {
+    const v = b.dataset.r;
+    if (responseFilter.has(v)) responseFilter.delete(v); else responseFilter.add(v);
+    b.classList.toggle("is-on", responseFilter.has(v));
+    renderJobs();
+  });
+});
+document.getElementById("jflag-filter").addEventListener("click", e => {
+  jflagOnly = !jflagOnly;
+  e.currentTarget.classList.toggle("is-on", jflagOnly);
+  renderJobs();
+});
+renderColToggles();
+applyColumnVisibility(); // hide chosen thead cells before the first data load
+
 document.getElementById("pane-close").onclick = closeDetail;
 document.getElementById("scrim").onclick = closeDetail;
 document.addEventListener("keydown", e => {
@@ -2023,18 +2790,31 @@ document.addEventListener("keydown", e => {
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
+  if (document.getElementById("capture-scrim").classList.contains("open")) { closeCapture(); return; }
   closeDetail();
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
 
 // run controls
-document.getElementById("btn-enrich").onclick = () => startRun("enrich", {});
-document.getElementById("btn-verdict").onclick = () => startRun("verdict", {});
+let onlyBlanks = false; // when lit, Enrich/Verdict only touch never-seen companies
+document.getElementById("only-blanks").onclick = e => {
+  onlyBlanks = !onlyBlanks;
+  e.currentTarget.classList.toggle("is-on", onlyBlanks);
+};
+document.getElementById("btn-enrich").onclick = () => startRun("enrich", onlyBlanks ? { only_blanks: true } : {});
+document.getElementById("btn-verdict").onclick = () => startRun("verdict", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("btn-add-company").onclick = openAddCompany;
 document.getElementById("add-cancel").onclick = closeAddCompany;
 document.getElementById("add-save").onclick = submitAddCompany;
 document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAddCompany(); };
+document.getElementById("btn-add-link").onclick = openCapture;
+document.getElementById("capture-cancel").onclick = closeCapture;
+document.getElementById("capture-save").onclick = submitCapture;
+document.getElementById("capture-scrim").onclick = e => { if (e.target.id === "capture-scrim") closeCapture(); };
+document.getElementById("capture-url").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); submitCapture(); }
+});
 // Enter in a text field submits — but not in the vertical filter (where Enter
 // would prematurely submit while narrowing chips), nor on chips/select.
 document.getElementById("add-scrim").addEventListener("keydown", e => {
@@ -2213,6 +2993,7 @@ document.querySelectorAll("#docs-nav a").forEach(a => {
 })();
 
 loadList();
+loadJobs();
 loadStats();
 loadMeta();
 loadRuns();

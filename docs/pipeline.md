@@ -13,9 +13,9 @@ ingest → filter → enrich → verdict → triage
 ```
 
 `ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict`, and only for reads — scout reads the user's criteria from `/profile`
-(cached locally) and never writes back (verdicts stay scout-local). Default
-`--brainbot` is `http://127.0.0.1:8100`; empty disables it.
+`verdict`, and only for reads — scout recalls the user's criteria and distills
+them into a brief (cached locally) and never writes back (verdicts stay
+scout-local). Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it.
 
 ---
 
@@ -56,7 +56,21 @@ re-ingest, a manual add for a website **already present is rejected (`409`),
 never overwritten** — it returns the existing company. See `ingest.AddManual` /
 `ingest.ErrCompanyExists`.
 
----
+**Link capture (UI only).** The third way in: the **Add by link** modal posts a
+single URL to `POST /api/capture`, and an agent pass (`internal/capture`, one
+Haiku call) fetches the page with the enrichment fetch stack, classifies it —
+**job posting vs company page vs other** — and extracts structured fields. A
+job posting is stored in `job_postings` (title/location/summary) attached to
+its company, with the company created first (source `capture`, via
+`ingest.EnsureCompany`) when it isn't in the list; the company's own domain is
+resolved from the extraction with ATS/job-board hosts (greenhouse, lever,
+ashby, …) explicitly rejected as identities. A company page upserts the company
+and **seeds its enrichment row from the already-fetched text** (only when no
+enrichment exists), so the next verdict run can score it immediately. Unlike
+`AddManual`, an existing company is the happy path (the posting just attaches),
+and capture is idempotent by URL — re-pasting refreshes the same posting.
+Unfetchable pages (login walls, bot challenges) return their honest
+`fetch_status` (`422`) and write nothing; `kind=other` pages write nothing too.
 
 ## `scout filter`
 
@@ -89,12 +103,16 @@ happens at verdict time, grounded in the brain.
 | **Input** | `companies` with a non-empty domain. |
 | **Output** | `considered=N fetched=N ok=N failed=N`. |
 | **Idempotent** | Yes — re-fetches only rows re-ingested since last fetch. |
-| **Flags** | `--db`, `--workers 8`, `--timeout 12s`, `--force`. |
+| **Flags** | `--db`, `--workers 8`, `--timeout 12s`, `--force`, `--only-blanks`, `--company id,...`. |
 
 **Behavior:**
 - Targets every company whose domain has no enrichment row, or whose
   `companies.ingested_at` is newer than its `enrichment.fetched_at`
-  (`--force` re-fetches all). Failure rows are NOT auto-retried — use `--force`.
+  (`--force` re-fetches all; `--only-blanks` restricts to companies with no
+  enrichment row at all). Failure rows are NOT auto-retried — use `--force`.
+- `--company id,...` (web: `company_ids` in the run body) runs exactly those
+  companies and always re-fetches — targeted implies force. The UI's
+  per-company **re-enrich** button in the detail pane uses this.
 - N workers (default 8). Each tries `https://<domain>/about` → `/about-us` →
   `/company` → `/`; first 2xx HTML response wins.
 - Strips `<script>`/`<style>`/`<noscript>`/`<svg>` and all tags, decodes common
@@ -130,9 +148,16 @@ happens at verdict time, grounded in the brain.
 **Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
 `--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
 empty disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
-`--workers 4`, `--force`.
+`--workers 4`, `--force`, `--only-blanks`, `--company id,...`.
 
-### Resolving the criteria (brain-primary, cached)
+`--company id,...` (web: `company_ids` in the run body) scores exactly those
+companies and always re-scores — even a sticky manual verdict is replaced,
+since a targeted run is an explicit ask. Filter survival and an `ok`
+enrichment row are still required; companies that don't qualify are reported
+in the progress lines, not scored. The UI's per-company **re-score** button
+in the detail pane uses this.
+
+### Resolving the criteria (distilled brief, cached)
 
 The criteria are **the user's** — they come from the brain, not a scout file.
 Resolution is centralized in `internal/criteria` (`criteria.Resolver`), shared by
@@ -140,27 +165,33 @@ both `cmdVerdict` and the web server, with a local SQLite cache in front of the
 brain:
 
 ```
-fresh cached profile? (age < --brain-cache-ttl) ──yes──▶ use it
+fresh cached brief? (age < --brain-cache-ttl) ──yes──▶ use it
        │ no
-GET /profile facts ──▶ render criteria block ──▶ cache + use
-       │ unreachable
-stale cached profile? ──yes──▶ use it (brain is down)
+recall + distill (internal/distill) ──▶ brief ──▶ cache + use
+       │ unreachable / distill failed
+stale cached brief? ──yes──▶ use it (brain is down)
        │ no
 fall back to taste.md (offline criteria)
 ```
 
-- The brain client reads **structured FACTS** (`/profile`) and renders them into
-  a grouped criteria block: each fact's polarity (positive/negative/null) and
-  strength (hard/soft/null) decide whether it is a gate, a weight, or context.
-  See `north-star.md` → *Reading the facts*. `/profile` returns every fact, so
-  there is no `/recall` criteria fallback; `/recall` is never a per-company lookup.
-- A fetched profile is written to `brain_profile_cache` and reused within
-  `--brain-cache-ttl` (default 6h). If the brain is unreachable, a *stale* cached
-  profile is used before scout drops to `taste.md`.
+- The brief comes from the **distiller** (`internal/distill`): it fans out a few
+  **company-fit** recalls (`GET /recall`), dedups the prose chunks, then runs a
+  two-step pass — classify each excerpt as COMPANY vs ROLE_OR_OTHER, then
+  synthesize a company-fit brief from the COMPANY items only — sections (*Hard
+  dealbreakers / Strong preferences / Context*) the LLM writes in prose, not tags
+  handed over by the brain. Runs on `--distill-model` (default Sonnet). See
+  `north-star.md` → *Distilling the criteria*.
+  `/recall` is the **only** brain call; scout never passes a `scope` and never
+  queries per company.
+- A distilled brief is written to `brain_profile_cache` and reused within
+  `--brain-cache-ttl` (default 6h). If the brain is unreachable *or* distillation
+  fails, a *stale* cached brief is used before scout drops to `taste.md`.
 - A brain that's **unreachable with no cache** *or* **healthy-but-empty** falls
   back to `taste.md`. The fallback is offline-only — scout never invests in it.
 - The resolved block becomes a `taste.Block`: `Text`, `Source`
-  (`brain:profile@<url>` or `file:taste.md`), and `Version`.
+  (`brain:brief@<url>` or `file:taste.md`), and `Version`.
+- `scout distill` prints the recalled chunks + the brief without scoring — the
+  debug/tuning instrument for the recall → brief step.
 
 ### `taste_version` = criteria + playbook hash
 
@@ -204,11 +235,14 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /api/companies` | every company joined with verdict and enrichment |
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
+| `GET /api/postings` | every posting joined with its company's name/verdict/marks + application lifecycle (the **jobs view / tracker**) |
+| `PUT /api/postings/{id}` | set a posting's application lifecycle (applied date, response, outreach count/date) |
+| `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
-| `GET /api/profile` | **read-only** cached brain profile + freshness (the active criteria) |
-| `POST /api/profile/refresh` | force a refetch of `/profile` from the brain |
+| `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |
+| `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
-| `GET /api/meta` | capability flags (control on, brain healthy, verdict key, source) |
+| `GET /api/meta` | capability flags (control on, brain healthy, verdict/capture key, source) |
 | `GET /healthz` | `ok` |
 
 **Run the pipeline as background jobs**
@@ -216,7 +250,7 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | Route | Does |
 |---|---|
 | `POST /api/ingest` | multipart CSV upload (field `csv`) → temp file → ingest job |
-| `POST /api/run/{stage}` | start `enrich`/`verdict` as a job |
+| `POST /api/run/{stage}` | start `enrich`/`verdict` as a job; optional JSON body `{force, only_blanks, company_ids}` — `company_ids` runs exactly those companies and implies force |
 | `GET /api/jobs/{id}/stream` | **live SSE progress** (one line per company) |
 | `POST /api/jobs/{id}/cancel` | cancel a running job |
 | `GET /api/runs` | **durable run history** (last 30, from the `runs` table) + busy stage |
@@ -224,8 +258,8 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
 - `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server resolves criteria
-  through the same `internal/criteria` resolver the CLI uses (cached profile →
-  live `/profile` → stale cache → `taste.md`).
+  through the same `internal/criteria` resolver the CLI uses (cached brief →
+  live recall + distill → stale cache → `taste.md`).
 
 **Editor — local files only, never the brain**
 
