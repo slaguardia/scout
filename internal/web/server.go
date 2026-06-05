@@ -44,6 +44,7 @@ type Server struct {
 	Brainbot *brainbot.Client   // optional; used for health probes + the profile panel
 	Resolver *criteria.Resolver // resolves criteria (cached brain profile → taste.md)
 	Runner   *jobs.Runner       // optional; nil disables the control surface
+	Outreach OutreachRunner     // optional; nil disables draft starts (503)
 
 	// Stage construction inputs (used by the run handlers).
 	Anthropic     *anthropic.Client
@@ -123,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/postings", s.handlePostings) // all postings across companies (jobs view)
 	mux.HandleFunc("/api/postings/", s.handlePosting) // PUT {id}: application-lifecycle update
 	mux.HandleFunc("/api/capture", s.handleCapture)   // POST: link-capture agent pass
+	mux.HandleFunc("/api/outreach/", s.handleOutreach) // blocks / sync / drafts (see outreach.go)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 

@@ -79,6 +79,11 @@ func (s *Server) handlePostings(w http.ResponseWriter, r *http.Request) {
 // no Runner involved.
 func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/postings/"), "/")
+	// {id}/outreach is the posting's draft queue (see outreach.go).
+	if pid, ok := strings.CutSuffix(id, "/outreach"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingOutreach(w, r, pid)
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return

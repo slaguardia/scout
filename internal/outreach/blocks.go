@@ -51,6 +51,54 @@ var Slots = []Slot{
 	{"BANK_ROWS", TierDerived, "writing-bank exemplars, selected by move per draft"},
 }
 
+// Required lists the blocks a draft run cannot start without. HUMANIZER,
+// MASS_SEND_TEMPLATE and the derived blocks degrade gracefully (skipped
+// pass / template-missing notice / no exemplars) — these five do not.
+var Required = []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES", "PAST_EXPERIENCE_FULL"}
+
+// MissingBlocks reports which Required blocks are absent or broken in the
+// local cache. Empty means drafting may start. Cache-only — no brain call.
+func MissingBlocks(db *store.DB) ([]string, error) {
+	var missing []string
+	for _, name := range Required {
+		b, err := db.GetOutreachBlock(name)
+		if err != nil {
+			return nil, err
+		}
+		if b == nil || b.Broken != "" || b.Content == "" {
+			missing = append(missing, name)
+		}
+	}
+	return missing, nil
+}
+
+// CachedStatuses reports every slot's state from the local cache alone (no
+// brain call) — the cheap read behind GET /api/outreach/blocks.
+func CachedStatuses(db *store.DB) ([]BlockStatus, error) {
+	var out []BlockStatus
+	for _, slot := range Slots {
+		st := BlockStatus{Block: slot.Name, Tier: slot.Tier}
+		b, err := db.GetOutreachBlock(slot.Name)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case b == nil && slot.Tier == TierDerived:
+			st.State = "derived"
+		case b == nil:
+			st.State = "unpinned"
+		case b.Broken != "":
+			st.State = "broken"
+			st.Detail = b.Broken
+		default:
+			st.State = "ok"
+			st.Version = b.Version
+		}
+		out = append(out, st)
+	}
+	return out, nil
+}
+
 // SlotByName returns the registered slot, or nil.
 func SlotByName(name string) *Slot {
 	for i := range Slots {
