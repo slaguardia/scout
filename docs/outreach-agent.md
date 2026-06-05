@@ -26,7 +26,8 @@ is *authored*, but **Scout never talks to Notion** — blocks arrive via the bra
 | `VOICE_RULES` | Voice & style rules + voice anchors + hard-no language list | Notion Voice & style page |
 | `BANK_ROWS` | 2–3 Writing Bank rows selected per draft, matched by move (not static) | Writing Bank — outreach DB |
 | `PAST_EXPERIENCE_FULL` | Full structured experience doc — honesty checker only | Notion Past Experience |
-| `HUMANIZER` | The humanizer skill prompt, verbatim | `.claude/skills/humanizer/` (local file, not brain-mediated) |
+| `HUMANIZER` | The humanizer skill prompt, verbatim | Notion (new page; flows through the brain like the rest) |
+| `MASS_SEND_TEMPLATE` | The mass-send email template (Abukhadra honest-P.S. variant) | Notion (new page) |
 
 Context-minimization principle: each agent sees the smallest set that lets it do its
 one job. Notably, the Researcher knows almost nothing about Alex, and only the
@@ -65,9 +66,17 @@ A **pin** is a scout-side binding: block slot → list of page ids, stored in sc
 SQLite. The brain doesn't know pins exist. The GUI renders the map tree; a
 **pin-proposal agent** (map-driven: read hierarchy → fetch candidates via `/doc` →
 judge content against a per-block spec) proposes bindings with confidence + excerpt
-evidence; the user confirms or overrides. Renames self-heal (stable ids); a deleted
-page dangles the pin → keep serving the last cached block (stale beats missing),
-flag the slot for re-pinning. Never fuzzy-match to the closest surviving page.
+evidence; the user confirms or overrides. Renames self-heal (stable ids). A `404`
+on a pinned id is a **loud failure** (per the migration spec): the sync marks the
+block broken and outreach drafting is blocked until it's re-pinned — never draft
+against a vanished source, never fuzzy-match to the closest surviving page.
+Caveat from the spec: Notion *deletions* don't 404 — a deleted/unshared page just
+stops re-syncing and keeps serving its last content ("version unchanged" ≠ "still
+exists upstream"). Fine for frozen blocks; accepted silent-staleness risk for
+rules docs in v1.
+
+**v1 pinning is manual** (browse the map tree in the GUI, click). The pin-proposal
+agent is a later layer on the same surface — you pin ~8 things once.
 
 **Exception: the email template is never discovered.** `P2_LOCKED` is a decision,
 not a fact lying in a doc — the user pastes it or points at it explicitly, once per
@@ -78,7 +87,7 @@ template version. Automate *derivation*, never *authorship*.
 | Tier | Blocks | On upstream version change |
 |---|---|---|
 | **User-declared** | `P2_LOCKED` | Checksummed. Halt outreach for the block + notify. Never auto-adopt. |
-| **Pointed-at** | `HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`, `PAST_EXPERIENCE_FULL` | Silent refetch into the cache. |
+| **Pointed-at** | `HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`, `PAST_EXPERIENCE_FULL`, `HUMANIZER`, `MASS_SEND_TEMPLATE` | Silent refetch into the cache. |
 | **Derived** | `EXPERIENCE_CARD` (distilled from Past Experience at sync time), `BANK_ROWS` (synced wholesale; selected by move at draft time, in code) | Re-derive at sync when inputs change. |
 
 ### Sync time vs draft time
@@ -252,8 +261,8 @@ a false pass costs more than a false fail.
 - **Lint (regex/rules):** em dashes; banned-phrase list; word count 75–125;
   "I applied"/"my application" detector; doubled-word check ("has has");
   P2_LOCKED verbatim-presence assertion. Runs before AND after the humanizer pass.
-- **Mass-send route:** on no_honest_hook, fill the mass-send template (Abukhadra
-  honest-P.S. variant) in pure code — no model needed.
+- **Mass-send route:** on no_honest_hook, fill `MASS_SEND_TEMPLATE` in pure
+  code — no model needed.
 - **Logging:** on Alex's confirmed send ("mark sent" in the job panel), bump the
   outreach count AND stamp the send date via `PUT /api/postings/{id}`. Send dates
   are what make Touch 2 follow-ups cheap later.
@@ -292,6 +301,31 @@ failure the user is tempted to override.
 The trigger integration is nearly free: company, URL, and title already sit on the
 posting row (Add-by-link capture). Outreach becomes a verb on the tracker, and
 "sent" lands on the same posting.
+
+## Implementation decisions (2026-06-04 hash-out)
+
+- **Researcher tooling:** scout pre-fetches the JD in Go code (Ashby/Greenhouse/
+  Lever JSON APIs are deterministic HTTP — no model needed) and hands it to the
+  Researcher as context; the agent itself uses the Anthropic hosted `web_search`
+  tool for news/site/podcast hooks. No custom tool-use loop in v1; sites that
+  403 the JD fetch just yield fewer hook candidates.
+- **Models:** Sonnet for all five agents — including the honesty checker
+  ("a false pass costs more than a false fail" rules out cheaping out). ~5 calls
+  per email.
+- **Data model:** `outreach_pins` (block → page ids), `outreach_blocks` (name,
+  content, version, fetched_at — the cache), `outreach_drafts` (posting_id FK,
+  status: researching / awaiting_review / no_hook / sent / failed, research JSON,
+  hook JSON, draft text, violations, edited text, sent_at). Draft history kept
+  per posting — Touch 2 needs it.
+- **Sync trigger:** manual refresh button + a cheap `/map` version check at draft
+  start (re-fetch only changed blocks per tier rules). No background cron.
+- **Draft UX is fire-and-forget:** click "Draft outreach", keep browsing; the job
+  row shows a draft-ready badge when the pipeline finishes (~1–2 min).
+- **EXPERIENCE_CARD is reviewable:** shown in the UI with an edit override
+  (Criteria-panel style); re-derivation flags a diff instead of silently swapping —
+  an error in the card propagates into hook threads.
+- **Post-edit lint:** editing a draft in the panel re-runs lint on save (regex,
+  instant). The honesty checker does not re-run on the user's own edits.
 
 ## Design decisions
 
