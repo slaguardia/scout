@@ -33,7 +33,7 @@ func TestEnrichmentTargetsOnlyBlanks(t *testing.T) {
 
 	names := func(force, onlyBlanks bool) map[string]bool {
 		t.Helper()
-		ts, err := db.EnrichmentTargets(force, onlyBlanks)
+		ts, err := db.EnrichmentTargets(force, onlyBlanks, nil)
 		if err != nil {
 			t.Fatalf("targets(%v,%v): %v", force, onlyBlanks, err)
 		}
@@ -52,5 +52,18 @@ func TestEnrichmentTargetsOnlyBlanks(t *testing.T) {
 	}
 	if got := names(true, true); !got["A"] || !got["B"] {
 		t.Errorf("force should win over only-blanks, got %v", got)
+	}
+
+	// Targeted: exactly the asked-for company, even when its cache is fresh
+	// (targeted implies force), and the other knobs are ignored.
+	if _, err := db.Exec(`UPDATE companies SET ingested_at = datetime('now', '-1 hour') WHERE id = ?`, idA); err != nil {
+		t.Fatalf("freshen A: %v", err)
+	}
+	ts, err := db.EnrichmentTargets(false, true, []string{idA})
+	if err != nil {
+		t.Fatalf("targeted: %v", err)
+	}
+	if len(ts) != 1 || ts[0].Name != "A" {
+		t.Errorf("targeted run should return exactly fresh A, got %v", ts)
 	}
 }

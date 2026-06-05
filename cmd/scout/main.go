@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -97,9 +98,9 @@ secondary automation/debug surface. The brain is primary by default
 Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
   scout filter [--taste taste.toml] [--db scout.db]
-  scout enrich [--workers 8] [--timeout 12s] [--force] [--db scout.db]
+  scout enrich [--workers 8] [--timeout 12s] [--force] [--company id,...] [--db scout.db]
   scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
-                [--model claude-haiku-4-5] [--workers 4] [--force] [--db scout.db]
+                [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
@@ -199,6 +200,7 @@ func cmdEnrich(args []string) error {
 	timeout := fs.Duration("timeout", 12*time.Second, "per-request timeout")
 	force := fs.Bool("force", false, "re-fetch even if cached")
 	onlyBlanks := fs.Bool("only-blanks", false, "only companies with no enrichment row yet")
+	companies := fs.String("company", "", "comma-separated company IDs; re-fetch exactly these")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -212,7 +214,7 @@ func cmdEnrich(args []string) error {
 	ctx, cancel := signalCtx()
 	defer cancel()
 
-	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout, OnlyBlanks: *onlyBlanks}
+	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout, OnlyBlanks: *onlyBlanks, CompanyIDs: splitIDs(*companies)}
 	res, err := e.Run(ctx, *force)
 	if err != nil {
 		return err
@@ -237,6 +239,7 @@ func cmdVerdict(args []string) error {
 	workers := fs.Int("workers", 4, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
 	onlyBlanksV := fs.Bool("only-blanks", false, "only companies with no verdict row yet")
+	companiesV := fs.String("company", "", "comma-separated company IDs; re-score exactly these (overrides manual verdicts)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -309,6 +312,7 @@ func cmdVerdict(args []string) error {
 		Playbook:   pbText,
 		Force:      *force,
 		OnlyBlanks: *onlyBlanksV,
+		CompanyIDs: splitIDs(*companiesV),
 		Workers:    *workers,
 	}
 	res, err := s.Run(ctx)
@@ -526,6 +530,17 @@ func cmdStats(args []string) error {
 
 func signalCtx() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+// splitIDs parses a comma-separated --company value into trimmed, non-empty IDs.
+func splitIDs(s string) []string {
+	var out []string
+	for _, id := range strings.Split(s, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func exit(err error) {

@@ -43,6 +43,10 @@ type Enricher struct {
 	// the cheap "just the new arrivals" pass. Ignored when Run is forced.
 	OnlyBlanks bool
 
+	// CompanyIDs limits the run to exactly these companies and always
+	// re-fetches them (a targeted run implies force). Overrides OnlyBlanks.
+	CompanyIDs []string
+
 	// Progress, if set, receives one line per fetched company. Called from
 	// worker goroutines — must be safe for concurrent use.
 	Progress func(string)
@@ -130,7 +134,7 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 		e.Client = NewHTTPClient(e.Timeout)
 	}
 
-	targets, err := e.DB.EnrichmentTargets(force, e.OnlyBlanks)
+	targets, err := e.DB.EnrichmentTargets(force, e.OnlyBlanks, e.CompanyIDs)
 	if err != nil {
 		return nil, err
 	}
