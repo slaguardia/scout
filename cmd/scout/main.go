@@ -51,6 +51,12 @@ const defaultBrainURL = "http://127.0.0.1:8100"
 // verdict scoring stays on the cheaper anthropic.DefaultModel (Haiku).
 const defaultDistillModel = "claude-sonnet-4-6"
 
+// defaultOutreachModel is the model for all five outreach pipeline agents
+// (researcher through honesty checker). Sonnet: the honesty checker's
+// "a false pass costs more than a false fail" rule rules out cheaping out, and
+// the researcher needs strong tool use for the hosted web_search pass.
+const defaultOutreachModel = "claude-sonnet-4-6"
+
 // defaultBrainCacheTTL is how long a locally-cached distilled brief is reused
 // before scout re-distills. The brief changes rarely, so a few hours keeps runs
 // from re-hitting the brain (and the LLM) without serving badly stale criteria.
@@ -108,6 +114,7 @@ Usage:
   scout outreach map [--brainbot URL]
   scout outreach pin --block NAME --pages id1,id2 [--approve] [--brainbot URL] [--db scout.db]
   scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
+  scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
@@ -412,6 +419,7 @@ func cmdServe(args []string) error {
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
+	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (all five agents)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -452,6 +460,16 @@ func cmdServe(args []string) error {
 	// Load taste + playbook into the server (folds playbook into the version,
 	// matching `scout verdict`). Re-run after every editor PUT.
 	srv.ReloadTaste()
+
+	// Wire the outreach draft engine when the API key is configured; without a
+	// key, draft starts return 503 (the panel surfaces that). The engine reads
+	// only the local block cache at draft time — never the brain.
+	if ac.APIKey != "" {
+		srv.Outreach = &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
+		fmt.Fprintf(os.Stderr, "outreach drafting enabled (model %s)\n", *outreachModel)
+	} else {
+		fmt.Fprintln(os.Stderr, "outreach drafting disabled (no ANTHROPIC_API_KEY)")
+	}
 
 	// Job runner persists each run to the runs table for durable history.
 	runner := jobs.New()
@@ -564,7 +582,7 @@ func exit(err error) {
 // the debug instrument for the retrieval layer, mirroring `scout distill`.
 func cmdOutreach(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("outreach: want a subcommand: map | pin | blocks")
+		return fmt.Errorf("outreach: want a subcommand: map | pin | blocks | draft")
 	}
 	switch args[0] {
 	case "map":
@@ -573,8 +591,10 @@ func cmdOutreach(args []string) error {
 		return cmdOutreachPin(args[1:])
 	case "blocks":
 		return cmdOutreachBlocks(args[1:])
+	case "draft":
+		return cmdOutreachDraft(args[1:])
 	default:
-		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | blocks)", args[0])
+		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | blocks | draft)", args[0])
 	}
 }
 
@@ -701,5 +721,70 @@ func cmdOutreachBlocks(args []string) error {
 			}
 		}
 	}
+	return nil
+}
+
+// cmdOutreachDraft runs the full outreach pipeline against one posting,
+// synchronously: it creates the draft row, streams stage progress to stderr via
+// the engine's Log, and prints the final draft text + status + lint findings to
+// stdout. The CLI counterpart of the fire-and-forget panel button.
+func cmdOutreachDraft(args []string) error {
+	fs := flag.NewFlagSet("outreach draft", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	posting := fs.String("posting", "", "job_postings.id to draft outreach for")
+	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (all five agents)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*posting) == "" {
+		return fmt.Errorf("outreach draft: --posting <id> is required")
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Gate on the required context blocks being healthy (mirrors the web POST).
+	if missing, err := outreach.MissingBlocks(db); err != nil {
+		return err
+	} else if len(missing) > 0 {
+		return fmt.Errorf("outreach draft: required blocks missing or broken: %s (pin and sync them first)", strings.Join(missing, ", "))
+	}
+
+	d, err := db.CreateOutreachDraft(*posting)
+	if err != nil {
+		return fmt.Errorf("outreach draft: %w", err)
+	}
+
+	eng := &outreach.Engine{
+		DB:     db,
+		Client: anthropic.New(""),
+		Model:  *model,
+		Log:    func(line string) { fmt.Fprintln(os.Stderr, line) },
+	}
+	ctx, cancel := signalCtx()
+	defer cancel()
+	if err := eng.Run(ctx, d.ID); err != nil {
+		return fmt.Errorf("outreach draft: %w", err)
+	}
+
+	out, err := db.GetOutreachDraft(d.ID)
+	if err != nil || out == nil {
+		return fmt.Errorf("outreach draft: read back draft %d: %w", d.ID, err)
+	}
+	fmt.Printf("status: %s\n", out.Status)
+	if out.FailReason != "" {
+		fmt.Printf("fail_reason: %s\n", out.FailReason)
+	}
+	if out.Violations != "" && out.Violations != "null" {
+		fmt.Printf("violations: %s\n", out.Violations)
+	}
+	if out.Lint != "" && out.Lint != "[]" {
+		fmt.Printf("lint: %s\n", out.Lint)
+	}
+	fmt.Println("---")
+	fmt.Println(out.Draft)
 	return nil
 }
