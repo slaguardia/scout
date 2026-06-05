@@ -242,6 +242,19 @@ func (db *DB) readPosting(id string) (Posting, error) {
 	return p, nil
 }
 
+// GetPosting returns one posting by id, or (nil, nil) when absent. The outreach
+// engine needs the posting's url/title/company_id to seed a draft run.
+func (db *DB) GetPosting(id string) (*Posting, error) {
+	p, err := scanPosting(db.QueryRow(`SELECT `+postingCols+` FROM job_postings WHERE id = ?`, id))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // ListPostings returns a company's postings, newest first. Returns an empty
 // (non-nil) slice when there are none, so callers serialize [] not null.
 func (db *DB) ListPostings(companyID string) ([]Posting, error) {
