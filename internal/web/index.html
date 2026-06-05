@@ -239,14 +239,6 @@
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
-  /* "hide rejected" toggle (Filter block, jobs view only) — mirrors the Notion
-     tracker's default view, which filtered Rejected out. */
-  .hide-rejected {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: var(--fg-mute); font-size: 12.5px; cursor: pointer; user-select: none;
-    padding: 2px 1px;
-  }
-  .hide-rejected input { accent-color: var(--link); cursor: pointer; }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background: var(--link-bg); color: var(--link); }
@@ -410,7 +402,9 @@
   .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
   .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
   .run-mode { margin-top: 8px; }
-  #only-blanks.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  /* mode chips ("only blanks", "hide rejected") light link-blue — a state
+     toggle, not a verdict color. */
+  #only-blanks.is-on, #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
      filters. Lit = visible column. */
@@ -1147,9 +1141,7 @@
       </div>
     </div>
     <div class="filter-row">
-      <label class="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">
-        <input type="checkbox" id="hide-rejected" checked> hide rejected
-      </label>
+      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected</button>
     </div>
   </div>
 
@@ -1823,11 +1815,12 @@ function renderList() {
 // mirrors the Notion tracker's default view. Picking the "rejected" chip
 // explicitly overrides hide-rejected — an empty table would just confuse.
 const responseFilter = new Set();
-let jflagOnly = false; // jobs-view ⚑ chip: postings at flagged companies only
+let jflagOnly = false;     // jobs-view ⚑ chip: postings at flagged companies only
+let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
 
 function filteredJobs() {
   const q = document.getElementById("jq").value.trim().toLowerCase();
-  const hideRej = document.getElementById("hide-rejected").checked && !responseFilter.has("rejected");
+  const hideRej = hideRejected && !responseFilter.has("rejected");
   return state.jobs.filter(j => {
     if (hideRej && j.response === "rejected") return false;
     if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
@@ -2769,7 +2762,11 @@ document.getElementById("flag-filter").addEventListener("click", e => {
 });
 // Jobs filter block — its own search, response chips, flag, hide-rejected.
 document.getElementById("jq").oninput = renderJobs;
-document.getElementById("hide-rejected").onchange = renderJobs;
+document.getElementById("hide-rejected").addEventListener("click", e => {
+  hideRejected = !hideRejected;
+  e.currentTarget.classList.toggle("is-on", hideRejected);
+  renderJobs();
+});
 document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
   b.addEventListener("click", () => {
     const v = b.dataset.r;
