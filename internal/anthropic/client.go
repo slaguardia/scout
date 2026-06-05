@@ -64,6 +64,37 @@ type Request struct {
 	// The distiller pins it to 0 so the same chunks yield a stable brief and
 	// tuning changes trace to the prompt/corpus, not sampling noise.
 	Temperature *float64 `json:"-"`
+	// Tools, when set, are marshaled into the request's tools array. The only
+	// use today is the hosted web_search SERVER tool (see WebSearchTool): the
+	// API runs the searches itself, so there is no client-side tool loop — the
+	// final assistant prose arrives interleaved with server_tool_use and
+	// web_search_tool_result blocks, which Response.Text skips. Each element
+	// must be JSON-marshalable (a map or a typed struct with the right tags).
+	Tools []any `json:"-"`
+}
+
+// WebSearchTool is the hosted web_search server tool. The Researcher hands it
+// to the API so the model can run news/site/podcast searches itself; Anthropic
+// executes them server-side and returns the results inline. MaxUses caps the
+// number of searches the model may run in one turn (0 omits the cap).
+type WebSearchTool struct {
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	MaxUses int    `json:"max_uses,omitempty"`
+}
+
+// webSearchToolType is the GA (non-beta) hosted web_search tool version. Pinned
+// here so the one call site (the researcher) stays in sync with the client.
+const webSearchToolType = "web_search_20260209"
+
+// NewWebSearchTool builds the hosted web_search server tool with a use cap.
+// maxUses <= 0 omits the cap (API default).
+func NewWebSearchTool(maxUses int) WebSearchTool {
+	t := WebSearchTool{Type: webSearchToolType, Name: "web_search"}
+	if maxUses > 0 {
+		t.MaxUses = maxUses
+	}
+	return t
 }
 
 // systemBlock is the structured form for cache_control on the system prompt.
@@ -79,12 +110,14 @@ type cacheControl struct {
 
 // wireRequest is the JSON-on-the-wire shape. System can be either a plain
 // string (cache disabled) or an array of structured blocks (cache enabled).
+// Tools is omitted unless the caller asked for server tools (web_search).
 type wireRequest struct {
 	Model       string    `json:"model"`
 	System      any       `json:"system,omitempty"`
 	MaxTokens   int       `json:"max_tokens"`
 	Messages    []Message `json:"messages"`
 	Temperature *float64  `json:"temperature,omitempty"`
+	Tools       []any     `json:"tools,omitempty"`
 }
 
 // Response is the shape we care about from the API.
@@ -104,7 +137,10 @@ type Response struct {
 	} `json:"usage"`
 }
 
-// Text returns the concatenated text content.
+// Text returns the concatenated text content, skipping every non-text block.
+// With the hosted web_search server tool, the response interleaves
+// server_tool_use and web_search_tool_result blocks with the model's prose;
+// only the text blocks carry the final answer, so the rest is dropped here.
 func (r *Response) Text() string {
 	var s string
 	for _, c := range r.Content {
@@ -135,6 +171,7 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 		MaxTokens:   req.MaxTokens,
 		Messages:    req.Messages,
 		Temperature: req.Temperature,
+		Tools:       req.Tools,
 	}
 	if req.System != "" {
 		if req.Cached {
