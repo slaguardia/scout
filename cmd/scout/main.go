@@ -32,6 +32,7 @@ import (
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/ingest"
 	"github.com/slaguardia/scout/internal/jobs"
+	"github.com/slaguardia/scout/internal/outreach"
 	"github.com/slaguardia/scout/internal/playbook"
 	"github.com/slaguardia/scout/internal/store"
 	"github.com/slaguardia/scout/internal/taste"
@@ -75,6 +76,8 @@ func main() {
 		exit(cmdVerdict(args))
 	case "distill":
 		exit(cmdDistill(args))
+	case "outreach":
+		exit(cmdOutreach(args))
 	case "serve":
 		exit(cmdServe(args))
 	case "stats":
@@ -102,6 +105,9 @@ Usage:
   scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
+  scout outreach map [--brainbot URL]
+  scout outreach pin --block NAME --pages id1,id2 [--approve] [--brainbot URL] [--db scout.db]
+  scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
@@ -548,4 +554,152 @@ func exit(err error) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// --- outreach (blocks debug + pinning) ---
+
+// cmdOutreach manages the outreach context blocks: `map` prints the brain's
+// document tree (where pinnable ids come from), `pin` binds a block slot to
+// page ids, and `blocks` syncs every pinned block and prints the result —
+// the debug instrument for the retrieval layer, mirroring `scout distill`.
+func cmdOutreach(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("outreach: want a subcommand: map | pin | blocks")
+	}
+	switch args[0] {
+	case "map":
+		return cmdOutreachMap(args[1:])
+	case "pin":
+		return cmdOutreachPin(args[1:])
+	case "blocks":
+		return cmdOutreachBlocks(args[1:])
+	default:
+		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | blocks)", args[0])
+	}
+}
+
+func cmdOutreachMap(args []string) error {
+	fs := flag.NewFlagSet("outreach map", flag.ExitOnError)
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx, cancel := signalCtx()
+	defer cancel()
+	m, err := brainbot.New(*brainbotURL).Map(ctx)
+	if err != nil {
+		return err
+	}
+	for _, s := range m.Sources {
+		fmt.Printf("%s  %-40s  %s\n", s.ID, s.Path, s.Version)
+	}
+	return nil
+}
+
+func cmdOutreachPin(args []string) error {
+	fs := flag.NewFlagSet("outreach pin", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
+	block := fs.String("block", "", "block slot name (e.g. VOICE_RULES)")
+	pages := fs.String("pages", "", "comma-separated brain page ids, in order (empty = unpin)")
+	approve := fs.Bool("approve", false, "locked blocks: approve the pages' CURRENT brain versions")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	slot := outreach.SlotByName(*block)
+	if slot == nil {
+		return fmt.Errorf("outreach pin: unknown block %q", *block)
+	}
+	if slot.Tier == outreach.TierDerived {
+		return fmt.Errorf("outreach pin: %s is a derived block — it is synthesized, not pinned", slot.Name)
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var ids []string
+	for _, id := range strings.Split(*pages, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		if err := db.SetOutreachPin(slot.Name, nil, ""); err != nil {
+			return err
+		}
+		fmt.Printf("unpinned %s\n", slot.Name)
+		return nil
+	}
+
+	// Locked blocks record the approved upstream version at pin time; sync
+	// halts the block on any drift. --approve fetches and stamps it.
+	approvedVersion := ""
+	if slot.Tier == outreach.TierLocked {
+		if !*approve {
+			return fmt.Errorf("outreach pin: %s is locked — re-run with --approve to accept the pages' current versions", slot.Name)
+		}
+		ctx, cancel := signalCtx()
+		defer cancel()
+		brain := brainbot.New(*brainbotURL)
+		versions := make([]string, 0, len(ids))
+		for _, id := range ids {
+			doc, err := brain.Doc(ctx, id)
+			if err != nil {
+				return fmt.Errorf("outreach pin: fetch %s for approval: %w", id, err)
+			}
+			versions = append(versions, doc.Version)
+		}
+		approvedVersion = strings.Join(versions, "+")
+	}
+	if err := db.SetOutreachPin(slot.Name, ids, approvedVersion); err != nil {
+		return err
+	}
+	fmt.Printf("pinned %s -> %s", slot.Name, strings.Join(ids, ", "))
+	if approvedVersion != "" {
+		fmt.Printf(" (approved %s)", approvedVersion)
+	}
+	fmt.Println()
+	return nil
+}
+
+func cmdOutreachBlocks(args []string) error {
+	fs := flag.NewFlagSet("outreach blocks", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
+	full := fs.Bool("full", false, "print full block contents, not previews")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ctx, cancel := signalCtx()
+	defer cancel()
+	statuses, err := outreach.Sync(ctx, brainbot.New(*brainbotURL), db)
+	if err != nil {
+		return err
+	}
+	for _, st := range statuses {
+		fmt.Printf("%-22s %-8s %-10s %s", st.Block, st.Tier, st.State, st.Version)
+		if st.Detail != "" {
+			fmt.Printf("  %s", st.Detail)
+		}
+		fmt.Println()
+		if st.State == "ok" || st.State == "unchanged" {
+			if b, err := db.GetOutreachBlock(st.Block); err == nil && b != nil {
+				body := b.Content
+				if !*full && len(body) > 240 {
+					body = body[:240] + " …"
+				}
+				fmt.Printf("    %s\n", strings.ReplaceAll(body, "\n", "\n    "))
+			}
+		}
+	}
+	return nil
 }
