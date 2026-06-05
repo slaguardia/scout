@@ -1091,7 +1091,9 @@
     <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
   </div>
 
-  <div class="block">
+  <!-- Each view owns its filter block — separate search text and separate
+       controls, so switching tabs never carries a filter across. -->
+  <div class="block" id="block-filter-companies">
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
       Filter
@@ -1111,7 +1113,29 @@
         <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
     </div>
-    <div class="filter-row" id="hide-rejected-wrap" style="display:none">
+  </div>
+
+  <div class="block" id="block-filter-jobs" style="display:none">
+    <h3>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+      Filter
+    </h3>
+    <div class="filter-row">
+      <div class="search-wrap">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
+        <input id="jq" placeholder="search title, company, contacts…">
+      </div>
+    </div>
+    <div class="filter-row">
+      <div class="verdict-chips" id="response-chips" title="response — pick any combination; none selected = all">
+        <button class="v-chip" data-r="screening">screening</button>
+        <button class="v-chip" data-r="interview">interview</button>
+        <button class="v-chip" data-r="offer">offer</button>
+        <button class="v-chip" data-r="rejected" title="selecting this shows rejected rows even with “hide rejected” on">rejected</button>
+        <button class="v-chip flag-chip" id="jflag-filter" title="show postings at flagged companies only">⚑ flagged</button>
+      </div>
+    </div>
+    <div class="filter-row">
       <label class="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">
         <input type="checkbox" id="hide-rejected" checked> hide rejected
       </label>
@@ -1608,7 +1632,9 @@ function setView(v) {
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
-  document.getElementById("hide-rejected-wrap").style.display = v === "jobs" ? "" : "none";
+  // Each view owns its own Filter block — state stays put across switches.
+  document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
+  document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
   renderColToggles(); // the Columns block follows the active view
   if (v === "jobs") renderJobs(); else renderList();
 }
@@ -1780,17 +1806,21 @@ function renderList() {
 
 // ---- jobs view ----
 // The tracker: one row per saved posting, company name + application
-// lifecycle (everything else lives in the side panel). The sidebar filters
-// apply here too: search matches company/title/location/summary;
-// verdict/status filter on the posting's COMPANY. "Hide rejected" mirrors the
-// Notion tracker's default view.
+// lifecycle (everything else lives in the side panel). The jobs Filter block
+// is its own — search matches title/company/location/summary/contacts,
+// response chips filter on the application lifecycle, and "hide rejected"
+// mirrors the Notion tracker's default view. Picking the "rejected" chip
+// explicitly overrides hide-rejected — an empty table would just confuse.
+const responseFilter = new Set();
+let jflagOnly = false; // jobs-view ⚑ chip: postings at flagged companies only
+
 function filteredJobs() {
-  const q = document.getElementById("q").value.trim().toLowerCase();
-  const hideRej = document.getElementById("hide-rejected").checked;
+  const q = document.getElementById("jq").value.trim().toLowerCase();
+  const hideRej = document.getElementById("hide-rejected").checked && !responseFilter.has("rejected");
   return state.jobs.filter(j => {
     if (hideRej && j.response === "rejected") return false;
-    if (verdictFilter.size && !verdictFilter.has(j.verdict || "__none__")) return false;
-    if (flagOnly && !j.flagged) return false;
+    if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
+    if (jflagOnly && !j.flagged) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -2677,9 +2707,6 @@ async function saveEditor() {
 }
 
 // ---- wiring ----
-// The sidebar filters drive whichever view is active.
-function renderActive() { if (state.view === "jobs") renderJobs(); else renderList(); }
-
 document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   th.onclick = () => {
     const k = th.dataset.k;
@@ -2696,22 +2723,36 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
-document.getElementById("hide-rejected").onchange = renderJobs;
-// The shared sidebar filters (search, verdict chips, flag) drive whichever
-// view is active — jobs rows filter on their company's verdict/flag.
-document.getElementById("q").oninput = renderActive;
+// Companies filter block — search, verdict chips, flag.
+document.getElementById("q").oninput = renderList;
 document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
   b.addEventListener("click", () => {
     const v = b.dataset.v;
     if (verdictFilter.has(v)) verdictFilter.delete(v); else verdictFilter.add(v);
     renderVerdictChips();
-    renderActive();
+    renderList();
   });
 });
 document.getElementById("flag-filter").addEventListener("click", e => {
   flagOnly = !flagOnly;
   e.currentTarget.classList.toggle("is-on", flagOnly);
-  renderActive();
+  renderList();
+});
+// Jobs filter block — its own search, response chips, flag, hide-rejected.
+document.getElementById("jq").oninput = renderJobs;
+document.getElementById("hide-rejected").onchange = renderJobs;
+document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
+  b.addEventListener("click", () => {
+    const v = b.dataset.r;
+    if (responseFilter.has(v)) responseFilter.delete(v); else responseFilter.add(v);
+    b.classList.toggle("is-on", responseFilter.has(v));
+    renderJobs();
+  });
+});
+document.getElementById("jflag-filter").addEventListener("click", e => {
+  jflagOnly = !jflagOnly;
+  e.currentTarget.classList.toggle("is-on", jflagOnly);
+  renderJobs();
 });
 renderColToggles();
 applyColumnVisibility(); // hide chosen thead cells before the first data load
