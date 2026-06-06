@@ -309,3 +309,50 @@ func TestRunMalformedJSONRetriesThenFails(t *testing.T) {
 		t.Errorf("expected a fail_reason on the failed draft")
 	}
 }
+
+// (g) A posting captured with a stored description never goes to the network
+// for the JD — the stored text is used directly, so drafts keep working after
+// the posting is taken down. The posting URL here is unreachable: a fallback
+// fetch would log a fetch failure instead of the stored-JD status.
+func TestRunUsesStoredDescription(t *testing.T) {
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON,                 // researcher
+		hookJSONReply,                // hook selector
+		drafterReply(longP1, longP3), // drafter
+		honestyPass,                  // honesty checker
+	}}
+	eng, db := newEngine(t, fake)
+	seedRequiredBlocks(t, db, p2Block)
+	id := seedPostingDraft(t, db)
+
+	// Re-capture the seeded posting with a description, as the ATS resolver
+	// would have stored it.
+	d, _ := db.GetOutreachDraft(id)
+	p, _ := db.GetPosting(d.PostingID)
+	if _, _, err := db.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID: p.CompanyID, URL: p.URL, Title: p.Title,
+		Description: "Backend Engineer. Deploy into customer environments. Go, Postgres.",
+		FetchStatus: "ok",
+	}); err != nil {
+		t.Fatalf("store description: %v", err)
+	}
+
+	var logs []string
+	eng.Log = func(s string) { logs = append(logs, s) }
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := db.GetOutreachDraft(id)
+	if got.Status != store.DraftAwaitingReview {
+		t.Fatalf("status = %q, want awaiting_review (fail_reason=%q)", got.Status, got.FailReason)
+	}
+	stored := false
+	for _, l := range logs {
+		if strings.Contains(l, "stored at capture") {
+			stored = true
+		}
+	}
+	if !stored {
+		t.Errorf("JD did not come from the stored description; logs:\n%s", strings.Join(logs, "\n"))
+	}
+}

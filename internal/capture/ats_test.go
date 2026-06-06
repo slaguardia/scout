@@ -153,9 +153,7 @@ func TestResolveGreenhouse(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	overrideBase(t, &greenhouseAPIBase, srv.URL)
-
-	job, err := resolveGreenhouse(context.Background(), srv.Client(), "acme", "123")
+	job, err := resolveGreenhouse(context.Background(), srv.Client(), srv.URL, "acme", "123")
 	if err != nil {
 		t.Fatalf("resolveGreenhouse: %v", err)
 	}
@@ -191,9 +189,7 @@ func TestResolveLever(t *testing.T) {
 		  "salaryRange":{"min":140000,"max":180000,"currency":"USD","interval":"per-year-salary"}}`)
 	}))
 	t.Cleanup(srv.Close)
-	overrideBase(t, &leverAPIBase, srv.URL)
-
-	job, err := resolveLever(context.Background(), srv.Client(), "acme", "abc")
+	job, err := resolveLever(context.Background(), srv.Client(), srv.URL, "acme", "abc")
 	if err != nil {
 		t.Fatalf("resolveLever: %v", err)
 	}
@@ -295,5 +291,43 @@ func TestIsoDate(t *testing.T) {
 		if got := isoDate(in); got != want {
 			t.Errorf("isoDate(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestATSTargetFor covers the positive routing side of recognition: which
+// platform, which regional API base, and the extracted org/id — still no
+// network (pure URL-shape parsing).
+func TestATSTargetFor(t *testing.T) {
+	cases := []struct {
+		url, ats, base, org, id string
+	}{
+		{"https://jobs.ashbyhq.com/foresight-health/" + ashbyJobID,
+			"ashby", ashbyAPIBase, "foresight-health", ashbyJobID},
+		{"https://jobs.lever.co/acme/" + ashbyJobID,
+			"lever", leverAPIBase, "acme", ashbyJobID},
+		{"https://jobs.eu.lever.co/acme/" + ashbyJobID,
+			"lever", leverEUAPIBase, "acme", ashbyJobID},
+		{"https://boards.greenhouse.io/acme/jobs/4012345",
+			"greenhouse", greenhouseAPIBase, "acme", "4012345"},
+		{"https://job-boards.eu.greenhouse.io/acme/jobs/4012345",
+			"greenhouse", greenhouseEUAPIBase, "acme", "4012345"},
+		{"https://boards.eu.greenhouse.io/embed/job_app?for=acme&token=4012345",
+			"greenhouse", greenhouseEUAPIBase, "acme", "4012345"},
+	}
+	for _, c := range cases {
+		got := atsTargetFor(c.url)
+		if got == nil {
+			t.Errorf("%s: not recognized", c.url)
+			continue
+		}
+		if got.ats != c.ats || got.base != c.base || got.org != c.org || got.id != c.id {
+			t.Errorf("%s: got %+v, want {%s %s %s %s}", c.url, got, c.ats, c.base, c.org, c.id)
+		}
+		if !IsATSPosting(c.url) {
+			t.Errorf("%s: IsATSPosting = false", c.url)
+		}
+	}
+	if IsATSPosting("https://acme.com/careers/123") {
+		t.Error("company-hosted link must not count as an ATS posting")
 	}
 }

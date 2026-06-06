@@ -85,8 +85,10 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   (or `file:` paths), fetched whole via `/doc` at sync time, cached versioned
   in SQLite; `P2_LOCKED` is user-declared (`scout outreach set`, declaration =
   approval); locked blocks halt loud on upstream drift, 404s on pinned sources
-  go loud. The **engine** (`internal/outreach`, all Sonnet): Go JD pre-fetch
-  (ATS JSON APIs) → researcher (hosted `web_search`, pause_turn-aware) →
+  go loud. The **engine** (`internal/outreach`, all Sonnet): JD from the
+  posting's stored description (capture writes it; survives posting takedown),
+  live Go pre-fetch (ATS JSON APIs) as fallback → researcher (hosted
+  `web_search`, pause_turn-aware) →
   hook selector (integrity gate) → drafter (P1/P3 only; P2 + sign-off
   assembled in code) → lint → humanizer → lint → honesty checker (one retry).
   `no_honest_hook` = **don't email** (no draft, no fallback template) — a

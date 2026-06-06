@@ -324,6 +324,11 @@ Extract only what the page supports — never invent values.`
 // in the set steer extraction toward the existing vocabulary (best-effort —
 // a read failure just means no steering; see enrich.VerticalVocab).
 func (c *Capturer) extract(ctx context.Context, finalURL, text, kind string) (*extraction, error) {
+	// Reachable keyless: the web layer lets ATS posting links through without
+	// the key, and a failed resolve falls through to here.
+	if c.Client == nil || c.Client.APIKey == "" {
+		return nil, errors.New("this link needs the LLM pass — set ANTHROPIC_API_KEY in the server environment")
+	}
 	model := c.Model
 	if model == "" {
 		model = anthropic.DefaultModel

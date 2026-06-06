@@ -20,15 +20,12 @@ import (
 // upsert the company/posting. POST /api/capture {"url": "...", "kind"?: ...,
 // "fields"?: {...}} — kind pins the page kind when the user toggled it in the
 // Add dialog, fields carry typed values that win over extraction. Synchronous —
-// a single fetch + a single LLM call — so it doesn't need the job Runner; like
-// verdict it needs only the Anthropic key.
+// a single fetch + at most a single LLM call — so it doesn't need the job
+// Runner; the Anthropic key is required only for links the ATS resolver can't
+// handle (ATS posting links capture keyless).
 func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.Anthropic == nil || s.Anthropic.APIKey == "" {
-		http.Error(w, "capture needs ANTHROPIC_API_KEY in the server environment", http.StatusPreconditionFailed)
 		return
 	}
 	var body struct {
@@ -51,6 +48,15 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 	case "", capture.KindJob, capture.KindCompany:
 	default:
 		http.Error(w, "kind must be job_posting or company_page", http.StatusBadRequest)
+		return
+	}
+	// The key precondition only guards the LLM path: an ATS-resolvable posting
+	// link (not pinned as a company page) never touches the model, so it works
+	// keyless. If its resolve fails at runtime, the fall-through to the LLM
+	// path reports the missing key honestly instead.
+	atsNoLLM := body.Kind != capture.KindCompany && capture.IsATSPosting(body.URL)
+	if !atsNoLLM && (s.Anthropic == nil || s.Anthropic.APIKey == "") {
+		http.Error(w, "capture needs ANTHROPIC_API_KEY in the server environment", http.StatusPreconditionFailed)
 		return
 	}
 
