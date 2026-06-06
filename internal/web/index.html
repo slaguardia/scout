@@ -647,9 +647,21 @@
     color: var(--fg-mute); font-size: 12.5px; align-items: center;
   }
   .role-head .role-company { color: var(--fg-dim); }
+  .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);
     font-size: 13px; line-height: 1.55;
+  }
+  /* full description — ATS-resolved posting text, collapsed by default */
+  .role-head .role-desc { margin-top: 10px; }
+  .role-head .role-desc summary {
+    cursor: pointer; font-size: 12px; color: var(--fg-mute); user-select: none;
+  }
+  .role-head .role-desc[open] summary { color: var(--fg-dim); }
+  .role-head .role-desc-text {
+    margin-top: 8px; max-height: 340px; overflow-y: auto;
+    white-space: pre-wrap; color: var(--fg-mute);
+    font-size: 12.5px; line-height: 1.55;
   }
 
   /* pipeline section — the relocated tracker controls, with room to breathe */
@@ -1513,7 +1525,7 @@
       </div>
       <label class="enrich-row" id="add-enrich-row">
         <input type="checkbox" id="add-enrich" checked>
-        <span>fill in the blanks from the page — one cheap agent pass reads the link</span>
+        <span>fill in the blanks — ATS links (ashby/greenhouse/lever) read the platform's API directly, anything else gets one cheap agent pass</span>
       </label>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
@@ -1738,7 +1750,7 @@ Return the JSON verdict now.</pre>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
           <h4>The jobs view &amp; the Add dialog</h4>
           <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Clicking a row opens the <strong>pursuit panel</strong> — the one place all per-posting editing lives: the pipeline (applied toggle + date, response select, a <strong>next up</strong> queue mark), the outreach section (a "+1 outreach" logger for messages sent outside scout, contacts, and the draft queue), and a View company button. <em>Next up</em> is a to-do, not a status: mark the pursuits you intend to reach out to, filter the table by the chip, and the mark clears itself the moment the outreach goes out (a +1 log or a draft marked sent). The company pane's jobs list shows the same status read-only; click a card to jump to its pursuit. Rejected rows are hidden from the jobs table by default — the footer note says how many, with a one-click show.</p>
-          <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a one-shot agent pass (Haiku) fetches the page and extracts the details, with anything you typed winning over the extraction — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
+          <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a posting link on a supported ATS (Ashby, Greenhouse, Lever) is read straight from the platform's public API — exact title, location, department, employment and workplace type, published salary range, posted date, and the full description, with no LLM involved; any other link gets a one-shot agent pass (Haiku) that fetches the page and extracts the details. Anything you typed wins over either — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
           <p>The detail pane includes:</p>
@@ -2198,9 +2210,15 @@ function renderPursuit() {
       <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
       <div class="role-meta">
         ${j.location ? `<span>${escapeHTML(j.location)}</span>` : ""}
+        ${j.workplace_type ? `<span>${escapeHTML(j.workplace_type)}</span>` : ""}
+        ${j.employment_type ? `<span>${escapeHTML(j.employment_type)}</span>` : ""}
+        ${j.department ? `<span>${escapeHTML(j.department)}</span>` : ""}
+        ${j.comp_range ? `<span class="role-comp">${escapeHTML(j.comp_range)}</span>` : ""}
+        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
         <span class="role-company">${escapeHTML(j.company)}</span>
       </div>
       ${j.summary ? `<div class="role-summary">${escapeHTML(j.summary)}</div>` : ""}
+      ${j.description ? `<details class="role-desc"><summary>full description</summary><div class="role-desc-text">${escapeHTML(j.description)}</div></details>` : ""}
     </section>
 
     <section class="pane-section">

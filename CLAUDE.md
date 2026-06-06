@@ -37,13 +37,19 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 - **Jobs view + the Add dialog:** the UI has a companies | jobs tab; one
   **Add…** dialog covers both — toggle company|job, paste the link (the only
   required field), optionally type what you know, and tick **fill in the
-  blanks** to run the agent pass. Ticked → `POST /api/capture`: a one-shot
-  Haiku pass (`internal/capture`) extracts details, the dialog's kind pin
-  overrides the classifier, typed fields win over extraction. Unticked → plain
+  blanks** to run the agent pass. Ticked → `POST /api/capture`: a posting link
+  on a supported ATS (ashby/greenhouse/lever) resolves through the platform's
+  public JSON API — exact title, location, department, employment/workplace
+  type, published comp range, posted date, full description, **no LLM**
+  (`internal/capture/ats.go`); any other link gets the one-shot Haiku pass
+  (`internal/capture`). Either way the dialog's kind pin overrides the
+  classifier and typed fields win over extraction. Unticked → plain
   writes with no fetch/LLM: `POST /api/companies` (manual add, 409 on dup) or
   `POST /api/postings` (company resolved from the typed name and/or the link's
   host; ATS link naming neither → 400). Postings land in `job_postings`
-  (title, location, summary; idempotent by URL), unknown companies are created
+  (title, location, summary, plus the ATS-resolved details — posted_at,
+  employment/workplace type, department, comp_range, description; idempotent
+  by URL), unknown companies are created
   via `ingest.EnsureCompany` (source `capture`; ATS/job-board hosts rejected
   as identities), and a captured company page seeds the enrichment row from
   the fetched text. Unfetchable pages report their honest fetch status and

@@ -1,6 +1,10 @@
-// Package capture turns a pasted link into structured rows: fetch the page,
-// run one cheap LLM pass to classify it (job posting vs company page) and
-// extract fields, then upsert the company — and the posting, when it's a job.
+// Package capture turns a pasted link into structured rows. Two paths:
+// posting links on a supported ATS (ashby/greenhouse/lever) resolve through
+// the platform's public JSON API — exact fields, no page fetch, no LLM (see
+// ats.go); everything else gets the generic pass — fetch the page, run one
+// cheap LLM call to classify it (job posting vs company page) and extract
+// fields. Either way the company is upserted — and the posting, when it's a
+// job.
 //
 // This is the agent pass behind the UI's Add dialog: the user supplies a URL
 // and, optionally, the kind (company vs job) and any fields they already know —
@@ -146,6 +150,16 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	if httpc == nil {
 		httpc = enrich.NewHTTPClient(0)
 	}
+
+	// A posting link on a supported ATS resolves through the platform's own
+	// API — exact fields, no LLM. Skipped when the user pinned the link as a
+	// company page; a failed resolve falls through to the generic path.
+	if req.Kind != KindCompany {
+		if job := resolveATS(ctx, httpc, rawURL); job != nil {
+			return c.runATS(rawURL, req, job)
+		}
+	}
+
 	// low_content still goes to the extractor: ATS pages are often JS shells
 	// whose residual text (title/meta) carries enough to extract from.
 	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, maxPageRunes)
@@ -225,6 +239,64 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 		res.Posting = &p
 		res.PostingUpdated = updated
 	}
+	return res, nil
+}
+
+// runATS makes the same writes a captured job posting makes, from the
+// platform-stated fields instead of an extraction. The ATS host never
+// identifies the company, so its identity is the user-typed name or the
+// board's (slug-derived for ashby/lever, API-stated for greenhouse) — never a
+// domain. User-typed values win where they overlap, exactly like the LLM path.
+func (c *Capturer) runATS(rawURL string, req Request, job *atsJob) (*Result, error) {
+	res := &Result{Kind: KindJob, FetchStatus: "ok", URL: job.URL}
+
+	name := strings.TrimSpace(req.Fields.Name)
+	if name == "" {
+		name = job.CompanyName
+	}
+	if name == "" {
+		res.Note = "couldn't identify the company behind the page — type a company name and retry"
+		return res, nil
+	}
+	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
+		Name:         name,
+		Location:     req.Fields.Location,
+		Vertical:     req.Fields.Vertical,
+		SourceURL:    job.URL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
+	})
+	if err != nil {
+		return res, err
+	}
+	res.CompanyID = id
+	res.CompanyCreated = created
+	res.CompanyName = name
+
+	title := strings.TrimSpace(req.Fields.Title)
+	if title == "" {
+		title = job.Title
+	}
+	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID:      id,
+		URL:            job.URL,
+		PastedURL:      rawURL,
+		Title:          title,
+		Location:       job.Location,
+		FetchStatus:    "ok",
+		PostedAt:       job.PostedAt,
+		EmploymentType: job.EmploymentType,
+		WorkplaceType:  job.WorkplaceType,
+		Department:     job.Department,
+		CompRange:      job.CompRange,
+		Description:    job.Description,
+	})
+	if err != nil {
+		return res, fmt.Errorf("store posting: %w", err)
+	}
+	res.Posting = &p
+	res.PostingUpdated = updated
+	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
 	return res, nil
 }
 
