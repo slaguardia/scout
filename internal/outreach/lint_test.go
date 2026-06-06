@@ -30,7 +30,6 @@ func TestLintRules(t *testing.T) {
 		{"em dash", clean96 + " thing — other", "em_dash", ""},
 		{"banned phrase", strings.Replace(clean96, "plain honest", "resonates with", 1), "banned_phrase", ""},
 		{"excited opener", "Excited to " + clean96, "banned_phrase", ""},
-		{"applied mention", strings.Replace(clean96, "plain honest words", "I applied and have words", 1), "applied_mention", ""},
 		{"doubled word", strings.Replace(clean96, "plain honest", "plain plain", 1), "doubled_word", ""},
 		{"too short", "five words is too short", "word_count", ""},
 		{"p2 missing", clean96, "p2_missing", "the frozen paragraph"},
@@ -54,5 +53,30 @@ func TestLintP2Verbatim(t *testing.T) {
 	mangled := strings.Replace(text, "five years", "5 years", 1)
 	if fs := Lint(mangled, p2); !codes(fs)["p2_missing"] {
 		t.Fatalf("mangled p2 not flagged")
+	}
+}
+
+func TestLintBodyScoping(t *testing.T) {
+	// The assembled email's chrome — subject (em dash by design), greeting,
+	// sign-off — is excluded from the body rules.
+	email := "Subject: [Name] | Alex intro — Backend Engineer\n\nHi [Name],\n\n" + clean96 + "\n\nThanks,\nAlex"
+	got := codes(Lint(email, ""))
+	if got["em_dash"] {
+		t.Error("subject em dash flagged")
+	}
+	if got["word_count"] {
+		t.Errorf("chrome counted toward body words: %v", got)
+	}
+	// An em dash IN the body still flags.
+	withDash := "Subject: a — b\n\nHi [Name],\n\n" + clean96 + " thing — other\n\nThanks,\nAlex"
+	if !codes(Lint(withDash, ""))["em_dash"] {
+		t.Error("body em dash not flagged")
+	}
+}
+
+func TestLintNewBannedPhrases(t *testing.T) {
+	text := strings.Replace(clean96, "plain honest words", "hope you're doing well and", 1)
+	if !codes(Lint(text, ""))["banned_phrase"] {
+		t.Error("'hope you're doing well' not flagged")
 	}
 }

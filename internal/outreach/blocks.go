@@ -10,7 +10,11 @@ package outreach
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/slaguardia/scout/internal/brainbot"
@@ -45,15 +49,14 @@ var Slots = []Slot{
 	{"CLOSER_RULES", TierPointed, "the 3 closer patterns + exemplar"},
 	{"VOICE_RULES", TierPointed, "voice & style rules + anchors + hard-no list"},
 	{"PAST_EXPERIENCE_FULL", TierPointed, "full experience doc (honesty checker only)"},
-	{"HUMANIZER", TierPointed, "the humanizer prompt, verbatim"},
-	{"MASS_SEND_TEMPLATE", TierPointed, "mass-send template (no_honest_hook route)"},
+	{"HUMANIZER", TierPointed, "the humanizer skill prompt (file-pinned: file:/path/to/SKILL.md)"},
 	{"EXPERIENCE_CARD", TierDerived, "~150-word fact sheet distilled from Past Experience"},
 	{"BANK_ROWS", TierDerived, "writing-bank exemplars, selected by move per draft"},
 }
 
-// Required lists the blocks a draft run cannot start without. HUMANIZER,
-// MASS_SEND_TEMPLATE and the derived blocks degrade gracefully (skipped
-// pass / template-missing notice / no exemplars) — these five do not.
+// Required lists the blocks a draft run cannot start without. HUMANIZER and
+// the derived blocks degrade gracefully (skipped pass / no exemplars) —
+// these five do not.
 var Required = []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES", "PAST_EXPERIENCE_FULL"}
 
 // MissingBlocks reports which Required blocks are absent or broken in the
@@ -90,6 +93,9 @@ func CachedStatuses(db *store.DB) ([]BlockStatus, error) {
 		case b.Broken != "":
 			st.State = "broken"
 			st.Detail = b.Broken
+		case strings.HasPrefix(b.Version, "declared:"):
+			st.State = "declared"
+			st.Version = b.Version
 		default:
 			st.State = "ok"
 			st.Version = b.Version
@@ -151,7 +157,14 @@ func Sync(ctx context.Context, brain *brainbot.Client, db *store.DB) ([]BlockSta
 			st.State = "derived"
 			st.Detail = "synthesized, not synced (later phase)"
 		case len(byBlock[slot.Name]) == 0:
-			st.State = "unpinned"
+			// User-declared content (scout outreach set) lives in the cache
+			// with no pin; sync never touches it.
+			if b, err := db.GetOutreachBlock(slot.Name); err == nil && b != nil && b.Broken == "" && strings.HasPrefix(b.Version, "declared:") {
+				st.State = "declared"
+				st.Version = b.Version
+			} else {
+				st.State = "unpinned"
+			}
 		default:
 			st = syncBlock(ctx, brain, db, slot, byBlock[slot.Name], hint)
 		}
@@ -185,12 +198,12 @@ func syncBlock(ctx context.Context, brain *brainbot.Client, db *store.DB, slot S
 	texts := make([]string, 0, len(pins))
 	versions := make([]string, 0, len(pins))
 	for _, p := range pins {
-		doc, err := brain.Doc(ctx, p.PageID)
+		text, version, err := FetchPin(ctx, brain, p.PageID)
 		if err != nil {
-			if brainbot.IsNotFound(err) {
-				// The doc left the synced set: loud failure, never silently
-				// skip a block's source material.
-				return broke(fmt.Sprintf("pinned doc %s not found in brain (404) — re-pin required", p.PageID))
+			if errors.Is(err, errPinGone) {
+				// The source left the synced set / disk: loud failure, never
+				// silently skip a block's source material.
+				return broke(fmt.Sprintf("pinned source %s is gone — re-pin required", p.PageID))
 			}
 			return broke(fmt.Sprintf("fetch %s: %v", p.PageID, err))
 		}
@@ -198,12 +211,12 @@ func syncBlock(ctx context.Context, brain *brainbot.Client, db *store.DB, slot S
 			if p.ApprovedVersion == "" {
 				return broke(fmt.Sprintf("locked block pinned without an approved version (pin %s with --approve)", p.PageID))
 			}
-			if doc.Version != p.ApprovedVersion {
-				return broke(fmt.Sprintf("upstream version changed (%s, approved %s) — re-approve required, never auto-adopt", doc.Version, p.ApprovedVersion))
+			if version != p.ApprovedVersion {
+				return broke(fmt.Sprintf("upstream version changed (%s, approved %s) — re-approve required, never auto-adopt", version, p.ApprovedVersion))
 			}
 		}
-		texts = append(texts, doc.Text)
-		versions = append(versions, doc.Version)
+		texts = append(texts, text)
+		versions = append(versions, version)
 	}
 
 	content := strings.Join(texts, "\n\n")
@@ -218,10 +231,14 @@ func syncBlock(ctx context.Context, brain *brainbot.Client, db *store.DB, slot S
 
 // joinHint assembles the /map-derived version key for a pin list. complete is
 // false when any pinned id is absent from the map (then the hint is unusable
-// and the caller must fetch).
+// and the caller must fetch). file: pins never hint — the file is re-read
+// every sync (it's local and cheap; the skill repo is actively edited).
 func joinHint(pins []store.OutreachPin, hint map[string]string) (version string, complete bool) {
 	parts := make([]string, 0, len(pins))
 	for _, p := range pins {
+		if strings.HasPrefix(p.PageID, "file:") {
+			return "", false
+		}
 		v, ok := hint[p.PageID]
 		if !ok {
 			return "", false
@@ -229,4 +246,59 @@ func joinHint(pins []store.OutreachPin, hint map[string]string) (version string,
 		parts = append(parts, v)
 	}
 	return strings.Join(parts, "+"), true
+}
+
+// errPinGone marks a pinned source that no longer exists (brain 404 or a
+// missing file) — distinct from transport errors so the caller can word the
+// loud failure correctly.
+var errPinGone = errors.New("pinned source gone")
+
+// FetchPin resolves one pin to (text, version). Brain pins are stable page
+// ids fetched via /doc; "file:" pins read a local file (e.g. the humanizer
+// skill prompt living in the user's personal repo) with a content-hash
+// version.
+func FetchPin(ctx context.Context, brain *brainbot.Client, pageID string) (string, string, error) {
+	if path, ok := strings.CutPrefix(pageID, "file:"); ok {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", "", errPinGone
+			}
+			return "", "", err
+		}
+		sum := sha256.Sum256(data)
+		return string(data), "file:" + hex.EncodeToString(sum[:6]), nil
+	}
+	doc, err := brain.Doc(ctx, pageID)
+	if err != nil {
+		if brainbot.IsNotFound(err) {
+			return "", "", errPinGone
+		}
+		return "", "", err
+	}
+	return doc.Text, doc.Version, nil
+}
+
+// DeclareBlock stores user-declared block content directly in the cache (no
+// pin, no brain) — the path for P2_LOCKED, whose content is a decision, not a
+// fact lying in a doc. The version is a content hash; for locked blocks the
+// declaration IS the approval. Sync leaves declared blocks alone.
+func DeclareBlock(db *store.DB, block, content string) (string, error) {
+	slot := SlotByName(block)
+	if slot == nil {
+		return "", fmt.Errorf("unknown block %q", block)
+	}
+	if slot.Tier == TierDerived {
+		return "", fmt.Errorf("%s is a derived block — it is synthesized, not declared", block)
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", fmt.Errorf("empty content")
+	}
+	sum := sha256.Sum256([]byte(content))
+	version := "declared:" + hex.EncodeToString(sum[:6])
+	if err := db.PutOutreachBlock(block, content, version); err != nil {
+		return "", err
+	}
+	return version, nil
 }

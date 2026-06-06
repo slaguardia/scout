@@ -147,9 +147,14 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		return fmt.Errorf("save hook: %w", err)
 	}
 
-	// 6. No-honest-hook route: fill the mass-send template in code. Success.
+	// 6. No-honest-hook route: don't email. "If you can't write even one true
+	// sentence for a company, don't email them" (Cold email template page) —
+	// scout's job is making sure there IS something true to say; when there
+	// isn't, the honest output is no draft. Still a success path.
 	if hook.Decision == "no_honest_hook" {
-		return e.massSendRoute(draftID, research, hookJSON, company, role)
+		e.log("outreach: draft %d no_hook — nothing true to say, recommend not emailing", draftID)
+		return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook,
+			research, hookJSON, "", "", "", "")
 	}
 
 	// 7-10. Hook route: drafter → assemble → lint → humanize → honesty (with
@@ -198,28 +203,6 @@ func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSO
 			research, hookJSON, email, lintJSON, string(violJSON), "honesty check failed twice")
 	}
 	return nil
-}
-
-// massSendRoute fills the MASS_SEND_TEMPLATE block in pure code (no model),
-// lints it, and lands the draft in no_hook — a SUCCESS path. A missing/broken
-// template block still lands no_hook (with an empty draft + fail_reason note).
-func (e *Engine) massSendRoute(draftID int64, research, hookJSON, company, role string) error {
-	tmpl := e.blockContent("MASS_SEND_TEMPLATE")
-	if tmpl == "" {
-		e.log("outreach: draft %d no_hook — mass-send template not pinned", draftID)
-		return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook,
-			research, hookJSON, "", "", "", "mass-send template block not pinned")
-	}
-	filled := fillTemplate(tmpl, company, role)
-	// P2 may or may not appear in the mass template; only assert it when present.
-	p2 := e.blockContent("P2_LOCKED")
-	p2Check := ""
-	if p2 != "" && strings.Contains(filled, p2) {
-		p2Check = p2
-	}
-	e.log("outreach: draft %d no_hook — mass-send template filled", draftID)
-	return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook,
-		research, hookJSON, filled, lintJSON(filled, p2Check), "", "")
 }
 
 // blockContent returns a cached block's content, or "" when missing/broken.
@@ -544,26 +527,14 @@ func assembleEmail(p1, p2, p3, role string) string {
 	if strings.TrimSpace(p2) != "" {
 		parts = append(parts, strings.TrimSpace(p2))
 	}
-	parts = append(parts, strings.TrimSpace(p3))
+	parts = append(parts, strings.TrimSpace(p3), signature)
 	body := strings.Join(parts, "\n\n")
 	return subject + "\n\n" + body
 }
 
-// placeholderTokens are the company/role placeholders the mass-send template may
-// use; replaced in code so the no-hook route needs no model.
-var (
-	reCompanyToken = regexp.MustCompile(`(?i)\[company\]|\{\{\s*company\s*\}\}|\{company\}`)
-	reRoleToken    = regexp.MustCompile(`(?i)\[role\]|\{\{\s*role\s*\}\}|\{role\}`)
-)
-
-// fillTemplate substitutes the company (and role, when present) placeholders.
-func fillTemplate(tmpl, company, role string) string {
-	out := reCompanyToken.ReplaceAllString(tmpl, company)
-	if strings.TrimSpace(role) != "" {
-		out = reRoleToken.ReplaceAllString(out, role)
-	}
-	return out
-}
+// signature is the deterministic sign-off appended after the closer (the
+// template page's "Thanks,\nAlex" — models never write it).
+const signature = "Thanks,\nAlex"
 
 // lintJSON lints text against p2 and returns the findings as a JSON array
 // (always an array, never null, so the panel renders [] cleanly).

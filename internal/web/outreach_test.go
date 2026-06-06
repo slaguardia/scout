@@ -178,8 +178,8 @@ func TestOutreachBlocksEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Blocks) != 9 {
-		t.Fatalf("want 9 slots, got %d", len(body.Blocks))
+	if len(body.Blocks) != 8 {
+		t.Fatalf("want 8 slots, got %d", len(body.Blocks))
 	}
 	states := map[string]string{}
 	for _, b := range body.Blocks {

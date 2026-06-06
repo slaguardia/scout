@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -112,7 +113,8 @@ Usage:
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout outreach map [--brainbot URL]
-  scout outreach pin --block NAME --pages id1,id2 [--approve] [--brainbot URL] [--db scout.db]
+  scout outreach pin --block NAME --pages id1,id2|file:/path [--approve] [--brainbot URL] [--db scout.db]
+  scout outreach set --block NAME (--text S | --file PATH | <stdin) [--db scout.db]
   scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
   scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
@@ -587,19 +589,21 @@ func exit(err error) {
 // the debug instrument for the retrieval layer, mirroring `scout distill`.
 func cmdOutreach(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("outreach: want a subcommand: map | pin | blocks | draft")
+		return fmt.Errorf("outreach: want a subcommand: map | pin | set | blocks | draft")
 	}
 	switch args[0] {
 	case "map":
 		return cmdOutreachMap(args[1:])
 	case "pin":
 		return cmdOutreachPin(args[1:])
+	case "set":
+		return cmdOutreachSet(args[1:])
 	case "blocks":
 		return cmdOutreachBlocks(args[1:])
 	case "draft":
 		return cmdOutreachDraft(args[1:])
 	default:
-		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | blocks | draft)", args[0])
+		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | set | blocks | draft)", args[0])
 	}
 }
 
@@ -671,11 +675,11 @@ func cmdOutreachPin(args []string) error {
 		brain := brainbot.New(*brainbotURL)
 		versions := make([]string, 0, len(ids))
 		for _, id := range ids {
-			doc, err := brain.Doc(ctx, id)
+			_, version, err := outreach.FetchPin(ctx, brain, id)
 			if err != nil {
 				return fmt.Errorf("outreach pin: fetch %s for approval: %w", id, err)
 			}
-			versions = append(versions, doc.Version)
+			versions = append(versions, version)
 		}
 		approvedVersion = strings.Join(versions, "+")
 	}
@@ -791,5 +795,47 @@ func cmdOutreachDraft(args []string) error {
 	}
 	fmt.Println("---")
 	fmt.Println(out.Draft)
+	return nil
+}
+
+// cmdOutreachSet stores user-declared block content directly (no pin, no
+// brain) — the path for P2_LOCKED, whose frozen paragraph is a decision the
+// user makes, not a doc to discover. Content comes from --text, --file, or
+// stdin; for locked blocks the declaration is the approval.
+func cmdOutreachSet(args []string) error {
+	fs := flag.NewFlagSet("outreach set", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	block := fs.String("block", "", "block slot name (e.g. P2_LOCKED)")
+	text := fs.String("text", "", "block content (inline)")
+	file := fs.String("file", "", "block content (file path)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	content := *text
+	if content == "" && *file != "" {
+		data, err := os.ReadFile(*file)
+		if err != nil {
+			return fmt.Errorf("outreach set: %w", err)
+		}
+		content = string(data)
+	}
+	if content == "" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("outreach set: read stdin: %w", err)
+		}
+		content = string(data)
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	version, err := outreach.DeclareBlock(db, *block, content)
+	if err != nil {
+		return fmt.Errorf("outreach set: %w", err)
+	}
+	fmt.Printf("declared %s (%s, %d bytes)\n", *block, version, len(content))
 	return nil
 }

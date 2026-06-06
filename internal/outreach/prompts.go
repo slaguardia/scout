@@ -54,8 +54,9 @@ Return: {decision: "hook" | "no_honest_hook", hook: {quote, source_url, thread:
 "role_posted" | "no_role" | "unsure_which_role", reasoning: <2 sentences>}
 
 If every candidate requires stretching the truth or could be sent to any
-company, return no_honest_hook. That routes to the mass-send template, which is
-the correct outcome — not a failure.`
+company, return no_honest_hook. That means the sender simply does not email
+this company yet — the correct outcome, not a failure. Never stretch to avoid
+it.`
 
 // drafterSystem is Agent 3 — the Drafter. Writes P1 and P3 only.
 const drafterSystem = `You write two short paragraphs of a cold email for Alex, a backend/platform

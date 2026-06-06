@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/slaguardia/scout/internal/brainbot"
@@ -220,5 +222,91 @@ func TestUnpinDropsCache(t *testing.T) {
 	}
 	if b != nil {
 		t.Fatalf("cache survived unpin: %+v", b)
+	}
+}
+
+func TestDeclaredBlockSurvivesSync(t *testing.T) {
+	_, brain, db := newFixture(t)
+	v, err := DeclareBlock(db, "P2_LOCKED", "the frozen paragraph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(v, "declared:") {
+		t.Fatalf("version = %q", v)
+	}
+	statuses, err := Sync(context.Background(), brain, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusFor(t, statuses, "P2_LOCKED"); st.State != "declared" {
+		t.Fatalf("state = %+v", st)
+	}
+	b, _ := db.GetOutreachBlock("P2_LOCKED")
+	if b == nil || b.Content != "the frozen paragraph" {
+		t.Fatalf("declared content lost: %+v", b)
+	}
+	// Declared content satisfies the gate.
+	missing, err := MissingBlocks(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range missing {
+		if m == "P2_LOCKED" {
+			t.Fatal("declared P2_LOCKED reported missing")
+		}
+	}
+}
+
+func TestDeclareBlockRejects(t *testing.T) {
+	_, _, db := newFixture(t)
+	if _, err := DeclareBlock(db, "BANK_ROWS", "x"); err == nil {
+		t.Error("derived block declared")
+	}
+	if _, err := DeclareBlock(db, "NOPE", "x"); err == nil {
+		t.Error("unknown block declared")
+	}
+	if _, err := DeclareBlock(db, "P2_LOCKED", "  "); err == nil {
+		t.Error("empty content declared")
+	}
+}
+
+func TestFilePinSync(t *testing.T) {
+	_, brain, db := newFixture(t)
+	path := filepath.Join(t.TempDir(), "SKILL.md")
+	if err := os.WriteFile(path, []byte("humanize like a person"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetOutreachPin("HUMANIZER", []string{"file:" + path}, ""); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := Sync(context.Background(), brain, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusFor(t, statuses, "HUMANIZER"); st.State != "ok" || !strings.HasPrefix(st.Version, "file:") {
+		t.Fatalf("file pin: %+v", st)
+	}
+	b, _ := db.GetOutreachBlock("HUMANIZER")
+	if b == nil || b.Content != "humanize like a person" {
+		t.Fatalf("file content: %+v", b)
+	}
+
+	// Edit the file -> next sync picks it up (no map hint for files).
+	if err := os.WriteFile(path, []byte("humanize v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(context.Background(), brain, db); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = db.GetOutreachBlock("HUMANIZER")
+	if b.Content != "humanize v2" {
+		t.Fatalf("file edit not picked up: %q", b.Content)
+	}
+
+	// Delete the file -> loud broken.
+	os.Remove(path)
+	statuses, _ = Sync(context.Background(), brain, db)
+	if st := statusFor(t, statuses, "HUMANIZER"); st.State != "broken" {
+		t.Fatalf("missing file: %+v", st)
 	}
 }

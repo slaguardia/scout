@@ -168,34 +168,14 @@ func TestRunHappyHookPath(t *testing.T) {
 }
 
 // (b) no_honest_hook fills the mass template and lands no_hook.
-func TestRunNoHookFillsMassTemplate(t *testing.T) {
+func TestRunNoHookMeansNoEmail(t *testing.T) {
+	// "If you can't write even one true sentence for a company, don't email
+	// them" — no_honest_hook produces NO draft (and no mass template); the
+	// hook selector's reasoning is preserved for the panel. A success path.
 	fake := &fakeAnthropic{replies: []string{
 		researchJSON, // researcher
 		noHookReply,  // hook selector
 	}}
-	eng, db := newEngine(t, fake)
-	seedRequiredBlocks(t, db, p2Block)
-	if err := db.PutOutreachBlock("MASS_SEND_TEMPLATE", "Hi — I am reaching out about [Company]'s [Role] role.", "m1"); err != nil {
-		t.Fatalf("seed template: %v", err)
-	}
-	id := seedPostingDraft(t, db)
-
-	if err := eng.Run(context.Background(), id); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	d, _ := db.GetOutreachDraft(id)
-	if d.Status != store.DraftNoHook {
-		t.Fatalf("status = %q, want no_hook", d.Status)
-	}
-	if !strings.Contains(d.Draft, "Acme's Backend Engineer role") {
-		t.Errorf("placeholders not filled:\n%s", d.Draft)
-	}
-}
-
-// (b2) no_honest_hook with the template block missing is still a no_hook
-// success — with an empty draft and the explanatory fail_reason.
-func TestRunNoHookMissingTemplate(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{researchJSON, noHookReply}}
 	eng, db := newEngine(t, fake)
 	seedRequiredBlocks(t, db, p2Block)
 	id := seedPostingDraft(t, db)
@@ -208,10 +188,13 @@ func TestRunNoHookMissingTemplate(t *testing.T) {
 		t.Fatalf("status = %q, want no_hook", d.Status)
 	}
 	if d.Draft != "" {
-		t.Errorf("draft should be empty, got %q", d.Draft)
+		t.Errorf("draft should be empty (recommend not emailing), got %q", d.Draft)
 	}
-	if !strings.Contains(d.FailReason, "mass-send template block not pinned") {
-		t.Errorf("fail_reason = %q", d.FailReason)
+	if d.FailReason != "" {
+		t.Errorf("no_hook is a success path; fail_reason = %q", d.FailReason)
+	}
+	if !strings.Contains(d.Hook, "no_honest_hook") {
+		t.Errorf("hook output not preserved: %q", d.Hook)
 	}
 }
 

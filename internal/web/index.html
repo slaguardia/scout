@@ -2069,7 +2069,7 @@ function draftBadgeHTML(status) {
   if (status === "awaiting_review")
     return '<span class="draft-badge" title="an outreach draft is ready to review">draft ready</span>';
   if (status === "no_hook")
-    return '<span class="draft-badge db-nohook" title="no honest hook — mass-send template ready to review">draft ready</span>';
+    return '<span class="draft-badge db-nohook" title="no honest hook — scout recommends not emailing">no hook</span>';
   return "";
 }
 
@@ -2347,11 +2347,14 @@ function draftCardHTML(d, readonly) {
   const label = noHook
     ? `<span class="pill pill-info">no honest hook</span>`
     : `<span class="pill pill-maybe">awaiting review</span>`;
-  // no_hook with empty draft means the mass-send template wasn't pinned/ready.
+  // no_hook means there is nothing true to say (yet) — scout recommends NOT
+  // emailing. No template fallback; writing anyway is a manual override.
+  let noHookReason = "";
+  if (noHook) {
+    try { noHookReason = (JSON.parse(d.hook || "{}").reasoning) || ""; } catch (e) { /* reasoning optional */ }
+  }
   const note = noHook
-    ? (text
-        ? `<div class="draft-note">No honest hook found — the mass-send template is filled in and ready to review.</div>`
-        : `<div class="draft-note">No honest hook found, but no template is ready${d.fail_reason ? ` — ${escapeHTML(d.fail_reason)}` : " (template not pinned)"}.</div>`)
+    ? `<div class="draft-note">No honest hook found — nothing true to say yet; scout recommends not emailing.${noHookReason ? " " + escapeHTML(noHookReason) : ""}</div>`
     : "";
 
   if (readonly) {

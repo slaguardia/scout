@@ -26,8 +26,7 @@ is *authored*, but **Scout never talks to Notion** — blocks arrive via the bra
 | `VOICE_RULES` | Voice & style rules + voice anchors + hard-no language list | Notion Voice & style page |
 | `BANK_ROWS` | 2–3 Writing Bank rows selected per draft, matched by move (not static) | Writing Bank — outreach DB |
 | `PAST_EXPERIENCE_FULL` | Full structured experience doc — honesty checker only | Notion Past Experience |
-| `HUMANIZER` | The humanizer skill prompt, verbatim | Notion (new page; flows through the brain like the rest) |
-| `MASS_SEND_TEMPLATE` | The mass-send email template (Abukhadra honest-P.S. variant) | Notion (new page) |
+| `HUMANIZER` | The humanizer skill prompt, verbatim | the user's personal skill repo — file-pinned (`file:/path`), re-read each sync |
 
 Context-minimization principle: each agent sees the smallest set that lets it do its
 one job. Notably, the Researcher knows almost nothing about Alex, and only the
@@ -79,15 +78,18 @@ rules docs in v1.
 agent is a later layer on the same surface — you pin ~8 things once.
 
 **Exception: the email template is never discovered.** `P2_LOCKED` is a decision,
-not a fact lying in a doc — the user pastes it or points at it explicitly, once per
-template version. Automate *derivation*, never *authorship*.
+not a fact lying in a doc — the user declares it directly (`scout outreach set
+--block P2_LOCKED`), once per template version; the declaration is the approval
+(content-hash version, sync never touches it). No Notion subpage needed even
+though the paragraph lives inline on the Cold email template page. Automate
+*derivation*, never *authorship*.
 
 ### Block tiers and stale policy
 
 | Tier | Blocks | On upstream version change |
 |---|---|---|
-| **User-declared** | `P2_LOCKED` | Checksummed. Halt outreach for the block + notify. Never auto-adopt. |
-| **Pointed-at** | `HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`, `PAST_EXPERIENCE_FULL`, `HUMANIZER`, `MASS_SEND_TEMPLATE` | Silent refetch into the cache. |
+| **User-declared** | `P2_LOCKED` (via `scout outreach set`) | Content-hash versioned; sync leaves it alone. A new template version is a new declaration. |
+| **Pointed-at** | `HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`, `PAST_EXPERIENCE_FULL` (brain pins); `HUMANIZER` (file pin) | Silent refetch into the cache; file pins re-read every sync. |
 | **Derived** | `EXPERIENCE_CARD` (distilled from Past Experience at sync time), `BANK_ROWS` (synced wholesale; selected by move at draft time, in code) | Re-derive at sync when inputs change. |
 
 ### Sync time vs draft time
@@ -172,8 +174,8 @@ Return: {decision: "hook" | "no_honest_hook", hook: {quote, source_url, thread:
 "role_posted" | "no_role" | "unsure_which_role", reasoning: <2 sentences>}
 
 If every candidate requires stretching the truth or could be sent to any
-company, return no_honest_hook. That routes to the mass-send template, which is
-the correct outcome — not a failure.
+company, return no_honest_hook. That means "don't email them (yet)" — the
+correct outcome, not a failure.
 ```
 
 ---
@@ -259,10 +261,16 @@ a false pass costs more than a false fail.
   `[Name] | Alex intro — [role]`. Name left as placeholder — contact-finding is
   out of scope (Alex finds the person).
 - **Lint (regex/rules):** em dashes; banned-phrase list; word count 75–125;
-  "I applied"/"my application" detector; doubled-word check ("has has");
-  P2_LOCKED verbatim-presence assertion. Runs before AND after the humanizer pass.
-- **Mass-send route:** on no_honest_hook, fill `MASS_SEND_TEMPLATE` in pure
-  code — no model needed.
+  doubled-word check ("has has"); P2_LOCKED verbatim-presence assertion. Rules
+  run against the BODY — the subject line (whose canonical format contains an
+  em dash), greeting, and sign-off are stripped first. The old applied-mention
+  detector is gone: the refactored template sanctions "saw your post, applied
+  today" as the light hook. Runs before AND after the humanizer pass.
+- **No-email route:** on no_honest_hook there is NO draft — "if you can't write
+  even one true sentence for a company, don't email them" (Cold email template
+  page). Scout's job is making sure there IS something true to say; when there
+  isn't, the honest output is a recommendation not to email. Writing one anyway
+  in the panel is a manual override.
 - **Logging:** on Alex's confirmed send ("mark sent" in the job panel), bump the
   outreach count AND stamp the send date via `PUT /api/postings/{id}`. Send dates
   are what make Touch 2 follow-ups cheap later.
@@ -271,7 +279,7 @@ a false pass costs more than a false fail.
 
 ```
 Researcher → Hook selector ─┬─ hook ──→ Drafter → assemble → lint → Humanizer → lint → Honesty → review queue
-                            └─ no hook → mass-send fill (code) → lint → review queue
+                            └─ no hook → no draft (recommend not emailing) → review queue
 ```
 
 Honesty fail → back to Drafter once with violations attached; second fail → human.
@@ -295,8 +303,9 @@ around the pursuit, not the company. Wider panel, role-centric:
   company is secondary context here.
 
 **no_honest_hook renders as a neutral result, not an error** — "no honest hook
-found, mass-send template ready." The integrity gate working must not look like a
-failure the user is tempted to override.
+found — nothing true to say yet; scout recommends not emailing." The integrity
+gate working must not look like a failure; writing an email anyway in the panel
+is a deliberate manual override.
 
 The trigger integration is nearly free: company, URL, and title already sit on the
 posting row (Add-by-link capture). Outreach becomes a verb on the tracker, and
@@ -330,7 +339,8 @@ posting row (Add-by-link capture). Outreach becomes a verb on the tracker, and
 ## Design decisions
 
 1. **Lock what's lockable.** Models touch ~4 sentences per email.
-2. **The Hook selector can refuse**, and refusal is a success path (mass-send).
+2. **The Hook selector can refuse**, and refusal is a success path: the
+   recommendation is "don't email this company (yet)" — never a fallback blast.
 3. **Lint is code and runs twice.** LLM cleanup passes reintroduce the patterns
    they're meant to remove.
 4. **Honesty checker is isolated** — full experience doc, no knowledge of intent,
