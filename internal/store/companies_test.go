@@ -244,3 +244,39 @@ func TestFillCompanyNamePlaceholder(t *testing.T) {
 		t.Errorf("blank fill: ok=%v err=%v, want no-op", ok, err)
 	}
 }
+
+// VerticalTags flattens composite "A, B, C" cells into individual tags:
+// trimmed, deduped case-insensitively (first spelling wins), sorted, with
+// NULL/empty cells skipped. This feeds both the facets picker and the
+// extraction prompts' vocabulary steering.
+func TestVerticalTagsSplitsAndDedupes(t *testing.T) {
+	db := openTestDB(t)
+
+	add := func(name, domain, vertical string) {
+		c := mkCompany("crunchbase", name, domain)
+		if vertical != "" {
+			c.Vertical = sql.NullString{String: vertical, Valid: true}
+		}
+		if _, err := db.UpsertCompany(c); err != nil {
+			t.Fatalf("upsert %s: %v", name, err)
+		}
+	}
+	add("Acme", "acme.com", "AI, Cloud Computing")
+	add("Bolt", "bolt.com", "SaaS, ai") // "ai" dupes "AI" case-insensitively
+	add("Cog", "cog.com", "  Robotics , AI ")
+	add("Dud", "dud.com", "") // NULL vertical — skipped
+
+	got, err := db.VerticalTags()
+	if err != nil {
+		t.Fatalf("VerticalTags: %v", err)
+	}
+	want := []string{"AI", "Cloud Computing", "Robotics", "SaaS"}
+	if len(got) != len(want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("tags = %v, want %v", got, want)
+		}
+	}
+}

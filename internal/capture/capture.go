@@ -309,7 +309,7 @@ const captureContract = `You are Scout's link-capture engine. The user pasted a 
  "job_title": "the role's title, or \"\" if not a job posting",
  "job_location": "the role's location / remote policy, or \"\"",
  "summary": "1-2 plain sentences: for a job posting what the role is, for a company page what the company does",
- "vertical": "the company's industry/space in a few words, or \"\"",
+ "vertical": "1-3 short industry tags, comma-separated (e.g. \"AI, Developer Tools\"), or \"\"",
  "company_location": "the company's HQ location if stated, or \"\""}
 
 kind rules:
@@ -320,7 +320,9 @@ Extract only what the page supports — never invent values.`
 
 // extract runs the single Haiku pass over the page text. A pinned kind is
 // passed along as a hint so extraction focuses on the right fields; the pin
-// itself is enforced by the caller, not the model.
+// itself is enforced by the caller, not the model. The vertical tags already
+// in the set steer extraction toward the existing vocabulary (best-effort —
+// a read failure just means no steering; see enrich.VerticalVocab).
 func (c *Capturer) extract(ctx context.Context, finalURL, text, kind string) (*extraction, error) {
 	model := c.Model
 	if model == "" {
@@ -332,6 +334,11 @@ func (c *Capturer) extract(ctx context.Context, finalURL, text, kind string) (*e
 		hint = "The user says this link is a job posting.\n"
 	case KindCompany:
 		hint = "The user says this link is a company page.\n"
+	}
+	if tags, err := c.DB.VerticalTags(); err == nil {
+		if vocab := enrich.VerticalVocab(tags); vocab != "" {
+			hint += vocab + "\n"
+		}
 	}
 	user := fmt.Sprintf("%sURL: %s\n\nPage text (truncated):\n%s\n\nReturn the JSON now.", hint, finalURL, text)
 
