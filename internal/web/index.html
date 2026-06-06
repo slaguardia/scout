@@ -243,15 +243,8 @@
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background: var(--link-bg); color: var(--link); }
 
-  /* per-posting application tracking (detail pane) */
-  .ptrack {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
-    font-size: 12.5px; color: var(--fg-mute);
-  }
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
-     green with its checkmark when on. Unscoped: the chip lives in both the
-     company pane's posting cards (.ptrack) and the pursuit panel's pipeline. */
+     green with its checkmark when on (pursuit panel's pipeline). */
   .pt-chip {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap;
@@ -264,15 +257,21 @@
   .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
   .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
   .pt-chip.is-on svg { opacity: 1; }
-  /* outreach stepper — the − undoes a mis-click */
-  .ptrack .pt-stepper { display: inline-flex; gap: 4px; }
-  .ptrack .pt-outreach-dec { padding: 3px 9px; }
-  .ptrack .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
-  .ptrack .input { width: auto; padding: 3px 8px; font-size: 12px; }
-  .ptrack input[type="date"].input { color-scheme: dark; }
-  .ptrack .btn { padding: 3px 10px; font-size: 12px; }
-  .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .ptrack .pt-contacts { flex: 1 1 100%; }
+  /* outreach stepper (pursuit panel) — the − undoes a mis-click */
+  .pt-stepper { display: inline-flex; gap: 4px; }
+  .pt-stepper .btn { padding: 3px 10px; font-size: 12px; }
+  .pt-outreach-dec { padding: 3px 9px; }
+  .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
+  .pt-meta { color: var(--fg-dim); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* posting cards (company pane) — read-only pursuit summaries; the card
+     itself opens the pursuit panel, like a jobs-table row */
+  .posting-card { cursor: pointer; }
+  .pcard-status {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
+  }
+  .pcard-open { margin-left: auto; font-size: 12px; color: var(--link); opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+  .posting-card:hover .pcard-open { opacity: 1; }
   td.td-contacts { max-width: 220px; overflow-wrap: anywhere; }
   /* footer note when hide-rejected is suppressing rows — a silently missing
      job reads as a bug, so say it and offer the one-click undo */
@@ -666,7 +665,7 @@
 
   /* outreach section */
   .outreach-meta {
-    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
     color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px;
   }
   .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
@@ -1734,7 +1733,7 @@ Return the JSON verdict now.</pre>
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
           <h4>The jobs view &amp; the Add dialog</h4>
-          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Everything else about the company and role lives in the slide-in panel, where each posting card carries the tracking controls (applied toggle + date, response select, a "+1 outreach" logger, contacts field). Rejected rows are hidden by default — flip the toggle to see them.</p>
+          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Clicking a row opens the <strong>pursuit panel</strong> — the one place all per-posting editing lives: the pipeline (applied toggle + date, response select), the outreach section (a "+1 outreach" logger for messages sent outside scout, contacts, and the draft queue), and a View company button. The company pane's jobs list shows the same status read-only; click a card to jump to its pursuit. Rejected rows are hidden from the jobs table by default — the footer note says how many, with a one-click show.</p>
           <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a one-shot agent pass (Haiku) fetches the page and extracts the details, with anything you typed winning over the extraction — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
@@ -2114,8 +2113,13 @@ function draftBadgeHTML(status) {
 // outreach queue fetches drafts and polls while one is researching.
 const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false };
 
-function openPursuit(postingId) {
-  const row = state.jobs.find(j => j.posting_id === postingId);
+async function openPursuit(postingId) {
+  let row = state.jobs.find(j => j.posting_id === postingId);
+  if (!row) {
+    // Opened from the company pane before the jobs cache caught up — refetch.
+    await loadJobs();
+    row = state.jobs.find(j => j.posting_id === postingId);
+  }
   if (!row) { toast("posting not found — refresh"); return; }
   stopPursuitPoll();
   pursuit.postingId = postingId;
@@ -2307,11 +2311,15 @@ function renderOutreachSection() {
     <div class="outreach-meta">
       <span><span class="om-count">${j.outreach_count || 0}</span> sent</span>
       ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
+      <span class="pt-stepper">
+        <button class="btn pt-outreach-dec" title="undo one outreach" ${j.outreach_count ? "" : "disabled"}>−</button>
+        <button class="btn pt-outreach" title="log one outreach sent outside scout — today">+1 outreach</button>
+      </span>
     </div>
     <div class="outreach-contacts">
       <input class="input oc-input" value="${escapeHTML(j.contacts || "")}"
-             placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
-             title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
+             placeholder="add contacts, comma-separated (emails become links)" spellcheck="false"
+             title="outreach contacts for this role — saved on Enter or click-away">
       <div class="oc-rendered">${contactsHTML(j.contacts)}</div>
     </div>`;
 
@@ -2444,6 +2452,19 @@ function wireOutreach() {
     oc.addEventListener("change", e => savePursuitTracking({ contacts: e.target.value.trim() }));
     oc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
   }
+
+  // Manual outreach logger — for messages sent outside scout. The − undoes a
+  // mis-click; at 0 the last-outreach date is cleared (it describes nothing).
+  const today = () => new Date().toISOString().slice(0, 10);
+  const j = pursuit.row;
+  const inc = host.querySelector(".pt-outreach");
+  if (inc) inc.addEventListener("click", () =>
+    savePursuitTracking({ outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: today() }));
+  const dec = host.querySelector(".pt-outreach-dec");
+  if (dec) dec.addEventListener("click", () => {
+    const n = Math.max(0, (j.outreach_count || 0) - 1);
+    savePursuitTracking({ outreach_count: n, ...(n === 0 ? { last_outreach_at: "" } : {}) });
+  });
 
   const start = host.querySelector("#draft-start-btn");
   if (start) start.addEventListener("click", startDraft);
@@ -2764,7 +2785,7 @@ function renderDetail(d) {
 
   const addPostBtn = document.getElementById("posting-add-btn");
   if (addPostBtn) addPostBtn.addEventListener("click", () => onAddPosting(d));
-  wirePostingTracking(d);
+  wirePostingCards();
 
   // Verdict override: single-select the yes/maybe/no buttons, then Save.
   document.querySelectorAll("#ve-pick .ve-opt").forEach(btn => {
@@ -2972,6 +2993,9 @@ async function onSaveVerdict(d) {
 }
 
 // ---- job postings ----
+// postingsListHTML renders the company pane's jobs list as read-only pursuit
+// summaries — same vocabulary as the jobs table. All tracking and outreach
+// editing lives in the pursuit panel; clicking a card opens it.
 function postingsListHTML(d) {
   const ps = d.postings || [];
   if (!ps.length) return '<div class="muted">No job links yet.</div>';
@@ -2981,115 +3005,33 @@ function postingsListHTML(d) {
       p.source === "capture" ? "captured" : "added",
       (p.created_at || "").slice(0, 10),
     ].filter(Boolean).map(escapeHTML).join(" · ");
-    const outreachMeta = p.outreach_count
-      ? `${p.outreach_count}× · last ${escapeHTML(p.last_outreach_at || "?")}`
-      : "no outreach yet";
+    const resp = RESPONSE_META[p.response] || RESPONSE_META[""];
+    const status = [
+      `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>`,
+      `<span class="pt-meta">${p.applied_at ? `applied ${escapeHTML(p.applied_at)}` : "not applied"}</span>`,
+      `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
+    ].join("");
     return `
-    <div class="brain-node">
+    <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
-      <div class="ptrack" data-pid="${escapeHTML(p.id)}">
-        <button class="pt-chip pt-applied${p.applied_at ? " is-on" : ""}" title="${p.applied_at ? "mark as not applied" : "mark applied today"}">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
-          applied
-        </button>
-        <input type="date" class="input pt-applied-date" value="${escapeHTML(p.applied_at || "")}"
-               style="display:${p.applied_at ? "" : "none"}" title="application date">
-        <select class="input pt-response" title="furthest response reached">
-          <option value="">response: —</option>
-          <option value="screening" ${p.response === "screening" ? "selected" : ""}>screening call</option>
-          <option value="interview" ${p.response === "interview" ? "selected" : ""}>interview</option>
-          <option value="offer" ${p.response === "offer" ? "selected" : ""}>offer</option>
-          <option value="rejected" ${p.response === "rejected" ? "selected" : ""}>rejected</option>
-        </select>
-        <span class="pt-stepper">
-          <button class="btn pt-outreach-dec" title="undo one outreach" ${p.outreach_count ? "" : "disabled"}>−</button>
-          <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
-        </span>
-        <span class="pt-meta">${outreachMeta}</span>
-        <input class="input pt-contacts" value="${escapeHTML(p.contacts || "")}"
-               placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
-               title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
-      </div>
+      <div class="pcard-status">${status}<span class="pcard-open">pursuit →</span></div>
     </div>`;
   }).join("");
 }
 
-// wirePostingTracking binds the per-posting tracking controls inside
-// #postings-list. Re-run after every list re-render (the nodes are rebuilt).
-function wirePostingTracking(d) {
-  const today = () => new Date().toISOString().slice(0, 10);
-  document.querySelectorAll("#postings-list .ptrack").forEach(row => {
-    const p = (d.postings || []).find(x => x.id === row.dataset.pid);
-    if (!p) return;
-    row.querySelector(".pt-applied").addEventListener("click", () => {
-      savePostingTracking(d, p, { applied_at: p.applied_at ? "" : today() });
-    });
-    row.querySelector(".pt-applied-date").addEventListener("change", e => {
-      savePostingTracking(d, p, { applied_at: e.target.value });
-    });
-    row.querySelector(".pt-response").addEventListener("change", e => {
-      savePostingTracking(d, p, { response: e.target.value });
-    });
-    row.querySelector(".pt-outreach").addEventListener("click", () => {
-      savePostingTracking(d, p, {
-        outreach_count: (p.outreach_count || 0) + 1,
-        last_outreach_at: today(),
-      });
-    });
-    // Undo a mis-click: step the count back down (never below 0); at 0 the
-    // last-outreach date is cleared too, since it no longer describes anything.
-    row.querySelector(".pt-outreach-dec").addEventListener("click", () => {
-      const n = Math.max(0, (p.outreach_count || 0) - 1);
-      savePostingTracking(d, p, {
-        outreach_count: n,
-        ...(n === 0 ? { last_outreach_at: "" } : {}),
-      });
-    });
-    // Contacts save on change (blur with a new value); Enter blurs to commit.
-    const contacts = row.querySelector(".pt-contacts");
-    contacts.addEventListener("change", e => {
-      savePostingTracking(d, p, { contacts: e.target.value.trim() });
-    });
-    contacts.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+// wirePostingCards makes each card open its pursuit panel (the company pane
+// closes — the pursuit is the new focus). The external link is guarded out,
+// mirroring the jobs-table rows.
+function wirePostingCards() {
+  document.querySelectorAll("#postings-list .posting-card").forEach(card => {
+    card.addEventListener("click", e => {
+      if (e.target.closest("a")) return;
+      closeDetail();
+      openPursuit(card.dataset.pid);
     });
   });
-}
-
-// savePostingTracking PUTs the posting's full lifecycle state (current values
-// overlaid with the change), refreshes the pane card from the response, and
-// keeps the jobs table in sync.
-async function savePostingTracking(d, p, patch) {
-  const body = {
-    applied_at: p.applied_at || "",
-    response: p.response || "",
-    outreach_count: p.outreach_count || 0,
-    last_outreach_at: p.last_outreach_at || "",
-    contacts: p.contacts || "",
-    ...patch,
-  };
-  let resp;
-  try {
-    resp = await fetch(`/api/postings/${p.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (e) { toast(`save failed: ${e.message}`); return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`save failed: ${txt || "HTTP " + resp.status}`);
-    return;
-  }
-  const fresh = await resp.json();
-  const i = (d.postings || []).findIndex(x => x.id === p.id);
-  if (i >= 0) d.postings[i] = fresh;
-  const list = document.getElementById("postings-list");
-  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
-  loadJobs();
-  toast("tracking saved");
 }
 
 async function onAddPosting(d) {
@@ -3118,10 +3060,11 @@ async function onAddPosting(d) {
     return;
   }
   const p = await resp.json();
-  d.postings = d.postings || [];
+  // AddPosting is idempotent by URL — replace the row when it already exists.
+  d.postings = (d.postings || []).filter(x => x.id !== p.id);
   d.postings.unshift(p);
   const list = document.getElementById("postings-list");
-  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingCards(); }
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
   loadJobs(); // keep the jobs view in sync
