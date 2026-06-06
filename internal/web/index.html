@@ -746,6 +746,19 @@
   .violation-list li { color: var(--no); font-size: 12.5px; margin-bottom: 4px; }
   .violation-list li .vl-why { color: var(--fg-mute); }
 
+  /* pipeline trace — collapsible research/hook stage outputs on a draft */
+  details.draft-trace { margin-top: 6px; }
+  details.draft-trace summary {
+    cursor: pointer; color: var(--fg-mute); font-size: 12px;
+    padding: 3px 0; user-select: none;
+  }
+  details.draft-trace summary::-webkit-details-marker { display: none; }
+  .trace-body { font-size: 12.5px; color: var(--fg); padding: 6px 0 2px 12px; }
+  .trace-body .tr-line { margin-bottom: 4px; }
+  .trace-body .tr-key { color: var(--fg-mute); }
+  .trace-body .tr-quote { display: block; border-left: 2px solid var(--line); padding: 2px 8px; margin: 3px 0 6px; color: var(--fg); }
+  .trace-body a { color: var(--fg-mute); }
+
   /* missing-blocks gate (412) */
   .blocks-gate {
     border: 1px solid var(--line); border-left: 2px solid var(--no);
@@ -2433,6 +2446,7 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-no", "failed")}
       ${d.fail_reason ? `<div class="draft-note">${escapeHTML(d.fail_reason)}</div>` : ""}
       ${vio}
+      ${renderTrace(d)}
       ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">Retry</button></div>`}
     </div>`;
   }
@@ -2442,6 +2456,7 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-yes", "sent")}
       ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
       <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+      ${renderTrace(d)}
     </div>`;
   }
 
@@ -2466,6 +2481,7 @@ function draftCardHTML(d, readonly) {
       <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
       ${note}
       <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
+      ${renderTrace(d)}
     </div>`;
   }
 
@@ -2479,6 +2495,7 @@ function draftCardHTML(d, readonly) {
       <button class="btn draft-save-btn">Save</button>
       <button class="btn btn-primary draft-sent-btn">Mark sent</button>
     </div>` : ""}
+    ${renderTrace(d)}
   </div>`;
 }
 
@@ -2486,6 +2503,52 @@ function draftCardHTML(d, readonly) {
 // pipeline's draft (mirrors the server's edited-non-empty-wins rule).
 function draftText(d) {
   return (d.edited && d.edited.trim()) ? d.edited : (d.draft || "");
+}
+
+// renderTrace shows the pipeline's stage outputs — what the researcher found
+// and what the hook selector decided — as collapsible sections on the draft
+// card. The data is stored on every draft row; this is the visibility layer.
+function renderTrace(d) {
+  let out = "";
+  let research = null, hook = null;
+  try { research = JSON.parse(d.research || "null"); } catch (e) { /* shown raw below */ }
+  try { hook = JSON.parse(d.hook || "null"); } catch (e) { /* optional */ }
+
+  if (research && typeof research === "object") {
+    const line = (k, v) => v ? `<div class="tr-line"><span class="tr-key">${k}:</span> ${escapeHTML(String(v))}</div>` : "";
+    const role = research.role || {};
+    const hooks = Array.isArray(research.hooks) ? research.hooks : [];
+    const hookItems = hooks.map(h => `
+      <div class="tr-line">
+        <span class="tr-key">${escapeHTML(h.type || "hook")}</span>
+        ${h.source_url ? ` · <a href="${escapeHTML(h.source_url)}" target="_blank" rel="noopener">source</a>` : ""}
+        <span class="tr-quote">${escapeHTML(h.quote || "")}</span>
+        ${h.context ? `<span class="tr-key">${escapeHTML(h.context)}</span>` : ""}
+      </div>`).join("");
+    out += `<details class="draft-trace"><summary>research — ${hooks.length} hook candidate${hooks.length === 1 ? "" : "s"}</summary>
+      <div class="trace-body">
+        ${line("what they do", research.what_they_do)}
+        ${line("customer", research.customer)}
+        ${line("stage / headcount", [research.stage, research.headcount_est].filter(Boolean).join(" / "))}
+        ${line("role", role.title)}
+        ${(role.jd_quotes || []).map(q => `<span class="tr-quote">${escapeHTML(q)}</span>`).join("")}
+        ${hookItems}
+        ${line("disambiguation", research.disambiguation)}
+        ${line("confidence", research.confidence)}
+      </div></details>`;
+  }
+
+  if (hook && typeof hook === "object" && hook.decision) {
+    const h = hook.hook || {};
+    out += `<details class="draft-trace"><summary>hook — ${escapeHTML(hook.decision)}${hook.closer_mode ? " · " + escapeHTML(hook.closer_mode) : ""}</summary>
+      <div class="trace-body">
+        ${h.quote ? `<span class="tr-quote">${escapeHTML(h.quote)}</span>` : ""}
+        ${h.thread ? `<div class="tr-line"><span class="tr-key">thread:</span> ${escapeHTML(h.thread)}</div>` : ""}
+        ${h.source_url ? `<div class="tr-line"><a href="${escapeHTML(h.source_url)}" target="_blank" rel="noopener">source</a></div>` : ""}
+        ${hook.reasoning ? `<div class="tr-line"><span class="tr-key">reasoning:</span> ${escapeHTML(hook.reasoning)}</div>` : ""}
+      </div></details>`;
+  }
+  return out;
 }
 
 function renderLintChips(lintJSON) {
