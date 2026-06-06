@@ -181,6 +181,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingOutreach(w, r, pid)
 		return
 	}
+	// {id}/next-up toggles the "next up for outreach" queue mark.
+	if pid, ok := strings.CutSuffix(id, "/next-up"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingNextUp(w, r, pid)
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return
@@ -207,6 +212,35 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingNextUp queues or unqueues one posting as "next up for
+// outreach": PUT /api/postings/{id}/next-up {"next_up": bool}; returns the
+// refreshed posting. The mark also clears on its own when the outreach goes
+// out (see UpdatePostingTracking / MarkOutreachDraftSent). A direct write
+// like the company flag — no Runner involved.
+func (s *Server) handlePostingNextUp(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		NextUp bool `json:"next_up"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := s.DB.SetPostingNextUp(id, body.NextUp)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)

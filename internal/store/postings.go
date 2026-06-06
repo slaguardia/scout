@@ -42,6 +42,10 @@ type Posting struct {
 	// Contacts (M24): free-form outreach contacts for this role —
 	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
 	Contacts string `json:"contacts"`
+
+	// NextUp (M27) marks the posting as queued "next up for outreach" — a
+	// hand-set to-do that clears automatically when outreach_count bumps.
+	NextUp bool `json:"next_up"`
 }
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
@@ -49,14 +53,16 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(summary, ''), COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
        created_at, COALESCE(captured_at, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
-       COALESCE(contacts, '')`
+       COALESCE(contacts, ''), next_up_at`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
+	var nextUpAt sql.NullString
 	err := row.Scan(&p.ID, &p.CompanyID, &p.URL, &p.Title, &p.Location,
 		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
-		&p.Contacts)
+		&p.Contacts, &nextUpAt)
+	p.NextUp = nextUpAt.Valid
 	return p, err
 }
 
@@ -242,13 +248,36 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 		return Posting{}, fmt.Errorf("outreach_count must be >= 0")
 	}
 
+	// A rising outreach_count means the outreach went out — the "next up"
+	// to-do mark has served its purpose, so it clears in the same write.
+	// (SET expressions see the old row, so the CASE compares old vs new.)
 	const q = `UPDATE job_postings SET
+	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
 	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, applied, NullString(response), t.OutreachCount, lastOutreach,
+	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
 		NullString(strings.TrimSpace(t.Contacts)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
+// SetPostingNextUp queues (next_up_at = now) or unqueues (NULL) a posting as
+// "next up for outreach", returning the refreshed row. The mark also clears on
+// its own when outreach_count bumps — see UpdatePostingTracking and
+// MarkOutreachDraftSent. Returns sql.ErrNoRows for an unknown posting.
+func (db *DB) SetPostingNextUp(id string, nextUp bool) (Posting, error) {
+	q := `UPDATE job_postings SET next_up_at = NULL WHERE id = ?`
+	if nextUp {
+		q = `UPDATE job_postings SET next_up_at = CURRENT_TIMESTAMP WHERE id = ?`
+	}
+	res, err := db.Exec(q, id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("set next_up %s: %w", id, err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Posting{}, sql.ErrNoRows
@@ -323,6 +352,7 @@ type JobRow struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 	Contacts       string `json:"contacts"` // outreach contacts (M24)
+	NextUp         bool   `json:"next_up"`  // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
@@ -340,7 +370,7 @@ func (db *DB) ListJobRows() ([]JobRow, error) {
 SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.location, ''),
        COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
        p.created_at, COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
-       c.reviewed_at, c.flagged_at,
+       c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
        COALESCE(p.contacts, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
@@ -358,16 +388,17 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 	out := []JobRow{}
 	for rows.Next() {
 		var r JobRow
-		var reviewedAt, flaggedAt sql.NullString
+		var reviewedAt, flaggedAt, nextUpAt sql.NullString
 		if err := rows.Scan(&r.PostingID, &r.CompanyID, &r.Company, &r.URL, &r.Title, &r.Location,
 			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt, &r.Verdict, &r.Reason,
-			&reviewedAt, &flaggedAt,
+			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
 			&r.Contacts, &r.OutreachDraftStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid
 		r.Flagged = flaggedAt.Valid
+		r.NextUp = nextUpAt.Valid
 		out = append(out, r)
 	}
 	return out, rows.Err()

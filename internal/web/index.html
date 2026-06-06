@@ -409,6 +409,7 @@
   /* mode chips ("only blanks", "hide rejected") light link-blue — a state
      toggle, not a verdict color. */
   #only-blanks.is-on, #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  #next-up-filter.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
      filters. Lit = visible column. */
@@ -757,6 +758,9 @@
     text-transform: uppercase; letter-spacing: 0.04em;
   }
   .draft-badge.db-nohook { background: var(--link-bg); color: var(--link); }
+  /* the "next up for outreach" queue mark — accent, distinct from draft states */
+  .draft-badge.db-next { background: rgba(139,109,255,0.14); color: var(--accent); }
+  .pt-chip.pt-nextup.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
   /* ---- decision trail ---- */
   .trail-event {
@@ -1280,7 +1284,7 @@
         <button class="v-chip" data-r="interview">interview</button>
         <button class="v-chip" data-r="offer">offer</button>
         <button class="v-chip" data-r="rejected" title="selecting this shows rejected rows even with “hide rejected” on">rejected</button>
-        <button class="v-chip flag-chip" id="jflag-filter" title="show postings at flagged companies only">⚑ flagged</button>
+        <button class="v-chip" id="next-up-filter" title="show only postings queued next up for outreach">next up <span class="v-count" id="next-up-n" style="display:none"></span></button>
       </div>
     </div>
     <div class="filter-row">
@@ -1733,7 +1737,7 @@ Return the JSON verdict now.</pre>
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
           <h4>The jobs view &amp; the Add dialog</h4>
-          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Clicking a row opens the <strong>pursuit panel</strong> — the one place all per-posting editing lives: the pipeline (applied toggle + date, response select), the outreach section (a "+1 outreach" logger for messages sent outside scout, contacts, and the draft queue), and a View company button. The company pane's jobs list shows the same status read-only; click a card to jump to its pursuit. Rejected rows are hidden from the jobs table by default — the footer note says how many, with a one-click show.</p>
+          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Clicking a row opens the <strong>pursuit panel</strong> — the one place all per-posting editing lives: the pipeline (applied toggle + date, response select, a <strong>next up</strong> queue mark), the outreach section (a "+1 outreach" logger for messages sent outside scout, contacts, and the draft queue), and a View company button. <em>Next up</em> is a to-do, not a status: mark the pursuits you intend to reach out to, filter the table by the chip, and the mark clears itself the moment the outreach goes out (a +1 log or a draft marked sent). The company pane's jobs list shows the same status read-only; click a card to jump to its pursuit. Rejected rows are hidden from the jobs table by default — the footer note says how many, with a one-click show.</p>
           <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a one-shot agent pass (Haiku) fetches the page and extracts the details, with anything you typed winning over the extraction — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
@@ -1986,7 +1990,7 @@ function renderList() {
 // mirrors the Notion tracker's default view. Picking the "rejected" chip
 // explicitly overrides hide-rejected — an empty table would just confuse.
 const responseFilter = new Set();
-let jflagOnly = false;     // jobs-view ⚑ chip: postings at flagged companies only
+let nextUpOnly = false;    // jobs-view chip: postings queued next up for outreach
 let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
 
 function filteredJobs() {
@@ -1995,7 +1999,7 @@ function filteredJobs() {
   return state.jobs.filter(j => {
     if (hideRej && j.response === "rejected") return false;
     if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
-    if (jflagOnly && !j.flagged) return false;
+    if (nextUpOnly && !j.next_up) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -2059,6 +2063,11 @@ function renderJobs() {
   const hn = document.getElementById("hidden-rej-n");
   hn.textContent = hiddenRej;
   hn.style.display = hiddenRej ? "" : "none";
+  // The next-up chip carries its queue size, so the to-do list is one glance.
+  const nextUpN = state.jobs.filter(j => j.next_up).length;
+  const nn = document.getElementById("next-up-n");
+  nn.textContent = nextUpN;
+  nn.style.display = nextUpN ? "" : "none";
   const note = document.getElementById("jobs-hidden-note");
   note.style.display = hiddenRej ? "" : "none";
   if (hiddenRej) {
@@ -2074,7 +2083,7 @@ function renderJobs() {
     const tr = document.createElement("tr");
     tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}
+      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${j.next_up ? '<span class="draft-badge db-next" title="queued next up for outreach">next up</span>' : ""}${draftBadgeHTML(j.outreach_draft_status)}
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
       <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
@@ -2219,6 +2228,13 @@ function renderPursuit() {
             <option value="rejected" ${j.response === "rejected" ? "selected" : ""}>rejected</option>
           </select>
         </div>
+        <div class="pipeline-row">
+          <span class="pl-label">queue</span>
+          <button class="pt-chip pt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "unmark — it also clears itself when the outreach goes out" : "mark this pursuit next up for outreach"}">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg>
+            next up
+          </button>
+        </div>
       </div>
     </section>
 
@@ -2259,6 +2275,32 @@ function wirePipeline() {
   const sel = document.querySelector("#pursuit-body .pl-response");
   if (sel) sel.addEventListener("change", e =>
     savePursuitTracking({ response: e.target.value }));
+  const nextUp = document.querySelector("#pursuit-body .pt-nextup");
+  if (nextUp) nextUp.addEventListener("click", toggleNextUp);
+}
+
+// toggleNextUp queues/unqueues the open pursuit as "next up for outreach".
+// Its own endpoint (not the tracking PUT) so the server can also clear the
+// mark on its own when the outreach goes out.
+async function toggleNextUp() {
+  const j = pursuit.row;
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}/next-up`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ next_up: !j.next_up }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  j.next_up = fresh.next_up;
+  renderJobs();
+  renderPursuit();
+  toast(j.next_up ? "queued next up" : "removed from the queue");
 }
 
 // savePursuitTracking PUTs the posting's full lifecycle (current overlaid with
@@ -2287,10 +2329,12 @@ async function savePursuitTracking(patch) {
   }
   const fresh = await resp.json();
   // Fold the posting fields back into the row (keep company/verdict/badge etc).
+  // next_up rides along so the server-side auto-clear (+1 outreach completes
+  // the queued to-do) reflects immediately.
   Object.assign(j, {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
-    contacts: fresh.contacts,
+    contacts: fresh.contacts, next_up: fresh.next_up,
   });
   renderJobs();
   renderPursuit();
@@ -3007,10 +3051,11 @@ function postingsListHTML(d) {
     ].filter(Boolean).map(escapeHTML).join(" · ");
     const resp = RESPONSE_META[p.response] || RESPONSE_META[""];
     const status = [
+      p.next_up ? '<span class="draft-badge db-next" style="margin-left:0" title="queued next up for outreach">next up</span>' : "",
       `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>`,
       `<span class="pt-meta">${p.applied_at ? `applied ${escapeHTML(p.applied_at)}` : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
-    ].join("");
+    ].filter(Boolean).join("");
     return `
     <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
@@ -3524,9 +3569,9 @@ document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
     renderJobs();
   });
 });
-document.getElementById("jflag-filter").addEventListener("click", e => {
-  jflagOnly = !jflagOnly;
-  e.currentTarget.classList.toggle("is-on", jflagOnly);
+document.getElementById("next-up-filter").addEventListener("click", e => {
+  nextUpOnly = !nextUpOnly;
+  e.currentTarget.classList.toggle("is-on", nextUpOnly);
   renderJobs();
 });
 renderColToggles();
