@@ -3,11 +3,16 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/slaguardia/scout/internal/anthropic"
+	"github.com/slaguardia/scout/internal/outreach"
 	"github.com/slaguardia/scout/internal/store"
 )
 
@@ -187,5 +192,111 @@ func TestOutreachBlocksEndpoint(t *testing.T) {
 	}
 	if states["P2_LOCKED"] != "ok" || states["HUMANIZER"] != "unpinned" || states["BANK_ROWS"] != "derived" {
 		t.Fatalf("states = %v", states)
+	}
+}
+
+// errRT fails every request instantly — keeps the engine's JD pre-fetch
+// offline in tests (the fetch degrades gracefully by design).
+type errRT struct{}
+
+func (errRT) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("offline test")
+}
+
+// fakeLLM serves Anthropic-shaped responses from a scripted queue.
+func fakeLLM(t *testing.T, replies []string) *httptest.Server {
+	t.Helper()
+	i := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if i >= len(replies) {
+			t.Errorf("fake LLM: unexpected call %d", i+1)
+			http.Error(w, "out of replies", 500)
+			return
+		}
+		b, _ := json.Marshal(map[string]any{
+			"content":     []map[string]string{{"type": "text", "text": replies[i]}},
+			"stop_reason": "end_turn",
+		})
+		i++
+		w.Write(b)
+	}))
+}
+
+// TestOutreachEndToEnd drives the REAL stack the way the panel does: POST
+// start fires the async engine (scripted LLM), the test polls the queue until
+// the draft lands in review, then edits and marks it sent.
+func TestOutreachEndToEnd(t *testing.T) {
+	s, cid := newTestServer(t)
+	pid := seedOutreachReady(t, s, cid)
+	// The engine derives EXPERIENCE_CARD unless it is fresh; seed it fresh
+	// against the seeded PAST_EXPERIENCE_FULL version ("v1").
+	if err := s.DB.PutOutreachBlock("EXPERIENCE_CARD", "5y forward-deployed; infra lead; agent tooling.", "derived:v1"); err != nil {
+		t.Fatal(err)
+	}
+
+	p2 := "content of P2_LOCKED" // what seedOutreachReady stored
+	p1 := strings.Repeat("true platform words ", 12)
+	p3 := strings.Repeat("desire framed words ", 12) + "Open to a quick call about the role?"
+	llm := fakeLLM(t, []string{
+		`{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80","role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x","source_url":"https://a.invalid","context":"c"}],"disambiguation":"","confidence":"high"}`,
+		`{"decision":"hook","hook":{"quote":"x","source_url":"https://a.invalid","thread":"like my work"},"closer_mode":"role_posted","reasoning":"honest"}`,
+		`{"p1":"` + p1 + `","p3":"` + p3 + `"}`,
+		`{"verdict":"pass","violations":[]}`,
+	})
+	defer llm.Close()
+
+	ac := anthropic.New("test-key")
+	ac.Endpoint = llm.URL
+	s.Outreach = &outreach.Engine{DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}}}
+	h := s.Handler()
+
+	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Poll like the panel does.
+	var d store.OutreachDraft
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rec = do(t, h, http.MethodGet, "/api/postings/"+pid+"/outreach", "")
+		var list struct {
+			Drafts []store.OutreachDraft `json:"drafts"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || len(list.Drafts) == 0 {
+			t.Fatalf("list: %v %s", err, rec.Body.String())
+		}
+		d = list.Drafts[0]
+		if d.Status != store.DraftResearching {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("draft stuck researching")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if d.Status != store.DraftAwaitingReview {
+		t.Fatalf("status = %q (fail_reason=%q)", d.Status, d.FailReason)
+	}
+	if !strings.Contains(d.Draft, p2) || !strings.Contains(d.Draft, "Subject: [Name] | Alex intro — FDE") || !strings.Contains(d.Draft, "Thanks,\nAlex") {
+		t.Fatalf("assembled draft wrong:\n%s", d.Draft)
+	}
+	if d.Lint != "[]" {
+		t.Errorf("lint = %s", d.Lint)
+	}
+
+	// Edit, then send.
+	idStr := strconv.FormatInt(d.ID, 10)
+	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"`+strings.TrimSpace(p1)+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit: %d", rec.Code)
+	}
+	rec = do(t, h, http.MethodPost, "/api/outreach/drafts/"+idStr+"/sent", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sent: %d", rec.Code)
+	}
+	rows, _ := s.DB.ListJobRows()
+	if rows[0].OutreachDraftStatus != store.DraftSent {
+		t.Fatalf("row badge status = %q", rows[0].OutreachDraftStatus)
 	}
 }

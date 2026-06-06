@@ -159,6 +159,11 @@ WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 		return nil, err
 	}
 	if err := mustAffect(res); err != nil {
+		// Idempotent double-send: an already-sent draft returns itself (the
+		// panel's Mark-sent can be double-clicked); only a missing row errors.
+		if d, gErr := scanDraft(tx.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id)); gErr == nil && d.Status == DraftSent {
+			return d, tx.Commit()
+		}
 		return nil, err
 	}
 	// The send completes the "next up" to-do, so the queue mark clears too.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/slaguardia/scout/internal/outreach"
+	"github.com/slaguardia/scout/internal/store"
 )
 
 // OutreachRunner runs the outreach draft pipeline for one created draft row,
@@ -150,6 +151,13 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Edits are only meaningful pre-send: a sent draft is the record of
+		// what was actually emailed, and a researching one is pipeline-owned.
+		if cur, err := s.DB.GetOutreachDraft(id); err == nil && cur != nil &&
+			cur.Status != store.DraftAwaitingReview && cur.Status != store.DraftNoHook {
+			http.Error(w, "draft is "+cur.Status+" — only awaiting_review/no_hook drafts are editable", http.StatusConflict)
 			return
 		}
 		findings := s.lintDraft(body.Edited)

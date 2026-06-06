@@ -108,6 +108,12 @@ func get(ctx context.Context, httpc *http.Client, url string) (body []byte, code
 // job-board API returns every open job; we match on the posting id when the URL
 // carries one, else fall through to the plain GET (ok=false).
 func fetchAshby(ctx context.Context, httpc *http.Client, org, postingID string) (JDResult, bool) {
+	// A bare board URL (no posting id) can't identify WHICH job — taking the
+	// first would hand the researcher the wrong JD. Fall through to the plain
+	// fetch of the page the user actually saved.
+	if postingID == "" {
+		return JDResult{}, false
+	}
 	var board struct {
 		Jobs []struct {
 			ID               string `json:"id"`
@@ -123,7 +129,7 @@ func fetchAshby(ctx context.Context, httpc *http.Client, org, postingID string) 
 		return JDResult{}, false
 	}
 	for _, j := range board.Jobs {
-		if postingID != "" && !strings.EqualFold(j.ID, postingID) {
+		if !strings.EqualFold(j.ID, postingID) {
 			continue
 		}
 		desc := j.DescriptionPlain
