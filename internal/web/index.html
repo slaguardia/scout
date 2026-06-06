@@ -250,8 +250,9 @@
     font-size: 12.5px; color: var(--fg-mute);
   }
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
-     green with its checkmark when on. */
-  .ptrack .pt-chip {
+     green with its checkmark when on. Unscoped: the chip lives in both the
+     company pane's posting cards (.ptrack) and the pursuit panel's pipeline. */
+  .pt-chip {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap;
     background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
@@ -259,10 +260,10 @@
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
                 background var(--dur-fast) var(--ease);
   }
-  .ptrack .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
-  .ptrack .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
-  .ptrack .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
-  .ptrack .pt-chip.is-on svg { opacity: 1; }
+  .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
+  .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  .pt-chip.is-on svg { opacity: 1; }
   /* outreach stepper — the − undoes a mis-click */
   .ptrack .pt-stepper { display: inline-flex; gap: 4px; }
   .ptrack .pt-outreach-dec { padding: 3px 9px; }
@@ -273,6 +274,10 @@
   .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ptrack .pt-contacts { flex: 1 1 100%; }
   td.td-contacts { max-width: 220px; overflow-wrap: anywhere; }
+  /* footer note when hide-rejected is suppressing rows — a silently missing
+     job reads as a bug, so say it and offer the one-click undo */
+  .hidden-note { padding: 10px 14px; font-size: 12px; color: var(--fg-dim); border-top: 1px solid var(--line); }
+  .hidden-note a { color: var(--link); cursor: pointer; }
 
   .table-wrap {
     border: 1px solid var(--line);
@@ -480,6 +485,10 @@
     display: flex; flex-direction: column;
   }
   .pane.open { transform: translateX(0); }
+  /* The company pane stacks above the pursuit panel — "View company" opens it
+     on top (Escape then peels them back in order: company first). */
+  #scrim { z-index: 52; }
+  #pane { z-index: 53; }
 
   .pane-head {
     padding: 18px 22px 14px;
@@ -1357,6 +1366,7 @@
       <div class="t">No jobs match the current filters.</div>
       <div class="small dim">Paste a posting URL via <strong>Add…</strong> — the agent pass fills in the rest.</div>
     </div>
+    <div class="hidden-note" id="jobs-hidden-note" style="display:none"></div>
   </div>
 </main>
 </div>
@@ -2043,12 +2053,23 @@ function renderJobs() {
   tbody.innerHTML = "";
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
-  // Say what hide-rejected is suppressing — a silently missing row reads as a bug.
+  // Say what hide-rejected is suppressing — a silently missing row reads as a
+  // bug. The chip gets a count; the table gets a footer note with the undo.
   const hiddenRej = (hideRejected && !responseFilter.has("rejected"))
     ? state.jobs.filter(j => j.response === "rejected").length : 0;
   const hn = document.getElementById("hidden-rej-n");
   hn.textContent = hiddenRej;
   hn.style.display = hiddenRej ? "" : "none";
+  const note = document.getElementById("jobs-hidden-note");
+  note.style.display = hiddenRej ? "" : "none";
+  if (hiddenRej) {
+    note.innerHTML = `${hiddenRej} rejected application${hiddenRej > 1 ? "s" : ""} hidden — <a id="show-rejected-link">show</a>`;
+    document.getElementById("show-rejected-link").onclick = () => {
+      hideRejected = false;
+      document.getElementById("hide-rejected").classList.remove("is-on");
+      renderJobs();
+    };
+  }
   for (const j of rows) {
     const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
