@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -364,4 +365,33 @@ ORDER BY ` + column + ` COLLATE NOCASE`)
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// VerticalTags returns the distinct individual vertical tags in the set:
+// composite "A, B, C" cells (Crunchbase "Industries" exports whole lists into
+// one cell) are split on commas, deduped case-insensitively (first spelling
+// wins), and sorted. Powers the Add-dialog facet picker and the vocabulary
+// steering in the capture/enrichment extraction prompts.
+func (db *DB) VerticalTags() ([]string, error) {
+	cells, err := db.DistinctValues("vertical")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, cell := range cells {
+		for _, tok := range strings.Split(cell, ",") {
+			tok = strings.TrimSpace(tok)
+			key := strings.ToLower(tok)
+			if tok == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, tok)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
+	return out, nil
 }

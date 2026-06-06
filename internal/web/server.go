@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -214,9 +213,9 @@ func (s *Server) handleAddCompany(w http.ResponseWriter, r *http.Request) {
 
 // handleFacets returns the distinct funding stages and verticals currently in
 // the set, to populate the Add-company dropdowns. Stages are whole values;
-// verticals are split on commas (Crunchbase stores composite "Industries"
-// cells like "AI, Cloud Computing, SaaS"), deduped case-insensitively, and
-// sorted, so the multi-select offers individual tags. GET /api/facets.
+// verticals come from store.VerticalTags — composite Crunchbase "Industries"
+// cells split into individual deduped tags — so the multi-select offers
+// individual tags. GET /api/facets.
 func (s *Server) handleFacets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -227,37 +226,15 @@ func (s *Server) handleFacets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	rawVerticals, err := s.DB.DistinctValues("vertical")
+	verticals, err := s.DB.VerticalTags()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"funding_stages": stages,
-		"verticals":      splitVerticals(rawVerticals),
+		"verticals":      verticals,
 	})
-}
-
-// splitVerticals flattens composite "A, B, C" vertical cells into a sorted set
-// of distinct individual tags (case-insensitive dedupe, first spelling wins).
-func splitVerticals(cells []string) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, cell := range cells {
-		for _, tok := range strings.Split(cell, ",") {
-			tok = strings.TrimSpace(tok)
-			key := strings.ToLower(tok)
-			if tok == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, tok)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
-	})
-	return out
 }
 
 // alreadyInListMsg builds the 409 body for a duplicate manual add, naming the

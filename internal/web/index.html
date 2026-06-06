@@ -239,20 +239,13 @@
   }
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
-  .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background: var(--link-bg); color: var(--link); }
 
-  /* per-posting application tracking (detail pane) */
-  .ptrack {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
-    font-size: 12.5px; color: var(--fg-mute);
-  }
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
-     green with its checkmark when on. */
-  .ptrack .pt-chip {
+     green with its checkmark when on (pursuit panel's pipeline). */
+  .pt-chip {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap;
     background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
@@ -260,20 +253,30 @@
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
                 background var(--dur-fast) var(--ease);
   }
-  .ptrack .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
-  .ptrack .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
-  .ptrack .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
-  .ptrack .pt-chip.is-on svg { opacity: 1; }
-  /* outreach stepper — the − undoes a mis-click */
-  .ptrack .pt-stepper { display: inline-flex; gap: 4px; }
-  .ptrack .pt-outreach-dec { padding: 3px 9px; }
-  .ptrack .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
-  .ptrack .input { width: auto; padding: 3px 8px; font-size: 12px; }
-  .ptrack input[type="date"].input { color-scheme: dark; }
-  .ptrack .btn { padding: 3px 10px; font-size: 12px; }
-  .ptrack .pt-meta { color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .ptrack .pt-contacts { flex: 1 1 100%; }
+  .pt-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
+  .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  .pt-chip.is-on svg { opacity: 1; }
+  /* outreach stepper (pursuit panel) — the − undoes a mis-click */
+  .pt-stepper { display: inline-flex; gap: 4px; }
+  .pt-stepper .btn { padding: 3px 10px; font-size: 12px; }
+  .pt-outreach-dec { padding: 3px 9px; }
+  .pt-outreach-dec:disabled { opacity: 0.35; cursor: not-allowed; }
+  .pt-meta { color: var(--fg-dim); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* posting cards (company pane) — read-only pursuit summaries; the card
+     itself opens the pursuit panel, like a jobs-table row */
+  .posting-card { cursor: pointer; }
+  .pcard-status {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2);
+  }
+  .pcard-open { margin-left: auto; font-size: 12px; color: var(--link); opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+  .posting-card:hover .pcard-open { opacity: 1; }
   td.td-contacts { max-width: 220px; overflow-wrap: anywhere; }
+  /* footer note when hide-rejected is suppressing rows — a silently missing
+     job reads as a bug, so say it and offer the one-click undo */
+  .hidden-note { padding: 10px 14px; font-size: 12px; color: var(--fg-dim); border-top: 1px solid var(--line); }
+  .hidden-note a { color: var(--link); cursor: pointer; }
 
   .table-wrap {
     border: 1px solid var(--line);
@@ -406,6 +409,7 @@
   /* mode chips ("only blanks", "hide rejected") light link-blue — a state
      toggle, not a verdict color. */
   #only-blanks.is-on, #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  #next-up-filter.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
      filters. Lit = visible column. */
@@ -481,6 +485,10 @@
     display: flex; flex-direction: column;
   }
   .pane.open { transform: translateX(0); }
+  /* The company pane stacks above the pursuit panel — "View company" opens it
+     on top (Escape then peels them back in order: company first). */
+  #scrim { z-index: 52; }
+  #pane { z-index: 53; }
 
   .pane-head {
     padding: 18px 22px 14px;
@@ -639,9 +647,21 @@
     color: var(--fg-mute); font-size: 12.5px; align-items: center;
   }
   .role-head .role-company { color: var(--fg-dim); }
+  .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);
     font-size: 13px; line-height: 1.55;
+  }
+  /* full description — ATS-resolved posting text, collapsed by default */
+  .role-head .role-desc { margin-top: 10px; }
+  .role-head .role-desc summary {
+    cursor: pointer; font-size: 12px; color: var(--fg-mute); user-select: none;
+  }
+  .role-head .role-desc[open] summary { color: var(--fg-dim); }
+  .role-head .role-desc-text {
+    margin-top: 8px; max-height: 340px; overflow-y: auto;
+    white-space: pre-wrap; color: var(--fg-mute);
+    font-size: 12.5px; line-height: 1.55;
   }
 
   /* pipeline section — the relocated tracker controls, with room to breathe */
@@ -658,7 +678,7 @@
 
   /* outreach section */
   .outreach-meta {
-    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
     color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px;
   }
   .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
@@ -750,6 +770,9 @@
     text-transform: uppercase; letter-spacing: 0.04em;
   }
   .draft-badge.db-nohook { background: var(--link-bg); color: var(--link); }
+  /* the "next up for outreach" queue mark — accent, distinct from draft states */
+  .draft-badge.db-next { background: rgba(139,109,255,0.14); color: var(--accent); }
+  .pt-chip.pt-nextup.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
   /* ---- decision trail ---- */
   .trail-event {
@@ -852,6 +875,9 @@
   }
   .run-btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-2); }
   .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* lit while its stage is running — same vocabulary as the is-on chips */
+  .run-btn.busy { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  .run-btn.busy svg { color: var(--link); }
   .run-btn svg { width: 13px; height: 13px; flex: none; color: var(--fg-mute); }
   .run-btn .grow { flex: 1; }
   .run-busy {
@@ -945,7 +971,15 @@
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
 
-  /* ---- add-company form ---- */
+  /* ---- the Add dialog ---- */
+  .kind-toggle { display: flex; gap: 6px; }
+  .enrich-row {
+    display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
+    font-size: 12.5px; color: var(--fg-mute); cursor: pointer; user-select: none;
+  }
+  .enrich-row input { accent-color: var(--link); cursor: pointer; margin: 0; }
+  .enrich-row.disabled { opacity: 0.5; cursor: default; }
+  .enrich-row.disabled input { cursor: default; }
   .form-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
   .form-field label { font-size: 12px; color: var(--fg-mute); }
   .form-field label .req { color: var(--no); margin-left: 2px; }
@@ -1185,7 +1219,7 @@
   <div class="block" id="block-view">
     <div class="view-switch" title="which table the main area shows">
       <button class="tab active" id="tab-companies">companies</button>
-      <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+      <button class="tab" id="tab-jobs">jobs</button>
     </div>
   </div>
 
@@ -1199,13 +1233,9 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
         <span class="grow">Ingest CSV…</span>
       </button>
-      <button class="run-btn" id="btn-add-company">
+      <button class="run-btn" id="btn-add" title="add a company or a job from its link — optionally let an agent pass fill in the blanks">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-        <span class="grow">Add company…</span>
-      </button>
-      <button class="run-btn" id="btn-add-link" title="paste a job posting or company page URL — an agent pass fills in the details">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.7 9.3l2.6-2.6M5.6 7.2L4 8.8a2.3 2.3 0 003.2 3.2l1.6-1.6M10.4 8.8L12 7.2A2.3 2.3 0 008.8 4L7.2 5.6"/></svg>
-        <span class="grow">Add by link…</span>
+        <span class="grow">Add…</span>
       </button>
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
@@ -1266,11 +1296,11 @@
         <button class="v-chip" data-r="interview">interview</button>
         <button class="v-chip" data-r="offer">offer</button>
         <button class="v-chip" data-r="rejected" title="selecting this shows rejected rows even with “hide rejected” on">rejected</button>
-        <button class="v-chip flag-chip" id="jflag-filter" title="show postings at flagged companies only">⚑ flagged</button>
+        <button class="v-chip" id="next-up-filter" title="show only postings queued next up for outreach">next up <span class="v-count" id="next-up-n" style="display:none"></span></button>
       </div>
     </div>
     <div class="filter-row">
-      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected</button>
+      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected <span class="v-count" id="hidden-rej-n" style="display:none"></span></button>
     </div>
   </div>
 
@@ -1349,8 +1379,9 @@
         <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m-13 0h18a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z"/>
       </svg>
       <div class="t">No jobs match the current filters.</div>
-      <div class="small dim">Paste a posting URL via <strong>Add by link…</strong> — the agent pass fills in the rest.</div>
+      <div class="small dim">Paste a posting URL via <strong>Add…</strong> — the agent pass fills in the rest.</div>
     </div>
+    <div class="hidden-note" id="jobs-hidden-note" style="display:none"></div>
   </div>
 </main>
 </div>
@@ -1438,70 +1469,72 @@
 </div>
 
 <!-- add-company modal (manual single-company import) -->
+<!-- the Add dialog: company or job, link first; everything else is optional —
+     the link-capture agent pass fills the blanks when the box is ticked -->
 <div class="modal-scrim" id="add-scrim">
   <div class="modal" style="width:560px">
     <div class="modal-head">
-      <h2>Add company</h2>
+      <h2>Add</h2>
+      <div class="kind-toggle" id="add-kind">
+        <button class="v-chip is-on" data-kind="company">company</button>
+        <button class="v-chip" data-kind="job">job</button>
+      </div>
     </div>
     <div class="modal-body">
       <div class="form-field">
-        <label for="add-website">Website<span class="req">*</span></label>
-        <input class="input" id="add-website" placeholder="acme.com" autocomplete="off" spellcheck="false">
+        <label for="add-url" id="add-url-label">Website<span class="req">*</span></label>
+        <input class="input" id="add-url" placeholder="acme.com" autocomplete="off" spellcheck="false">
       </div>
-      <div class="form-field">
-        <label for="add-name">Name</label>
-        <input class="input" id="add-name" placeholder="defaults to the domain" autocomplete="off">
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label for="add-location">Location</label>
-          <input class="input" id="add-location" autocomplete="off">
-        </div>
-        <div class="form-field">
-          <label for="add-headcount">Headcount</label>
-          <input class="input" id="add-headcount" inputmode="numeric" placeholder="e.g. 250" autocomplete="off">
-        </div>
-        <div class="form-field">
-          <label for="add-stage">Funding stage</label>
-          <select class="input" id="add-stage"><option value="">—</option></select>
+      <div id="add-job-fields" style="display:none">
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="add-title">Title</label>
+            <input class="input" id="add-title" placeholder="e.g. Solutions Engineer" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-job-company">Company</label>
+            <input class="input" id="add-job-company" list="add-company-names" placeholder="from the link if blank" autocomplete="off">
+            <datalist id="add-company-names"></datalist>
+          </div>
         </div>
       </div>
-      <div class="form-field">
-        <label>Verticals <span id="add-vertical-count" style="color:var(--fg-dim);font-weight:400"></span></label>
-        <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
-        <div class="vchips" id="add-vertical-chips"></div>
+      <div id="add-company-fields">
+        <div class="form-field">
+          <label for="add-name">Name</label>
+          <input class="input" id="add-name" placeholder="defaults to the domain" autocomplete="off">
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="add-location">Location</label>
+            <input class="input" id="add-location" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-headcount">Headcount</label>
+            <input class="input" id="add-headcount" inputmode="numeric" placeholder="e.g. 250" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-stage">Funding stage</label>
+            <select class="input" id="add-stage"><option value="">—</option></select>
+          </div>
+        </div>
+        <div class="form-field">
+          <label>Verticals <span id="add-vertical-count" style="color:var(--fg-dim);font-weight:400"></span></label>
+          <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
+          <div class="vchips" id="add-vertical-chips"></div>
+        </div>
       </div>
+      <label class="enrich-row" id="add-enrich-row">
+        <input type="checkbox" id="add-enrich" checked>
+        <span>fill in the blanks — ATS links (ashby/greenhouse/lever) read the platform's API directly, anything else gets one cheap agent pass</span>
+      </label>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company.</span>
+        <span id="add-note"></span>
       </div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>
       <button class="btn btn-primary" id="add-save">Add company</button>
-    </div>
-  </div>
-</div>
-
-<!-- add-by-link modal (the link-capture agent pass) -->
-<div class="modal-scrim" id="capture-scrim">
-  <div class="modal" style="width:560px">
-    <div class="modal-head">
-      <h2>Add by link</h2>
-    </div>
-    <div class="modal-body">
-      <div class="form-field">
-        <label for="capture-url">URL<span class="req">*</span></label>
-        <input class="input" id="capture-url" placeholder="https://… job posting or company page" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="modal-note">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Paste a job posting or a company page. scout fetches it and an agent pass figures out which it is and fills in the details — a job posting attaches to its company, adding the company first if it isn't in the list yet. Pages behind a login wall (LinkedIn) usually can't be fetched.</span>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" id="capture-cancel">Cancel</button>
-      <button class="btn btn-primary" id="capture-save">Capture</button>
     </div>
   </div>
 </div>
@@ -1715,9 +1748,9 @@ Return the JSON verdict now.</pre>
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
-          <h4>The jobs view &amp; Add by link</h4>
-          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Everything else about the company and role lives in the slide-in panel, where each posting card carries the tracking controls (applied toggle + date, response select, a "+1 outreach" logger, contacts field). Rejected rows are hidden by default — flip the toggle to see them.</p>
-          <p>The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
+          <h4>The jobs view &amp; the Add dialog</h4>
+          <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Clicking a row opens the <strong>pursuit panel</strong> — the one place all per-posting editing lives: the pipeline (applied toggle + date, response select, a <strong>next up</strong> queue mark), the outreach section (a "+1 outreach" logger for messages sent outside scout, contacts, and the draft queue), and a View company button. <em>Next up</em> is a to-do, not a status: mark the pursuits you intend to reach out to, filter the table by the chip, and the mark clears itself the moment the outreach goes out (a +1 log or a draft marked sent). The company pane's jobs list shows the same status read-only; click a card to jump to its pursuit. Rejected rows are hidden from the jobs table by default — the footer note says how many, with a one-click show.</p>
+          <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a posting link on a supported ATS (Ashby, Greenhouse, Lever) is read straight from the platform's public API — exact title, location, department, employment and workplace type, published salary range, posted date, and the full description, with no LLM involved; any other link gets a one-shot agent pass (Haiku) that fetches the page and extracts the details. Anything you typed wins over either — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
           <p>The detail pane includes:</p>
@@ -1769,7 +1802,6 @@ async function loadJobs() {
     data = await r.json();
   } catch { return; }
   state.jobs = data.rows || [];
-  document.getElementById("jobs-n").textContent = state.jobs.length ? ` ${state.jobs.length}` : "";
   renderJobs();
   // The pursuit panel holds a reference into the old array; re-bind it to the
   // fresh row so its header/pipeline reflect server-side moves (e.g. a sent
@@ -1970,7 +2002,7 @@ function renderList() {
 // mirrors the Notion tracker's default view. Picking the "rejected" chip
 // explicitly overrides hide-rejected — an empty table would just confuse.
 const responseFilter = new Set();
-let jflagOnly = false;     // jobs-view ⚑ chip: postings at flagged companies only
+let nextUpOnly = false;    // jobs-view chip: postings queued next up for outreach
 let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
 
 function filteredJobs() {
@@ -1979,7 +2011,7 @@ function filteredJobs() {
   return state.jobs.filter(j => {
     if (hideRej && j.response === "rejected") return false;
     if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
-    if (jflagOnly && !j.flagged) return false;
+    if (nextUpOnly && !j.next_up) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -2036,12 +2068,34 @@ function renderJobs() {
   tbody.innerHTML = "";
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
+  // Say what hide-rejected is suppressing — a silently missing row reads as a
+  // bug. The chip gets a count; the table gets a footer note with the undo.
+  const hiddenRej = (hideRejected && !responseFilter.has("rejected"))
+    ? state.jobs.filter(j => j.response === "rejected").length : 0;
+  const hn = document.getElementById("hidden-rej-n");
+  hn.textContent = hiddenRej;
+  hn.style.display = hiddenRej ? "" : "none";
+  // The next-up chip carries its queue size, so the to-do list is one glance.
+  const nextUpN = state.jobs.filter(j => j.next_up).length;
+  const nn = document.getElementById("next-up-n");
+  nn.textContent = nextUpN;
+  nn.style.display = nextUpN ? "" : "none";
+  const note = document.getElementById("jobs-hidden-note");
+  note.style.display = hiddenRej ? "" : "none";
+  if (hiddenRej) {
+    note.innerHTML = `${hiddenRej} rejected application${hiddenRej > 1 ? "s" : ""} hidden — <a id="show-rejected-link">show</a>`;
+    document.getElementById("show-rejected-link").onclick = () => {
+      hideRejected = false;
+      document.getElementById("hide-rejected").classList.remove("is-on");
+      renderJobs();
+    };
+  }
   for (const j of rows) {
     const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
     tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}
+      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${j.next_up ? '<span class="draft-badge db-next" title="queued next up for outreach">next up</span>' : ""}${draftBadgeHTML(j.outreach_draft_status)}
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
       <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
@@ -2080,8 +2134,13 @@ function draftBadgeHTML(status) {
 // outreach queue fetches drafts and polls while one is researching.
 const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false };
 
-function openPursuit(postingId) {
-  const row = state.jobs.find(j => j.posting_id === postingId);
+async function openPursuit(postingId) {
+  let row = state.jobs.find(j => j.posting_id === postingId);
+  if (!row) {
+    // Opened from the company pane before the jobs cache caught up — refetch.
+    await loadJobs();
+    row = state.jobs.find(j => j.posting_id === postingId);
+  }
   if (!row) { toast("posting not found — refresh"); return; }
   stopPursuitPoll();
   pursuit.postingId = postingId;
@@ -2151,9 +2210,15 @@ function renderPursuit() {
       <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
       <div class="role-meta">
         ${j.location ? `<span>${escapeHTML(j.location)}</span>` : ""}
+        ${j.workplace_type ? `<span>${escapeHTML(j.workplace_type)}</span>` : ""}
+        ${j.employment_type ? `<span>${escapeHTML(j.employment_type)}</span>` : ""}
+        ${j.department ? `<span>${escapeHTML(j.department)}</span>` : ""}
+        ${j.comp_range ? `<span class="role-comp">${escapeHTML(j.comp_range)}</span>` : ""}
+        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
         <span class="role-company">${escapeHTML(j.company)}</span>
       </div>
       ${j.summary ? `<div class="role-summary">${escapeHTML(j.summary)}</div>` : ""}
+      ${j.description ? `<details class="role-desc"><summary>full description</summary><div class="role-desc-text">${escapeHTML(j.description)}</div></details>` : ""}
     </section>
 
     <section class="pane-section">
@@ -2180,6 +2245,13 @@ function renderPursuit() {
             <option value="offer" ${j.response === "offer" ? "selected" : ""}>offer</option>
             <option value="rejected" ${j.response === "rejected" ? "selected" : ""}>rejected</option>
           </select>
+        </div>
+        <div class="pipeline-row">
+          <span class="pl-label">queue</span>
+          <button class="pt-chip pt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "unmark — it also clears itself when the outreach goes out" : "mark this pursuit next up for outreach"}">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg>
+            next up
+          </button>
         </div>
       </div>
     </section>
@@ -2221,6 +2293,32 @@ function wirePipeline() {
   const sel = document.querySelector("#pursuit-body .pl-response");
   if (sel) sel.addEventListener("change", e =>
     savePursuitTracking({ response: e.target.value }));
+  const nextUp = document.querySelector("#pursuit-body .pt-nextup");
+  if (nextUp) nextUp.addEventListener("click", toggleNextUp);
+}
+
+// toggleNextUp queues/unqueues the open pursuit as "next up for outreach".
+// Its own endpoint (not the tracking PUT) so the server can also clear the
+// mark on its own when the outreach goes out.
+async function toggleNextUp() {
+  const j = pursuit.row;
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}/next-up`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ next_up: !j.next_up }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  const fresh = await resp.json();
+  j.next_up = fresh.next_up;
+  renderJobs();
+  renderPursuit();
+  toast(j.next_up ? "queued next up" : "removed from the queue");
 }
 
 // savePursuitTracking PUTs the posting's full lifecycle (current overlaid with
@@ -2249,10 +2347,12 @@ async function savePursuitTracking(patch) {
   }
   const fresh = await resp.json();
   // Fold the posting fields back into the row (keep company/verdict/badge etc).
+  // next_up rides along so the server-side auto-clear (+1 outreach completes
+  // the queued to-do) reflects immediately.
   Object.assign(j, {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
-    contacts: fresh.contacts,
+    contacts: fresh.contacts, next_up: fresh.next_up,
   });
   renderJobs();
   renderPursuit();
@@ -2273,11 +2373,15 @@ function renderOutreachSection() {
     <div class="outreach-meta">
       <span><span class="om-count">${j.outreach_count || 0}</span> sent</span>
       ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
+      <span class="pt-stepper">
+        <button class="btn pt-outreach-dec" title="undo one outreach" ${j.outreach_count ? "" : "disabled"}>−</button>
+        <button class="btn pt-outreach" title="log one outreach sent outside scout — today">+1 outreach</button>
+      </span>
     </div>
     <div class="outreach-contacts">
       <input class="input oc-input" value="${escapeHTML(j.contacts || "")}"
-             placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
-             title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
+             placeholder="add contacts, comma-separated (emails become links)" spellcheck="false"
+             title="outreach contacts for this role — saved on Enter or click-away">
       <div class="oc-rendered">${contactsHTML(j.contacts)}</div>
     </div>`;
 
@@ -2413,6 +2517,19 @@ function wireOutreach() {
     oc.addEventListener("change", e => savePursuitTracking({ contacts: e.target.value.trim() }));
     oc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
   }
+
+  // Manual outreach logger — for messages sent outside scout. The − undoes a
+  // mis-click; at 0 the last-outreach date is cleared (it describes nothing).
+  const today = () => new Date().toISOString().slice(0, 10);
+  const j = pursuit.row;
+  const inc = host.querySelector(".pt-outreach");
+  if (inc) inc.addEventListener("click", () =>
+    savePursuitTracking({ outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: today() }));
+  const dec = host.querySelector(".pt-outreach-dec");
+  if (dec) dec.addEventListener("click", () => {
+    const n = Math.max(0, (j.outreach_count || 0) - 1);
+    savePursuitTracking({ outreach_count: n, ...(n === 0 ? { last_outreach_at: "" } : {}) });
+  });
 
   const start = host.querySelector("#draft-start-btn");
   if (start) start.addEventListener("click", startDraft);
@@ -2733,7 +2850,7 @@ function renderDetail(d) {
 
   const addPostBtn = document.getElementById("posting-add-btn");
   if (addPostBtn) addPostBtn.addEventListener("click", () => onAddPosting(d));
-  wirePostingTracking(d);
+  wirePostingCards();
 
   // Verdict override: single-select the yes/maybe/no buttons, then Save.
   document.querySelectorAll("#ve-pick .ve-opt").forEach(btn => {
@@ -2941,6 +3058,9 @@ async function onSaveVerdict(d) {
 }
 
 // ---- job postings ----
+// postingsListHTML renders the company pane's jobs list as read-only pursuit
+// summaries — same vocabulary as the jobs table. All tracking and outreach
+// editing lives in the pursuit panel; clicking a card opens it.
 function postingsListHTML(d) {
   const ps = d.postings || [];
   if (!ps.length) return '<div class="muted">No job links yet.</div>';
@@ -2950,115 +3070,34 @@ function postingsListHTML(d) {
       p.source === "capture" ? "captured" : "added",
       (p.created_at || "").slice(0, 10),
     ].filter(Boolean).map(escapeHTML).join(" · ");
-    const outreachMeta = p.outreach_count
-      ? `${p.outreach_count}× · last ${escapeHTML(p.last_outreach_at || "?")}`
-      : "no outreach yet";
+    const resp = RESPONSE_META[p.response] || RESPONSE_META[""];
+    const status = [
+      p.next_up ? '<span class="draft-badge db-next" style="margin-left:0" title="queued next up for outreach">next up</span>' : "",
+      `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>`,
+      `<span class="pt-meta">${p.applied_at ? `applied ${escapeHTML(p.applied_at)}` : "not applied"}</span>`,
+      `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
+    ].filter(Boolean).join("");
     return `
-    <div class="brain-node">
+    <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
-      <div class="ptrack" data-pid="${escapeHTML(p.id)}">
-        <button class="pt-chip pt-applied${p.applied_at ? " is-on" : ""}" title="${p.applied_at ? "mark as not applied" : "mark applied today"}">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
-          applied
-        </button>
-        <input type="date" class="input pt-applied-date" value="${escapeHTML(p.applied_at || "")}"
-               style="display:${p.applied_at ? "" : "none"}" title="application date">
-        <select class="input pt-response" title="furthest response reached">
-          <option value="">response: —</option>
-          <option value="screening" ${p.response === "screening" ? "selected" : ""}>screening call</option>
-          <option value="interview" ${p.response === "interview" ? "selected" : ""}>interview</option>
-          <option value="offer" ${p.response === "offer" ? "selected" : ""}>offer</option>
-          <option value="rejected" ${p.response === "rejected" ? "selected" : ""}>rejected</option>
-        </select>
-        <span class="pt-stepper">
-          <button class="btn pt-outreach-dec" title="undo one outreach" ${p.outreach_count ? "" : "disabled"}>−</button>
-          <button class="btn pt-outreach" title="log one outreach today">+1 outreach</button>
-        </span>
-        <span class="pt-meta">${outreachMeta}</span>
-        <input class="input pt-contacts" value="${escapeHTML(p.contacts || "")}"
-               placeholder="contacts — Jane Doe &lt;jane@acme.com&gt;, cto@acme.com" spellcheck="false"
-               title="outreach contacts for this role (comma-separated; saved on Enter or click-away)">
-      </div>
+      <div class="pcard-status">${status}<span class="pcard-open">pursuit →</span></div>
     </div>`;
   }).join("");
 }
 
-// wirePostingTracking binds the per-posting tracking controls inside
-// #postings-list. Re-run after every list re-render (the nodes are rebuilt).
-function wirePostingTracking(d) {
-  const today = () => new Date().toISOString().slice(0, 10);
-  document.querySelectorAll("#postings-list .ptrack").forEach(row => {
-    const p = (d.postings || []).find(x => x.id === row.dataset.pid);
-    if (!p) return;
-    row.querySelector(".pt-applied").addEventListener("click", () => {
-      savePostingTracking(d, p, { applied_at: p.applied_at ? "" : today() });
-    });
-    row.querySelector(".pt-applied-date").addEventListener("change", e => {
-      savePostingTracking(d, p, { applied_at: e.target.value });
-    });
-    row.querySelector(".pt-response").addEventListener("change", e => {
-      savePostingTracking(d, p, { response: e.target.value });
-    });
-    row.querySelector(".pt-outreach").addEventListener("click", () => {
-      savePostingTracking(d, p, {
-        outreach_count: (p.outreach_count || 0) + 1,
-        last_outreach_at: today(),
-      });
-    });
-    // Undo a mis-click: step the count back down (never below 0); at 0 the
-    // last-outreach date is cleared too, since it no longer describes anything.
-    row.querySelector(".pt-outreach-dec").addEventListener("click", () => {
-      const n = Math.max(0, (p.outreach_count || 0) - 1);
-      savePostingTracking(d, p, {
-        outreach_count: n,
-        ...(n === 0 ? { last_outreach_at: "" } : {}),
-      });
-    });
-    // Contacts save on change (blur with a new value); Enter blurs to commit.
-    const contacts = row.querySelector(".pt-contacts");
-    contacts.addEventListener("change", e => {
-      savePostingTracking(d, p, { contacts: e.target.value.trim() });
-    });
-    contacts.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+// wirePostingCards makes each card open its pursuit panel (the company pane
+// closes — the pursuit is the new focus). The external link is guarded out,
+// mirroring the jobs-table rows.
+function wirePostingCards() {
+  document.querySelectorAll("#postings-list .posting-card").forEach(card => {
+    card.addEventListener("click", e => {
+      if (e.target.closest("a")) return;
+      closeDetail();
+      openPursuit(card.dataset.pid);
     });
   });
-}
-
-// savePostingTracking PUTs the posting's full lifecycle state (current values
-// overlaid with the change), refreshes the pane card from the response, and
-// keeps the jobs table in sync.
-async function savePostingTracking(d, p, patch) {
-  const body = {
-    applied_at: p.applied_at || "",
-    response: p.response || "",
-    outreach_count: p.outreach_count || 0,
-    last_outreach_at: p.last_outreach_at || "",
-    contacts: p.contacts || "",
-    ...patch,
-  };
-  let resp;
-  try {
-    resp = await fetch(`/api/postings/${p.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (e) { toast(`save failed: ${e.message}`); return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`save failed: ${txt || "HTTP " + resp.status}`);
-    return;
-  }
-  const fresh = await resp.json();
-  const i = (d.postings || []).findIndex(x => x.id === p.id);
-  if (i >= 0) d.postings[i] = fresh;
-  const list = document.getElementById("postings-list");
-  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
-  loadJobs();
-  toast("tracking saved");
 }
 
 async function onAddPosting(d) {
@@ -3087,10 +3126,11 @@ async function onAddPosting(d) {
     return;
   }
   const p = await resp.json();
-  d.postings = d.postings || [];
+  // AddPosting is idempotent by URL — replace the row when it already exists.
+  d.postings = (d.postings || []).filter(x => x.id !== p.id);
   d.postings.unshift(p);
   const list = document.getElementById("postings-list");
-  if (list) { list.innerHTML = postingsListHTML(d); wirePostingTracking(d); }
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingCards(); }
   urlEl.value = ""; titleEl.value = "";
   btn.disabled = false;
   loadJobs(); // keep the jobs view in sync
@@ -3170,10 +3210,8 @@ async function loadMeta() {
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
-  // Capture needs only the API key (no Runner — it's a direct synchronous pass).
-  const cb = document.getElementById("btn-add-link");
-  cb.disabled = !state.meta.capture;
-  if (!state.meta.capture) cb.title = "set ANTHROPIC_API_KEY in the server env to enable";
+  // The Add dialog itself is always available (manual writes need no key);
+  // its agent-pass tick is gated on meta.capture inside openAdd().
 }
 
 // ---- control surface: runs history ----
@@ -3184,7 +3222,7 @@ async function loadRuns() {
     if (!r.ok) return;
     data = await r.json();
   } catch { return; }
-  // Busy indicator.
+  // Busy indicator — the spinner row plus a lit state on the running stage's button.
   const busy = data.busy_stage || "";
   const busyEl = document.getElementById("run-busy");
   if (busy) {
@@ -3193,6 +3231,9 @@ async function loadRuns() {
   } else {
     busyEl.style.display = "none";
   }
+  document.getElementById("btn-ingest").classList.toggle("busy", busy === "ingest");
+  document.getElementById("btn-enrich").classList.toggle("busy", busy === "enrich");
+  document.getElementById("btn-verdict").classList.toggle("busy", busy === "verdict");
 }
 
 // ---- control surface: run a stage ----
@@ -3227,21 +3268,72 @@ async function uploadCSV(file) {
   streamJob("ingest", job_id);
 }
 
-// ---- manual add-company ----
-const ADD_FIELDS = ["add-website","add-name","add-location","add-headcount"];
+// ---- the Add dialog (company or job; the agent pass fills the blanks) ----
+const ADD_FIELDS = ["add-url","add-name","add-location","add-headcount","add-title","add-job-company"];
 let addVerticals = [];               // available tags from the DB (sorted)
 let addVerticalsSel = new Set();     // currently selected tags (original spelling)
+let addKind = "company";             // sticky across opens — muscle memory
 
-async function openAddCompany() {
+function setAddKind(kind) {
+  addKind = kind;
+  document.querySelectorAll("#add-kind .v-chip").forEach(b =>
+    b.classList.toggle("is-on", b.dataset.kind === kind));
+  document.getElementById("add-company-fields").style.display = kind === "company" ? "" : "none";
+  document.getElementById("add-job-fields").style.display = kind === "job" ? "" : "none";
+  const label = document.getElementById("add-url-label");
+  const url = document.getElementById("add-url");
+  if (kind === "company") {
+    label.innerHTML = 'Website<span class="req">*</span>';
+    url.placeholder = "acme.com";
+  } else {
+    label.innerHTML = 'Posting URL<span class="req">*</span>';
+    url.placeholder = "https://… the job posting";
+  }
+  document.getElementById("add-save").textContent = kind === "company" ? "Add company" : "Add job";
+  updateAddNote();
+}
+
+function addEnrichOn() {
+  return !!state.meta.capture && document.getElementById("add-enrich").checked;
+}
+
+// The note under the form spells out exactly what the submit will do — it
+// changes with the kind toggle and the agent-pass tick.
+function updateAddNote() {
+  const note = document.getElementById("add-note");
+  if (addEnrichOn()) {
+    note.innerHTML = addKind === "company"
+      ? "scout fetches the page and fills the blank fields — your values win. The page text also seeds enrichment, so the next Verdict can score it. Pages behind a login wall (LinkedIn) usually can't be fetched."
+      : "scout fetches the posting and fills in the title, location and summary — your values win. The job attaches to its company, adding it to the list first if needed. Pages behind a login wall (LinkedIn) usually can't be fetched.";
+  } else {
+    note.innerHTML = addKind === "company"
+      ? "Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company."
+      : "Stored as-is, no fetch. The job attaches to the typed company, or to the link's own domain when the posting lives on the company's site — for an ATS link (greenhouse, lever, …), type the company.";
+  }
+}
+
+async function openAdd() {
   ADD_FIELDS.forEach(id => { document.getElementById(id).value = ""; });
   document.getElementById("add-vertical-filter").value = "";
   addVerticalsSel = new Set();
-  // Populate the stage + vertical pickers from the current DB before showing.
+  // The agent pass needs the server's Anthropic key; without it the tick is
+  // pinned off. With it, the tick is sticky across opens.
+  const enrich = document.getElementById("add-enrich");
+  const row = document.getElementById("add-enrich-row");
+  enrich.disabled = !state.meta.capture;
+  row.classList.toggle("disabled", !state.meta.capture);
+  row.title = state.meta.capture ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  if (!state.meta.capture) enrich.checked = false;
+  setAddKind(addKind);
+  // Populate the stage + vertical pickers and the company suggestions from the
+  // current DB before showing.
   const stageSel = document.getElementById("add-stage");
   stageSel.innerHTML = '<option value="">—</option>';
   document.getElementById("add-vertical-chips").innerHTML = '<div class="none">loading…</div>';
+  document.getElementById("add-company-names").innerHTML =
+    (state.rows || []).map(r => `<option value="${escapeHTML(r.name)}">`).join("");
   document.getElementById("add-scrim").classList.add("open");
-  document.getElementById("add-website").focus();
+  document.getElementById("add-url").focus();
   try {
     const f = await (await fetch("/api/facets")).json();
     (f.funding_stages || []).forEach(s => {
@@ -3252,7 +3344,7 @@ async function openAddCompany() {
   } catch { addVerticals = []; }
   renderVerticalChips();
 }
-function closeAddCompany() {
+function closeAdd() {
   document.getElementById("add-scrim").classList.remove("open");
 }
 function renderVerticalChips() {
@@ -3279,100 +3371,93 @@ function updateVerticalCount() {
   const n = addVerticalsSel.size;
   document.getElementById("add-vertical-count").textContent = n ? `· ${n} selected` : "";
 }
-async function submitAddCompany() {
-  const website = document.getElementById("add-website").value.trim();
-  if (!website) { toast("Website is required."); document.getElementById("add-website").focus(); return; }
+// httpsURL upgrades a bare "acme.com/jobs/1" to a fetchable https URL.
+function httpsURL(u) { return /^https?:\/\//i.test(u) ? u : "https://" + u; }
+
+async function submitAdd() {
+  const urlEl = document.getElementById("add-url");
+  const url = urlEl.value.trim();
+  if (!url) {
+    toast(addKind === "company" ? "Website is required." : "Posting URL is required.");
+    urlEl.focus();
+    return;
+  }
   const btn = document.getElementById("add-save");
+  const label = btn.textContent;
   btn.disabled = true;
-  const body = {
-    website,
-    name: document.getElementById("add-name").value.trim(),
-    vertical: [...addVerticalsSel].join(", "),
-    location: document.getElementById("add-location").value.trim(),
-    headcount: document.getElementById("add-headcount").value.trim(),
-    funding_stage: document.getElementById("add-stage").value,
-  };
+  if (addEnrichOn()) btn.textContent = "reading page…";
+  const restore = () => { btn.disabled = false; btn.textContent = label; };
+  const val = id => document.getElementById(id).value.trim();
+  const enriched = addEnrichOn();
+
+  // The three writes behind the one dialog: the agent pass (either kind), the
+  // manual company insert, the direct posting insert.
+  let endpoint, body;
+  if (enriched) {
+    endpoint = "/api/capture";
+    body = {
+      url: httpsURL(url),
+      kind: addKind === "company" ? "company_page" : "job_posting",
+      fields: addKind === "company"
+        ? { name: val("add-name"), location: val("add-location"), headcount: val("add-headcount"),
+            funding_stage: document.getElementById("add-stage").value, vertical: [...addVerticalsSel].join(", ") }
+        : { name: val("add-job-company"), title: val("add-title") },
+    };
+  } else if (addKind === "company") {
+    endpoint = "/api/companies";
+    body = {
+      website: url, name: val("add-name"), vertical: [...addVerticalsSel].join(", "),
+      location: val("add-location"), headcount: val("add-headcount"),
+      funding_stage: document.getElementById("add-stage").value,
+    };
+  } else {
+    endpoint = "/api/postings";
+    body = { url: httpsURL(url), title: val("add-title"), company: val("add-job-company") };
+  }
+
   let resp;
   try {
-    resp = await fetch("/api/companies", {
+    resp = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch (e) { toast(`add failed: ${e.message}`); btn.disabled = false; return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    btn.disabled = false;
-    if (resp.status === 409) { // already in the list — keep the form open to edit the website
-      toast(txt || "That company is already in the list.");
-      const w = document.getElementById("add-website");
-      w.focus(); w.select();
-      return;
-    }
-    toast(`add failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
-    return;
-  }
-  btn.disabled = false;
-  closeAddCompany();
-  toast("company added");
-  loadList(); loadStats();
-}
-
-// ---- add by link (the link-capture agent pass) ----
-function openCapture() {
-  document.getElementById("capture-url").value = "";
-  document.getElementById("capture-scrim").classList.add("open");
-  document.getElementById("capture-url").focus();
-}
-function closeCapture() {
-  document.getElementById("capture-scrim").classList.remove("open");
-}
-async function submitCapture() {
-  const urlEl = document.getElementById("capture-url");
-  const url = urlEl.value.trim();
-  if (!url) { toast("Enter a URL first."); urlEl.focus(); return; }
-  const btn = document.getElementById("capture-save");
-  btn.disabled = true;
-  const label = btn.textContent;
-  btn.textContent = "reading page…";
-  const restore = () => { btn.disabled = false; btn.textContent = label; };
-
-  let resp;
-  try {
-    resp = await fetch("/api/capture", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-  } catch (e) { toast(`capture failed: ${e.message}`); restore(); return; }
+  } catch (e) { toast(`add failed: ${e.message}`); restore(); return; }
   if (!resp.ok) {
     let msg = `HTTP ${resp.status}`;
     try {
       const t = await resp.text();
       try { msg = JSON.parse(t).error || msg; } catch { msg = t.trim() || msg; }
     } catch {}
-    toast(`capture failed: ${msg}`);
     restore();
+    if (resp.status === 409) { // already in the list — keep the form open to edit the website
+      toast(msg || "That company is already in the list.");
+      urlEl.focus(); urlEl.select();
+      return;
+    }
+    toast(`add failed: ${msg}`);
     return;
   }
   const res = await resp.json();
   restore();
 
-  // Nothing-written outcomes are reported honestly, with the modal kept open
-  // so the URL can be corrected.
-  if (!res.company_id) {
+  // The agent pass can decline to write (kind "other", unidentifiable
+  // company) — reported honestly, with the dialog kept open for a fix.
+  if (enriched && !res.company_id) {
     toast(res.note || "couldn't classify that page");
     return;
   }
-  closeCapture();
+  closeAdd();
   loadList(); loadStats(); loadJobs();
-  if (res.kind === "job_posting" && res.posting) {
-    const what = res.posting.title || "job link";
-    toast(`captured: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
+  if (addKind === "job") {
+    const what = (res.posting && res.posting.title) || "job link";
+    toast(`tracking: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
     setView("jobs");
-  } else {
+  } else if (enriched) {
     toast(res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`);
     openDetail(res.company_id);
+  } else {
+    toast("company added");
   }
 }
 
@@ -3505,9 +3590,9 @@ document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
     renderJobs();
   });
 });
-document.getElementById("jflag-filter").addEventListener("click", e => {
-  jflagOnly = !jflagOnly;
-  e.currentTarget.classList.toggle("is-on", jflagOnly);
+document.getElementById("next-up-filter").addEventListener("click", e => {
+  nextUpOnly = !nextUpOnly;
+  e.currentTarget.classList.toggle("is-on", nextUpOnly);
   renderJobs();
 });
 renderColToggles();
@@ -3521,8 +3606,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
-  if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
-  if (document.getElementById("capture-scrim").classList.contains("open")) { closeCapture(); return; }
+  if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   // The pursuit panel can sit over the company pane (View company opens it on
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
@@ -3539,24 +3623,21 @@ document.getElementById("only-blanks").onclick = e => {
 document.getElementById("btn-enrich").onclick = () => startRun("enrich", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-verdict").onclick = () => startRun("verdict", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
-document.getElementById("btn-add-company").onclick = openAddCompany;
-document.getElementById("add-cancel").onclick = closeAddCompany;
-document.getElementById("add-save").onclick = submitAddCompany;
-document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAddCompany(); };
-document.getElementById("btn-add-link").onclick = openCapture;
-document.getElementById("capture-cancel").onclick = closeCapture;
-document.getElementById("capture-save").onclick = submitCapture;
-document.getElementById("capture-scrim").onclick = e => { if (e.target.id === "capture-scrim") closeCapture(); };
-document.getElementById("capture-url").addEventListener("keydown", e => {
-  if (e.key === "Enter") { e.preventDefault(); submitCapture(); }
-});
+document.getElementById("btn-add").onclick = openAdd;
+document.getElementById("add-cancel").onclick = closeAdd;
+document.getElementById("add-save").onclick = submitAdd;
+document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAdd(); };
+document.querySelectorAll("#add-kind .v-chip").forEach(b => { b.onclick = () => setAddKind(b.dataset.kind); });
+document.getElementById("add-enrich").addEventListener("change", updateAddNote);
 // Enter in a text field submits — but not in the vertical filter (where Enter
-// would prematurely submit while narrowing chips), nor on chips/select.
+// would prematurely submit while narrowing chips), not in the company picker
+// (where Enter commits a datalist suggestion), nor on chips/select/checkbox.
 document.getElementById("add-scrim").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
-  if (e.target.tagName !== "INPUT" || e.target.id === "add-vertical-filter") return;
+  if (e.target.tagName !== "INPUT" || e.target.type === "checkbox") return;
+  if (e.target.id === "add-vertical-filter" || e.target.id === "add-job-company") return;
   e.preventDefault();
-  submitAddCompany();
+  submitAdd();
 });
 document.getElementById("add-vertical-filter").addEventListener("input", renderVerticalChips);
 // Headcount: digits only (no spinner buttons, since it's a text input).

@@ -33,6 +33,19 @@ Rules:
   - funding_stage: e.g. "Seed", "Series A" ONLY if the page states it; otherwise "".
 Use "" / 0 for anything the text doesn't actually say. Do not infer from vibes.`
 
+// VerticalVocab builds the prompt line that steers vertical extraction toward
+// the tags already in the set, so captures and enrichment converge on one
+// vocabulary (Crunchbase's when a CSV seeded it, the user's own otherwise)
+// instead of coining a fresh spelling per company. "" when the set is empty —
+// the first tags coined become the vocabulary. Shared with internal/capture.
+func VerticalVocab(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return "Existing vertical tags (reuse these exact spellings when they fit; coin a new tag only when none do): " +
+		strings.Join(tags, ", ")
+}
+
 type facts struct {
 	Name         string `json:"name"`
 	Vertical     string `json:"vertical"`
@@ -82,13 +95,25 @@ func (e *Enricher) fillFacts(ctx context.Context, t store.EnrichmentTarget, page
 		return false
 	}
 
+	// Vocabulary steering: when the vertical is among the blanks, hand the
+	// extractor the tags already in the set so it reuses spellings instead of
+	// coining variants. Best-effort — a read failure just means no steering.
+	user := pageText
+	if t.Vertical == "" {
+		if tags, err := e.DB.VerticalTags(); err == nil {
+			if vocab := VerticalVocab(tags); vocab != "" {
+				user = vocab + "\n\n" + pageText
+			}
+		}
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	resp, err := e.LLM.Send(callCtx, anthropic.Request{
 		Model:     e.Model,
 		System:    factsContract,
 		MaxTokens: 256,
-		Messages:  []anthropic.Message{{Role: "user", Content: pageText}},
+		Messages:  []anthropic.Message{{Role: "user", Content: user}},
 	})
 	if err != nil {
 		e.emit(fmt.Sprintf("facts %s — extract failed: %v", t.Name, err))

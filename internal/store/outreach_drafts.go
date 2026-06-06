@@ -161,8 +161,9 @@ WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 	if err := mustAffect(res); err != nil {
 		return nil, err
 	}
+	// The send completes the "next up" to-do, so the queue mark clears too.
 	if _, err := tx.Exec(`UPDATE job_postings SET
-outreach_count = outreach_count + 1, last_outreach_at = DATE('now')
+outreach_count = outreach_count + 1, last_outreach_at = DATE('now'), next_up_at = NULL
 WHERE id = (SELECT posting_id FROM outreach_drafts WHERE id = ?)`, id); err != nil {
 		return nil, err
 	}

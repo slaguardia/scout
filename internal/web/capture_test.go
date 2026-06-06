@@ -99,6 +99,91 @@ func TestCaptureEndToEnd(t *testing.T) {
 	}
 }
 
+func TestAddPostingDirect(t *testing.T) {
+	s, cid := newTestServer(t) // seeds Acme (acme.com)
+	h := s.Handler()
+
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/postings", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A posting on the company's own site needs no typed company — the link's
+	// host identifies it, and it attaches to the seeded row (no duplicate).
+	rec := post(`{"url":"https://acme.com/careers/123","title":"SE"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own-site add: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		CompanyID      string `json:"company_id"`
+		CompanyName    string `json:"company_name"`
+		CompanyCreated bool   `json:"company_created"`
+		Posting        struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"posting"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res.CompanyID != cid || res.CompanyCreated || res.Posting.Title != "SE" {
+		t.Errorf("unexpected result: %+v", res)
+	}
+
+	// The same link again returns the same posting — idempotent by URL.
+	rec = post(`{"url":"https://acme.com/careers/123"}`)
+	var again struct {
+		Posting struct {
+			ID string `json:"id"`
+		} `json:"posting"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &again)
+	if rec.Code != http.StatusOK || again.Posting.ID != res.Posting.ID {
+		t.Errorf("re-add: want same posting, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// An ATS link with a typed company creates the company by name.
+	rec = post(`{"url":"https://boards.greenhouse.io/widgets/jobs/1","company":"Widgets"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ATS+company add: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !res.CompanyCreated || res.CompanyName != "Widgets" {
+		t.Errorf("typed company not created: %+v", res)
+	}
+
+	// An ATS link with no company named is rejected, and writes nothing.
+	before, _ := s.DB.CountCompanies()
+	if rec := post(`{"url":"https://boards.greenhouse.io/mystery/jobs/2"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("ATS bare: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if after, _ := s.DB.CountCompanies(); after != before {
+		t.Errorf("rejected add wrote a company: %d -> %d", before, after)
+	}
+
+	// A bad URL is rejected before any write.
+	if rec := post(`{"url":"javascript:alert(1)","company":"Evil"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad url: want 400, got %d", rec.Code)
+	}
+	if after, _ := s.DB.CountCompanies(); after != before {
+		t.Errorf("bad-url add wrote a company: %d -> %d", before, after)
+	}
+}
+
+func TestCaptureRejectsBadKind(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.Anthropic = &anthropic.Client{APIKey: "test-key"} // key present; body invalid
+	rec := postCapture(t, s.Handler(), `{"url":"https://acme.com","kind":"newsletter"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad kind: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCaptureFetchFailureIs422(t *testing.T) {
 	deadPage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

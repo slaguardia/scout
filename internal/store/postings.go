@@ -31,6 +31,16 @@ type Posting struct {
 	CreatedAt   string `json:"created_at"`
 	CapturedAt  string `json:"captured_at"` // "" when never captured
 
+	// Structured details (M28), filled by the ATS resolver — the no-LLM capture
+	// path that reads ashby/greenhouse/lever's public posting API. All "" when
+	// the link wasn't ATS-resolved.
+	PostedAt       string `json:"posted_at"`       // "YYYY-MM-DD"
+	EmploymentType string `json:"employment_type"` // "Full-time", "Contract", ...
+	WorkplaceType  string `json:"workplace_type"`  // "Remote" | "Hybrid" | "On-site"
+	Department     string `json:"department"`
+	CompRange      string `json:"comp_range"`  // published salary range, pre-formatted
+	Description    string `json:"description"` // full posting text, plain
+
 	// Application lifecycle (M23) — the jobs view doubles as the user's
 	// application tracker. AppliedAt "" means not applied; Response is the
 	// furthest reply reached ("screening"|"interview"|"offer"|"rejected").
@@ -42,21 +52,31 @@ type Posting struct {
 	// Contacts (M24): free-form outreach contacts for this role —
 	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
 	Contacts string `json:"contacts"`
+
+	// NextUp (M27) marks the posting as queued "next up for outreach" — a
+	// hand-set to-do that clears automatically when outreach_count bumps.
+	NextUp bool `json:"next_up"`
 }
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
 const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location, ''),
        COALESCE(summary, ''), COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
        created_at, COALESCE(captured_at, ''),
+       COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
+       COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
-       COALESCE(contacts, '')`
+       COALESCE(contacts, ''), next_up_at`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
+	var nextUpAt sql.NullString
 	err := row.Scan(&p.ID, &p.CompanyID, &p.URL, &p.Title, &p.Location,
 		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
+		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
+		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
-		&p.Contacts)
+		&p.Contacts, &nextUpAt)
+	p.NextUp = nextUpAt.Valid
 	return p, err
 }
 
@@ -78,13 +98,35 @@ func validatePostingURL(url string) (string, error) {
 
 // AddPosting inserts a hand-added posting (source "manual") for a company and
 // returns the created row. Inputs are trimmed; see validatePostingURL for the
-// url rules. Returns sql.ErrNoRows if the company doesn't exist.
+// url rules. The URL is the posting's identity (same rule as the capture
+// upsert): adding a link that's already tracked returns the existing row —
+// backfilling a blank title when one was typed — instead of duplicating it.
+// Returns sql.ErrNoRows if the company doesn't exist.
 func (db *DB) AddPosting(companyID, url, title string) (Posting, error) {
 	url, err := validatePostingURL(url)
 	if err != nil {
 		return Posting{}, err
 	}
 	title = strings.TrimSpace(title)
+
+	// Already tracked? Return that row (the existing row's company wins).
+	var existingID string
+	err = db.QueryRow(
+		`SELECT id FROM job_postings WHERE url = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+		url,
+	).Scan(&existingID)
+	switch {
+	case err == nil:
+		if title != "" {
+			const q = `UPDATE job_postings SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`
+			if _, err := db.Exec(q, title, existingID); err != nil {
+				return Posting{}, fmt.Errorf("backfill posting title %s: %w", existingID, err)
+			}
+		}
+		return db.readPosting(existingID)
+	case err != sql.ErrNoRows:
+		return Posting{}, fmt.Errorf("find posting by url: %w", err)
+	}
 
 	// Ensure the company exists (mirrors the guard in other store writes).
 	exists, err := db.CompanyExists(companyID)
@@ -116,6 +158,15 @@ type CapturedPosting struct {
 	Location    string
 	Summary     string
 	FetchStatus string
+
+	// Structured details (M28) — set only by the ATS resolver; the LLM path
+	// leaves them empty, and empties never overwrite stored values on upsert.
+	PostedAt       string // "YYYY-MM-DD"
+	EmploymentType string
+	WorkplaceType  string
+	Department     string
+	CompRange      string
+	Description    string
 }
 
 // UpsertCapturedPosting inserts a captured posting, or — when the same URL is
@@ -143,11 +194,21 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 	).Scan(&existingID)
 	switch {
 	case err == nil:
+		// Most columns COALESCE — the two capture paths fill different fields
+		// (the ATS resolver never writes a summary, the LLM path never writes
+		// the detail columns), so an empty re-capture must not erase what the
+		// other path stored. Non-empty values still overwrite.
 		const q = `UPDATE job_postings SET
-		    url = ?, title = ?, location = ?, summary = ?,
+		    url = ?, title = ?, location = COALESCE(?, location), summary = COALESCE(?, summary),
+		    posted_at = COALESCE(?, posted_at), employment_type = COALESCE(?, employment_type),
+		    workplace_type = COALESCE(?, workplace_type), department = COALESCE(?, department),
+		    comp_range = COALESCE(?, comp_range), description = COALESCE(?, description),
 		    source = 'capture', fetch_status = ?, captured_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`
-		if _, err := db.Exec(q, url, null(p.Title), null(p.Location), null(p.Summary), null(p.FetchStatus), existingID); err != nil {
+		if _, err := db.Exec(q, url, null(p.Title), null(p.Location), null(p.Summary),
+			null(p.PostedAt), null(p.EmploymentType), null(p.WorkplaceType),
+			null(p.Department), null(p.CompRange), null(p.Description),
+			null(p.FetchStatus), existingID); err != nil {
 			return Posting{}, false, fmt.Errorf("update captured posting %s: %w", existingID, err)
 		}
 		out, err := db.readPosting(existingID)
@@ -164,9 +225,14 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 		return Posting{}, false, sql.ErrNoRows
 	}
 	id := uuid.NewString()
-	const q = `INSERT INTO job_postings (id, company_id, url, title, location, summary, source, fetch_status, captured_at)
-	           VALUES (?, ?, ?, ?, ?, ?, 'capture', ?, CURRENT_TIMESTAMP)`
-	if _, err := db.Exec(q, id, p.CompanyID, url, null(p.Title), null(p.Location), null(p.Summary), null(p.FetchStatus)); err != nil {
+	const q = `INSERT INTO job_postings (id, company_id, url, title, location, summary,
+	               posted_at, employment_type, workplace_type, department, comp_range, description,
+	               source, fetch_status, captured_at)
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'capture', ?, CURRENT_TIMESTAMP)`
+	if _, err := db.Exec(q, id, p.CompanyID, url, null(p.Title), null(p.Location), null(p.Summary),
+		null(p.PostedAt), null(p.EmploymentType), null(p.WorkplaceType),
+		null(p.Department), null(p.CompRange), null(p.Description),
+		null(p.FetchStatus)); err != nil {
 		return Posting{}, false, fmt.Errorf("insert captured posting for company %s: %w", p.CompanyID, err)
 	}
 	out, err := db.readPosting(id)
@@ -220,13 +286,36 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 		return Posting{}, fmt.Errorf("outreach_count must be >= 0")
 	}
 
+	// A rising outreach_count means the outreach went out — the "next up"
+	// to-do mark has served its purpose, so it clears in the same write.
+	// (SET expressions see the old row, so the CASE compares old vs new.)
 	const q = `UPDATE job_postings SET
+	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
 	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, applied, NullString(response), t.OutreachCount, lastOutreach,
+	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
 		NullString(strings.TrimSpace(t.Contacts)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
+// SetPostingNextUp queues (next_up_at = now) or unqueues (NULL) a posting as
+// "next up for outreach", returning the refreshed row. The mark also clears on
+// its own when outreach_count bumps — see UpdatePostingTracking and
+// MarkOutreachDraftSent. Returns sql.ErrNoRows for an unknown posting.
+func (db *DB) SetPostingNextUp(id string, nextUp bool) (Posting, error) {
+	q := `UPDATE job_postings SET next_up_at = NULL WHERE id = ?`
+	if nextUp {
+		q = `UPDATE job_postings SET next_up_at = CURRENT_TIMESTAMP WHERE id = ?`
+	}
+	res, err := db.Exec(q, id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("set next_up %s: %w", id, err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Posting{}, sql.ErrNoRows
@@ -290,10 +379,19 @@ type JobRow struct {
 	Source      string `json:"source"`
 	FetchStatus string `json:"fetch_status"`
 	CreatedAt   string `json:"created_at"`
-	Verdict     string `json:"verdict"` // the company's verdict; "" when unscored
-	Reason      string `json:"reason"`
-	Reviewed    bool   `json:"reviewed"`
-	Flagged     bool   `json:"flagged"`
+
+	// Structured details (M28) — ATS-resolved; "" when the link wasn't.
+	PostedAt       string `json:"posted_at"`
+	EmploymentType string `json:"employment_type"`
+	WorkplaceType  string `json:"workplace_type"`
+	Department     string `json:"department"`
+	CompRange      string `json:"comp_range"`
+	Description    string `json:"description"`
+
+	Verdict  string `json:"verdict"` // the company's verdict; "" when unscored
+	Reason   string `json:"reason"`
+	Reviewed bool   `json:"reviewed"`
+	Flagged  bool   `json:"flagged"`
 
 	// Application lifecycle (M23) — the tracker columns of the jobs view.
 	AppliedAt      string `json:"applied_at"`
@@ -301,6 +399,7 @@ type JobRow struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 	Contacts       string `json:"contacts"` // outreach contacts (M24)
+	NextUp         bool   `json:"next_up"`  // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
@@ -317,8 +416,11 @@ func (db *DB) ListJobRows() ([]JobRow, error) {
 	const q = `
 SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.location, ''),
        COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
-       p.created_at, COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
-       c.reviewed_at, c.flagged_at,
+       p.created_at,
+       COALESCE(p.posted_at, ''), COALESCE(p.employment_type, ''), COALESCE(p.workplace_type, ''),
+       COALESCE(p.department, ''), COALESCE(p.comp_range, ''), COALESCE(p.description, ''),
+       COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
+       c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
        COALESCE(p.contacts, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
@@ -336,16 +438,20 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 	out := []JobRow{}
 	for rows.Next() {
 		var r JobRow
-		var reviewedAt, flaggedAt sql.NullString
+		var reviewedAt, flaggedAt, nextUpAt sql.NullString
 		if err := rows.Scan(&r.PostingID, &r.CompanyID, &r.Company, &r.URL, &r.Title, &r.Location,
-			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt, &r.Verdict, &r.Reason,
-			&reviewedAt, &flaggedAt,
+			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt,
+			&r.PostedAt, &r.EmploymentType, &r.WorkplaceType,
+			&r.Department, &r.CompRange, &r.Description,
+			&r.Verdict, &r.Reason,
+			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
 			&r.Contacts, &r.OutreachDraftStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid
 		r.Flagged = flaggedAt.Valid
+		r.NextUp = nextUpAt.Valid
 		out = append(out, r)
 	}
 	return out, rows.Err()

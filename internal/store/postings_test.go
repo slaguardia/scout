@@ -57,6 +57,88 @@ func TestPostingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAddPostingIdempotentByURL(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// The same URL again returns the existing row — and backfills the blank
+	// title — instead of inserting a duplicate.
+	p2, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Solutions Engineer")
+	if err != nil {
+		t.Fatalf("AddPosting again: %v", err)
+	}
+	if p2.ID != p.ID {
+		t.Errorf("want existing posting %s, got %s", p.ID, p2.ID)
+	}
+	if p2.Title != "Solutions Engineer" {
+		t.Errorf("blank title not backfilled: %q", p2.Title)
+	}
+
+	// A non-blank title is never overwritten.
+	p3, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Sales Engineer")
+	if err != nil {
+		t.Fatalf("AddPosting third: %v", err)
+	}
+	if p3.Title != "Solutions Engineer" {
+		t.Errorf("existing title clobbered: %q", p3.Title)
+	}
+	if ps, _ := db.ListPostings(cid); len(ps) != 1 {
+		t.Errorf("want 1 posting, got %d", len(ps))
+	}
+}
+
+func TestNextUpClearsWhenOutreachGoesOut(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// Queue it.
+	p, err = db.SetPostingNextUp(p.ID, true)
+	if err != nil || !p.NextUp {
+		t.Fatalf("SetPostingNextUp on: next_up=%v err=%v", p.NextUp, err)
+	}
+
+	// A tracking write that does NOT bump outreach keeps the mark.
+	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-06"})
+	if err != nil || !p.NextUp {
+		t.Fatalf("mark lost on unrelated tracking write: next_up=%v err=%v", p.NextUp, err)
+	}
+
+	// Logging the outreach (+1) completes the to-do — the mark clears.
+	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{
+		AppliedAt: "2026-06-06", OutreachCount: 1, LastOutreachAt: "2026-06-06",
+	})
+	if err != nil || p.NextUp {
+		t.Fatalf("mark not cleared by outreach bump: next_up=%v err=%v", p.NextUp, err)
+	}
+
+	// Manual unqueue works too.
+	p, _ = db.SetPostingNextUp(p.ID, true)
+	p, err = db.SetPostingNextUp(p.ID, false)
+	if err != nil || p.NextUp {
+		t.Fatalf("SetPostingNextUp off: next_up=%v err=%v", p.NextUp, err)
+	}
+
+	// Unknown posting → ErrNoRows for the 404.
+	if _, err := db.SetPostingNextUp("nope", true); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("unknown posting: want ErrNoRows, got %v", err)
+	}
+}
+
 func TestAddPostingValidation(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})

@@ -1,11 +1,16 @@
-// Package capture turns a pasted link into structured rows: fetch the page,
-// run one cheap LLM pass to classify it (job posting vs company page) and
-// extract fields, then upsert the company — and the posting, when it's a job.
+// Package capture turns a pasted link into structured rows. Two paths:
+// posting links on a supported ATS (ashby/greenhouse/lever) resolve through
+// the platform's public JSON API — exact fields, no page fetch, no LLM (see
+// ats.go); everything else gets the generic pass — fetch the page, run one
+// cheap LLM call to classify it (job posting vs company page) and extract
+// fields. Either way the company is upserted — and the posting, when it's a
+// job.
 //
-// This is the agent pass behind the UI's "Add by link": the user supplies
-// nothing but a URL. Same fetch posture as enrichment (internal/enrich), same
-// tolerant-JSON parsing as the verdict engine. All writes stay scout-local;
-// the brain is never touched.
+// This is the agent pass behind the UI's Add dialog: the user supplies a URL
+// and, optionally, the kind (company vs job) and any fields they already know —
+// user input wins, the pass fills the blanks. Same fetch posture as enrichment
+// (internal/enrich), same tolerant-JSON parsing as the verdict engine. All
+// writes stay scout-local; the brain is never touched.
 package capture
 
 import (
@@ -52,6 +57,29 @@ type Capturer struct {
 	HTTP   *http.Client // default enrich.NewHTTPClient
 }
 
+// Request is one capture: the pasted URL plus whatever the user already knows.
+// Kind, when set (KindJob or KindCompany), pins the page kind — the user said
+// what the link is, so the classifier's opinion (including "other") is
+// overridden. Fields carry user-typed values; they always win over extraction,
+// the agent pass only fills the blanks.
+type Request struct {
+	URL    string
+	Kind   string // "" = classify; KindJob / KindCompany = pinned by the user
+	Fields Fields
+}
+
+// Fields are the user-typed values from the Add dialog. All optional; empty
+// means "let the extractor fill it". Headcount and FundingStage are never
+// extracted — they only ever carry user input through to the company row.
+type Fields struct {
+	Name         string // company name
+	Location     string // company HQ
+	Headcount    string
+	FundingStage string
+	Vertical     string
+	Title        string // job title (job postings only)
+}
+
 // Result reports what one capture did. FetchStatus uses the enrichment
 // taxonomy. CompanyID/Posting are set only when something was resolved or
 // written; Note carries the human-readable outcome for the UI toast.
@@ -86,13 +114,30 @@ type extraction struct {
 	CompanyLocation string `json:"company_location"`
 }
 
+// apply overlays the user-typed fields onto the extraction — user input always
+// wins, the extractor only fills what was left blank.
+func (e *extraction) apply(f Fields) {
+	if s := strings.TrimSpace(f.Name); s != "" {
+		e.CompanyName = s
+	}
+	if s := strings.TrimSpace(f.Location); s != "" {
+		e.CompanyLocation = s
+	}
+	if s := strings.TrimSpace(f.Vertical); s != "" {
+		e.Vertical = s
+	}
+	if s := strings.TrimSpace(f.Title); s != "" {
+		e.JobTitle = s
+	}
+}
+
 // Run captures one pasted URL. Validation errors are prefixed "url " (the web
 // layer maps them to 400); unfetchable pages return a FetchError (422); LLM or
 // store failures are plain errors. On success the Result says what happened —
 // including the no-write outcomes (kind "other", unidentifiable company),
 // which are reported honestly rather than guessed at.
-func (c *Capturer) Run(ctx context.Context, rawURL string) (*Result, error) {
-	rawURL = strings.TrimSpace(rawURL)
+func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
+	rawURL := strings.TrimSpace(req.URL)
 	if rawURL == "" {
 		return nil, errors.New("url required")
 	}
@@ -105,6 +150,16 @@ func (c *Capturer) Run(ctx context.Context, rawURL string) (*Result, error) {
 	if httpc == nil {
 		httpc = enrich.NewHTTPClient(0)
 	}
+
+	// A posting link on a supported ATS resolves through the platform's own
+	// API — exact fields, no LLM. Skipped when the user pinned the link as a
+	// company page; a failed resolve falls through to the generic path.
+	if req.Kind != KindCompany {
+		if job := resolveATS(ctx, httpc, rawURL); job != nil {
+			return c.runATS(rawURL, req, job)
+		}
+	}
+
 	// low_content still goes to the extractor: ATS pages are often JS shells
 	// whose residual text (title/meta) carries enough to extract from.
 	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, maxPageRunes)
@@ -112,9 +167,14 @@ func (c *Capturer) Run(ctx context.Context, rawURL string) (*Result, error) {
 		return &Result{FetchStatus: status, URL: finalURL}, FetchError{Status: status}
 	}
 
-	ext, err := c.extract(ctx, finalURL, text)
+	ext, err := c.extract(ctx, finalURL, text, req.Kind)
 	if err != nil {
 		return &Result{FetchStatus: status, URL: finalURL}, fmt.Errorf("extract: %w", err)
+	}
+	// User-typed values win; extraction only fills the blanks.
+	ext.apply(req.Fields)
+	if req.Kind != "" {
+		ext.Kind = req.Kind // the user said what this link is
 	}
 
 	res := &Result{Kind: ext.Kind, FetchStatus: status, URL: finalURL}
@@ -126,16 +186,18 @@ func (c *Capturer) Run(ctx context.Context, rawURL string) (*Result, error) {
 	name := strings.TrimSpace(ext.CompanyName)
 	domain := resolveCompanyDomain(ext.CompanyDomain, rawURL, finalURL)
 	if name == "" && domain == "" {
-		res.Note = "couldn't identify the company behind the page — nothing added"
+		res.Note = "couldn't identify the company behind the page — type a company name and retry"
 		return res, nil
 	}
 
 	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
-		Name:      name,
-		Domain:    domain,
-		Location:  ext.CompanyLocation,
-		Vertical:  ext.Vertical,
-		SourceURL: finalURL,
+		Name:         name,
+		Domain:       domain,
+		Location:     ext.CompanyLocation,
+		Vertical:     ext.Vertical,
+		SourceURL:    finalURL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
 	})
 	if err != nil {
 		return res, err
@@ -180,6 +242,64 @@ func (c *Capturer) Run(ctx context.Context, rawURL string) (*Result, error) {
 	return res, nil
 }
 
+// runATS makes the same writes a captured job posting makes, from the
+// platform-stated fields instead of an extraction. The ATS host never
+// identifies the company, so its identity is the user-typed name or the
+// board's (slug-derived for ashby/lever, API-stated for greenhouse) — never a
+// domain. User-typed values win where they overlap, exactly like the LLM path.
+func (c *Capturer) runATS(rawURL string, req Request, job *atsJob) (*Result, error) {
+	res := &Result{Kind: KindJob, FetchStatus: "ok", URL: job.URL}
+
+	name := strings.TrimSpace(req.Fields.Name)
+	if name == "" {
+		name = job.CompanyName
+	}
+	if name == "" {
+		res.Note = "couldn't identify the company behind the page — type a company name and retry"
+		return res, nil
+	}
+	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
+		Name:         name,
+		Location:     req.Fields.Location,
+		Vertical:     req.Fields.Vertical,
+		SourceURL:    job.URL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
+	})
+	if err != nil {
+		return res, err
+	}
+	res.CompanyID = id
+	res.CompanyCreated = created
+	res.CompanyName = name
+
+	title := strings.TrimSpace(req.Fields.Title)
+	if title == "" {
+		title = job.Title
+	}
+	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID:      id,
+		URL:            job.URL,
+		PastedURL:      rawURL,
+		Title:          title,
+		Location:       job.Location,
+		FetchStatus:    "ok",
+		PostedAt:       job.PostedAt,
+		EmploymentType: job.EmploymentType,
+		WorkplaceType:  job.WorkplaceType,
+		Department:     job.Department,
+		CompRange:      job.CompRange,
+		Description:    job.Description,
+	})
+	if err != nil {
+		return res, fmt.Errorf("store posting: %w", err)
+	}
+	res.Posting = &p
+	res.PostingUpdated = updated
+	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
+	return res, nil
+}
+
 // captureContract is the extractor's system prompt — the JSON output contract
 // plus the classification rules. Fixed in code, like the verdict contract.
 const captureContract = `You are Scout's link-capture engine. The user pasted a link; you are given the fetched page's text. Classify the page and extract fields. Reply ONLY with valid JSON, no preamble, no markdown fences, exactly these fields:
@@ -189,7 +309,7 @@ const captureContract = `You are Scout's link-capture engine. The user pasted a 
  "job_title": "the role's title, or \"\" if not a job posting",
  "job_location": "the role's location / remote policy, or \"\"",
  "summary": "1-2 plain sentences: for a job posting what the role is, for a company page what the company does",
- "vertical": "the company's industry/space in a few words, or \"\"",
+ "vertical": "1-3 short industry tags, comma-separated (e.g. \"AI, Developer Tools\"), or \"\"",
  "company_location": "the company's HQ location if stated, or \"\""}
 
 kind rules:
@@ -198,13 +318,29 @@ kind rules:
 - "other": anything else (an article, a list of many roles, a login wall, an empty shell).
 Extract only what the page supports — never invent values.`
 
-// extract runs the single Haiku pass over the page text.
-func (c *Capturer) extract(ctx context.Context, finalURL, text string) (*extraction, error) {
+// extract runs the single Haiku pass over the page text. A pinned kind is
+// passed along as a hint so extraction focuses on the right fields; the pin
+// itself is enforced by the caller, not the model. The vertical tags already
+// in the set steer extraction toward the existing vocabulary (best-effort —
+// a read failure just means no steering; see enrich.VerticalVocab).
+func (c *Capturer) extract(ctx context.Context, finalURL, text, kind string) (*extraction, error) {
 	model := c.Model
 	if model == "" {
 		model = anthropic.DefaultModel
 	}
-	user := fmt.Sprintf("URL: %s\n\nPage text (truncated):\n%s\n\nReturn the JSON now.", finalURL, text)
+	hint := ""
+	switch kind {
+	case KindJob:
+		hint = "The user says this link is a job posting.\n"
+	case KindCompany:
+		hint = "The user says this link is a company page.\n"
+	}
+	if tags, err := c.DB.VerticalTags(); err == nil {
+		if vocab := enrich.VerticalVocab(tags); vocab != "" {
+			hint += vocab + "\n"
+		}
+	}
+	user := fmt.Sprintf("%sURL: %s\n\nPage text (truncated):\n%s\n\nReturn the JSON now.", hint, finalURL, text)
 
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -278,6 +414,19 @@ func isATSHost(host string) bool {
 		}
 	}
 	return false
+}
+
+// CompanyDomainFromURL returns the company identity domain a pasted link's own
+// host implies, or "" when the host can't identify a company (an ATS, a job
+// board, an aggregator). The no-agent add path uses this to attach a posting
+// on acme.com/careers to acme.com without a fetch or an LLM call.
+func CompanyDomainFromURL(rawURL string) string {
+	if u, err := neturl.Parse(strings.TrimSpace(rawURL)); err == nil {
+		if d := ingest.IdentityDomain(u.Host); d != "" && !isATSHost(d) {
+			return d
+		}
+	}
+	return ""
 }
 
 // resolveCompanyDomain picks the company's identity domain: the extracted

@@ -44,33 +44,47 @@ scout-local). Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it
 - Domain normalized: lowercased, `https://`/`http://`/`www.` and any path stripped.
 - `ingested_at` bumps on every upsert, which invalidates downstream enrichment.
 
-**Manual add (UI only).** Besides CSV upload, the web UI's **Add company** modal
-(Run panel) ingests one hand-entered company via `POST /api/companies` (source
-`manual`) — for a company not in a dump. **Website is the only required field**
-(it's the row's identity); a blank name defaults to the domain, and
-vertical/location/headcount/funding-stage are optional. Funding stage is a
-dropdown and verticals a multi-select, both populated from the values already in
-the set (`GET /api/facets`; verticals are the deduped tags split out of the
-composite `Industries` cells, rejoined `"A, B, C"` on save). Unlike a CSV
-re-ingest, a manual add for a website **already present is rejected (`409`),
-never overwritten** — it returns the existing company. See `ingest.AddManual` /
-`ingest.ErrCompanyExists`.
+**The Add dialog (UI only).** Besides CSV upload, the web UI's **Add…** dialog
+(Run panel) ingests one company or one job posting from its link — the link is
+the only required field, everything else is optional, and a **fill in the
+blanks** tick chooses between a plain write and the link-capture agent pass.
+Four combinations, three endpoints:
 
-**Link capture (UI only).** The third way in: the **Add by link** modal posts a
-single URL to `POST /api/capture`, and an agent pass (`internal/capture`, one
-Haiku call) fetches the page with the enrichment fetch stack, classifies it —
-**job posting vs company page vs other** — and extracts structured fields. A
-job posting is stored in `job_postings` (title/location/summary) attached to
-its company, with the company created first (source `capture`, via
-`ingest.EnsureCompany`) when it isn't in the list; the company's own domain is
-resolved from the extraction with ATS/job-board hosts (greenhouse, lever,
-ashby, …) explicitly rejected as identities. A company page upserts the company
-and **seeds its enrichment row from the already-fetched text** (only when no
-enrichment exists), so the next verdict run can score it immediately. Unlike
-`AddManual`, an existing company is the happy path (the posting just attaches),
-and capture is idempotent by URL — re-pasting refreshes the same posting.
-Unfetchable pages (login walls, bot challenges) return their honest
-`fetch_status` (`422`) and write nothing; `kind=other` pages write nothing too.
+- **Company, no agent pass** → `POST /api/companies` (source `manual`). A blank
+  name defaults to the domain; vertical/location/headcount/funding-stage are
+  optional. Funding stage is a dropdown and verticals a multi-select, both
+  populated from the values already in the set (`GET /api/facets`; verticals
+  are the deduped tags split out of the composite `Industries` cells, rejoined
+  `"A, B, C"` on save). Unlike a CSV re-ingest, a manual add for a website
+  **already present is rejected (`409`), never overwritten** — it returns the
+  existing company. See `ingest.AddManual` / `ingest.ErrCompanyExists`.
+- **Job, no agent pass** → `POST /api/postings` (source `manual`): no fetch, no
+  LLM. The posting attaches to the typed company name and/or the link's own
+  host (`capture.CompanyDomainFromURL`; ATS hosts identify nothing), creating
+  the company via `ingest.EnsureCompany` on first sight; a link that names
+  neither is rejected (`400`) rather than guessed at.
+- **Either kind, agent pass ticked** → `POST /api/capture` with the kind pinned
+  and the typed fields passed along — **user input wins, extraction fills the
+  blanks**.
+
+**Link capture (the agent pass).** `POST /api/capture {url, kind?, fields?}`
+runs `internal/capture`: one Haiku call over the page fetched with the
+enrichment fetch stack, classifying it — **job posting vs company page vs
+other** — and extracting structured fields. A pinned `kind` (the dialog's
+toggle) overrides the classifier; `fields` carry typed values that win over
+extraction (headcount/funding-stage are never extracted — they only pass user
+input through). A job posting is stored in `job_postings`
+(title/location/summary) attached to its company, with the company created
+first (source `capture`, via `ingest.EnsureCompany`) when it isn't in the
+list; the company's own domain is resolved from the extraction with
+ATS/job-board hosts (greenhouse, lever, ashby, …) explicitly rejected as
+identities. A company page upserts the company and **seeds its enrichment row
+from the already-fetched text** (only when no enrichment exists), so the next
+verdict run can score it immediately. Unlike `AddManual`, an existing company
+is the happy path (the posting just attaches), and capture is idempotent by
+URL — re-pasting refreshes the same posting. Unfetchable pages (login walls,
+bot challenges) return their honest `fetch_status` (`422`) and write nothing;
+unpinned `kind=other` pages write nothing too.
 
 ## `scout filter`
 
@@ -236,9 +250,11 @@ runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
 | `GET /api/postings` | every posting joined with its company's name/verdict/marks + application lifecycle (the **jobs view / tracker**) |
+| `POST /api/postings` | **direct posting add** (no fetch, no LLM); company resolved from the typed name and/or the link's host, `400` when neither identifies one |
 | `PUT /api/postings/{id}` | set a posting's application lifecycle (applied date, response, outreach count/date) |
-| `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL (412 without the key, 422 when unfetchable) |
-| `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add-company pickers) |
+| `PUT /api/postings/{id}/next-up` | queue/unqueue a posting as **next up for outreach**; the mark self-clears when outreach_count bumps |
+| `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL; optional pinned `kind` + typed `fields` that win over extraction (412 without the key, 422 when unfetchable) |
+| `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add dialog's pickers) |
 | `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |
 | `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain |
 | `GET /api/stats` | counts + current criteria version/source |
