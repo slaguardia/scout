@@ -57,6 +57,44 @@ func TestPostingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAddPostingIdempotentByURL(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// The same URL again returns the existing row — and backfills the blank
+	// title — instead of inserting a duplicate.
+	p2, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Solutions Engineer")
+	if err != nil {
+		t.Fatalf("AddPosting again: %v", err)
+	}
+	if p2.ID != p.ID {
+		t.Errorf("want existing posting %s, got %s", p.ID, p2.ID)
+	}
+	if p2.Title != "Solutions Engineer" {
+		t.Errorf("blank title not backfilled: %q", p2.Title)
+	}
+
+	// A non-blank title is never overwritten.
+	p3, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Sales Engineer")
+	if err != nil {
+		t.Fatalf("AddPosting third: %v", err)
+	}
+	if p3.Title != "Solutions Engineer" {
+		t.Errorf("existing title clobbered: %q", p3.Title)
+	}
+	if ps, _ := db.ListPostings(cid); len(ps) != 1 {
+		t.Errorf("want 1 posting, got %d", len(ps))
+	}
+}
+
 func TestAddPostingValidation(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})

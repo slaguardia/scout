@@ -27,6 +27,10 @@ type CapturedCompany struct {
 	Location  string
 	Vertical  string
 	SourceURL string // the captured page, kept in raw_json as provenance
+	// Headcount and FundingStage are never extracted from a page — they carry
+	// user-typed values from the Add dialog (free-form, like a CSV cell).
+	Headcount    string
+	FundingStage string
 }
 
 // EnsureCompany resolves a captured company to a stored row, creating one only
@@ -63,6 +67,7 @@ func EnsureCompany(db *store.DB, c CapturedCompany) (string, bool, error) {
 	for k, v := range map[string]string{
 		"website": domain, "location": c.Location,
 		"vertical": c.Vertical, "captured_from": c.SourceURL,
+		"headcount": c.Headcount, "funding_stage": c.FundingStage,
 	} {
 		if s := strings.TrimSpace(v); s != "" {
 			raw[k] = s
@@ -71,12 +76,14 @@ func EnsureCompany(db *store.DB, c CapturedCompany) (string, bool, error) {
 	rawJSON, _ := json.Marshal(raw)
 
 	company := store.Company{
-		Source:   "capture",
-		Name:     name,
-		Domain:   nullStr(domain),
-		Location: nullStr(strings.TrimSpace(c.Location)),
-		Vertical: nullStr(strings.TrimSpace(c.Vertical)),
-		RawJSON:  string(rawJSON),
+		Source:       "capture",
+		Name:         name,
+		Domain:       nullStr(domain),
+		Headcount:    nullHeadcount(c.Headcount),
+		FundingStage: nullStr(strings.TrimSpace(c.FundingStage)),
+		Location:     nullStr(strings.TrimSpace(c.Location)),
+		Vertical:     nullStr(strings.TrimSpace(c.Vertical)),
+		RawJSON:      string(rawJSON),
 	}
 	// The shared merge path handles both twin directions: a domain arrival folds
 	// a name-keyed twin in; a domain-less arrival is recognized as a duplicate of

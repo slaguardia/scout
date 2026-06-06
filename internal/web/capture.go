@@ -6,16 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
 	"github.com/slaguardia/scout/internal/capture"
+	"github.com/slaguardia/scout/internal/ingest"
 	"github.com/slaguardia/scout/internal/store"
 )
 
 // handleCapture runs the link-capture agent pass on one pasted URL: fetch the
 // page, classify it (job posting vs company page) with one Haiku call, and
-// upsert the company/posting. POST /api/capture {"url": "..."}. Synchronous —
+// upsert the company/posting. POST /api/capture {"url": "...", "kind"?: ...,
+// "fields"?: {...}} — kind pins the page kind when the user toggled it in the
+// Add dialog, fields carry typed values that win over extraction. Synchronous —
 // a single fetch + a single LLM call — so it doesn't need the job Runner; like
 // verdict it needs only the Anthropic key.
 func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
@@ -28,10 +32,25 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		URL string `json:"url"`
+		URL    string `json:"url"`
+		Kind   string `json:"kind"`
+		Fields struct {
+			Name         string `json:"name"`
+			Location     string `json:"location"`
+			Headcount    string `json:"headcount"`
+			FundingStage string `json:"funding_stage"`
+			Vertical     string `json:"vertical"`
+			Title        string `json:"title"`
+		} `json:"fields"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch body.Kind {
+	case "", capture.KindJob, capture.KindCompany:
+	default:
+		http.Error(w, "kind must be job_posting or company_page", http.StatusBadRequest)
 		return
 	}
 
@@ -39,7 +58,18 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
 	defer cancel()
 	c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
-	res, err := c.Run(ctx, body.URL)
+	res, err := c.Run(ctx, capture.Request{
+		URL:  body.URL,
+		Kind: body.Kind,
+		Fields: capture.Fields{
+			Name:         body.Fields.Name,
+			Location:     body.Fields.Location,
+			Headcount:    body.Fields.Headcount,
+			FundingStage: body.Fields.FundingStage,
+			Vertical:     body.Fields.Vertical,
+			Title:        body.Fields.Title,
+		},
+	})
 	if err != nil {
 		var fe capture.FetchError
 		switch {
@@ -58,18 +88,85 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePostings serves the jobs view: every posting across all companies,
-// joined with the company's name/verdict/marks. GET /api/postings.
+// joined with the company's name/verdict/marks. GET /api/postings. POST adds
+// one posting directly (no fetch, no LLM) — the Add dialog's "job" mode with
+// the agent pass unticked.
 func (s *Server) handlePostings(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := s.DB.ListJobRows()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
+	case http.MethodPost:
+		s.handleAddPosting(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAddPosting adds one posting from just a link, with no agent pass: POST
+// /api/postings {"url": "...", "title"?: "...", "company"?: "..."}. The company
+// is resolved without a fetch — the typed company name and/or the link's own
+// host (a posting on acme.com/careers identifies acme.com; an ATS host
+// identifies nothing) go through ingest.EnsureCompany, creating the company on
+// first sight exactly like a capture would. When neither identifies a company,
+// the add is rejected with guidance rather than guessed at.
+func (s *Server) handleAddPosting(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL     string `json:"url"`
+		Title   string `json:"title"`
+		Company string `json:"company"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	rows, err := s.DB.ListJobRows()
+
+	// Validate the URL before any write — a bad link must not leave behind a
+	// company row with no posting.
+	rawURL := strings.TrimSpace(body.URL)
+	if u, err := neturl.Parse(rawURL); rawURL == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		http.Error(w, "url must be http(s)", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(body.Company)
+	domain := capture.CompanyDomainFromURL(rawURL)
+	if name == "" && domain == "" {
+		http.Error(w, "can't tell the company from this link — type a company name, or let scout read the page", http.StatusBadRequest)
+		return
+	}
+	companyID, created, err := ingest.EnsureCompany(s.DB, ingest.CapturedCompany{
+		Name:      name,
+		Domain:    domain,
+		SourceURL: rawURL,
+	})
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "company ") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "count": len(rows)})
+
+	p, err := s.DB.AddPosting(companyID, rawURL, body.Title)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "url ") { // url required / url must be http(s)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cname, _, _ := s.DB.GetCompanyName(p.CompanyID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"posting": p, "company_id": p.CompanyID,
+		"company_name": cname, "company_created": created,
+	})
 }
 
 // handlePosting updates one posting's application-lifecycle fields — the

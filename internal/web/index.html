@@ -945,7 +945,15 @@
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
 
-  /* ---- add-company form ---- */
+  /* ---- the Add dialog ---- */
+  .kind-toggle { display: flex; gap: 6px; }
+  .enrich-row {
+    display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
+    font-size: 12.5px; color: var(--fg-mute); cursor: pointer; user-select: none;
+  }
+  .enrich-row input { accent-color: var(--link); cursor: pointer; margin: 0; }
+  .enrich-row.disabled { opacity: 0.5; cursor: default; }
+  .enrich-row.disabled input { cursor: default; }
   .form-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
   .form-field label { font-size: 12px; color: var(--fg-mute); }
   .form-field label .req { color: var(--no); margin-left: 2px; }
@@ -1199,13 +1207,9 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
         <span class="grow">Ingest CSV…</span>
       </button>
-      <button class="run-btn" id="btn-add-company">
+      <button class="run-btn" id="btn-add" title="add a company or a job from its link — optionally let an agent pass fill in the blanks">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-        <span class="grow">Add company…</span>
-      </button>
-      <button class="run-btn" id="btn-add-link" title="paste a job posting or company page URL — an agent pass fills in the details">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.7 9.3l2.6-2.6M5.6 7.2L4 8.8a2.3 2.3 0 003.2 3.2l1.6-1.6M10.4 8.8L12 7.2A2.3 2.3 0 008.8 4L7.2 5.6"/></svg>
-        <span class="grow">Add by link…</span>
+        <span class="grow">Add…</span>
       </button>
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
@@ -1349,7 +1353,7 @@
         <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m-13 0h18a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z"/>
       </svg>
       <div class="t">No jobs match the current filters.</div>
-      <div class="small dim">Paste a posting URL via <strong>Add by link…</strong> — the agent pass fills in the rest.</div>
+      <div class="small dim">Paste a posting URL via <strong>Add…</strong> — the agent pass fills in the rest.</div>
     </div>
   </div>
 </main>
@@ -1438,70 +1442,72 @@
 </div>
 
 <!-- add-company modal (manual single-company import) -->
+<!-- the Add dialog: company or job, link first; everything else is optional —
+     the link-capture agent pass fills the blanks when the box is ticked -->
 <div class="modal-scrim" id="add-scrim">
   <div class="modal" style="width:560px">
     <div class="modal-head">
-      <h2>Add company</h2>
+      <h2>Add</h2>
+      <div class="kind-toggle" id="add-kind">
+        <button class="v-chip is-on" data-kind="company">company</button>
+        <button class="v-chip" data-kind="job">job</button>
+      </div>
     </div>
     <div class="modal-body">
       <div class="form-field">
-        <label for="add-website">Website<span class="req">*</span></label>
-        <input class="input" id="add-website" placeholder="acme.com" autocomplete="off" spellcheck="false">
+        <label for="add-url" id="add-url-label">Website<span class="req">*</span></label>
+        <input class="input" id="add-url" placeholder="acme.com" autocomplete="off" spellcheck="false">
       </div>
-      <div class="form-field">
-        <label for="add-name">Name</label>
-        <input class="input" id="add-name" placeholder="defaults to the domain" autocomplete="off">
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label for="add-location">Location</label>
-          <input class="input" id="add-location" autocomplete="off">
-        </div>
-        <div class="form-field">
-          <label for="add-headcount">Headcount</label>
-          <input class="input" id="add-headcount" inputmode="numeric" placeholder="e.g. 250" autocomplete="off">
-        </div>
-        <div class="form-field">
-          <label for="add-stage">Funding stage</label>
-          <select class="input" id="add-stage"><option value="">—</option></select>
+      <div id="add-job-fields" style="display:none">
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="add-title">Title</label>
+            <input class="input" id="add-title" placeholder="e.g. Solutions Engineer" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-job-company">Company</label>
+            <input class="input" id="add-job-company" list="add-company-names" placeholder="from the link if blank" autocomplete="off">
+            <datalist id="add-company-names"></datalist>
+          </div>
         </div>
       </div>
-      <div class="form-field">
-        <label>Verticals <span id="add-vertical-count" style="color:var(--fg-dim);font-weight:400"></span></label>
-        <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
-        <div class="vchips" id="add-vertical-chips"></div>
+      <div id="add-company-fields">
+        <div class="form-field">
+          <label for="add-name">Name</label>
+          <input class="input" id="add-name" placeholder="defaults to the domain" autocomplete="off">
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="add-location">Location</label>
+            <input class="input" id="add-location" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-headcount">Headcount</label>
+            <input class="input" id="add-headcount" inputmode="numeric" placeholder="e.g. 250" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="add-stage">Funding stage</label>
+            <select class="input" id="add-stage"><option value="">—</option></select>
+          </div>
+        </div>
+        <div class="form-field">
+          <label>Verticals <span id="add-vertical-count" style="color:var(--fg-dim);font-weight:400"></span></label>
+          <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
+          <div class="vchips" id="add-vertical-chips"></div>
+        </div>
       </div>
+      <label class="enrich-row" id="add-enrich-row">
+        <input type="checkbox" id="add-enrich" checked>
+        <span>fill in the blanks from the page — one cheap agent pass reads the link</span>
+      </label>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company.</span>
+        <span id="add-note"></span>
       </div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>
       <button class="btn btn-primary" id="add-save">Add company</button>
-    </div>
-  </div>
-</div>
-
-<!-- add-by-link modal (the link-capture agent pass) -->
-<div class="modal-scrim" id="capture-scrim">
-  <div class="modal" style="width:560px">
-    <div class="modal-head">
-      <h2>Add by link</h2>
-    </div>
-    <div class="modal-body">
-      <div class="form-field">
-        <label for="capture-url">URL<span class="req">*</span></label>
-        <input class="input" id="capture-url" placeholder="https://… job posting or company page" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="modal-note">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Paste a job posting or a company page. scout fetches it and an agent pass figures out which it is and fills in the details — a job posting attaches to its company, adding the company first if it isn't in the list yet. Pages behind a login wall (LinkedIn) usually can't be fetched.</span>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" id="capture-cancel">Cancel</button>
-      <button class="btn btn-primary" id="capture-save">Capture</button>
     </div>
   </div>
 </div>
@@ -1715,9 +1721,9 @@ Return the JSON verdict now.</pre>
         <section id="doc-triage">
           <h3 class="dsec"><span class="n">08</span> Triage &amp; results</h3>
           <p class="lede">The main table is where you actually work. Each row is a company with a <strong>flag</strong> bookmark, its verdict pill, the one-line reason, and the structured fields. Sort by any column — including <strong>reviewed</strong>, so you can cycle oldest-reviewed-first; filter by verdict (multi-select chips) or flag, or search by name, vertical, or reason.</p>
-          <h4>The jobs view &amp; Add by link</h4>
+          <h4>The jobs view &amp; the Add dialog</h4>
           <p>The <strong>jobs</strong> tab is the application tracker: one row per saved posting, showing the company plus the lifecycle — <strong>applied</strong> (date), <strong>response</strong> (screening call / interview / offer / rejected), <strong>outreach count</strong>, <strong>last outreach</strong>, and <strong>contacts</strong> (emails render as mailto links). Everything else about the company and role lives in the slide-in panel, where each posting card carries the tracking controls (applied toggle + date, response select, a "+1 outreach" logger, contacts field). Rejected rows are hidden by default — flip the toggle to see them.</p>
-          <p>The fastest way in is <strong>Add by link…</strong>: paste any job-posting or company-page URL and a one-shot agent pass (Haiku) fetches the page, classifies which kind it is, and extracts the details — a posting attaches to its company, creating the company first if it's not in the list. A captured <em>company page</em> also seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
+          <p>The fastest way in is <strong>Add…</strong>: toggle company or job, paste the link, and submit — every other field is optional. With <em>fill in the blanks</em> ticked, a one-shot agent pass (Haiku) fetches the page and extracts the details, with anything you typed winning over the extraction — a posting attaches to its company, creating the company first if it's not in the list, and a captured <em>company page</em> seeds the enrichment row from the fetched text, so the next Verdict run can score it immediately. Untick it for a plain write with no fetch and no LLM call: a company is stored as typed, and a job attaches to the typed company or to the link's own domain (an ATS link with no company named is rejected rather than guessed at). Pages that can't be fetched (login walls, bot challenges) are reported honestly with their fetch status — nothing is invented.</p>
           <h4>Opening a company</h4>
           <p>Click anywhere on a row to slide open its detail pane, which gathers everything scout knows in one place. The pane's top bar shows the flag state and the last-reviewed stamp, with a <strong>flag / unflag</strong> toggle and a <strong>Mark reviewed</strong> button — every click moves the stamp to now, so the reviewed sort keeps rotating fresh companies to the top.</p>
           <p>The detail pane includes:</p>
@@ -3167,10 +3173,8 @@ async function loadMeta() {
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
-  // Capture needs only the API key (no Runner — it's a direct synchronous pass).
-  const cb = document.getElementById("btn-add-link");
-  cb.disabled = !state.meta.capture;
-  if (!state.meta.capture) cb.title = "set ANTHROPIC_API_KEY in the server env to enable";
+  // The Add dialog itself is always available (manual writes need no key);
+  // its agent-pass tick is gated on meta.capture inside openAdd().
 }
 
 // ---- control surface: runs history ----
@@ -3224,21 +3228,72 @@ async function uploadCSV(file) {
   streamJob("ingest", job_id);
 }
 
-// ---- manual add-company ----
-const ADD_FIELDS = ["add-website","add-name","add-location","add-headcount"];
+// ---- the Add dialog (company or job; the agent pass fills the blanks) ----
+const ADD_FIELDS = ["add-url","add-name","add-location","add-headcount","add-title","add-job-company"];
 let addVerticals = [];               // available tags from the DB (sorted)
 let addVerticalsSel = new Set();     // currently selected tags (original spelling)
+let addKind = "company";             // sticky across opens — muscle memory
 
-async function openAddCompany() {
+function setAddKind(kind) {
+  addKind = kind;
+  document.querySelectorAll("#add-kind .v-chip").forEach(b =>
+    b.classList.toggle("is-on", b.dataset.kind === kind));
+  document.getElementById("add-company-fields").style.display = kind === "company" ? "" : "none";
+  document.getElementById("add-job-fields").style.display = kind === "job" ? "" : "none";
+  const label = document.getElementById("add-url-label");
+  const url = document.getElementById("add-url");
+  if (kind === "company") {
+    label.innerHTML = 'Website<span class="req">*</span>';
+    url.placeholder = "acme.com";
+  } else {
+    label.innerHTML = 'Posting URL<span class="req">*</span>';
+    url.placeholder = "https://… the job posting";
+  }
+  document.getElementById("add-save").textContent = kind === "company" ? "Add company" : "Add job";
+  updateAddNote();
+}
+
+function addEnrichOn() {
+  return !!state.meta.capture && document.getElementById("add-enrich").checked;
+}
+
+// The note under the form spells out exactly what the submit will do — it
+// changes with the kind toggle and the agent-pass tick.
+function updateAddNote() {
+  const note = document.getElementById("add-note");
+  if (addEnrichOn()) {
+    note.innerHTML = addKind === "company"
+      ? "scout fetches the page and fills the blank fields — your values win. The page text also seeds enrichment, so the next Verdict can score it. Pages behind a login wall (LinkedIn) usually can't be fetched."
+      : "scout fetches the posting and fills in the title, location and summary — your values win. The job attaches to its company, adding it to the list first if needed. Pages behind a login wall (LinkedIn) usually can't be fetched.";
+  } else {
+    note.innerHTML = addKind === "company"
+      ? "Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company."
+      : "Stored as-is, no fetch. The job attaches to the typed company, or to the link's own domain when the posting lives on the company's site — for an ATS link (greenhouse, lever, …), type the company.";
+  }
+}
+
+async function openAdd() {
   ADD_FIELDS.forEach(id => { document.getElementById(id).value = ""; });
   document.getElementById("add-vertical-filter").value = "";
   addVerticalsSel = new Set();
-  // Populate the stage + vertical pickers from the current DB before showing.
+  // The agent pass needs the server's Anthropic key; without it the tick is
+  // pinned off. With it, the tick is sticky across opens.
+  const enrich = document.getElementById("add-enrich");
+  const row = document.getElementById("add-enrich-row");
+  enrich.disabled = !state.meta.capture;
+  row.classList.toggle("disabled", !state.meta.capture);
+  row.title = state.meta.capture ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  if (!state.meta.capture) enrich.checked = false;
+  setAddKind(addKind);
+  // Populate the stage + vertical pickers and the company suggestions from the
+  // current DB before showing.
   const stageSel = document.getElementById("add-stage");
   stageSel.innerHTML = '<option value="">—</option>';
   document.getElementById("add-vertical-chips").innerHTML = '<div class="none">loading…</div>';
+  document.getElementById("add-company-names").innerHTML =
+    (state.rows || []).map(r => `<option value="${escapeHTML(r.name)}">`).join("");
   document.getElementById("add-scrim").classList.add("open");
-  document.getElementById("add-website").focus();
+  document.getElementById("add-url").focus();
   try {
     const f = await (await fetch("/api/facets")).json();
     (f.funding_stages || []).forEach(s => {
@@ -3249,7 +3304,7 @@ async function openAddCompany() {
   } catch { addVerticals = []; }
   renderVerticalChips();
 }
-function closeAddCompany() {
+function closeAdd() {
   document.getElementById("add-scrim").classList.remove("open");
 }
 function renderVerticalChips() {
@@ -3276,100 +3331,93 @@ function updateVerticalCount() {
   const n = addVerticalsSel.size;
   document.getElementById("add-vertical-count").textContent = n ? `· ${n} selected` : "";
 }
-async function submitAddCompany() {
-  const website = document.getElementById("add-website").value.trim();
-  if (!website) { toast("Website is required."); document.getElementById("add-website").focus(); return; }
+// httpsURL upgrades a bare "acme.com/jobs/1" to a fetchable https URL.
+function httpsURL(u) { return /^https?:\/\//i.test(u) ? u : "https://" + u; }
+
+async function submitAdd() {
+  const urlEl = document.getElementById("add-url");
+  const url = urlEl.value.trim();
+  if (!url) {
+    toast(addKind === "company" ? "Website is required." : "Posting URL is required.");
+    urlEl.focus();
+    return;
+  }
   const btn = document.getElementById("add-save");
+  const label = btn.textContent;
   btn.disabled = true;
-  const body = {
-    website,
-    name: document.getElementById("add-name").value.trim(),
-    vertical: [...addVerticalsSel].join(", "),
-    location: document.getElementById("add-location").value.trim(),
-    headcount: document.getElementById("add-headcount").value.trim(),
-    funding_stage: document.getElementById("add-stage").value,
-  };
+  if (addEnrichOn()) btn.textContent = "reading page…";
+  const restore = () => { btn.disabled = false; btn.textContent = label; };
+  const val = id => document.getElementById(id).value.trim();
+  const enriched = addEnrichOn();
+
+  // The three writes behind the one dialog: the agent pass (either kind), the
+  // manual company insert, the direct posting insert.
+  let endpoint, body;
+  if (enriched) {
+    endpoint = "/api/capture";
+    body = {
+      url: httpsURL(url),
+      kind: addKind === "company" ? "company_page" : "job_posting",
+      fields: addKind === "company"
+        ? { name: val("add-name"), location: val("add-location"), headcount: val("add-headcount"),
+            funding_stage: document.getElementById("add-stage").value, vertical: [...addVerticalsSel].join(", ") }
+        : { name: val("add-job-company"), title: val("add-title") },
+    };
+  } else if (addKind === "company") {
+    endpoint = "/api/companies";
+    body = {
+      website: url, name: val("add-name"), vertical: [...addVerticalsSel].join(", "),
+      location: val("add-location"), headcount: val("add-headcount"),
+      funding_stage: document.getElementById("add-stage").value,
+    };
+  } else {
+    endpoint = "/api/postings";
+    body = { url: httpsURL(url), title: val("add-title"), company: val("add-job-company") };
+  }
+
   let resp;
   try {
-    resp = await fetch("/api/companies", {
+    resp = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch (e) { toast(`add failed: ${e.message}`); btn.disabled = false; return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    btn.disabled = false;
-    if (resp.status === 409) { // already in the list — keep the form open to edit the website
-      toast(txt || "That company is already in the list.");
-      const w = document.getElementById("add-website");
-      w.focus(); w.select();
-      return;
-    }
-    toast(`add failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
-    return;
-  }
-  btn.disabled = false;
-  closeAddCompany();
-  toast("company added");
-  loadList(); loadStats();
-}
-
-// ---- add by link (the link-capture agent pass) ----
-function openCapture() {
-  document.getElementById("capture-url").value = "";
-  document.getElementById("capture-scrim").classList.add("open");
-  document.getElementById("capture-url").focus();
-}
-function closeCapture() {
-  document.getElementById("capture-scrim").classList.remove("open");
-}
-async function submitCapture() {
-  const urlEl = document.getElementById("capture-url");
-  const url = urlEl.value.trim();
-  if (!url) { toast("Enter a URL first."); urlEl.focus(); return; }
-  const btn = document.getElementById("capture-save");
-  btn.disabled = true;
-  const label = btn.textContent;
-  btn.textContent = "reading page…";
-  const restore = () => { btn.disabled = false; btn.textContent = label; };
-
-  let resp;
-  try {
-    resp = await fetch("/api/capture", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-  } catch (e) { toast(`capture failed: ${e.message}`); restore(); return; }
+  } catch (e) { toast(`add failed: ${e.message}`); restore(); return; }
   if (!resp.ok) {
     let msg = `HTTP ${resp.status}`;
     try {
       const t = await resp.text();
       try { msg = JSON.parse(t).error || msg; } catch { msg = t.trim() || msg; }
     } catch {}
-    toast(`capture failed: ${msg}`);
     restore();
+    if (resp.status === 409) { // already in the list — keep the form open to edit the website
+      toast(msg || "That company is already in the list.");
+      urlEl.focus(); urlEl.select();
+      return;
+    }
+    toast(`add failed: ${msg}`);
     return;
   }
   const res = await resp.json();
   restore();
 
-  // Nothing-written outcomes are reported honestly, with the modal kept open
-  // so the URL can be corrected.
-  if (!res.company_id) {
+  // The agent pass can decline to write (kind "other", unidentifiable
+  // company) — reported honestly, with the dialog kept open for a fix.
+  if (enriched && !res.company_id) {
     toast(res.note || "couldn't classify that page");
     return;
   }
-  closeCapture();
+  closeAdd();
   loadList(); loadStats(); loadJobs();
-  if (res.kind === "job_posting" && res.posting) {
-    const what = res.posting.title || "job link";
-    toast(`captured: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
+  if (addKind === "job") {
+    const what = (res.posting && res.posting.title) || "job link";
+    toast(`tracking: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
     setView("jobs");
-  } else {
+  } else if (enriched) {
     toast(res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`);
     openDetail(res.company_id);
+  } else {
+    toast("company added");
   }
 }
 
@@ -3518,8 +3566,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
-  if (document.getElementById("add-scrim").classList.contains("open")) { closeAddCompany(); return; }
-  if (document.getElementById("capture-scrim").classList.contains("open")) { closeCapture(); return; }
+  if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   // The pursuit panel can sit over the company pane (View company opens it on
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
@@ -3536,24 +3583,21 @@ document.getElementById("only-blanks").onclick = e => {
 document.getElementById("btn-enrich").onclick = () => startRun("enrich", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-verdict").onclick = () => startRun("verdict", onlyBlanks ? { only_blanks: true } : {});
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
-document.getElementById("btn-add-company").onclick = openAddCompany;
-document.getElementById("add-cancel").onclick = closeAddCompany;
-document.getElementById("add-save").onclick = submitAddCompany;
-document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAddCompany(); };
-document.getElementById("btn-add-link").onclick = openCapture;
-document.getElementById("capture-cancel").onclick = closeCapture;
-document.getElementById("capture-save").onclick = submitCapture;
-document.getElementById("capture-scrim").onclick = e => { if (e.target.id === "capture-scrim") closeCapture(); };
-document.getElementById("capture-url").addEventListener("keydown", e => {
-  if (e.key === "Enter") { e.preventDefault(); submitCapture(); }
-});
+document.getElementById("btn-add").onclick = openAdd;
+document.getElementById("add-cancel").onclick = closeAdd;
+document.getElementById("add-save").onclick = submitAdd;
+document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAdd(); };
+document.querySelectorAll("#add-kind .v-chip").forEach(b => { b.onclick = () => setAddKind(b.dataset.kind); });
+document.getElementById("add-enrich").addEventListener("change", updateAddNote);
 // Enter in a text field submits — but not in the vertical filter (where Enter
-// would prematurely submit while narrowing chips), nor on chips/select.
+// would prematurely submit while narrowing chips), not in the company picker
+// (where Enter commits a datalist suggestion), nor on chips/select/checkbox.
 document.getElementById("add-scrim").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
-  if (e.target.tagName !== "INPUT" || e.target.id === "add-vertical-filter") return;
+  if (e.target.tagName !== "INPUT" || e.target.type === "checkbox") return;
+  if (e.target.id === "add-vertical-filter" || e.target.id === "add-job-company") return;
   e.preventDefault();
-  submitAddCompany();
+  submitAdd();
 });
 document.getElementById("add-vertical-filter").addEventListener("input", renderVerticalChips);
 // Headcount: digits only (no spinner buttons, since it's a text input).

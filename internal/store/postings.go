@@ -78,13 +78,35 @@ func validatePostingURL(url string) (string, error) {
 
 // AddPosting inserts a hand-added posting (source "manual") for a company and
 // returns the created row. Inputs are trimmed; see validatePostingURL for the
-// url rules. Returns sql.ErrNoRows if the company doesn't exist.
+// url rules. The URL is the posting's identity (same rule as the capture
+// upsert): adding a link that's already tracked returns the existing row —
+// backfilling a blank title when one was typed — instead of duplicating it.
+// Returns sql.ErrNoRows if the company doesn't exist.
 func (db *DB) AddPosting(companyID, url, title string) (Posting, error) {
 	url, err := validatePostingURL(url)
 	if err != nil {
 		return Posting{}, err
 	}
 	title = strings.TrimSpace(title)
+
+	// Already tracked? Return that row (the existing row's company wins).
+	var existingID string
+	err = db.QueryRow(
+		`SELECT id FROM job_postings WHERE url = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+		url,
+	).Scan(&existingID)
+	switch {
+	case err == nil:
+		if title != "" {
+			const q = `UPDATE job_postings SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`
+			if _, err := db.Exec(q, title, existingID); err != nil {
+				return Posting{}, fmt.Errorf("backfill posting title %s: %w", existingID, err)
+			}
+		}
+		return db.readPosting(existingID)
+	case err != sql.ErrNoRows:
+		return Posting{}, fmt.Errorf("find posting by url: %w", err)
+	}
 
 	// Ensure the company exists (mirrors the guard in other store writes).
 	exists, err := db.CompanyExists(companyID)

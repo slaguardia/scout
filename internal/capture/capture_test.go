@@ -117,7 +117,7 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	})
 	c := newCapturer(t, llm)
 
-	res, err := c.Run(context.Background(), page.URL+"/jobs/1")
+	res, err := c.Run(context.Background(), Request{URL: page.URL + "/jobs/1"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	}
 
 	// Same link again → refresh, not duplicate; company already known.
-	res2, err := c.Run(context.Background(), page.URL+"/jobs/1")
+	res2, err := c.Run(context.Background(), Request{URL: page.URL + "/jobs/1"})
 	if err != nil {
 		t.Fatalf("Run twice: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestRunCapturesCompanyPage(t *testing.T) {
 	})
 	c := newCapturer(t, llm)
 
-	res, err := c.Run(context.Background(), page.URL+"/about")
+	res, err := c.Run(context.Background(), Request{URL: page.URL + "/about"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRunOtherKindWritesNothing(t *testing.T) {
 	llm := fakeAnthropic(t, extraction{Kind: KindOther})
 	c := newCapturer(t, llm)
 
-	res, err := c.Run(context.Background(), page.URL)
+	res, err := c.Run(context.Background(), Request{URL: page.URL})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -189,6 +189,63 @@ func TestRunOtherKindWritesNothing(t *testing.T) {
 	}
 	if n, _ := c.DB.CountCompanies(); n != 0 {
 		t.Errorf("kind=other wrote %d companies", n)
+	}
+}
+
+func TestRunPinnedKindOverridesClassifier(t *testing.T) {
+	// The extractor says "other" (a JS shell, say) but the user toggled "job"
+	// in the Add dialog — the pin wins, and the typed fields fill what the
+	// extraction couldn't.
+	page := jobPage(t)
+	llm := fakeAnthropic(t, extraction{Kind: KindOther})
+	c := newCapturer(t, llm)
+
+	res, err := c.Run(context.Background(), Request{
+		URL:    page.URL + "/jobs/1",
+		Kind:   KindJob,
+		Fields: Fields{Name: "Acme", Title: "Solutions Engineer"},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Kind != KindJob || res.CompanyID == "" || !res.CompanyCreated {
+		t.Fatalf("pinned kind ignored: %+v", res)
+	}
+	if res.Posting == nil || res.Posting.Title != "Solutions Engineer" {
+		t.Errorf("typed title lost: %+v", res.Posting)
+	}
+}
+
+func TestRunUserFieldsWinOverExtraction(t *testing.T) {
+	page := jobPage(t)
+	llm := fakeAnthropic(t, extraction{
+		Kind: KindCompany, CompanyName: "Acme Robotics", CompanyDomain: "acme.com",
+		Vertical: "robots", CompanyLocation: "Austin",
+	})
+	c := newCapturer(t, llm)
+
+	res, err := c.Run(context.Background(), Request{
+		URL:  page.URL + "/about",
+		Kind: KindCompany,
+		Fields: Fields{
+			Name: "Acme", Location: "NYC", Vertical: "AI infra",
+			Headcount: "250", FundingStage: "Series B",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.CompanyName != "Acme" {
+		t.Errorf("typed name lost: %+v", res)
+	}
+	d, err := c.DB.GetCompanyDetail(res.CompanyID)
+	if err != nil || d == nil {
+		t.Fatalf("detail: d=%v err=%v", d, err)
+	}
+	if d.Location != "NYC" || d.Vertical != "AI infra" ||
+		d.Headcount != 250 || d.FundingStage != "Series B" {
+		t.Errorf("typed fields didn't reach the row: location=%q vertical=%q headcount=%d stage=%q",
+			d.Location, d.Vertical, d.Headcount, d.FundingStage)
 	}
 }
 
@@ -202,7 +259,7 @@ func TestRunFetchFailure(t *testing.T) {
 	llm := fakeAnthropic(t, extraction{Kind: KindJob})
 	c := newCapturer(t, llm)
 
-	res, err := c.Run(context.Background(), srv.URL+"/jobs/1")
+	res, err := c.Run(context.Background(), Request{URL: srv.URL + "/jobs/1"})
 	var fe FetchError
 	if !errors.As(err, &fe) || fe.Status != "http_403" {
 		t.Fatalf("want FetchError http_403, got %v", err)
@@ -215,7 +272,7 @@ func TestRunFetchFailure(t *testing.T) {
 func TestRunBadURL(t *testing.T) {
 	c := newCapturer(t, fakeAnthropic(t, extraction{Kind: KindOther}))
 	for _, bad := range []string{"", "   ", "javascript:alert(1)", "ftp://x.com/j", "not a url"} {
-		_, err := c.Run(context.Background(), bad)
+		_, err := c.Run(context.Background(), Request{URL: bad})
 		if err == nil || !strings.HasPrefix(err.Error(), "url ") {
 			t.Errorf("Run(%q): want url-prefixed error, got %v", bad, err)
 		}
