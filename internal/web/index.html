@@ -239,7 +239,6 @@
   }
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
-  .tab .n { opacity: 0.75; font-variant-numeric: tabular-nums; margin-left: 5px; }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background: var(--link-bg); color: var(--link); }
@@ -852,6 +851,9 @@
   }
   .run-btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-2); }
   .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* lit while its stage is running — same vocabulary as the is-on chips */
+  .run-btn.busy { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  .run-btn.busy svg { color: var(--link); }
   .run-btn svg { width: 13px; height: 13px; flex: none; color: var(--fg-mute); }
   .run-btn .grow { flex: 1; }
   .run-busy {
@@ -1193,7 +1195,7 @@
   <div class="block" id="block-view">
     <div class="view-switch" title="which table the main area shows">
       <button class="tab active" id="tab-companies">companies</button>
-      <button class="tab" id="tab-jobs">jobs<span class="n" id="jobs-n"></span></button>
+      <button class="tab" id="tab-jobs">jobs</button>
     </div>
   </div>
 
@@ -1274,7 +1276,7 @@
       </div>
     </div>
     <div class="filter-row">
-      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected</button>
+      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected <span class="v-count" id="hidden-rej-n" style="display:none"></span></button>
     </div>
   </div>
 
@@ -1775,7 +1777,6 @@ async function loadJobs() {
     data = await r.json();
   } catch { return; }
   state.jobs = data.rows || [];
-  document.getElementById("jobs-n").textContent = state.jobs.length ? ` ${state.jobs.length}` : "";
   renderJobs();
   // The pursuit panel holds a reference into the old array; re-bind it to the
   // fresh row so its header/pipeline reflect server-side moves (e.g. a sent
@@ -2042,6 +2043,12 @@ function renderJobs() {
   tbody.innerHTML = "";
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
+  // Say what hide-rejected is suppressing — a silently missing row reads as a bug.
+  const hiddenRej = (hideRejected && !responseFilter.has("rejected"))
+    ? state.jobs.filter(j => j.response === "rejected").length : 0;
+  const hn = document.getElementById("hidden-rej-n");
+  hn.textContent = hiddenRej;
+  hn.style.display = hiddenRej ? "" : "none";
   for (const j of rows) {
     const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
@@ -3185,7 +3192,7 @@ async function loadRuns() {
     if (!r.ok) return;
     data = await r.json();
   } catch { return; }
-  // Busy indicator.
+  // Busy indicator — the spinner row plus a lit state on the running stage's button.
   const busy = data.busy_stage || "";
   const busyEl = document.getElementById("run-busy");
   if (busy) {
@@ -3194,6 +3201,9 @@ async function loadRuns() {
   } else {
     busyEl.style.display = "none";
   }
+  document.getElementById("btn-ingest").classList.toggle("busy", busy === "ingest");
+  document.getElementById("btn-enrich").classList.toggle("busy", busy === "enrich");
+  document.getElementById("btn-verdict").classList.toggle("busy", busy === "verdict");
 }
 
 // ---- control surface: run a stage ----
