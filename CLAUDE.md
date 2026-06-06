@@ -59,9 +59,7 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   (screening/interview/offer/rejected), outreach count, last outreach, and
   contacts (free-form emails, rendered as mailto links) — with everything else
   in the slide-in panel, where each posting card has the tracking controls
-  (`PUT /api/postings/{id}`). "Hide rejected" is on by default. Outreach
-  *message content* stays in Notion; see the amended non-goals in
-  `north-star.md`.
+  (`PUT /api/postings/{id}`). "Hide rejected" is on by default.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
@@ -73,16 +71,39 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   scoring stays on Haiku). The verdict engine reasons over that brief. The brief is cached locally in SQLite
   (table `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual
   re-distill from the UI's Criteria panel); `taste.md` is the offline fallback
-  when the brain is unreachable and the cache is gone. Scout must **not** call
-  `/profile` or `/map` (owner-only) and never passes a `scope`. Distillation is
+  when the brain is unreachable and the cache is gone. The consumer surface is
+  `recall` + `doc` + `map` (amended 2026-06-04): `GET /doc?id=` fetches whole
+  documents verbatim by stable page id, `GET /map` is the discovery surface;
+  `/profile` stays owner-only and scout never passes a `scope`. Distillation is
   **companies only** — role/title fit is a separate, later concern. `scout
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
+- **Outreach pipeline, built (not yet live):** `docs/outreach-agent.md` is the
+  spec. Context **blocks** (P2 paragraph, hook/closer/voice rules, experience
+  doc, humanizer prompt) are bound by scout-side **pins** to brain page ids
+  (or `file:` paths), fetched whole via `/doc` at sync time, cached versioned
+  in SQLite; `P2_LOCKED` is user-declared (`scout outreach set`, declaration =
+  approval); locked blocks halt loud on upstream drift, 404s on pinned sources
+  go loud. The **engine** (`internal/outreach`, all Sonnet): Go JD pre-fetch
+  (ATS JSON APIs) → researcher (hosted `web_search`, pause_turn-aware) →
+  hook selector (integrity gate) → drafter (P1/P3 only; P2 + sign-off
+  assembled in code) → lint → humanizer → lint → honesty checker (one retry).
+  `no_honest_hook` = **don't email** (no draft, no fallback template) — a
+  success path. Body-scoped deterministic lint. The jobs panel is the review
+  queue (draft cards by status, edit/re-lint, mark-sent bumps tracking);
+  fire-and-forget with a row badge. CLI: `scout outreach map | pin | set |
+  blocks | draft`. Engine wires into serve when `ANTHROPIC_API_KEY` is set.
+  Notion guidance pages (refactored 2026-06-06) are not yet ingested into the
+  brain, so no blocks are pinned yet — that's the go-live gate.
 
 ## What's next
 
-A real **Crunchbase CSV run** end-to-end (blocked on the user downloading the
-export — verify ingest column aliases against the real header first). The web UI
-is the primary interface; the CLI is the secondary automation/debug surface.
+**Outreach go-live:** ingest the Notion guidance pages into the brain (Cold
+email, Voice & style, Past Experience), pin the blocks, `scout outreach set`
+the P2 paragraph (body only — the sign-off is assembled in code) and the
+humanizer prompt, then run the first real draft via `scout outreach draft
+--posting <id>`. Also still pending: a real **Crunchbase CSV run** end-to-end
+(verify ingest column aliases against the real header first). The web UI is
+the primary interface; the CLI is the secondary automation/debug surface.
 `north-star.md` is the canonical architecture.
