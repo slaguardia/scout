@@ -184,3 +184,20 @@ func mustAffect(res sql.Result) error {
 	}
 	return nil
 }
+
+// ReapStuckOutreachDrafts fails any draft stuck in `researching` longer than
+// olderThanMinutes (0 = all of them). A row only stays in researching while an
+// engine goroutine is live; after a server restart (or a crash the catch-all
+// couldn't see) the row is orphaned — it blocks new drafts for its posting and
+// the panel polls it forever. Called at serve startup, before any new work.
+func (db *DB) ReapStuckOutreachDrafts(olderThanMinutes int) (int64, error) {
+	res, err := db.Exec(`UPDATE outreach_drafts SET
+status = ?, fail_reason = 'interrupted — scout restarted mid-run',
+updated_at = CURRENT_TIMESTAMP
+WHERE status = ? AND updated_at <= datetime('now', ?)`,
+		DraftFailed, DraftResearching, fmt.Sprintf("-%d minutes", olderThanMinutes))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

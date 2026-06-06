@@ -309,3 +309,33 @@ func TestRunMalformedJSONRetriesThenFails(t *testing.T) {
 		t.Errorf("expected a fail_reason on the failed draft")
 	}
 }
+
+func TestRunFailsLoudWhenBlockBreaksMidRun(t *testing.T) {
+	// The web gate checks blocks at draft START, but the pipeline runs async —
+	// a concurrent sync can break a block mid-run. The stage must fail loud,
+	// never assemble an email with a missing credential paragraph.
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON,  // researcher
+		hookJSONReply, // hook selector picks a hook
+	}}
+	eng, db := newEngine(t, fake)
+	seedRequiredBlocks(t, db, p2Block)
+	if err := db.MarkOutreachBlockBroken("P2_LOCKED", "upstream version changed"); err != nil {
+		t.Fatal(err)
+	}
+	id := seedPostingDraft(t, db)
+
+	if err := eng.Run(context.Background(), id); err == nil {
+		t.Fatal("Run: want error when P2_LOCKED is broken mid-run")
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftFailed {
+		t.Fatalf("status = %q, want failed", d.Status)
+	}
+	if !strings.Contains(d.FailReason, "P2_LOCKED") {
+		t.Fatalf("fail_reason = %q", d.FailReason)
+	}
+	if d.Draft != "" {
+		t.Fatalf("an email was assembled without P2: %q", d.Draft)
+	}
+}

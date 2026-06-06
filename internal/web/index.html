@@ -2505,6 +2505,12 @@ function draftText(d) {
   return (d.edited && d.edited.trim()) ? d.edited : (d.draft || "");
 }
 
+// safeURL admits only http(s) URLs into href attributes — trace source URLs
+// come from researched web content and must not smuggle javascript: etc.
+function safeURL(u) {
+  return /^https?:\/\//i.test(u || "") ? u : "";
+}
+
 // renderTrace shows the pipeline's stage outputs — what the researcher found
 // and what the hook selector decided — as collapsible sections on the draft
 // card. The data is stored on every draft row; this is the visibility layer.
@@ -2521,7 +2527,7 @@ function renderTrace(d) {
     const hookItems = hooks.map(h => `
       <div class="tr-line">
         <span class="tr-key">${escapeHTML(h.type || "hook")}</span>
-        ${h.source_url ? ` · <a href="${escapeHTML(h.source_url)}" target="_blank" rel="noopener">source</a>` : ""}
+        ${safeURL(h.source_url) ? ` · <a href="${escapeHTML(safeURL(h.source_url))}" target="_blank" rel="noopener">source</a>` : ""}
         <span class="tr-quote">${escapeHTML(h.quote || "")}</span>
         ${h.context ? `<span class="tr-key">${escapeHTML(h.context)}</span>` : ""}
       </div>`).join("");
@@ -2544,7 +2550,7 @@ function renderTrace(d) {
       <div class="trace-body">
         ${h.quote ? `<span class="tr-quote">${escapeHTML(h.quote)}</span>` : ""}
         ${h.thread ? `<div class="tr-line"><span class="tr-key">thread:</span> ${escapeHTML(h.thread)}</div>` : ""}
-        ${h.source_url ? `<div class="tr-line"><a href="${escapeHTML(h.source_url)}" target="_blank" rel="noopener">source</a></div>` : ""}
+        ${safeURL(h.source_url) ? `<div class="tr-line"><a href="${escapeHTML(safeURL(h.source_url))}" target="_blank" rel="noopener">source</a></div>` : ""}
         ${hook.reasoning ? `<div class="tr-line"><span class="tr-key">reasoning:</span> ${escapeHTML(hook.reasoning)}</div>` : ""}
       </div></details>`;
   }

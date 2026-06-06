@@ -4,9 +4,32 @@ package outreach
 // design doc is canonical). The experience-card prompt is the derivation
 // instruction from the same doc's EXPERIENCE_CARD tier description.
 
+// Sender is the identity seam — the only place the pipeline knows who it
+// writes for. Scout ships the owner's values as DefaultSender; another user
+// supplies their own (docs/outreach-agent.md, "Generality"). Everything else
+// in the pipeline is user-agnostic: blocks carry the knowledge, Sender carries
+// the framing.
+type Sender struct {
+	SubjectName string // short name in the subject line ("[Name] | <SubjectName> intro — <role>")
+	Signature   string // verbatim sign-off appended after the closer
+	Lens        string // researcher's relevance lens: one line of who the sender is
+	HookPrefs   string // researcher's "Prefer hooks about: ..." line
+	Arc         string // drafter's one-line framing of the sender's move
+}
+
+// DefaultSender is the owner's identity.
+var DefaultSender = Sender{
+	SubjectName: "Alex",
+	Signature:   "Thanks,\nAlex",
+	Lens:        "a backend/platform engineer, 5 years in defense in a forward-deployed-style role, builds agent tooling on the side",
+	HookPrefs:   "deployment/reliability/infrastructure, customer-embedded work, government/defense adjacency, agent systems, or unusual engineering claims",
+	Arc:         "a backend/platform engineer moving from defense to startups",
+}
+
 // researcherSystem is Agent 1 — the Researcher. It uses the hosted web_search
 // server tool (added by the engine) for news/site/podcast hooks.
-const researcherSystem = `You research companies for job-search outreach. Given a company name and job URL,
+func researcherSystem(snd Sender) string {
+	return `You research companies for job-search outreach. Given a company name and job URL,
 produce structured facts. You do not write emails and you do not flatter.
 
 Gather:
@@ -25,16 +48,15 @@ Gather:
 
 Rules: exact quotes only, never paraphrase into marketing speak. If you can't
 find something after a reasonable look, return it as null — do not pad.
-The relevance lens: the sender is a backend/platform engineer, 5 years in
-defense in a forward-deployed-style role, builds agent tooling on the side.
-Prefer hooks about: deployment/reliability/infrastructure, customer-embedded
-work, government/defense adjacency, agent systems, or unusual engineering claims.
+The relevance lens: the sender is ` + snd.Lens + `.
+Prefer hooks about: ` + snd.HookPrefs + `.
 
 Output schema (return ONLY this JSON object, no prose, no markdown fences):
 {"company": "...", "what_they_do": "...", "customer": "...", "stage": "...",
  "headcount_est": "...", "role": {"title": "...", "jd_quotes": ["..."]},
  "hooks": [{"type": "...", "quote": "...", "source_url": "...", "context": "..."}],
  "disambiguation": "...", "confidence": "..."}`
+}
 
 // hookSelectorSystem is Agent 2 — the Hook selector. The integrity gate.
 const hookSelectorSystem = `You select the hook for a cold email, or decide there isn't one. You are the
@@ -59,12 +81,12 @@ this company yet — the correct outcome, not a failure. Never stretch to avoid
 it.`
 
 // drafterSystem is Agent 3 — the Drafter. Writes P1 and P3 only.
-const drafterSystem = `You write two short paragraphs of a cold email for Alex, a backend/platform
-engineer moving from defense to startups. A locked middle paragraph carrying his
+func drafterSystem(snd Sender) string {
+	return `You write two short paragraphs of a cold email for the sender, ` + snd.Arc + `. A locked middle paragraph carrying the sender's
 credentials already exists — you never write credentials.
 
 P1 (1-2 sentences): open with the chosen hook using its exact quote or specific
-fact, then the provided thread connecting it to Alex's work. Plain spoken
+fact, then the provided thread connecting it to the sender's work. Plain spoken
 English. No greeting (added in code).
 
 P3 (1-2 sentences): one sentence of why this company, specific, desire-framed
@@ -78,6 +100,7 @@ to" as an opener, or any superlative not earned by a specific fact. Never
 mention having applied.
 
 Return: {p1, p3}`
+}
 
 // honestyCheckerSystem is Agent 5 — the Honesty checker. Veto power.
 const honestyCheckerSystem = `You verify that a job-search email makes no claim beyond the sender's documented

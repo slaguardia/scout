@@ -367,3 +367,37 @@ func TestUpdatePostingTracking(t *testing.T) {
 		t.Errorf("unknown posting: want sql.ErrNoRows, got %v", err)
 	}
 }
+
+func TestReapStuckOutreachDrafts(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", RawJSON: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.test/j", "X")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateOutreachDraft(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fresh row + 30-minute threshold: not reaped (a live run).
+	if n, err := db.ReapStuckOutreachDrafts(30); err != nil || n != 0 {
+		t.Fatalf("reap(30) = %d, %v; want 0", n, err)
+	}
+	// Threshold 0 (serve startup): reaped.
+	n, err := db.ReapStuckOutreachDrafts(0)
+	if err != nil || n != 1 {
+		t.Fatalf("reap(0) = %d, %v; want 1", n, err)
+	}
+	got, _ := db.GetOutreachDraft(d.ID)
+	if got.Status != DraftFailed || got.FailReason == "" {
+		t.Fatalf("reaped draft: %+v", got)
+	}
+	// The posting is unblocked: a new draft can start.
+	if _, err := db.CreateOutreachDraft(p.ID); err != nil {
+		t.Fatalf("new draft after reap: %v", err)
+	}
+}

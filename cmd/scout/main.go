@@ -472,6 +472,13 @@ func cmdServe(args []string) error {
 	// key, draft starts return 503 (the panel surfaces that). The engine reads
 	// only the local block cache at draft time — never the brain.
 	if ac.APIKey != "" {
+		// Reap drafts orphaned in `researching` by a previous process — they
+		// block new drafts for their posting and the panel polls them forever.
+		if n, err := db.ReapStuckOutreachDrafts(0); err != nil {
+			fmt.Fprintf(os.Stderr, "outreach: reap stuck drafts: %v\n", err)
+		} else if n > 0 {
+			fmt.Fprintf(os.Stderr, "outreach: failed %d draft(s) orphaned by a restart\n", n)
+		}
 		srv.Outreach = &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
 		fmt.Fprintf(os.Stderr, "outreach drafting enabled (model %s)\n", *outreachModel)
 	} else {
@@ -760,6 +767,13 @@ func cmdOutreachDraft(args []string) error {
 		return err
 	} else if len(missing) > 0 {
 		return fmt.Errorf("outreach draft: required blocks missing or broken: %s (pin and sync them first)", strings.Join(missing, ", "))
+	}
+
+	// Reap drafts long-orphaned in `researching` (a dead process) so they don't
+	// block this posting forever. 30-minute threshold: never kills a live run
+	// owned by a serve process (the pipeline times out well before that).
+	if n, _ := db.ReapStuckOutreachDrafts(30); n > 0 {
+		fmt.Fprintf(os.Stderr, "reaped %d stuck draft(s)\n", n)
 	}
 
 	d, err := db.CreateOutreachDraft(*posting)

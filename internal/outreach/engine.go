@@ -27,9 +27,22 @@ type Engine struct {
 	Model  string // all five agents; empty → anthropic.DefaultModel
 	Log    func(string)
 
+	// Who is a non-default Sender (the identity seam: subject name, sign-off,
+	// researcher lens, drafter arc). Zero value → DefaultSender.
+	Who Sender
+
 	// HTTP is the client for the deterministic JD pre-fetch. Optional; a nil
 	// value uses a default with a sane timeout.
 	HTTP *http.Client
+}
+
+// sender resolves the identity seam: an explicitly set Who wins, else the
+// compiled-in DefaultSender.
+func (e *Engine) sender() Sender {
+	if e.Who != (Sender{}) {
+		return e.Who
+	}
+	return DefaultSender
 }
 
 const (
@@ -165,7 +178,10 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 // hookRoute drives the drafter/assemble/lint/humanize/honesty path, retrying
 // the drafter once when the honesty checker flags a violation.
 func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSON string, hook hookOutput, company, role string) error {
-	p2 := e.blockContent("P2_LOCKED")
+	p2, err := e.requireBlock("P2_LOCKED")
+	if err != nil {
+		return err
+	}
 
 	var violationNote string
 	for attempt := 0; attempt < 2; attempt++ {
@@ -176,7 +192,7 @@ func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSO
 		}
 
 		// Assemble in code, then lint, then humanize, then re-lint.
-		email := assembleEmail(drafted.P1, p2, drafted.P3, role)
+		email := assembleEmail(e.sender(), drafted.P1, p2, drafted.P3, role)
 		email = e.humanize(ctx, email, p2)
 		lintJSON := lintJSON(email, p2)
 
@@ -205,6 +221,19 @@ func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSO
 	return nil
 }
 
+// requireBlock returns a required block's content, erroring when it is
+// missing, broken, or empty. The web gate checks Required blocks at draft
+// START, but the pipeline runs async — a concurrent sync can break a block
+// mid-run (locked drift, pinned source gone). Proceeding with "" would be the
+// worst silent failure (an email with no credential paragraph), so stages
+// re-require their blocks at read time.
+func (e *Engine) requireBlock(name string) (string, error) {
+	if c := e.blockContent(name); c != "" {
+		return c, nil
+	}
+	return "", fmt.Errorf("required block %s became unavailable mid-run (broken or re-synced?) — check `scout outreach blocks`", name)
+}
+
 // blockContent returns a cached block's content, or "" when missing/broken.
 func (e *Engine) blockContent(name string) string {
 	b, err := e.DB.GetOutreachBlock(name)
@@ -229,7 +258,7 @@ func (e *Engine) research(ctx context.Context, company, jobURL string, jd JDResu
 	}
 	user := fmt.Sprintf("Company: %s\nJob URL: %s\n\n%s", company, jobURL, jdSection)
 
-	raw, err := e.callJSON(ctx, researcherSystem, user, researcherMaxTokens, []any{anthropic.NewWebSearchTool(webSearchMaxUses)})
+	raw, err := e.callJSON(ctx, researcherSystem(e.sender()), user, researcherMaxTokens, []any{anthropic.NewWebSearchTool(webSearchMaxUses)})
 	if err != nil {
 		return "", err
 	}
@@ -298,6 +327,14 @@ type hookOutput struct {
 // EXPERIENCE_CARD. It returns the cleaned JSON (for the row) and the parsed
 // decision (to branch on).
 func (e *Engine) selectHook(ctx context.Context, research string) (string, hookOutput, error) {
+	rules, err := e.requireBlock("HOOK_RULES")
+	if err != nil {
+		return "", hookOutput{}, err
+	}
+	card, err := e.requireBlock("EXPERIENCE_CARD")
+	if err != nil {
+		return "", hookOutput{}, err
+	}
 	user := fmt.Sprintf(`Researched hook candidates (JSON):
 %s
 
@@ -305,7 +342,7 @@ HOOK_RULES:
 %s
 
 EXPERIENCE_CARD:
-%s`, research, e.blockContent("HOOK_RULES"), e.blockContent("EXPERIENCE_CARD"))
+%s`, research, rules, card)
 
 	raw, err := e.callJSON(ctx, hookSelectorSystem, user, stageMaxTokens, nil)
 	if err != nil {
@@ -336,11 +373,19 @@ type draftOutput struct {
 // VOICE_RULES + (optional) BANK_ROWS. violationNote, when non-empty, is the
 // honesty-retry feedback appended to the input.
 func (e *Engine) draft(ctx context.Context, hookJSON, role string, hook hookOutput, violationNote string) (draftOutput, error) {
+	closers, err := e.requireBlock("CLOSER_RULES")
+	if err != nil {
+		return draftOutput{}, err
+	}
+	voice, err := e.requireBlock("VOICE_RULES")
+	if err != nil {
+		return draftOutput{}, err
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Hook selector output (JSON):\n%s\n\n", hookJSON)
 	fmt.Fprintf(&b, "Role title: %s\n\n", role)
-	fmt.Fprintf(&b, "CLOSER_RULES:\n%s\n\n", e.blockContent("CLOSER_RULES"))
-	fmt.Fprintf(&b, "VOICE_RULES:\n%s\n", e.blockContent("VOICE_RULES"))
+	fmt.Fprintf(&b, "CLOSER_RULES:\n%s\n\n", closers)
+	fmt.Fprintf(&b, "VOICE_RULES:\n%s\n", voice)
 	if bank := e.blockContent("BANK_ROWS"); bank != "" {
 		fmt.Fprintf(&b, "\nWriting-bank exemplars (match their voice):\n%s\n", bank)
 	}
@@ -348,7 +393,7 @@ func (e *Engine) draft(ctx context.Context, hookJSON, role string, hook hookOutp
 		fmt.Fprintf(&b, "\nA reviewer flagged these claims — fix them without inventing anything:\n%s\n", violationNote)
 	}
 
-	raw, err := e.callJSON(ctx, drafterSystem, b.String(), stageMaxTokens, nil)
+	raw, err := e.callJSON(ctx, drafterSystem(e.sender()), b.String(), stageMaxTokens, nil)
 	if err != nil {
 		return draftOutput{}, err
 	}
@@ -424,11 +469,17 @@ type honestyViolation struct {
 // email. It is isolated — it sees only the experience doc and the email, never
 // the intended hook.
 func (e *Engine) honestyCheck(ctx context.Context, email string) (string, []honestyViolation, error) {
+	// An empty experience doc would make every claim unverifiable and the
+	// checker would pass garbage — the one stage where silence is most costly.
+	expDoc, err := e.requireBlock("PAST_EXPERIENCE_FULL")
+	if err != nil {
+		return "", nil, err
+	}
 	user := fmt.Sprintf(`Experience document:
 %s
 
 Email to verify:
-%s`, e.blockContent("PAST_EXPERIENCE_FULL"), email)
+%s`, expDoc, email)
 
 	raw, err := e.callJSON(ctx, honestyCheckerSystem, user, stageMaxTokens, nil)
 	if err != nil {
@@ -518,8 +569,8 @@ func (e *Engine) callJSON(ctx context.Context, system, user string, maxTokens in
 // P2_LOCKED, P3. The recipient name stays a placeholder (contact-finding is the
 // user's job). The subject is the first "Subject: ..." line, then a blank line,
 // then the body — stored as one draft text field.
-func assembleEmail(p1, p2, p3, role string) string {
-	subject := "Subject: [Name] | Alex intro"
+func assembleEmail(snd Sender, p1, p2, p3, role string) string {
+	subject := "Subject: [Name] | " + snd.SubjectName + " intro"
 	if r := strings.TrimSpace(role); r != "" {
 		subject += " — " + r
 	}
@@ -527,14 +578,11 @@ func assembleEmail(p1, p2, p3, role string) string {
 	if strings.TrimSpace(p2) != "" {
 		parts = append(parts, strings.TrimSpace(p2))
 	}
-	parts = append(parts, strings.TrimSpace(p3), signature)
+	// The sign-off is deterministic (snd.Signature) — models never write it.
+	parts = append(parts, strings.TrimSpace(p3), snd.Signature)
 	body := strings.Join(parts, "\n\n")
 	return subject + "\n\n" + body
 }
-
-// signature is the deterministic sign-off appended after the closer (the
-// template page's "Thanks,\nAlex" — models never write it).
-const signature = "Thanks,\nAlex"
 
 // lintJSON lints text against p2 and returns the findings as a JSON array
 // (always an array, never null, so the panel renders [] cleanly).
