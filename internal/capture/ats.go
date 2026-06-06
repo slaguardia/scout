@@ -23,11 +23,14 @@ import (
 )
 
 // Test seams: the resolvers hit these bases so tests can point them at a
-// local httptest server.
+// local httptest server. Greenhouse and Lever run separate EU instances with
+// their own API hosts; the posting URL's host picks the base.
 var (
-	ashbyAPIBase      = "https://api.ashbyhq.com"
-	greenhouseAPIBase = "https://boards-api.greenhouse.io"
-	leverAPIBase      = "https://api.lever.co"
+	ashbyAPIBase        = "https://api.ashbyhq.com"
+	greenhouseAPIBase   = "https://boards-api.greenhouse.io"
+	greenhouseEUAPIBase = "https://boards-api.eu.greenhouse.io"
+	leverAPIBase        = "https://api.lever.co"
+	leverEUAPIBase      = "https://api.eu.lever.co"
 )
 
 const (
@@ -57,12 +60,18 @@ type atsJob struct {
 
 var reUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// resolveATS recognizes a job-posting URL on a supported ATS host and resolves
-// it through that platform's public API. nil means "not this path" — an
-// unrecognized link, a board index, or a resolve failure — and the caller
-// falls through to the generic fetch + LLM capture, so this can never make
-// things worse than before.
-func resolveATS(ctx context.Context, httpc *http.Client, rawURL string) *atsJob {
+// atsTarget is a recognized ATS posting URL, routed: which platform, which
+// regional API base, and the org/job identifiers the resolver needs.
+type atsTarget struct {
+	ats     string // "ashby" | "greenhouse" | "lever"
+	base    string // regional API base
+	org, id string
+}
+
+// atsTargetFor recognizes a job-posting URL on a supported ATS host — pure
+// URL-shape parsing, no network. nil means the link doesn't route to a
+// resolver (unknown host, a board index, a malformed id).
+func atsTargetFor(rawURL string) *atsTarget {
 	u, err := neturl.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil
@@ -70,20 +79,59 @@ func resolveATS(ctx context.Context, httpc *http.Client, rawURL string) *atsJob 
 	host := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
 	segs := strings.FieldsFunc(u.EscapedPath(), func(r rune) bool { return r == '/' })
 
-	var job *atsJob
-	switch {
-	case host == "jobs.ashbyhq.com" && len(segs) >= 2 && reUUID.MatchString(segs[1]):
-		job, err = resolveAshby(ctx, httpc, segs[0], segs[1])
-	case host == "jobs.lever.co" && len(segs) >= 2 && reUUID.MatchString(segs[1]):
-		job, err = resolveLever(ctx, httpc, segs[0], segs[1])
-	case host == "boards.greenhouse.io" || host == "job-boards.greenhouse.io":
-		org, id := greenhouseOrgJob(segs, u.Query())
-		if org == "" {
-			return nil
+	switch host {
+	case "jobs.ashbyhq.com":
+		if len(segs) >= 2 && reUUID.MatchString(segs[1]) {
+			return &atsTarget{ats: "ashby", base: ashbyAPIBase, org: segs[0], id: segs[1]}
 		}
-		job, err = resolveGreenhouse(ctx, httpc, org, id)
-	default:
+	case "jobs.lever.co", "jobs.eu.lever.co":
+		if len(segs) >= 2 && reUUID.MatchString(segs[1]) {
+			base := leverAPIBase
+			if host == "jobs.eu.lever.co" {
+				base = leverEUAPIBase
+			}
+			return &atsTarget{ats: "lever", base: base, org: segs[0], id: segs[1]}
+		}
+	case "boards.greenhouse.io", "job-boards.greenhouse.io",
+		"boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io":
+		if org, id := greenhouseOrgJob(segs, u.Query()); org != "" {
+			base := greenhouseAPIBase
+			if strings.Contains(host, ".eu.") {
+				base = greenhouseEUAPIBase
+			}
+			return &atsTarget{ats: "greenhouse", base: base, org: org, id: id}
+		}
+	}
+	return nil
+}
+
+// IsATSPosting reports whether a pasted link is a posting on a supported ATS —
+// i.e. capture can resolve it through the platform's API with no LLM call.
+// URL-shape only, no network; the web layer uses it to skip the Anthropic-key
+// precondition for links that won't need the model.
+func IsATSPosting(rawURL string) bool { return atsTargetFor(rawURL) != nil }
+
+// resolveATS recognizes a job-posting URL on a supported ATS host and resolves
+// it through that platform's public API. nil means "not this path" — an
+// unrecognized link, a board index, or a resolve failure — and the caller
+// falls through to the generic fetch + LLM capture, so this can never make
+// things worse than before.
+func resolveATS(ctx context.Context, httpc *http.Client, rawURL string) *atsJob {
+	t := atsTargetFor(rawURL)
+	if t == nil {
 		return nil
+	}
+	var (
+		job *atsJob
+		err error
+	)
+	switch t.ats {
+	case "ashby":
+		job, err = resolveAshby(ctx, httpc, t.base, t.org, t.id)
+	case "greenhouse":
+		job, err = resolveGreenhouse(ctx, httpc, t.base, t.org, t.id)
+	case "lever":
+		job, err = resolveLever(ctx, httpc, t.base, t.org, t.id)
 	}
 	if err != nil {
 		return nil // resolve failed — the generic capture path still applies
@@ -117,7 +165,7 @@ func greenhouseOrgJob(segs []string, q neturl.Values) (org, id string) {
 
 // resolveAshby reads the org's whole public board (Ashby has no per-posting
 // endpoint) and picks the pasted job out of it.
-func resolveAshby(ctx context.Context, httpc *http.Client, org, jobID string) (*atsJob, error) {
+func resolveAshby(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) (*atsJob, error) {
 	var board struct {
 		Jobs []struct {
 			ID               string `json:"id"`
@@ -137,7 +185,7 @@ func resolveAshby(ctx context.Context, httpc *http.Client, org, jobID string) (*
 			} `json:"compensation"`
 		} `json:"jobs"`
 	}
-	url := ashbyAPIBase + "/posting-api/job-board/" + neturl.PathEscape(org) + "?includeCompensation=true"
+	url := apiBase + "/posting-api/job-board/" + neturl.PathEscape(org) + "?includeCompensation=true"
 	if err := fetchATSJSON(ctx, httpc, url, &board); err != nil {
 		return nil, err
 	}
@@ -179,7 +227,7 @@ func resolveAshby(ctx context.Context, httpc *http.Client, org, jobID string) (*
 
 // --- Greenhouse --------------------------------------------------------------
 
-func resolveGreenhouse(ctx context.Context, httpc *http.Client, org, jobID string) (*atsJob, error) {
+func resolveGreenhouse(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) (*atsJob, error) {
 	var j struct {
 		Title          string `json:"title"`
 		AbsoluteURL    string `json:"absolute_url"`
@@ -197,7 +245,7 @@ func resolveGreenhouse(ctx context.Context, httpc *http.Client, org, jobID strin
 			Currency string  `json:"currency_type"`
 		} `json:"pay_input_ranges"`
 	}
-	base := greenhouseAPIBase + "/v1/boards/" + neturl.PathEscape(org)
+	base := apiBase + "/v1/boards/" + neturl.PathEscape(org)
 	if err := fetchATSJSON(ctx, httpc, base+"/jobs/"+neturl.PathEscape(jobID), &j); err != nil {
 		return nil, err
 	}
@@ -242,7 +290,7 @@ func resolveGreenhouse(ctx context.Context, httpc *http.Client, org, jobID strin
 
 // --- Lever -------------------------------------------------------------------
 
-func resolveLever(ctx context.Context, httpc *http.Client, org, jobID string) (*atsJob, error) {
+func resolveLever(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) (*atsJob, error) {
 	var j struct {
 		Text             string `json:"text"` // the title
 		HostedURL        string `json:"hostedUrl"`
@@ -266,7 +314,7 @@ func resolveLever(ctx context.Context, httpc *http.Client, org, jobID string) (*
 			Interval string  `json:"interval"`
 		} `json:"salaryRange"`
 	}
-	url := leverAPIBase + "/v0/postings/" + neturl.PathEscape(org) + "/" + neturl.PathEscape(jobID)
+	url := apiBase + "/v0/postings/" + neturl.PathEscape(org) + "/" + neturl.PathEscape(jobID)
 	if err := fetchATSJSON(ctx, httpc, url, &j); err != nil {
 		return nil, err
 	}

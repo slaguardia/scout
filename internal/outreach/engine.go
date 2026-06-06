@@ -131,9 +131,16 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 	role := strings.TrimSpace(posting.Title)
 	e.log("outreach: draft %d — %s / %q", draftID, company, role)
 
-	// 2. JD pre-fetch (no model).
-	jd := FetchJD(ctx, e.HTTP, posting.URL)
-	e.log("outreach: draft %d JD fetch: %s (%d chars)", draftID, jd.Status, len(jd.Text))
+	// 2. The job description (no model). The capture pass stores the full
+	// description for ATS-resolved postings — using it keeps drafts working
+	// after the posting is taken down (the follow-up-outreach case) and skips
+	// a network round-trip. The live fetch covers postings captured without
+	// one.
+	jd := JDResult{Text: trunc(posting.Description, jdMaxChars), Status: "stored at capture"}
+	if strings.TrimSpace(posting.Description) == "" {
+		jd = FetchJD(ctx, e.HTTP, posting.URL)
+	}
+	e.log("outreach: draft %d JD: %s (%d chars)", draftID, jd.Status, len(jd.Text))
 
 	// 3. Researcher (Sonnet + hosted web_search).
 	research, err := e.research(ctx, company, posting.URL, jd)
