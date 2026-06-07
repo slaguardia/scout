@@ -95,3 +95,54 @@ func TestTextSkipsNonTextBlocks(t *testing.T) {
 		t.Errorf("Text() = %q, want %q", got, want)
 	}
 }
+
+// TestSendRetriesTransient asserts Send retries 429/5xx responses and returns
+// the eventual success, rather than failing the first transient error.
+func TestSendRetriesTransient(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		switch n {
+		case 1:
+			w.Header().Set("retry-after", "0") // exercise the header path; 0s → exponential
+			http.Error(w, `{"type":"error","error":{"type":"rate_limit_error"}}`, http.StatusTooManyRequests)
+		case 2:
+			http.Error(w, `{"type":"error"}`, 529) // overloaded
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"id":"m","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
+		}
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	resp, err := c.Send(context.Background(), Request{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if resp.Text() != "ok" {
+		t.Errorf("Text() = %q, want ok", resp.Text())
+	}
+	if n != 3 {
+		t.Errorf("server saw %d requests, want 3 (two retries)", n)
+	}
+}
+
+// TestSendNoRetryOn400 asserts a non-retryable status fails immediately without
+// burning the retry budget.
+func TestSendNoRetryOn400(t *testing.T) {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		http.Error(w, `{"type":"error","error":{"type":"invalid_request_error"}}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()}
+	if _, err := c.Send(context.Background(), Request{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}}); err == nil {
+		t.Fatal("Send: want error on 400")
+	}
+	if n != 1 {
+		t.Errorf("server saw %d requests, want 1 (no retry on 400)", n)
+	}
+}

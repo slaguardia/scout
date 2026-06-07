@@ -269,7 +269,7 @@ func cmdVerdict(args []string) error {
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for scoring")
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
-	workers := fs.Int("workers", 4, "parallel API calls")
+	workers := fs.Int("workers", 10, "parallel API calls")
 	force := fs.Bool("force", false, "re-score even if taste_version matches")
 	onlyBlanksV := fs.Bool("only-blanks", false, "only companies with no verdict row yet")
 	companiesV := fs.String("company", "", "comma-separated company IDs; re-score exactly these (overrides manual verdicts)")

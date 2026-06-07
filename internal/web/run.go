@@ -26,6 +26,22 @@ type runOptions struct {
 	// CompanyIDs limits the run to exactly these companies and always
 	// re-runs them (targeted implies force). Overrides the other knobs.
 	CompanyIDs []string `json:"company_ids"`
+	// Workers sets the parallel-call count for the run (enrich fetchers /
+	// verdict API calls). 0 means use the stage default; clamped to [1,24].
+	Workers int `json:"workers"`
+}
+
+// workersOr clamps a requested worker count into a sane range, falling back to
+// def when unset. The ceiling guards against a UI value that would blow past
+// the API's per-minute request limit and just generate 429s.
+func workersOr(req, def int) int {
+	if req <= 0 {
+		return def
+	}
+	if req > 24 {
+		return 24
+	}
+	return req
 }
 
 // handleRun starts a pipeline stage as a job. POST /api/run/{stage}.
@@ -75,7 +91,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) enrichJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
-		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks, CompanyIDs: opts.CompanyIDs}
+		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks, CompanyIDs: opts.CompanyIDs, Workers: workersOr(opts.Workers, 8)}
 		// Fact extraction needs the API key; without it enrichment still runs,
 		// just purely mechanical (fetch + summary only).
 		if s.Anthropic != nil && s.Anthropic.APIKey != "" {
@@ -116,7 +132,7 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 			Force:      opts.Force,
 			OnlyBlanks: opts.OnlyBlanks,
 			CompanyIDs: opts.CompanyIDs,
-			Workers:    4,
+			Workers:    workersOr(opts.Workers, 10),
 			Progress:   emit,
 		}
 		res, err := sc.Run(ctx)

@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -225,26 +228,100 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.APIKey)
-	httpReq.Header.Set("anthropic-version", apiVersion)
 
-	resp, err := c.HTTP.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic POST: %w", err)
+	// Retry transient failures (429 rate-limit, 5xx, 529 overloaded, network
+	// blips) with backoff. Without this, raising the verdict/enrich worker
+	// counts just converts rate-limit pressure into silently-failed companies.
+	// We honor the server's retry-after when present, else exponential backoff.
+	var lastErr error
+	var retryAfter time.Duration
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoffDelay(attempt, retryAfter)):
+			}
+			retryAfter = 0
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("x-api-key", c.APIKey)
+		httpReq.Header.Set("anthropic-version", apiVersion)
+
+		resp, err := c.HTTP.Do(httpReq)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			lastErr = fmt.Errorf("anthropic POST: %w", err) // transient network — retry
+			continue
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body.Close()
+
+		if resp.StatusCode/100 == 2 {
+			var out Response
+			if err := json.Unmarshal(raw, &out); err != nil {
+				return nil, fmt.Errorf("anthropic decode: %w (body=%s)", err, string(raw))
+			}
+			return &out, nil
+		}
+
+		lastErr = fmt.Errorf("anthropic HTTP %d: %s", resp.StatusCode, string(raw))
+		if !retryableStatus(resp.StatusCode) {
+			return nil, lastErr
+		}
+		retryAfter = parseRetryAfter(resp.Header.Get("retry-after"))
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("anthropic HTTP %d: %s", resp.StatusCode, string(raw))
+	return nil, fmt.Errorf("anthropic: giving up after %d retries: %w", maxRetries, lastErr)
+}
+
+// maxRetries bounds transient-failure retries per Send call.
+const maxRetries = 5
+
+// retryableStatus reports whether an HTTP status is worth retrying: rate limit,
+// overload, and the transient 5xx family.
+func retryableStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, // 429
+		http.StatusInternalServerError, // 500
+		http.StatusBadGateway,          // 502
+		http.StatusServiceUnavailable,  // 503
+		http.StatusGatewayTimeout,      // 504
+		529:                            // overloaded (Anthropic-specific)
+		return true
 	}
-	var out Response
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("anthropic decode: %w (body=%s)", err, string(raw))
+	return false
+}
+
+// backoffDelay returns how long to wait before the given retry attempt. A
+// server-provided retry-after wins; otherwise exponential (0.5s, 1s, 2s, …)
+// capped at 8s with ±10% jitter so a worker pool doesn't retry in lockstep.
+func backoffDelay(attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		return retryAfter
 	}
-	return &out, nil
+	d := time.Duration(1<<uint(attempt-1)) * 500 * time.Millisecond
+	if d > 8*time.Second {
+		d = 8 * time.Second
+	}
+	jitter := time.Duration(rand.Int63n(int64(d/5)+1)) - d/10
+	return d + jitter
+}
+
+// parseRetryAfter reads an integer-seconds retry-after header (the form the
+// Messages API uses); returns 0 when absent or unparseable.
+func parseRetryAfter(h string) time.Duration {
+	if h == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return 0
 }
