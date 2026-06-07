@@ -405,10 +405,9 @@
   .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
   .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
   .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
-  .run-mode { margin-top: 8px; }
-  /* mode chips ("only blanks", "hide rejected") light link-blue — a state
-     toggle, not a verdict color. */
-  #only-blanks.is-on, #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  /* mode chips ("hide rejected") light link-blue — a state toggle, not a
+     verdict color. */
+  #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
   #next-up-filter.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
@@ -1259,9 +1258,6 @@
         <span class="grow">Verdict</span>
       </button>
     </div>
-    <div class="run-mode">
-      <button class="v-chip" id="only-blanks" title="when lit, Enrich and Verdict only touch companies they've never seen — no enrichment row / no verdict yet">only blanks</button>
-    </div>
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
     </div>
@@ -1477,6 +1473,26 @@
     </div>
     <div class="modal-foot">
       <button class="btn" id="profile-modal-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- run confirmation (enrich / verdict) — carries the "only blanks" scope toggle -->
+<div class="modal-scrim" id="run-scrim">
+  <div class="modal" style="width:440px">
+    <div class="modal-head">
+      <h2 id="run-title">Run</h2>
+    </div>
+    <div class="modal-body">
+      <p id="run-desc" style="margin:0 0 12px;font-size:13px;color:var(--fg-mute);line-height:1.5"></p>
+      <label class="enrich-row" id="run-blanks-row">
+        <input type="checkbox" id="run-only-blanks">
+        <span>only blanks — only touch companies never seen before (no enrichment row / no verdict yet)</span>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="run-cancel">Cancel</button>
+      <button class="btn btn-primary" id="run-go">Run</button>
     </div>
   </div>
 </div>
@@ -3670,6 +3686,7 @@ document.addEventListener("keydown", e => {
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
+  if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
   // The pursuit panel can sit over the company pane (View company opens it on
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
@@ -3677,14 +3694,35 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
 
-// run controls
-let onlyBlanks = false; // when lit, Enrich/Verdict only touch never-seen companies
-document.getElementById("only-blanks").onclick = e => {
-  onlyBlanks = !onlyBlanks;
-  e.currentTarget.classList.toggle("is-on", onlyBlanks);
+// run controls — Enrich / Verdict open a confirmation modal that carries the
+// "only blanks" scope toggle (formerly a sidebar chip).
+let pendingStage = null;
+const runDescs = {
+  enrich: "Fetches and summarizes each company's pages, filling its enrichment row.",
+  verdict: "Scores every company in scope against your criteria — one LLM call each.",
 };
-document.getElementById("btn-enrich").onclick = () => startRun("enrich", onlyBlanks ? { only_blanks: true } : {});
-document.getElementById("btn-verdict").onclick = () => startRun("verdict", onlyBlanks ? { only_blanks: true } : {});
+function openRunConfirm(stage) {
+  if (state.meta && state.meta.control === false) { toast("control surface disabled"); return; }
+  pendingStage = stage;
+  document.getElementById("run-title").textContent = "Run " + stage;
+  document.getElementById("run-desc").textContent = runDescs[stage] || "";
+  document.getElementById("run-only-blanks").checked = false;
+  document.getElementById("run-scrim").classList.add("open");
+}
+function closeRunConfirm() {
+  document.getElementById("run-scrim").classList.remove("open");
+  pendingStage = null;
+}
+document.getElementById("btn-enrich").onclick = () => openRunConfirm("enrich");
+document.getElementById("btn-verdict").onclick = () => openRunConfirm("verdict");
+document.getElementById("run-cancel").onclick = closeRunConfirm;
+document.getElementById("run-scrim").onclick = e => { if (e.target.id === "run-scrim") closeRunConfirm(); };
+document.getElementById("run-go").onclick = () => {
+  const stage = pendingStage;
+  const blanks = document.getElementById("run-only-blanks").checked;
+  closeRunConfirm();
+  if (stage) startRun(stage, blanks ? { only_blanks: true } : {});
+};
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("btn-add").onclick = openAdd;
 document.getElementById("add-cancel").onclick = closeAdd;
