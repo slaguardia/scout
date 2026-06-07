@@ -1,0 +1,20 @@
+{
+  "id": "US-003",
+  "featureId": "FEAT-20260607_155517-3c84",
+  "title": "Re-home scout's frontend out of go:embed onto a toolkit-built PWA",
+  "userStory": "As the user, I want scout's UI rebuilt as a toolkit PWA so that it shares the platform's design system, shell, and PWA plumbing and is installable like the other apps — without changing how the pipeline works.",
+  "acceptanceCriteria": [
+    "A scout web/ PWA is created that depends on the web-toolkit and reproduces today's UI: triage list, company detail panel, jobs/tracker view, run control (with the SSE progress stream), criteria/profile panel, and the playbook/taste editor",
+    "The PWA consumes toolkit modules (tokens/base.css, shell, pwa, brain client, session) rather than bespoke CSS/JS; the old internal/web/index.html is removed and GET / serves the built PWA dist",
+    "Scout's Go /api/* behavior is unchanged (no handler signatures/semantics altered); a small /api/brain/* read-only proxy is added for the toolkit brain client if needed",
+    "All current interactions still work: start enrich/verdict runs and watch live progress, CSV ingest, capture-by-link, edit company/posting tracking, view trace, refresh profile, edit playbook/taste",
+    "scout build still produces a single runnable binary (PWA dist embedded or served), preserving the 'one binary' operations story or documenting the new build step in operations.md",
+    "[Verification] Build + scout serve → exercise each view in the browser: triage loads, a verdict run streams progress to completion, jobs view edits persist, editor saves; no console errors; manifest/SW valid (installable)"
+  ],
+  "dependencies": ["US-001"],
+  "status": "todo",
+  "createdAt": "2026-06-07T19:55:17Z",
+  "completedAt": null,
+  "iteration": null,
+  "externalDependencies": ["brainbot FEAT-20260607_155517-4fd1 US-002 (toolkit extracted) and US-003 (toolkit validated)"]
+}

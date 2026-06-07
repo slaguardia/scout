@@ -1,0 +1,19 @@
+{
+  "id": "US-001",
+  "featureId": "FEAT-20260607_155517-3c84",
+  "title": "Write scout/docs/api.md (stable /api contract)",
+  "userStory": "As the engineer re-homing scout's UI, I want scout's HTTP API documented as a stable contract so that the new PWA builds against a defined surface instead of reverse-engineering handlers.",
+  "acceptanceCriteria": [
+    "scout/docs/api.md exists and documents every route registered in internal/web/server.go Handler(): page+health, read/triage, control surface, brain profile, outreach, editor",
+    "Each route lists method(s), path, and purpose; capability gating is documented (control surface + editor 503 when Runner is nil; scoring/outreach need ANTHROPIC_API_KEY)",
+    "Special transports are noted: /api/jobs/{id}/stream is SSE, /api/ingest is multipart, GET / serves the UI",
+    "A 'notes for the PWA re-home' section states the backend renders no app HTML except GET /, brain reads route through scout's proxy, and identity comes from X-Auth-Request-Email",
+    "Cross-links to north-star.md and operations.md resolve; the doc names internal/web/server.go as source of truth",
+    "[Verification] Diff the documented route list against the mux.HandleFunc calls in server.go — every handler is represented, none invented"
+  ],
+  "dependencies": [],
+  "status": "todo",
+  "createdAt": "2026-06-07T19:55:17Z",
+  "completedAt": null,
+  "iteration": null
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "FEAT-20260607_155517-3c84",
+  "title": "Re-home scout's frontend onto the shared app-platform",
+  "repo": "scout",
+  "goal": "Execute the scout platform plan",
+  "status": "planning",
+  "prerequisite": "brainbot FEAT-20260607_155517-4fd1 (web-toolkit extracted + validated, edge template) — required before US-003/US-004",
+  "stories": [
+    { "id": "US-001", "title": "Write scout/docs/api.md (stable /api contract)", "dependencies": [], "status": "todo" },
+    { "id": "US-002", "title": "Add scout-side platform pointer (north-star.md + CLAUDE.md)", "dependencies": [], "status": "todo" },
+    { "id": "US-003", "title": "Re-home scout's frontend out of go:embed onto a toolkit-built PWA", "dependencies": ["US-001"], "status": "todo" },
+    { "id": "US-004", "title": "Put scout behind the shared Caddy/SSO edge", "dependencies": ["US-003"], "status": "todo" }
+  ],
+  "suggestedOrder": ["US-001", "US-002", "US-003", "US-004"]
+}
