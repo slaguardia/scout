@@ -42,6 +42,18 @@ type Result struct {
 	Collisions int // of Merged, overwrites where a DIFFERENT name shared the domain key
 	Skipped    int
 	Errors     []string
+	// CollisionDetails carries one entry per collision (len == Collisions): which
+	// stored name an incoming row overwrote, and the domain they shared. Surfaced
+	// so a run can show WHAT collided, not just that something did.
+	CollisionDetails []Collision
+}
+
+// Collision records a single cross-identity overwrite: an incoming row keyed by
+// Domain landed on an existing row stored under a different name.
+type Collision struct {
+	Domain        string `json:"domain"`         // the shared domain key
+	IncomingName  string `json:"incoming_name"`  // the name now stored on the row
+	OverwroteName string `json:"overwrote_name"` // the name that was there before
 }
 
 // Run reads path and upserts every data row. The first row must be a header.
@@ -131,6 +143,11 @@ func (c *CSV) Run(path string) (*Result, error) {
 		}
 		if out.collision {
 			res.Collisions++
+			res.CollisionDetails = append(res.CollisionDetails, Collision{
+				Domain:        company.Domain.String,
+				IncomingName:  name,
+				OverwroteName: out.prevName,
+			})
 		}
 	}
 	return res, nil
@@ -139,8 +156,9 @@ func (c *CSV) Run(path string) (*Result, error) {
 // upsertOutcome reports what a single row's upsert did.
 type upsertOutcome struct {
 	id        string
-	merged    bool // landed on a company already in the set (re-ingest or folded twin)
-	collision bool // overwrote a domain-keyed row stored under a DIFFERENT name
+	merged    bool   // landed on a company already in the set (re-ingest or folded twin)
+	collision bool   // overwrote a domain-keyed row stored under a DIFFERENT name
+	prevName  string // on a collision, the name the row carried before the overwrite
 }
 
 // upsertWithMerge writes c under its deterministic identity key and keeps the
@@ -217,10 +235,16 @@ func upsertWithMerge(db *store.DB, c store.Company) (upsertOutcome, error) {
 	} else if err := db.UpsertCompanyWithID(domainKey, c); err != nil {
 		return upsertOutcome{}, err
 	}
+	collision := domainExists && !sameName(existingName, c.Name)
+	prevName := ""
+	if collision {
+		prevName = existingName
+	}
 	return upsertOutcome{
 		id:        domainKey,
 		merged:    domainExists || nameExists,
-		collision: domainExists && !sameName(existingName, c.Name),
+		collision: collision,
+		prevName:  prevName,
 	}, nil
 }
 

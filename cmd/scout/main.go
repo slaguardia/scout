@@ -158,6 +158,13 @@ func cmdIngest(args []string) error {
 	}
 	fmt.Printf("read=%d upserted=%d (%d new, %d merged, %d name-collisions) skipped=%d errors=%d\n",
 		res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Collisions, res.Skipped, len(res.Errors))
+	for _, col := range res.CollisionDetails {
+		where := col.Domain
+		if where == "" {
+			where = "no domain"
+		}
+		fmt.Fprintf(os.Stderr, "  collision on %s: %q overwrote %q\n", where, col.IncomingName, col.OverwroteName)
+	}
 	for _, e := range res.Errors {
 		fmt.Fprintln(os.Stderr, "  err:", e)
 	}

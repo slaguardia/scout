@@ -289,11 +289,22 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 		emit(fmt.Sprintf("read=%d upserted=%d (%d new, %d merged, %d name-collisions) skipped=%d errors=%d",
 			res.Read, res.Upserted, res.Upserted-res.Merged, res.Merged, res.Collisions, res.Skipped, len(res.Errors)))
+		// Spell out each collision so a run shows WHAT overwrote what, not just a
+		// count. "warn:" prefixes route these to the warning style in the drawer.
+		for _, col := range res.CollisionDetails {
+			where := col.Domain
+			if where == "" {
+				where = "no domain"
+			}
+			emit(fmt.Sprintf("warn: collision on %s — %q overwrote %q",
+				where, col.IncomingName, col.OverwroteName))
+		}
 		return map[string]any{
 			"read": res.Read, "upserted": res.Upserted,
 			"inserted": res.Upserted - res.Merged, "merged": res.Merged,
-			"collisions": res.Collisions,
-			"skipped":    res.Skipped, "errors": len(res.Errors),
+			"collisions":        res.Collisions,
+			"collision_details": res.CollisionDetails,
+			"skipped":           res.Skipped, "errors": len(res.Errors),
 			"filename": filename,
 		}, nil
 	}

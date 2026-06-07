@@ -137,6 +137,14 @@ Acme Holdings,acme.com
 	if res.Merged != 1 || res.Collisions != 1 {
 		t.Fatalf("merged=%d collisions=%d, want 1/1; res=%+v", res.Merged, res.Collisions, res)
 	}
+	// The detail must say WHAT collided, not just that something did.
+	if len(res.CollisionDetails) != 1 {
+		t.Fatalf("collision details=%d, want 1; res=%+v", len(res.CollisionDetails), res)
+	}
+	d := res.CollisionDetails[0]
+	if d.IncomingName != "Acme Holdings" || d.OverwroteName != "Acme" {
+		t.Errorf("detail = %+v, want incoming=Acme Holdings overwrote=Acme", d)
+	}
 }
 
 // A benign re-ingest (same name, same domain) is a merge but NOT a collision.
