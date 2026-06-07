@@ -1254,6 +1254,28 @@
   .pf-dot.warn { background: var(--maybe); }
   .pf-dot.off  { background: var(--fg-dim); }
   #criteria-stats .edit-link { margin-top: 0; }
+
+  /* a "?" help button that sits at the right edge of a sidebar section header */
+  aside.sidebar h3 .help-btn {
+    margin-left: auto; flex: none;
+    background: none; border: none; cursor: pointer; padding: 2px;
+    color: var(--fg-dim); display: inline-flex; align-items: center;
+    border-radius: var(--r-sm);
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  aside.sidebar h3 .help-btn:hover { color: var(--link); background: var(--panel); }
+  aside.sidebar h3 .help-btn svg { width: 13px; height: 13px; opacity: 1; }
+  /* help modal: a short list of what each section's buttons do, with doc links */
+  .help-intro { margin: 0 0 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
+  .help-item { padding: 12px 0; border-top: 1px solid var(--line); }
+  .help-item:first-of-type { border-top: none; padding-top: 0; }
+  .help-item-name { font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 3px; }
+  .help-item-desc { font-size: 12.5px; color: var(--fg-mute); line-height: 1.5; margin-bottom: 7px; }
+  .help-link {
+    font-size: 12px; color: var(--link); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .help-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -1273,6 +1295,9 @@
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
       Add data
+      <button class="help-btn" id="help-add" title="what do these do?" aria-label="about Add data">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.9.5-.9 1.1v.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>
+      </button>
     </h3>
     <div class="run-btns">
       <button class="run-btn" id="btn-ingest">
@@ -1291,6 +1316,9 @@
     <h3>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
       Run
+      <button class="help-btn" id="help-run" title="what do these do?" aria-label="about Run">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.9.5-.9 1.1v.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>
+      </button>
     </h3>
     <div class="run-btns">
       <button class="run-btn" id="btn-enrich">
@@ -1537,6 +1565,19 @@
     <div class="modal-foot">
       <button class="btn" id="run-cancel">Cancel</button>
       <button class="btn btn-primary" id="run-go">Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- section help — what each button does, with links into the docs overlay -->
+<div class="modal-scrim" id="help-scrim">
+  <div class="modal" style="width:440px">
+    <div class="modal-head">
+      <h2 id="help-title">About</h2>
+    </div>
+    <div class="modal-body" id="help-items"></div>
+    <div class="modal-foot">
+      <button class="btn" id="help-close">Close</button>
     </div>
   </div>
 </div>
@@ -3735,6 +3776,7 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
+  if (document.getElementById("help-scrim").classList.contains("open")) { closeHelp(); return; }
   // The pursuit panel can sit over the company pane (View company opens it on
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
@@ -3773,6 +3815,66 @@ document.getElementById("run-go").onclick = () => {
 };
 document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("btn-add").onclick = openAdd;
+
+// section help — a "?" per sidebar section opens a short explainer of its
+// buttons, each with a "Learn more" link into the docs overlay.
+const helpContent = {
+  add: {
+    title: "Add data",
+    intro: "Two ways to get companies and jobs into scout.",
+    items: [
+      { name: "Ingest CSV", sec: "ingest",
+        desc: "Bulk-import companies from a CSV export (e.g. Crunchbase). Columns are mapped to company fields and new rows are created." },
+      { name: "Add", sec: "ingest",
+        desc: "Add one company or job from its link. Tick “fill in the blanks” to let an ATS API (ashby/greenhouse/lever) or one cheap agent pass complete the details." },
+    ],
+  },
+  run: {
+    title: "Run the pipeline",
+    intro: "Enrich must run before Verdict — verdict only scores companies that already have a successful enrichment row.",
+    items: [
+      { name: "Enrich", sec: "enrich",
+        desc: "Fetches and summarizes each company's web presence into an enrichment row. A prerequisite for Verdict." },
+      { name: "Verdict", sec: "verdict",
+        desc: "Scores each enriched company against your criteria with the LLM, producing a yes / maybe / no with reasoning." },
+    ],
+  },
+};
+function openHelp(key) {
+  const c = helpContent[key];
+  if (!c) return;
+  document.getElementById("help-title").textContent = c.title;
+  const wrap = document.getElementById("help-items");
+  wrap.innerHTML = "";
+  if (c.intro) {
+    const p = document.createElement("p");
+    p.className = "help-intro";
+    p.textContent = c.intro;
+    wrap.appendChild(p);
+  }
+  c.items.forEach(it => {
+    const row = document.createElement("div");
+    row.className = "help-item";
+    const name = document.createElement("div");
+    name.className = "help-item-name";
+    name.textContent = it.name;
+    const desc = document.createElement("div");
+    desc.className = "help-item-desc";
+    desc.textContent = it.desc;
+    const link = document.createElement("a");
+    link.className = "help-link";
+    link.textContent = "Learn more →";
+    link.onclick = () => { closeHelp(); openDocs(); goToDocSection(it.sec); };
+    row.appendChild(name); row.appendChild(desc); row.appendChild(link);
+    wrap.appendChild(row);
+  });
+  document.getElementById("help-scrim").classList.add("open");
+}
+function closeHelp() { document.getElementById("help-scrim").classList.remove("open"); }
+document.getElementById("help-add").onclick = () => openHelp("add");
+document.getElementById("help-run").onclick = () => openHelp("run");
+document.getElementById("help-close").onclick = closeHelp;
+document.getElementById("help-scrim").onclick = e => { if (e.target.id === "help-scrim") closeHelp(); };
 document.getElementById("add-cancel").onclick = closeAdd;
 document.getElementById("add-save").onclick = submitAdd;
 document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAdd(); };
@@ -3932,6 +4034,12 @@ function docsOpen() { return document.getElementById("docs-scrim").classList.con
 function setActiveDoc(sec) {
   document.querySelectorAll("#docs-nav a").forEach(a =>
     a.classList.toggle("active", a.dataset.sec === sec));
+}
+// jump the (already-open) docs overlay to a section by its nav id
+function goToDocSection(sec) {
+  const el = document.getElementById("doc-" + sec);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  setActiveDoc(sec);
 }
 document.getElementById("open-docs").onclick = openDocs;
 document.getElementById("docs-close").onclick = closeDocs;
