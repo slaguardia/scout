@@ -985,11 +985,32 @@
 
   /* ---- the Add dialog ---- */
   .kind-toggle { display: flex; gap: 6px; }
+  /* the company|job tab toggle lights link-blue when active (a state toggle,
+     not a verdict color — same convention as the other mode chips). */
+  .kind-toggle .v-chip.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  /* a checkbox option rendered as a card with a custom check box that fills
+     link-blue when ticked. Native input is hidden but still drives state. */
   .enrich-row {
-    display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
-    font-size: 12.5px; color: var(--fg-mute); cursor: pointer; user-select: none;
+    display: flex; align-items: flex-start; gap: 10px; margin: 4px 0;
+    padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--bg); font-size: 12.5px; color: var(--fg-mute);
+    line-height: 1.5; cursor: pointer; user-select: none;
+    transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
-  .enrich-row input { accent-color: var(--link); cursor: pointer; margin: 0; }
+  .enrich-row:hover { border-color: var(--line-2); background: var(--panel); }
+  .enrich-row input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .enrich-row .cbox {
+    flex: none; width: 18px; height: 18px; margin-top: 1px;
+    border: 1.5px solid var(--line-2); border-radius: 5px;
+    background: var(--panel); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .enrich-row .cbox svg { width: 12px; height: 12px; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+  .enrich-row:has(input:checked) { border-color: var(--link); background: var(--link-bg); }
+  .enrich-row:has(input:checked) .cbox { background: var(--link); border-color: var(--link); }
+  .enrich-row:has(input:checked) .cbox svg { opacity: 1; }
+  .enrich-row:has(input:focus-visible) .cbox { box-shadow: 0 0 0 3px rgba(122,169,255,0.18); }
   .enrich-row.disabled { opacity: 0.5; cursor: default; }
   .enrich-row.disabled input { cursor: default; }
   .form-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
@@ -1487,6 +1508,7 @@
       <p id="run-desc" style="margin:0 0 12px;font-size:13px;color:var(--fg-mute);line-height:1.5"></p>
       <label class="enrich-row" id="run-blanks-row">
         <input type="checkbox" id="run-only-blanks">
+        <span class="cbox" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span>
         <span>only blanks — only touch companies never seen before (no enrichment row / no verdict yet)</span>
       </label>
     </div>
@@ -1554,6 +1576,7 @@
       </div>
       <label class="enrich-row" id="add-enrich-row">
         <input type="checkbox" id="add-enrich" checked>
+        <span class="cbox" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span>
         <span>fill in the blanks — ATS links (ashby/greenhouse/lever) read the platform's API directly, anything else gets one cheap agent pass</span>
       </label>
       <div class="modal-note">
