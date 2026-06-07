@@ -265,14 +265,17 @@
     background-repeat: no-repeat; background-position: right 7px center;
   }
   .jt-resp:hover { filter: brightness(1.12); }
-  .jt-oc { font-variant-numeric: tabular-nums; margin-right: 7px; }
-  .jt-bump {
-    font: inherit; font-size: 11.5px; cursor: pointer;
+  .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
+  .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
+  .jt-dec, .jt-inc {
+    font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
     padding: 1px 7px; border-radius: 999px;
     background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
   }
-  .jt-bump:hover { border-color: var(--line-2); color: var(--fg); }
+  .jt-dec:hover, .jt-inc:hover { border-color: var(--line-2); color: var(--fg); }
+  .jt-dec:disabled { opacity: 0.35; cursor: not-allowed; }
+  .jt-dec:disabled:hover { border-color: var(--line); color: var(--fg-dim); }
 
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
      green with its checkmark when on (pursuit panel's pipeline). */
@@ -2309,7 +2312,7 @@ function renderJobs() {
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
       <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
-      <td class="small" data-col="outreach"><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-bump" title="log one outreach (today)">+1</button></td>
+      <td class="small" data-col="outreach"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
@@ -2320,8 +2323,12 @@ function renderJobs() {
       saveRowTracking(j, { applied_at: j.applied_at ? "" : isoToday() });
     tr.querySelector(".jt-resp").onchange = e =>
       saveRowTracking(j, { response: e.target.value });
-    tr.querySelector(".jt-bump").onclick = () =>
+    tr.querySelector(".jt-inc").onclick = () =>
       saveRowTracking(j, { outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: isoToday() });
+    tr.querySelector(".jt-dec").onclick = () => {
+      const n = Math.max(0, (j.outreach_count || 0) - 1);
+      saveRowTracking(j, { outreach_count: n, ...(n === 0 ? { last_outreach_at: "" } : {}) });
+    };
     tbody.appendChild(tr);
   }
   applyColumnVisibility();
