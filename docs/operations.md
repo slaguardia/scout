@@ -46,6 +46,33 @@ go build -o scout ./cmd/scout
 For live UI work, `cd web && npm run dev` serves with HMR and proxies `/api/*`
 to a running `scout serve` (default `:8765`).
 
+## Deployment — behind the shared edge
+
+For local use, `scout serve` on `localhost` is enough (above). For the deployed
+estate, scout ships as **one Go binary with the PWA embedded** (`go:embed`) —
+no Node at image-build time — in a compose service on the brain's `brainnet`,
+fronted by the **shared Caddy + oauth2-proxy edge** at `scout.{domain}`:
+
+```
+scout.{domain} → Caddy (HTTPS) → forward_auth → oauth2-proxy (Google SSO +
+                 email whitelist) → scout:8765 (/api + embedded PWA)
+```
+
+- **No auth code in scout.** The edge authenticates; scout trusts the injected
+  `X-Auth-Request-Email` and surfaces it as `/api/me`. One Google sign-in covers
+  the brain PWA and scout (shared cookie domain). Revoke access by removing the
+  email from `brainbot/compose/oauth2-proxy-emails.txt`.
+- **No public port.** Only Caddy reaches scout over the docker network.
+- **Data stays local.** scout's working set lives in SQLite on the `scout-data`
+  volume — never the brain/Postgres. The brain is read-only at
+  `http://brain:8100`.
+- **Files:** `Dockerfile` (this repo) builds the image; the `scout` service +
+  `scout-data` volume and the `scout.{domain}` Caddy vhost live in
+  `brainbot/compose/` (`docker-compose.yml`, `Caddyfile`).
+
+The canonical deploy doc is `brainbot/docs/app-platform.md` (the "Deployment"
+section + the copy-paste appendix). This note is just the scout-side pointer.
+
 ## The normal way in: the browser
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,

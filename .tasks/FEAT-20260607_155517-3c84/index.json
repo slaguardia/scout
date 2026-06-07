@@ -3,7 +3,7 @@
   "title": "Re-home scout's frontend onto the shared app-platform",
   "repo": "scout",
   "goal": "Execute the scout platform plan",
-  "status": "planning",
+  "status": "done",
   "prerequisite": "brainbot FEAT-20260607_155517-4fd1 (web-toolkit extracted + validated, edge template) \u2014 required before US-003/US-004",
   "stories": [
     {
@@ -32,7 +32,7 @@
       "dependencies": [
         "US-003"
       ],
-      "status": "todo"
+      "status": "done"
     }
   ],
   "suggestedOrder": [

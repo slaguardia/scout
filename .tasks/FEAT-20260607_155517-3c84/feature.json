@@ -2,11 +2,11 @@
   "id": "FEAT-20260607_155517-3c84",
   "title": "Feature: Re-home scout's frontend onto the shared app-platform",
   "summary": "Move scout from a self-contained Go app with an embedded HTML UI to a platform app: document its API as a stable contract, point its docs at the platform plan, rebuild its UI as a toolkit-built PWA (Go /api/* unchanged), and put it behind the shared Caddy/SSO edge so it inherits HTTPS, Google sign-in, and installability. Source of truth: brainbot/docs/app-platform.md + scout/docs/north-star.md.",
-  "status": "planning",
+  "status": "done",
   "createdAt": "2026-06-07T19:55:17Z",
   "outOfScope": [
-    "Changing scout's Go pipeline (ingest/filter/enrich/verdict/triage) or its /api/* behavior — this is a frontend re-home, not a backend rewrite",
-    "Building the web-toolkit itself (that is brainbot FEAT-20260607_155517-4fd1 US-002/US-003 — a hard prerequisite for US-003 here)",
+    "Changing scout's Go pipeline (ingest/filter/enrich/verdict/triage) or its /api/* behavior \u2014 this is a frontend re-home, not a backend rewrite",
+    "Building the web-toolkit itself (that is brainbot FEAT-20260607_155517-4fd1 US-002/US-003 \u2014 a hard prerequisite for US-003 here)",
     "Provisioning the VPS / running the deploy (the compose + vhost are authored here; standing up the box is separate ops)",
     "Multi-user auth logic in scout (auth lives at the edge; scout only reads the injected identity header)"
   ],

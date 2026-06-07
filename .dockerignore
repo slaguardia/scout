@@ -1,0 +1,17 @@
+# Keep the build context lean. NOTE: this must NOT exclude internal/web/dist/ —
+# that committed directory is embedded by go:embed at build time. We DO exclude
+# web/node_modules (the Vite source tree's deps) and web/dist (Vite's own output
+# dir, distinct from the embedded internal/web/dist/) — neither is needed in the
+# image because the PWA is already built and committed under internal/web/dist/.
+.git
+.claude
+*.db
+*.db-shm
+*.db-wal
+*.csv
+/scout
+/bin
+backups/
+web/node_modules/
+web/dist/
+*.log
