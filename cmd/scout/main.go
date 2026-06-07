@@ -89,6 +89,10 @@ func main() {
 		exit(cmdServe(args))
 	case "stats":
 		exit(cmdStats(args))
+	case "backup":
+		exit(cmdBackup(args))
+	case "restore":
+		exit(cmdRestore(args))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -120,6 +124,8 @@ Usage:
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
+  scout backup [--db scout.db] [--out scout-YYYYMMDD-HHMMSS.db]
+  scout restore <snapshot.db> [--db scout.db] [--force]
 
 Environment (read from the shell env or a .env file in the working directory):
   ANTHROPIC_API_KEY   required for `+"`verdict`"+`.`)
@@ -562,6 +568,139 @@ func cmdStats(args []string) error {
 		}
 	}
 	return nil
+}
+
+// --- backup / restore ---
+
+// cmdBackup writes a consistent, single-file snapshot of the live DB via
+// SQLite's VACUUM INTO. Safe to run while `scout serve` is up. The snapshot is
+// self-contained (no -wal/-shm sidecars) — scp it to the server and `restore`.
+func cmdBackup(args []string) error {
+	fs := flag.NewFlagSet("backup", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	out := fs.String("out", "", "snapshot path (default scout-<timestamp>.db)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dest := *out
+	if dest == "" {
+		dest = fmt.Sprintf("scout-%s.db", time.Now().Format("20060102-150405"))
+	}
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("refusing to overwrite existing %s", dest)
+	}
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := db.Backup(dest); err != nil {
+		return err
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("backup written: %s (%.1f MB)\n", dest, float64(info.Size())/(1<<20))
+	return nil
+}
+
+// cmdRestore makes a snapshot file the live database. It validates the snapshot
+// (integrity_check + applies any pending migrations so an older backup is
+// upgraded to the current schema), moves the existing DB aside to <db>.pre-restore,
+// removes stale -wal/-shm sidecars, then swaps the snapshot into place.
+func cmdRestore(args []string) error {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "live sqlite path to restore into")
+	force := fs.Bool("force", false, "overwrite an existing DB without keeping a .pre-restore copy")
+	// Go's flag package stops at the first positional, so a flag after the
+	// snapshot path (`restore snap.db --db X`) would be silently ignored. Reparse
+	// until no positionals remain so flag/arg order doesn't matter.
+	var src string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		if src == "" {
+			src = fs.Arg(0)
+		}
+		args = fs.Args()[1:]
+	}
+	if src == "" {
+		return fmt.Errorf("restore: want a snapshot path: scout restore <snapshot.db>")
+	}
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("snapshot %s: %w", src, err)
+	}
+
+	// Stage the snapshot in a temp copy alongside the target, validate + migrate
+	// it there, so a corrupt or incompatible snapshot never touches the live DB.
+	staged := *dbPath + ".restoring"
+	_ = os.Remove(staged)
+	_ = os.Remove(staged + "-wal")
+	_ = os.Remove(staged + "-shm")
+	if err := copyFile(src, staged); err != nil {
+		return fmt.Errorf("stage snapshot: %w", err)
+	}
+	defer func() {
+		_ = os.Remove(staged)
+		_ = os.Remove(staged + "-wal")
+		_ = os.Remove(staged + "-shm")
+	}()
+	sdb, err := store.Open(staged) // validates it's SQLite + applies pending migrations
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	if err := sdb.IntegrityCheck(); err != nil {
+		_ = sdb.Close()
+		return err
+	}
+	if err := sdb.Close(); err != nil {
+		return err
+	}
+
+	// Swap into place. Keep the displaced DB unless --force.
+	if _, err := os.Stat(*dbPath); err == nil {
+		if *force {
+			_ = os.Remove(*dbPath)
+		} else {
+			aside := *dbPath + ".pre-restore"
+			if err := os.Rename(*dbPath, aside); err != nil {
+				return fmt.Errorf("move existing db aside: %w", err)
+			}
+			fmt.Printf("existing db kept at %s\n", aside)
+		}
+	}
+	// Drop stale sidecars from the old live DB; the staged file has its own.
+	_ = os.Remove(*dbPath + "-wal")
+	_ = os.Remove(*dbPath + "-shm")
+	if err := os.Rename(staged, *dbPath); err != nil {
+		return fmt.Errorf("install snapshot: %w", err)
+	}
+	fmt.Printf("restored %s -> %s\n", src, *dbPath)
+	return nil
+}
+
+// copyFile copies src to dst, creating dst (it must not need to be atomic; the
+// caller stages into a temp path and renames into place afterward).
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // --- helpers ---

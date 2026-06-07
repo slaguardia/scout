@@ -36,6 +36,47 @@ func Open(path string) (*DB, error) {
 	return db, nil
 }
 
+// Backup writes a consistent, compacted snapshot of the live database to dest
+// using SQLite's `VACUUM INTO`. Unlike copying the file, this is safe to run
+// while scout is serving: it captures a transactionally-consistent view and
+// folds in any WAL pages, producing a single self-contained file with no
+// -wal/-shm sidecars. dest must not already exist (SQLite refuses to overwrite).
+func (db *DB) Backup(dest string) error {
+	// VACUUM INTO can't bind parameters; quote the path by doubling single quotes.
+	quoted := "'" + strings.ReplaceAll(dest, "'", "''") + "'"
+	if _, err := db.Exec("VACUUM INTO " + quoted); err != nil {
+		return fmt.Errorf("vacuum into %s: %w", dest, err)
+	}
+	return nil
+}
+
+// IntegrityCheck runs SQLite's `PRAGMA integrity_check` and returns an error if
+// the database is corrupt. A healthy database reports the single row "ok".
+func (db *DB) IntegrityCheck() error {
+	rows, err := db.Query("PRAGMA integrity_check")
+	if err != nil {
+		return fmt.Errorf("integrity_check: %w", err)
+	}
+	defer rows.Close()
+	var problems []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return fmt.Errorf("integrity_check scan: %w", err)
+		}
+		if s != "ok" {
+			problems = append(problems, s)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("integrity_check failed: %s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 func (db *DB) migrate() error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)`); err != nil {
 		return fmt.Errorf("create migrations table: %w", err)
