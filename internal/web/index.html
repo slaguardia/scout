@@ -875,13 +875,13 @@
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* ---- run controls ---- */
-  .run-btns { display: flex; flex-direction: column; gap: 6px; }
+  .run-btns { display: flex; flex-direction: column; gap: 5px; }
   .run-btn {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 7px;
     width: 100%;
     background: var(--panel); color: var(--fg);
     border: 1px solid var(--line); border-radius: var(--r-md);
-    padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer;
+    padding: 6px 9px; font: inherit; font-size: 12px; cursor: pointer;
     text-align: left;
     transition: all var(--dur-fast) var(--ease);
   }
@@ -890,7 +890,7 @@
   /* lit while its stage is running — same vocabulary as the is-on chips */
   .run-btn.busy { color: var(--link); background: var(--link-bg); border-color: transparent; }
   .run-btn.busy svg { color: var(--link); }
-  .run-btn svg { width: 13px; height: 13px; flex: none; color: var(--fg-mute); }
+  .run-btn svg { width: 12px; height: 12px; flex: none; color: var(--fg-mute); }
   .run-btn .grow { flex: 1; }
   .run-busy {
     font-size: 12px; color: var(--maybe);
@@ -1266,10 +1266,12 @@
     </div>
   </div>
 
-  <div class="block" id="block-run">
+  <!-- Add data: get companies/jobs into scout (manual or CSV). Separate from
+       Run below, which is the pipeline acting on data already here. -->
+  <div class="block" id="block-add">
     <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
-      Run
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+      Add data
     </h3>
     <div class="run-btns">
       <button class="run-btn" id="btn-ingest">
@@ -1280,6 +1282,16 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
         <span class="grow">Add…</span>
       </button>
+    </div>
+    <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
+  </div>
+
+  <div class="block" id="block-run">
+    <h3>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
+      Run
+    </h3>
+    <div class="run-btns">
       <button class="run-btn" id="btn-enrich">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
         <span class="grow">Enrich</span>
@@ -1292,7 +1304,6 @@
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
     </div>
-    <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
   </div>
 
   <!-- Each view owns its filter block — separate search text and separate
