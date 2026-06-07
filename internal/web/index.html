@@ -980,6 +980,14 @@
     display: flex; align-items: flex-start; gap: 6px;
   }
   .modal-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+  /* amber pre-run warning (e.g. verdict with un-enriched companies in scope) */
+  .run-warn {
+    display: flex; align-items: flex-start; gap: 7px;
+    margin: 0 0 12px; padding: 9px 11px;
+    font-size: 12.5px; line-height: 1.5; color: var(--maybe);
+    background: var(--maybe-bg); border: 1px solid transparent; border-radius: var(--r-md);
+  }
+  .run-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
   .modal-foot {
     display: flex; justify-content: flex-end; gap: 8px;
     padding: 12px 18px; border-top: 1px solid var(--line);
@@ -1556,6 +1564,10 @@
     </div>
     <div class="modal-body">
       <p id="run-desc" style="margin:0 0 12px;font-size:13px;color:var(--fg-mute);line-height:1.5"></p>
+      <div class="run-warn" id="run-warn" style="display:none">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13.5h13z"/><path d="M8 6.5v3.5M8 12v.3"/></svg>
+        <span id="run-warn-text"></span>
+      </div>
       <label class="enrich-row" id="run-blanks-row">
         <input type="checkbox" id="run-only-blanks">
         <span class="cbox" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span>
@@ -3789,7 +3801,7 @@ document.addEventListener("keydown", e => {
 let pendingStage = null;
 const runDescs = {
   enrich: "Fetches and summarizes each company's pages, filling its enrichment row.",
-  verdict: "Scores every company in scope against your criteria — one LLM call each.",
+  verdict: "Scores every company against your criteria — one LLM call each. Only companies with a successful enrichment are scored.",
 };
 function openRunConfirm(stage) {
   if (state.meta && state.meta.control === false) { toast("control surface disabled"); return; }
@@ -3797,6 +3809,19 @@ function openRunConfirm(stage) {
   document.getElementById("run-title").textContent = "Run " + stage;
   document.getElementById("run-desc").textContent = runDescs[stage] || "";
   document.getElementById("run-only-blanks").checked = false;
+  // Verdict only scores companies that already have a successful enrichment
+  // row, so warn up front when some are still un-enriched — otherwise they're
+  // silently skipped. Counts come from state.stats (refreshed after every run).
+  const warn = document.getElementById("run-warn");
+  const s = state.stats || {};
+  const unenriched = Math.max(0, (s.total_companies || 0) - (s.enriched_ok || 0));
+  if (stage === "verdict" && unenriched > 0) {
+    document.getElementById("run-warn-text").textContent =
+      `${unenriched} ${unenriched === 1 ? "company isn't" : "companies aren't"} enriched yet — verdict will skip ${unenriched === 1 ? "it" : "them"}. Run Enrich first to include ${unenriched === 1 ? "it" : "them"}.`;
+    warn.style.display = "";
+  } else {
+    warn.style.display = "none";
+  }
   document.getElementById("run-scrim").classList.add("open");
 }
 function closeRunConfirm() {
