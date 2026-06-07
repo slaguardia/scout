@@ -25,6 +25,27 @@ go build -o scout ./cmd/scout
 The migrations are embedded; the first `scout <anything>` call creates
 `scout.db` and runs them (currently through `0013`).
 
+## Building the web UI
+
+The UI is a Vite + vanilla-TS PWA in `web/` (consuming the shared
+`@brainbot/web-toolkit`). Its build emits to `internal/web/dist/`, which the Go
+server embeds with `go:embed` and serves at `GET /` — so the binary stays a
+single self-contained artifact. `internal/web/dist/` is committed, so a fresh
+checkout builds with just `go build` (no Node needed to *run* scout).
+
+After any UI change, rebuild the dist before `go build`:
+
+```bash
+cd web
+npm install        # first time only — resolves the toolkit file: dep
+npm run build      # gen-pwa (manifest + sw.js) then vite build → ../internal/web/dist/
+cd ..
+go build -o scout ./cmd/scout
+```
+
+For live UI work, `cd web && npm run dev` serves with HMR and proxies `/api/*`
+to a running `scout serve` (default `:8765`).
+
 ## The normal way in: the browser
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,

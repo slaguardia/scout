@@ -219,10 +219,12 @@ The classify + synthesize prompts are shown verbatim in
    dealbreaker is a gate; preferences are weights; context is background. There
    are no polarity/strength tags — the stance is in the words. (See above.)
 5. **Web-first.** The browser stays the interface; the CLI is the secondary
-   automation/debug surface, kept but not primary. The *delivery* mechanism is
-   moving — from a `go:embed` single `index.html` to a toolkit-built PWA served
-   behind the shared edge (see [Web delivery is moving to the app
-   platform](#web-delivery-is-moving-to-the-app-platform)) — but the browser-as-interface
+   automation/debug surface, kept but not primary. The UI is now a **toolkit-built
+   PWA** (`web/`, consuming `@brainbot/web-toolkit`); the Go server `go:embed`s
+   its built `internal/web/dist/` and serves it at `GET /` — so scout is still a
+   single self-contained binary. What remains future is putting it **behind the
+   shared edge** (Caddy + oauth2-proxy; see [Web delivery is moving to the app
+   platform](#web-delivery-is-moving-to-the-app-platform)). The browser-as-interface
    intent is unchanged, and so are the Go `/api/*` surface and the local-SQLite data.
 
 ## Resolved: the `filter` stage
@@ -238,17 +240,20 @@ the brain (the user's notes), surfaced via recall and the distilled brief.
 
 ## Web delivery is moving to the app platform
 
-Scout's **web delivery** is being re-homed onto a shared **app platform**: the UI
-moves from a `go:embed` single `index.html` to a toolkit-built, installable PWA
-served behind a shared edge (Caddy + oauth2-proxy) that provides HTTPS, Google
-sign-in, and installability. This is **delivery only** — scout's Go `/api/*`
-surface and its local-SQLite working set (companies, enrichment, verdicts, runs)
-are **unchanged**, and the CLI stays the secondary surface. Data does not move to
-the brain/Postgres; verdicts stay scout-local (invariant 1). Future-direction
-endpoints that belong to the re-home (e.g. an identity `/api/me`, a `/api/brain/*`
-read proxy) are **not yet implemented** — only the routes registered in scout's
-`Handler()` exist today. The cross-app design and migration order live in the
-canonical platform doc: [brainbot/docs/app-platform.md](../../brainbot/docs/app-platform.md).
+Scout's **web delivery** is being re-homed onto a shared **app platform**. The
+first step is **done**: the UI moved from a `go:embed` single `index.html` to a
+toolkit-built, installable PWA (`web/`, consuming `@brainbot/web-toolkit`), whose
+built `internal/web/dist/` the Go server `go:embed`s and serves at `GET /`. Still
+ahead is putting it **behind a shared edge** (Caddy + oauth2-proxy) for HTTPS and
+Google sign-in. This is **delivery only** — scout's Go `/api/*` surface and its
+local-SQLite working set (companies, enrichment, verdicts, runs) are **unchanged**,
+and the CLI stays the secondary surface. Data does not move to the brain/Postgres;
+verdicts stay scout-local (invariant 1). The identity endpoint `GET /api/me` now
+exists (it reads the edge's `X-Auth-Request-Email` header, returning `{email}` or
+`{}`); the optional `/api/brain/*` read proxy is **not implemented** — scout has a
+purpose-built `/api/profile` for its Criteria panel and does not surface generic
+recall/doc/map. The cross-app design and migration order live in the canonical
+platform doc: [brainbot/docs/app-platform.md](../../brainbot/docs/app-platform.md).
 
 ## How this relates to the other docs
 

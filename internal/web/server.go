@@ -13,10 +13,13 @@ package web
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"strings"
@@ -33,8 +36,16 @@ import (
 	"github.com/slaguardia/scout/internal/taste"
 )
 
-//go:embed index.html
-var indexHTML []byte
+//go:embed all:dist
+var distFS embed.FS
+
+func init() {
+	// Go's default MIME table has no entry for .webmanifest, so the embedded PWA
+	// manifest would be served as text/plain. Register the correct type so
+	// http.ServeContent/FileServerFS label it application/manifest+json — a
+	// cleaner install signal (browsers also accept it via <link rel=manifest>).
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // Server holds dependencies. Brainbot is optional. The Runner + paths power
 // the control surface; when Runner is nil the run/ingest/editor routes 503.
@@ -116,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
+	mux.HandleFunc("/api/me", s.handleMe) // signed-in identity (edge header), {} when none
 
 	// read / triage
 	mux.HandleFunc("/api/companies", s.handleCompanies)
@@ -145,13 +157,59 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// handleIndex serves the built PWA from the embedded dist/ tree. Existing files
+// (the hashed JS/CSS assets, manifest, sw.js, icons, index.html) are served
+// directly; any other non-/api/ path falls back to dist/index.html so the
+// client-side hash router owns navigation (SPA fallback). The /api/* and
+// /healthz routes are matched by more-specific mux patterns and never reach
+// here. The dist tree is produced by `cd web && npm run build` and committed so
+// go:embed compiles on a fresh checkout.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	sub, err := fs.Sub(distFS, "dist")
+	if err != nil { // misbuilt embed — should never happen if dist/ is present
+		http.Error(w, "ui assets unavailable", http.StatusInternalServerError)
+		return
+	}
+	// Defense-in-depth: never serve the SPA shell for an /api path (those are
+	// handled by their own mux patterns; this guards a stray fall-through).
+	if strings.HasPrefix(r.URL.Path, "/api/") {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(indexHTML)
+	clean := strings.TrimPrefix(r.URL.Path, "/")
+	if clean == "" {
+		serveDistFile(w, r, sub, "index.html")
+		return
+	}
+	if f, err := sub.Open(clean); err == nil {
+		f.Close()
+		http.FileServerFS(sub).ServeHTTP(w, r)
+		return
+	}
+	// Unknown path that isn't a real asset → SPA fallback to the shell.
+	serveDistFile(w, r, sub, "index.html")
+}
+
+// serveDistFile writes one file from the embedded dist sub-FS, letting
+// http.ServeContent set the Content-Type and handle range/conditional requests.
+func serveDistFile(w http.ResponseWriter, r *http.Request, sub fs.FS, name string) {
+	f, err := sub.Open(name)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	info, _ := f.Stat()
+	var modtime time.Time
+	if info != nil {
+		modtime = info.ModTime()
+	}
+	http.ServeContent(w, r, name, modtime, strings.NewReader(string(data)))
 }
 
 func (s *Server) handleCompanies(w http.ResponseWriter, r *http.Request) {

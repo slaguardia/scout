@@ -44,7 +44,8 @@ client should treat 412 as "the server is up but this action needs a key" and
 
 | Method | Path | Purpose | Notes |
 |---|---|---|---|
-| `GET` | `/` | Serves the single-page UI. | The **only** HTML the backend renders — `index.html` via `go:embed`. Any other path under `/` is `404`. |
+| `GET` | `/` | Serves the built PWA. | The **only** HTML the backend renders — the toolkit-built PWA's `internal/web/dist/` via `go:embed` (SPA fallback to `dist/index.html` for unknown non-`/api/` paths). |
+| `GET` | `/api/me` | Signed-in identity. | Reads the edge's `X-Auth-Request-Email` header; returns `{"email":"…"}` when present, else `{}` (HTTP 200 either way). Never trusts a client value. |
 | `GET` | `/healthz` | Liveness probe. | Prints `ok` (plain text). Used by the platform edge / launcher to show connected/offline. |
 
 ## Read / triage
@@ -129,8 +130,10 @@ client). Gated on the path being configured.
 
 Most routes are plain request/response JSON. Three are not:
 
-- **`GET /`** serves HTML (`text/html`), not JSON — the embedded single-page UI.
-  It is the only HTML the backend emits.
+- **`GET /`** serves HTML (`text/html`), not JSON — the built PWA shell
+  (`internal/web/dist/index.html`). It is the only HTML the backend emits; unknown
+  non-`/api/` paths fall back to it (SPA routing), while real assets under `/assets`,
+  `/manifest.webmanifest`, `/sw.js`, and the icons are served from the embedded dist.
 - **`GET /api/jobs/{id}/stream`** is **Server-Sent Events** (`text/event-stream`,
   `Cache-Control: no-cache`, keep-alive). It replays the job's backlog, then
   streams `event: line` messages, and closes with `event: end` carrying the final
@@ -142,23 +145,26 @@ Most routes are plain request/response JSON. Three are not:
 
 ## Notes for the PWA re-home
 
-This section describes **target direction** for moving scout's UI onto the shared
-web platform (see the platform plan in `brainbot/docs/app-platform.md`). None of
-it is implemented today — it constrains how this contract should be read, not what
-the server currently exposes.
+This section tracks moving scout's UI onto the shared web platform (see the
+platform plan in `brainbot/docs/app-platform.md`). The frontend re-home itself is
+**done** — `GET /` now serves the toolkit-built PWA from the embedded
+`internal/web/dist/`, and `GET /api/me` exists. What is still **target direction**
+is putting scout behind the shared edge (HTTPS + SSO). Items below are marked
+accordingly.
 
 - **The backend renders no app HTML except `GET /`.** Everything a client needs
-  is the JSON API above plus the SSE/multipart transports. The re-home pulls
-  scout's frontend out of `go:embed` and rebuilds it as a toolkit-built PWA; the
-  Go server keeps serving this `/api/*` surface **unchanged**. It's a frontend
+  is the JSON API above plus the SSE/multipart transports. The re-home pulled
+  scout's frontend out of the single `go:embed`-ed `index.html` and rebuilt it as a
+  toolkit-built PWA (`web/`, emitted to `internal/web/dist/`, still `go:embed`-ed);
+  the Go server keeps serving this `/api/*` surface **unchanged**. It was a frontend
   re-home, not a backend rewrite — which is exactly why this contract exists.
-- **Identity comes from the edge, via `X-Auth-Request-Email`** *(target)*. In the
-  platform, an oauth2-proxy at the Caddy edge authenticates the user (Google
-  SSO + email whitelist) and injects the identity header on every request scout
-  receives. Scout's Go code is unchanged — it gains HTTPS, SSO, and PWA
-  installability without new auth code. **There is no identity route today** (no
-  `/api/me`); reading `X-Auth-Request-Email` is the future shape, not a current
-  endpoint.
+- **Identity comes from the edge, via `X-Auth-Request-Email`.** `GET /api/me`
+  **exists**: it reads that header and returns `{"email":"…"}` when present, else
+  `{}` (HTTP 200 either way), trusting only the header — never a client value. In
+  the platform an oauth2-proxy at the Caddy edge authenticates the user (Google
+  SSO + email whitelist) and injects the header on every request scout receives;
+  putting scout behind that edge is the remaining *(target)* step. In local dev
+  (no edge) `/api/me` returns `{}` and the PWA shows an anonymous/dev state.
 - **The brain reads go through scout's proxy** *(target)*. Today the only brain
   exposure to the client is the distilled-brief view (`/api/profile`) and the
   outreach block sync — scout calls the brain server-side; the client never talks
