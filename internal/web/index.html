@@ -243,6 +243,37 @@
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background: var(--link-bg); color: var(--link); }
 
+  /* inline jobs-row tracking controls — applied toggle, response select,
+     +1 outreach. Compact so the lifecycle bumps don't need the pursuit panel.
+     They stop the row-click (which opens the panel) via the closest() guard. */
+  .jt-applied {
+    font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+    padding: 2px 9px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
+  }
+  .jt-applied:hover { border-color: var(--line-2); color: var(--fg-mute); }
+  .jt-applied.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  .jt-resp {
+    font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    padding: 2px 22px 2px 9px; border-radius: 999px; border: 1px solid transparent;
+    text-transform: lowercase; letter-spacing: 0.01em;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='currentColor' stroke-width='1.3' fill='none'/></svg>");
+    background-repeat: no-repeat; background-position: right 7px center;
+  }
+  .jt-resp:hover { filter: brightness(1.12); }
+  .jt-oc { font-variant-numeric: tabular-nums; margin-right: 7px; }
+  .jt-bump {
+    font: inherit; font-size: 11.5px; cursor: pointer;
+    padding: 1px 7px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .jt-bump:hover { border-color: var(--line-2); color: var(--fg); }
+
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
      green with its checkmark when on (pursuit panel's pipeline). */
   .pt-chip {
@@ -2231,24 +2262,39 @@ function renderJobs() {
     const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
     const tr = document.createElement("tr");
     tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
+    // The applied / response / outreach cells carry inline tracking controls so
+    // the common lifecycle bumps don't require opening the pursuit panel.
+    const respOpts = [
+      ["", "—"], ["screening", "screening"], ["interview", "interview"],
+      ["offer", "offer"], ["rejected", "rejected"],
+    ].map(([v, label]) =>
+      `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
     tr.innerHTML = `
       <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${j.next_up ? '<span class="draft-badge db-next" title="queued next up for outreach">next up</span>' : ""}${draftBadgeHTML(j.outreach_draft_status)}
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
-      <td class="small" data-col="applied">${j.applied_at ? escapeHTML(j.applied_at) : '<span class="dim">—</span>'}</td>
-      <td data-col="response"><span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span></td>
-      <td class="small" data-col="outreach">${j.outreach_count ? j.outreach_count : '<span class="dim">—</span>'}</td>
+      <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
+      <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
+      <td class="small" data-col="outreach"><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-bump" title="log one outreach (today)">+1</button></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
     `;
+    // Wire the inline controls to the cached row (the table re-renders from it).
+    const isoToday = () => new Date().toISOString().slice(0, 10);
+    tr.querySelector(".jt-applied").onclick = () =>
+      saveRowTracking(j, { applied_at: j.applied_at ? "" : isoToday() });
+    tr.querySelector(".jt-resp").onchange = e =>
+      saveRowTracking(j, { response: e.target.value });
+    tr.querySelector(".jt-bump").onclick = () =>
+      saveRowTracking(j, { outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: isoToday() });
     tbody.appendChild(tr);
   }
   applyColumnVisibility();
   // Row click opens the pursuit panel (role + pipeline + the outreach queue);
-  // the external "open ↗" link is guarded out.
+  // the external link and the inline tracking controls are guarded out.
   tbody.querySelectorAll("tr").forEach(tr => {
     tr.addEventListener("click", e => {
-      if (e.target.closest("a")) return;
+      if (e.target.closest("a, button, select")) return;
       openPursuit(tr.dataset.id);
     });
   });
@@ -2542,10 +2588,11 @@ async function toggleNextUp() {
   toast(j.next_up ? "queued next up" : "removed from the queue");
 }
 
-// savePursuitTracking PUTs the posting's full lifecycle (current overlaid with
-// the change), updates the cached row, the table, and re-renders the panel.
-async function savePursuitTracking(patch) {
-  const j = pursuit.row;
+// savePostingTracking PUTs an arbitrary posting row's full lifecycle (current
+// overlaid with the change) and folds the fresh fields back into the cached
+// row. Shared by the pursuit panel and the inline jobs-row controls; returns
+// the fresh row (or null on failure) so callers can decide what to re-render.
+async function savePostingTracking(j, patch) {
   const body = {
     applied_at: j.applied_at || "",
     response: j.response || "",
@@ -2560,11 +2607,11 @@ async function savePursuitTracking(patch) {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  } catch (e) { toast(`save failed: ${e.message}`); return null; }
   if (!resp.ok) {
     const txt = (await resp.text().catch(() => "")).trim();
     toast(`save failed: ${txt || "HTTP " + resp.status}`);
-    return;
+    return null;
   }
   const fresh = await resp.json();
   // Fold the posting fields back into the row (keep company/verdict/badge etc).
@@ -2575,8 +2622,27 @@ async function savePursuitTracking(patch) {
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     contacts: fresh.contacts, next_up: fresh.next_up,
   });
+  return fresh;
+}
+
+// savePursuitTracking saves a change made from the pursuit panel, then re-renders
+// the table and the panel.
+async function savePursuitTracking(patch) {
+  const fresh = await savePostingTracking(pursuit.row, patch);
+  if (!fresh) return;
   renderJobs();
   renderPursuit();
+  toast("tracking saved");
+}
+
+// saveRowTracking saves a change made from an inline jobs-row control. The
+// cached row is the same object the table renders from, so a plain renderJobs()
+// reflects it; the pursuit panel is refreshed only if it's showing this posting.
+async function saveRowTracking(j, patch) {
+  const fresh = await savePostingTracking(j, patch);
+  if (!fresh) return;
+  renderJobs();
+  if (pursuit.postingId === j.posting_id) { pursuit.row = j; renderPursuit(); }
   toast("tracking saved");
 }
 
