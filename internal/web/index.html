@@ -875,14 +875,15 @@
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* ---- run controls ---- */
-  .run-btns { display: flex; flex-direction: column; gap: 5px; }
+  /* two buttons per section sit side by side — the full-width stack wasted
+     horizontal space in the sidebar. */
+  .run-btns { display: flex; gap: 6px; }
   .run-btn {
-    display: flex; align-items: center; gap: 7px;
-    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    flex: 1; min-width: 0;
     background: var(--panel); color: var(--fg);
     border: 1px solid var(--line); border-radius: var(--r-md);
-    padding: 6px 9px; font: inherit; font-size: 12px; cursor: pointer;
-    text-align: left;
+    padding: 7px 9px; font: inherit; font-size: 12px; cursor: pointer;
     transition: all var(--dur-fast) var(--ease);
   }
   .run-btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-2); }
@@ -891,7 +892,7 @@
   .run-btn.busy { color: var(--link); background: var(--link-bg); border-color: transparent; }
   .run-btn.busy svg { color: var(--link); }
   .run-btn svg { width: 12px; height: 12px; flex: none; color: var(--fg-mute); }
-  .run-btn .grow { flex: 1; }
+  .run-btn .grow { flex: none; white-space: nowrap; }
   .run-busy {
     font-size: 12px; color: var(--maybe);
     display: flex; align-items: center; gap: 6px; padding: 4px 2px 0;
@@ -1276,11 +1277,11 @@
     <div class="run-btns">
       <button class="run-btn" id="btn-ingest">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
-        <span class="grow">Ingest CSV…</span>
+        <span class="grow">Ingest CSV</span>
       </button>
       <button class="run-btn" id="btn-add" title="add a company or a job from its link — optionally let an agent pass fill in the blanks">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-        <span class="grow">Add…</span>
+        <span class="grow">Add</span>
       </button>
     </div>
     <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
