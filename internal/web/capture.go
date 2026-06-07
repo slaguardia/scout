@@ -192,6 +192,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingNextUp(w, r, pid)
 		return
 	}
+	// {id}/details edits the posting's hand-editable content (title, location…).
+	if pid, ok := strings.CutSuffix(id, "/details"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingDetails(w, r, pid)
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return
@@ -218,6 +223,33 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingDetails edits a posting's hand-editable content: PUT
+// /api/postings/{id}/details with the full PostingEdit (title, location,
+// summary, employment/workplace type, department, comp_range, description).
+// Returns the refreshed posting. A direct write — no capture/LLM involved; this
+// is how the user fixes a wrong role name or a blank field.
+func (s *Server) handlePostingDetails(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var e store.PostingEdit
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&e); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := s.DB.UpdatePostingDetails(id, e)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)

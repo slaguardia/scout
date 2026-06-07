@@ -368,6 +368,52 @@ func TestUpdatePostingTracking(t *testing.T) {
 	}
 }
 
+func TestUpdatePostingDetails(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Wrong Title")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// Full edit round-trips; strings are trimmed.
+	got, err := db.UpdatePostingDetails(p.ID, PostingEdit{
+		Title: "  Staff Engineer  ", Location: "Remote", Summary: "build things",
+		EmploymentType: "Full-time", WorkplaceType: "Remote", Department: "Eng",
+		CompRange: "$200k-$250k", Description: "long description",
+	})
+	if err != nil {
+		t.Fatalf("UpdatePostingDetails: %v", err)
+	}
+	if got.Title != "Staff Engineer" || got.Location != "Remote" || got.Summary != "build things" ||
+		got.EmploymentType != "Full-time" || got.WorkplaceType != "Remote" || got.Department != "Eng" ||
+		got.CompRange != "$200k-$250k" || got.Description != "long description" {
+		t.Errorf("unexpected details: %+v", got)
+	}
+	// The URL (identity) is untouched.
+	if got.URL != "https://acme.com/jobs/se" {
+		t.Errorf("URL changed: %q", got.URL)
+	}
+
+	// Empty strings clear fields back to "".
+	got, err = db.UpdatePostingDetails(p.ID, PostingEdit{Title: "Just a Title"})
+	if err != nil {
+		t.Fatalf("clear details: %v", err)
+	}
+	if got.Title != "Just a Title" || got.Location != "" || got.Summary != "" ||
+		got.Department != "" || got.CompRange != "" || got.Description != "" {
+		t.Errorf("details not cleared: %+v", got)
+	}
+
+	// Unknown posting -> sql.ErrNoRows.
+	if _, err := db.UpdatePostingDetails("no-such-posting", PostingEdit{}); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("unknown posting: want sql.ErrNoRows, got %v", err)
+	}
+}
+
 func TestReapStuckOutreachDrafts(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", RawJSON: "{}"})

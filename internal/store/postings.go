@@ -304,6 +304,42 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	return db.readPosting(id)
 }
 
+// PostingEdit is the hand-editable content of a posting — the fields a user
+// might fix when capture got them wrong (or left them blank). All full-state:
+// the UI sends the complete picture and the row is set to it. Empty strings
+// clear the field. URL and the lifecycle/provenance fields are NOT editable
+// here — those have their own paths (tracking, capture).
+type PostingEdit struct {
+	Title          string `json:"title"`
+	Location       string `json:"location"`
+	Summary        string `json:"summary"`
+	EmploymentType string `json:"employment_type"`
+	WorkplaceType  string `json:"workplace_type"`
+	Department     string `json:"department"`
+	CompRange      string `json:"comp_range"`
+	Description    string `json:"description"`
+}
+
+// UpdatePostingDetails sets a posting's hand-editable content fields and
+// returns the refreshed row. Returns sql.ErrNoRows for an unknown posting.
+// Strings are trimmed; empty ones store as NULL.
+func (db *DB) UpdatePostingDetails(id string, e PostingEdit) (Posting, error) {
+	const q = `UPDATE job_postings SET
+	    title = ?, location = ?, summary = ?, employment_type = ?,
+	    workplace_type = ?, department = ?, comp_range = ?, description = ?
+	 WHERE id = ?`
+	tr := func(s string) sql.NullString { return NullString(strings.TrimSpace(s)) }
+	res, err := db.Exec(q, tr(e.Title), tr(e.Location), tr(e.Summary), tr(e.EmploymentType),
+		tr(e.WorkplaceType), tr(e.Department), tr(e.CompRange), tr(e.Description), id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("update posting details %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
 // SetPostingNextUp queues (next_up_at = now) or unqueues (NULL) a posting as
 // "next up for outreach", returning the refreshed row. The mark also clears on
 // its own when outreach_count bumps — see UpdatePostingTracking and

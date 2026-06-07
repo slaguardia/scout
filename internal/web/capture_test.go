@@ -206,6 +206,56 @@ func TestCaptureFetchFailureIs422(t *testing.T) {
 	}
 }
 
+func TestPostingDetailsAPI(t *testing.T) {
+	s, cid := newTestServer(t)
+	h := s.Handler()
+
+	p, err := s.DB.AddPosting(cid, "https://acme.com/jobs/se", "Wrong Title")
+	if err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	put := func(id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/api/postings/"+id+"/details", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Happy path: the role name and details land, the refreshed posting comes back.
+	rec := put(p.ID, `{"title":"Staff Engineer","location":"Remote","comp_range":"$200k"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Title     string `json:"title"`
+		Location  string `json:"location"`
+		CompRange string `json:"comp_range"`
+		URL       string `json:"url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Title != "Staff Engineer" || got.Location != "Remote" || got.CompRange != "$200k" {
+		t.Errorf("unexpected details payload: %+v", got)
+	}
+	if got.URL != "https://acme.com/jobs/se" {
+		t.Errorf("URL must stay the posting's identity, got %q", got.URL)
+	}
+
+	// Unknown posting → 404; GET → 405.
+	if rec := put("nope", `{"title":"x"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown posting: want 404, got %d", rec.Code)
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/api/postings/"+p.ID+"/details", nil)
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET details: want 405, got %d", getRec.Code)
+	}
+}
+
 func TestPostingTrackingAPI(t *testing.T) {
 	s, cid := newTestServer(t)
 	h := s.Handler()

@@ -2343,19 +2343,9 @@ function renderPursuit() {
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
         Role
+        <button class="h3-action" id="role-edit-btn" title="edit the role name and details">✎ edit</button>
       </h3>
-      <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
-      <div class="role-meta">
-        ${j.location ? `<span>${escapeHTML(j.location)}</span>` : ""}
-        ${j.workplace_type ? `<span>${escapeHTML(j.workplace_type)}</span>` : ""}
-        ${j.employment_type ? `<span>${escapeHTML(j.employment_type)}</span>` : ""}
-        ${j.department ? `<span>${escapeHTML(j.department)}</span>` : ""}
-        ${j.comp_range ? `<span class="role-comp">${escapeHTML(j.comp_range)}</span>` : ""}
-        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-        <span class="role-company">${escapeHTML(j.company)}</span>
-      </div>
-      ${j.summary ? `<div class="role-summary">${escapeHTML(j.summary)}</div>` : ""}
-      ${j.description ? `<details class="role-desc"><summary>full description</summary><div class="role-desc-text">${escapeHTML(j.description)}</div></details>` : ""}
+      <div id="role-body">${roleViewHTML(j)}</div>
     </section>
 
     <section class="pane-section">
@@ -2413,7 +2403,101 @@ function renderPursuit() {
   wirePipeline();
   const vc = document.getElementById("pursuit-view-company");
   if (vc) vc.addEventListener("click", () => openDetail(j.company_id));
+  const re = document.getElementById("role-edit-btn");
+  if (re) re.addEventListener("click", () => editRole(j));
   renderOutreachSection();
+}
+
+// roleViewHTML is the read-only role header (url, meta chips, summary,
+// description) — the default body of the Role section. editRole swaps it for an
+// inline form and restores it on cancel.
+function roleViewHTML(j) {
+  return `
+    <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
+    <div class="role-meta">
+      ${j.location ? `<span>${escapeHTML(j.location)}</span>` : ""}
+      ${j.workplace_type ? `<span>${escapeHTML(j.workplace_type)}</span>` : ""}
+      ${j.employment_type ? `<span>${escapeHTML(j.employment_type)}</span>` : ""}
+      ${j.department ? `<span>${escapeHTML(j.department)}</span>` : ""}
+      ${j.comp_range ? `<span class="role-comp">${escapeHTML(j.comp_range)}</span>` : ""}
+      ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
+      <span class="role-company">${escapeHTML(j.company)}</span>
+    </div>
+    ${j.summary ? `<div class="role-summary">${escapeHTML(j.summary)}</div>` : ""}
+    ${j.description ? `<details class="role-desc"><summary>full description</summary><div class="role-desc-text">${escapeHTML(j.description)}</div></details>` : ""}`;
+}
+
+// editRole swaps the Role body for an inline form. The URL is the posting's
+// identity and stays read-only (use the Add dialog to re-capture); company is a
+// separate record. Everything else is hand-editable here.
+function editRole(j) {
+  const body = document.getElementById("role-body");
+  if (!body) return;
+  body.innerHTML = `
+    <div class="facts-edit">
+      <input class="input" id="re-title" placeholder="role name / title" value="${escapeHTML(j.title || "")}">
+      <div class="prow">
+        <input class="input" id="re-location" placeholder="location" value="${escapeHTML(j.location || "")}">
+        <input class="input" id="re-comp" placeholder="comp range" value="${escapeHTML(j.comp_range || "")}">
+      </div>
+      <div class="prow">
+        <input class="input" id="re-employment" placeholder="employment type" value="${escapeHTML(j.employment_type || "")}">
+        <input class="input" id="re-workplace" placeholder="workplace type" value="${escapeHTML(j.workplace_type || "")}">
+      </div>
+      <input class="input" id="re-department" placeholder="department" value="${escapeHTML(j.department || "")}">
+      <textarea class="input" id="re-summary" placeholder="summary" rows="2">${escapeHTML(j.summary || "")}</textarea>
+      <textarea class="input" id="re-description" placeholder="full description" rows="4">${escapeHTML(j.description || "")}</textarea>
+      <div class="prow">
+        <button class="btn" id="re-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="re-save-btn">Save</button>
+      </div>
+    </div>`;
+  document.getElementById("re-cancel-btn").addEventListener("click", () => {
+    body.innerHTML = roleViewHTML(j);
+  });
+  document.getElementById("re-save-btn").addEventListener("click", () => onSaveRole(j));
+  document.getElementById("re-title").focus();
+}
+
+// onSaveRole PUTs the edited posting content, folds the fresh fields back into
+// the cached row, and re-renders the panel, table, and jobs list.
+async function onSaveRole(j) {
+  const btn = document.getElementById("re-save-btn");
+  btn.disabled = true;
+  const payload = {
+    title: document.getElementById("re-title").value.trim(),
+    location: document.getElementById("re-location").value.trim(),
+    comp_range: document.getElementById("re-comp").value.trim(),
+    employment_type: document.getElementById("re-employment").value.trim(),
+    workplace_type: document.getElementById("re-workplace").value.trim(),
+    department: document.getElementById("re-department").value.trim(),
+    summary: document.getElementById("re-summary").value.trim(),
+    description: document.getElementById("re-description").value.trim(),
+  };
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}/details`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); btn.disabled = false; return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${txt || "HTTP " + resp.status}`);
+    btn.disabled = false;
+    return;
+  }
+  const fresh = await resp.json();
+  // Fold the editable posting fields back into the cached row (keep company /
+  // verdict / tracking state intact).
+  Object.assign(j, {
+    title: fresh.title, location: fresh.location, summary: fresh.summary,
+    employment_type: fresh.employment_type, workplace_type: fresh.workplace_type,
+    department: fresh.department, comp_range: fresh.comp_range, description: fresh.description,
+  });
+  renderJobs();
+  renderPursuit();
+  toast("role saved");
 }
 
 // wirePipeline binds the relocated tracker controls; they PUT the posting and
