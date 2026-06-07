@@ -96,6 +96,14 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 		return res, nil
 	}
 
+	// Header up front so the parallelism is legible: the per-company lines below
+	// stream one at a time as each finishes, but the work runs Workers-at-once.
+	workers := s.Workers
+	if workers > len(cands) {
+		workers = len(cands)
+	}
+	s.emit(fmt.Sprintf("scoring %d companies · %d workers in parallel", len(cands), workers))
+
 	jobs := make(chan store.VerdictCandidate)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -105,6 +113,7 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for c := range jobs {
+				s.emit(fmt.Sprintf("· %s…", c.Name)) // picked up — shows the in-flight burst
 				v, cacheCreate, cacheRead, err := s.scoreOne(ctx, c)
 				mu.Lock()
 				res.CacheCreationTokens += cacheCreate

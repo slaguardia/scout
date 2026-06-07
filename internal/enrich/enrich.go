@@ -152,6 +152,14 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 		return res, nil
 	}
 
+	// Header up front so the parallelism is legible: the per-company lines below
+	// stream one at a time as each finishes, but the work runs Workers-at-once.
+	workers := e.Workers
+	if workers > len(targets) {
+		workers = len(targets)
+	}
+	e.emit(fmt.Sprintf("enriching %d companies · %d workers in parallel", len(targets), workers))
+
 	jobs := make(chan store.EnrichmentTarget)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -161,6 +169,7 @@ func (e *Enricher) Run(ctx context.Context, force bool) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			for t := range jobs {
+				e.emit(fmt.Sprintf("· %s…", t.Name)) // picked up — shows the in-flight burst
 				rec := e.fetchOne(ctx, t)
 				if err := e.DB.UpsertEnrichment(rec); err != nil {
 					// DB failure is bad; surface but keep going.
