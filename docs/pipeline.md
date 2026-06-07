@@ -238,8 +238,9 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 | **Output** | `scout triage UI at http://localhost:8765`. |
 | **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`, `--brain-cache-ttl 6h`. |
 
-A single embedded HTML page plus a **full control surface** — the whole pipeline
-runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
+A toolkit-built PWA (`web/`, consuming `@brainbot/web-toolkit`, embedded via
+`go:embed internal/web/dist/`) plus a **full control surface** — the whole
+pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 
 **Read / triage**
 

@@ -110,4 +110,4 @@ humanizer prompt, then run the first real draft via `scout outreach draft
 the primary interface; the CLI is the secondary automation/debug surface.
 `north-star.md` is the canonical architecture.
 
-**Platform migration (FEAT-20260607_155517-3c84):** scout's web delivery re-homes from `go:embed index.html` to a toolkit-built PWA behind the shared edge — Go `/api/*` and local SQLite unchanged; see [brainbot/docs/app-platform.md](../brainbot/docs/app-platform.md).
+**Platform migration (FEAT-20260607_155517-3c84), done:** scout's web delivery has been re-homed from `go:embed index.html` to a toolkit-built PWA — the UI is now a Vite + vanilla-TS app in `web/` consuming `@brainbot/web-toolkit`, built to `internal/web/dist/` and still `go:embed`-ed into the one Go binary (US-003). Go `/api/*` + local SQLite unchanged; `GET /api/me` reads the edge identity. The shared Caddy/SSO edge config is authored + verified (US-004) and lives on brainbot branch `feat/scout-edge`; it applies when the stack is deployed (separate ops). See [brainbot/docs/app-platform.md](../brainbot/docs/app-platform.md).
