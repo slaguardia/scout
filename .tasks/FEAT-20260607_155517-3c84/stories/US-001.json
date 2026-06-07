@@ -12,8 +12,8 @@
     "[Verification] Diff the documented route list against the mux.HandleFunc calls in server.go — every handler is represented, none invented"
   ],
   "dependencies": [],
-  "status": "todo",
+  "status": "done",
   "createdAt": "2026-06-07T19:55:17Z",
-  "completedAt": null,
+  "completedAt": "2026-06-07T20:35:37Z",
   "iteration": null
 }

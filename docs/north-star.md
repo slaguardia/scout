@@ -218,8 +218,12 @@ The classify + synthesize prompts are shown verbatim in
 4. **Gate on the brief's prose.** What the distilled brief states as a
    dealbreaker is a gate; preferences are weights; context is background. There
    are no polarity/strength tags — the stance is in the words. (See above.)
-5. **Web-first.** The browser is the interface; the CLI is the secondary
-   automation/debug surface, kept but not primary.
+5. **Web-first.** The browser stays the interface; the CLI is the secondary
+   automation/debug surface, kept but not primary. The *delivery* mechanism is
+   moving — from a `go:embed` single `index.html` to a toolkit-built PWA served
+   behind the shared edge (see [Web delivery is moving to the app
+   platform](#web-delivery-is-moving-to-the-app-platform)) — but the browser-as-interface
+   intent is unchanged, and so are the Go `/api/*` surface and the local-SQLite data.
 
 ## Resolved: the `filter` stage
 
@@ -232,6 +236,20 @@ The name is historical; treat it as the mechanical layer. Any vertical
 thinned to coarse cheap culls at most, with the real exclusion logic living in
 the brain (the user's notes), surfaced via recall and the distilled brief.
 
+## Web delivery is moving to the app platform
+
+Scout's **web delivery** is being re-homed onto a shared **app platform**: the UI
+moves from a `go:embed` single `index.html` to a toolkit-built, installable PWA
+served behind a shared edge (Caddy + oauth2-proxy) that provides HTTPS, Google
+sign-in, and installability. This is **delivery only** — scout's Go `/api/*`
+surface and its local-SQLite working set (companies, enrichment, verdicts, runs)
+are **unchanged**, and the CLI stays the secondary surface. Data does not move to
+the brain/Postgres; verdicts stay scout-local (invariant 1). Future-direction
+endpoints that belong to the re-home (e.g. an identity `/api/me`, a `/api/brain/*`
+read proxy) are **not yet implemented** — only the routes registered in scout's
+`Handler()` exist today. The cross-app design and migration order live in the
+canonical platform doc: [brainbot/docs/app-platform.md](../../brainbot/docs/app-platform.md).
+
 ## How this relates to the other docs
 
 This doc owns the architecture and concept; the rest is reference and links back
@@ -243,4 +261,7 @@ here.
 - [`data-model.md`](./data-model.md) — the SQLite schema.
 - [`operations.md`](./operations.md) — flags, env, troubleshooting.
 - [`limitations.md`](./limitations.md) — current limits and where it breaks first.
+- [brainbot/docs/app-platform.md](../../brainbot/docs/app-platform.md) — the shared
+  app platform scout's web delivery is moving onto (toolkit PWA behind the shared
+  edge); governs scout's shell/delivery, not its pipeline.
 - `CLAUDE.md` — working instructions + current state for Claude.

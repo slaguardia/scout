@@ -109,3 +109,5 @@ humanizer prompt, then run the first real draft via `scout outreach draft
 (verify ingest column aliases against the real header first). The web UI is
 the primary interface; the CLI is the secondary automation/debug surface.
 `north-star.md` is the canonical architecture.
+
+**Platform migration (FEAT-20260607_155517-3c84):** scout's web delivery re-homes from `go:embed index.html` to a toolkit-built PWA behind the shared edge — Go `/api/*` and local SQLite unchanged; see [brainbot/docs/app-platform.md](../brainbot/docs/app-platform.md).
