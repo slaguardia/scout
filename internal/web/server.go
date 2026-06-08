@@ -28,6 +28,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/chat"
 	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/ingest"
 	"github.com/slaguardia/scout/internal/jobs"
@@ -56,6 +57,7 @@ type Server struct {
 	Runner   *jobs.Runner       // optional; nil disables the control surface
 	Outreach OutreachRunner     // optional; nil disables draft starts (503)
 	Answers  AnswersRunner      // optional; nil disables answer generation (503)
+	Chat     *chat.Engine       // optional; nil disables chat (412 on message POST)
 
 	// Stage construction inputs (used by the run handlers).
 	Anthropic     *anthropic.Client
@@ -67,6 +69,8 @@ type Server struct {
 	mu           sync.RWMutex
 	taste        *taste.Block // current; recomputed by ReloadTaste
 	playbookText string       // current playbook text
+
+	chat chatHub // per-thread in-flight chat turns (kick + subscribe)
 }
 
 // ReloadTaste resolves the criteria block (cached brain profile → taste.md, via
@@ -139,6 +143,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/outreach/sender", s.handleOutreachSender) // GET/PUT the cold-email identity (see sender.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)             // blocks / sync / drafts (see outreach.go)
 	mux.HandleFunc("/api/answers/", s.handleAnswer)                // PUT {id}: edit / regenerate one answer (see answers.go)
+	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)       // GET open-or-create a (scope,scope_id) thread
+	mux.HandleFunc("/api/chat/", s.handleChat)                     // POST {thread}/message, GET {thread}/stream
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 

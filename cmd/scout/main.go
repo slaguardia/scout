@@ -29,6 +29,7 @@ import (
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
 	"github.com/slaguardia/scout/internal/capture"
+	"github.com/slaguardia/scout/internal/chat"
 	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/distill"
 	"github.com/slaguardia/scout/internal/enrich"
@@ -515,6 +516,11 @@ func cmdServe(args []string) error {
 		srv.Outreach = eng
 		srv.Answers = eng
 		fmt.Fprintf(os.Stderr, "outreach drafting + answer generation enabled (model %s)\n", *outreachModel)
+
+		// Chat (Sonnet 4.6 tool-using agent) needs the same key. Without it the
+		// chat message endpoint returns 412 and the UI hides the chat surfaces.
+		srv.Chat = chat.New(db, ac)
+		fmt.Fprintf(os.Stderr, "chat enabled (model %s)\n", chat.Model)
 	} else {
 		fmt.Fprintln(os.Stderr, "outreach drafting + answer generation disabled (no ANTHROPIC_API_KEY)")
 	}

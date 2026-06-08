@@ -235,6 +235,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"brain":   s.brainHealthy(r.Context()),
 		"verdict": hasKey,
 		"capture": hasKey, // the link-capture agent pass needs the same key
+		"chat":    s.Chat != nil,
 		"source":  s.IngestSource,
 	})
 }
