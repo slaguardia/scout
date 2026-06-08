@@ -247,6 +247,7 @@ function renderList() {
 // explicitly overrides hide-rejected — an empty table would just confuse.
 const responseFilter = new Set();
 let nextUpOnly = false;    // jobs-view chip: postings queued next up for outreach
+let notReachedOnly = false; // "not reached out" chip: postings with zero outreach yet
 let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
 
 function filteredJobs() {
@@ -256,6 +257,7 @@ function filteredJobs() {
     if (hideRej && j.response === "rejected") return false;
     if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
     if (nextUpOnly && !j.next_up) return false;
+    if (notReachedOnly && (j.outreach_count|0) > 0) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -337,6 +339,14 @@ function renderJobs() {
   const nn = document.getElementById("next-up-n");
   nn.textContent = nextUpN;
   nn.style.display = nextUpN ? "" : "none";
+  // The "not reached out" chip carries its own count — how many postings still
+  // have zero outreach logged. Respects hide-rejected so the count matches the
+  // table the user is actually looking at.
+  const notReachedN = state.jobs.filter(j =>
+    !(j.outreach_count|0) && !(hideRejected && !responseFilter.has("rejected") && j.response === "rejected")).length;
+  const nrn = document.getElementById("not-reached-n");
+  nrn.textContent = notReachedN;
+  nrn.style.display = notReachedN ? "" : "none";
   const note = document.getElementById("jobs-hidden-note");
   note.style.display = hiddenRej ? "" : "none";
   if (hiddenRej) {
@@ -2115,6 +2125,11 @@ document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
 document.getElementById("next-up-filter").addEventListener("click", e => {
   nextUpOnly = !nextUpOnly;
   e.currentTarget.classList.toggle("is-on", nextUpOnly);
+  renderJobs();
+});
+document.getElementById("not-reached-filter").addEventListener("click", e => {
+  notReachedOnly = !notReachedOnly;
+  e.currentTarget.classList.toggle("is-on", notReachedOnly);
   renderJobs();
 });
 renderColToggles();
