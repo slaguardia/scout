@@ -53,6 +53,10 @@ type Posting struct {
 	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
 	Contacts string `json:"contacts"`
 
+	// Notes: free-form, human-only scratchpad on this posting. Never written by
+	// capture/ATS/outreach — only the tracking PUT touches it.
+	Notes string `json:"notes"`
+
 	// NextUp (M27) marks the posting as queued "next up for outreach" — a
 	// hand-set to-do that clears automatically when outreach_count bumps.
 	NextUp bool `json:"next_up"`
@@ -65,7 +69,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
-       COALESCE(contacts, ''), next_up_at`
+       COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
@@ -75,7 +79,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
-		&p.Contacts, &nextUpAt)
+		&p.Contacts, &p.Notes, &nextUpAt)
 	p.NextUp = nextUpAt.Valid
 	return p, err
 }
@@ -249,6 +253,7 @@ type PostingTracking struct {
 	OutreachCount  int    `json:"outreach_count"`   // >= 0
 	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
 	Contacts       string `json:"contacts"`         // free-form; trimmed, no validation
+	Notes          string `json:"notes"`            // free-form, human-only; trimmed
 }
 
 // validTrackingDate accepts "" (unset) or a bare ISO date. Validation errors
@@ -291,10 +296,10 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	// (SET expressions see the old row, so the CASE compares old vs new.)
 	const q = `UPDATE job_postings SET
 	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
-	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?
+	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?, notes = ?
 	 WHERE id = ?`
 	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
-		NullString(strings.TrimSpace(t.Contacts)), id)
+		NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
 	}
@@ -435,6 +440,7 @@ type JobRow struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 	Contacts       string `json:"contacts"` // outreach contacts (M24)
+	Notes          string `json:"notes"`    // free-form, human-only posting notes
 	NextUp         bool   `json:"next_up"`  // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
@@ -458,7 +464,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
-       COALESCE(p.contacts, ''),
+       COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
                  WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), '')
 FROM job_postings p
@@ -482,7 +488,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
-			&r.Contacts, &r.OutreachDraftStatus); err != nil {
+			&r.Contacts, &r.Notes, &r.OutreachDraftStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid

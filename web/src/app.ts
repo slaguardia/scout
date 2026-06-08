@@ -641,26 +641,28 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l3 3V13a.5.5 0 01-.5.5h-8A.5.5 0 014 13V3a.5.5 0 010-.5z"/><path d="M9.5 2.5V6h3M6 8.5h4M6 10.5h4"/></svg>
+        Notes
+      </h3>
+      <textarea class="ie ie-notes" id="pursuit-notes-input" rows="4" placeholder="Your notes on this role — ⌘/Ctrl+Enter or click away to save">${escapeHTML(j.notes || "")}</textarea>
+    </section>
+
+    <section class="pane-section">
+      <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v8H2z"/><path d="M2 4l6 5 6-5"/></svg>
         Outreach
       </h3>
       <div id="outreach-section"></div>
     </section>
-
-    <section class="pane-section">
-      <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M5 6h6M5 9h4"/></svg>
-        Company
-      </h3>
-      <button class="btn" id="pursuit-view-company">View company ↗</button>
-    </section>
   `;
 
   wirePipeline();
-  const vc = document.getElementById("pursuit-view-company");
-  if (vc) vc.addEventListener("click", () => openDetail(j.company_id));
+  const co = document.getElementById("pursuit-company-link");
+  if (co) co.addEventListener("click", () => openDetail(j.company_id));
   wireInlineField(document.getElementById("pursuit-title-input"),
     (v) => savePostingField(j, "title", v));
+  wireInlineField(document.getElementById("pursuit-notes-input"),
+    (v) => savePursuitNotes(v), { multiline: true });
   document.querySelectorAll("#role-body [data-k]").forEach(el =>
     wireInlineField(el, (v) => savePostingField(j, el.dataset.k, v),
       { multiline: el.tagName === "TEXTAREA" }));
@@ -697,7 +699,8 @@ function roleEditHTML(j) {
     </div>
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <span class="role-company">${escapeHTML(j.company)}</span>
+      <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+              title="open the company panel">${escapeHTML(j.company)} ↗</button>
     </div>`;
 }
 
@@ -754,6 +757,7 @@ async function savePostingTracking(j, patch) {
     outreach_count: j.outreach_count || 0,
     last_outreach_at: j.last_outreach_at || "",
     contacts: j.contacts || "",
+    notes: j.notes || "",
     ...patch,
   };
   let resp;
@@ -775,9 +779,30 @@ async function savePostingTracking(j, patch) {
   Object.assign(j, {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
-    contacts: fresh.contacts, next_up: fresh.next_up,
+    contacts: fresh.contacts, notes: fresh.notes, next_up: fresh.next_up,
   });
   return fresh;
+}
+
+// savePursuitNotes persists the posting's free-form notes through the tracking
+// PUT (notes rides that human-only path — capture never writes it). It folds the
+// fresh value back without a full re-render so the textarea keeps focus/caret,
+// and throws on failure so wireInlineField rolls back and flashes the error.
+async function savePursuitNotes(v) {
+  const j = pursuit.row;
+  const body = {
+    applied_at: j.applied_at || "", response: j.response || "",
+    outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
+    contacts: j.contacts || "", notes: v,
+  };
+  const resp = await fetch(`/api/postings/${j.posting_id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  j.notes = fresh.notes;
+  renderJobs();   // keep the cached table row's notes in sync (search/export)
 }
 
 // savePursuitTracking saves a change made from the pursuit panel, then re-renders

@@ -447,3 +447,52 @@ func TestReapStuckOutreachDrafts(t *testing.T) {
 		t.Fatalf("new draft after reap: %v", err)
 	}
 }
+
+// TestPostingNotes pins the human-only posting notes: set via tracking, exposed
+// on both readPosting and the jobs view, and — the point — preserved when the
+// posting is re-captured (a details overwrite must not clobber the user's note).
+func TestPostingNotes(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{Notes: "  referred by Dana; mentions on-call  "})
+	if err != nil {
+		t.Fatalf("set notes: %v", err)
+	}
+	if got.Notes != "referred by Dana; mentions on-call" { // trimmed
+		t.Fatalf("notes not stored/trimmed: %q", got.Notes)
+	}
+
+	// A re-capture (details overwrite) must leave notes untouched.
+	if _, err := db.UpdatePostingDetails(p.ID, PostingEdit{Title: "Senior SE", Description: "new JD"}); err != nil {
+		t.Fatalf("details overwrite: %v", err)
+	}
+	again, err := db.GetPosting(p.ID)
+	if err != nil || again == nil {
+		t.Fatalf("GetPosting: %v", err)
+	}
+	if again.Notes != "referred by Dana; mentions on-call" {
+		t.Errorf("re-capture clobbered notes: %q", again.Notes)
+	}
+
+	// The jobs view carries notes too.
+	rows, err := db.ListJobRows()
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].Notes != "referred by Dana; mentions on-call" {
+		t.Errorf("job row notes mismatch: %q", rows[0].Notes)
+	}
+
+	// Blank clears.
+	if got, err = db.UpdatePostingTracking(p.ID, PostingTracking{}); err != nil || got.Notes != "" {
+		t.Errorf("clear notes: notes=%q err=%v", got.Notes, err)
+	}
+}

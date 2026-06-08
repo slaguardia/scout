@@ -693,6 +693,14 @@
     color: var(--fg-mute); font-size: 12.5px; align-items: center;
   }
   .role-head .role-company { color: var(--fg-dim); }
+  /* the company name doubles as the affordance to open the company panel
+     (replaces the old "View company" button). */
+  .role-head .role-company-link {
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; color: var(--link); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .role-head .role-company-link:hover { text-decoration: underline; }
   .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);
