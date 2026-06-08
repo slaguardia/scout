@@ -230,6 +230,33 @@ surface: `scout questions detect --posting <id>` and `scout questions detect
 --all` (iterate postings, run `DetectQuestions`, upsert; print a per-host summary
 so coverage gaps are visible, not silent).
 
+## Delegation & parallelization
+
+This feature is built by an agent that should **delegate to subagents where it
+pays off** — fan out independent work, keep cross-cutting decisions on the main
+thread.
+
+- **Serial / same-file:** the Greenhouse and Ashby resolvers both live in
+  `internal/capture/questions.go` — implement them in sequence, never in parallel
+  (concurrent subagents would clobber the file). The capture wiring and the
+  honesty-checker integration are cross-cutting — keep them on the main thread.
+- **Parallel fan-out (worktree-isolated):** the storage layer and the *research*
+  for the Ashby endpoint can start together. Once the API surface lands, the
+  pursuit-panel UI (`web/src/app.ts`) and the CLI (`cmd/scout/main.go`) touch
+  disjoint files — run them as two concurrent subagents, isolated with worktrees
+  since both build the binary/bundle.
+- **Research subagents (return findings, not file dumps):** capture the exact
+  Ashby `applicationForm` GraphQL query + a sample response shape from a live
+  apply page; grab a real Greenhouse `?questions=true` JSON fixture for the
+  detection test.
+- **Review subagents (adversarial):** after generation lands, probe the honesty
+  gate with prompts engineered to make the model invent experience — confirm
+  they're caught. After detection, confirm identity/EEO/file fields are reliably
+  excluded.
+- **Don't over-delegate:** the migration + store methods are one tight unit — do
+  them directly rather than farming out. Delegation has overhead; spend it where
+  the parallelism or the independent context is real.
+
 ## Build order
 
 1. `posting_answers` table + `questions_status` columns + store methods (M32).
