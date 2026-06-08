@@ -98,6 +98,26 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
   blocks | draft`. Engine wires into serve when `ANTHROPIC_API_KEY` is set.
   Notion guidance pages (refactored 2026-06-06) are not yet ingested into the
   brain, so no blocks are pinned yet — that's the go-live gate.
+- **Application answers, built:** `docs/application-answers.md` is the spec; it
+  reuses the outreach engine. **Detection** runs at capture time
+  (`internal/capture/questions.go`) via per-platform resolvers — Greenhouse
+  `?questions=true` (official) and Ashby `applicationForm` over the unofficial
+  `non-user-graphql` endpoint (fail-soft to `unsupported` on schema drift),
+  plus a Haiku HTML fallback for the server-rendered tail; identity / EEO /
+  file / choice fields are filtered out and essays kept, with a load-bearing
+  `questions_status` (ok|none|unsupported|unreachable). **Generation** is on a
+  button (`Engine.GenerateAnswers`, Sonnet): per question it assembles JD +
+  company-fit brief + experience card + voice, drafts once, then routes through
+  the same outreach **honesty checker** (a false claim to a recruiter is worse
+  than a thin answer); a second honesty fail keeps the answer flagged
+  `needs_review` rather than shipping it. One row per question
+  (`posting_answers`, M32), independently editable/regenerable via the pursuit
+  panel's "Application" section (inline auto-save, per-question Regenerate,
+  "Draft answers" / "Re-detect"). Endpoints mirror outreach
+  (`GET/POST /api/postings/{id}/answers`, `…/redetect`, `PUT /api/answers/{id}`),
+  gated on the `PAST_EXPERIENCE_FULL` block + `ANTHROPIC_API_KEY`. CLI: `scout
+  questions detect --posting <id> | --all`. **Scout never submits** — it drafts;
+  the user copy-pastes into the ATS.
 
 ## What's next
 
@@ -105,7 +125,9 @@ Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 email, Voice & style, Past Experience), pin the blocks, `scout outreach set`
 the P2 paragraph (body only — the sign-off is assembled in code) and the
 humanizer prompt, then run the first real draft via `scout outreach draft
---posting <id>`. Also still pending: a real **Crunchbase CSV run** end-to-end
+--posting <id>`. Pinning `PAST_EXPERIENCE_FULL` in that pass also unblocks
+**application-answer generation** (it shares that gate). Also still pending: a
+real **Crunchbase CSV run** end-to-end
 (verify ingest column aliases against the real header first). The web UI is
 the primary interface; the CLI is the secondary automation/debug surface.
 `north-star.md` is the canonical architecture.

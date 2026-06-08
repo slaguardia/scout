@@ -421,7 +421,8 @@ function draftBadgeHTML(status) {
 // (tracking) + the outreach review queue + a "view company" footer. Built from
 // the clicked jobs row (it already carries posting + company fields); the
 // outreach queue fetches drafts and polls while one is researching.
-const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false };
+const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false,
+                  answers: [], answersStatus: "", answersPoll: null, detecting: false };
 
 async function openPursuit(postingId) {
   let row = state.jobs.find(j => j.posting_id === postingId);
@@ -432,20 +433,29 @@ async function openPursuit(postingId) {
   }
   if (!row) { toast("posting not found — refresh"); return; }
   stopPursuitPoll();
+  stopAnswersPoll();
   pursuit.postingId = postingId;
   pursuit.row = row;
   pursuit.drafts = [];
   pursuit.openHist = false;
+  pursuit.answers = [];
+  pursuit.detecting = false;
+  // Seed the header from the cached row's detection status so the Application
+  // section reads right before the per-posting fetch returns.
+  pursuit.answersStatus = row.questions_status || "";
   document.getElementById("pursuit-pane").classList.add("open");
   document.getElementById("pursuit-scrim").classList.add("open");
   document.getElementById("pursuit-pane").setAttribute("aria-hidden", "false");
   renderPursuit();
   loadDrafts();
+  loadAnswers();
 }
 
 function closePursuit() {
   stopPursuitPoll();
+  stopAnswersPoll();
   pursuit.postingId = null; pursuit.row = null; pursuit.drafts = [];
+  pursuit.answers = []; pursuit.answersStatus = "";
   document.getElementById("pursuit-pane").classList.remove("open");
   document.getElementById("pursuit-scrim").classList.remove("open");
   document.getElementById("pursuit-pane").setAttribute("aria-hidden", "true");
@@ -664,6 +674,14 @@ function renderPursuit() {
       </h3>
       <div id="outreach-section"></div>
     </section>
+
+    <section class="pane-section">
+      <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h7l3 3V13a.5.5 0 01-.5.5h-9A.5.5 0 013 13z"/><path d="M6 7h4M6 9.5h4M6 12h2.5"/></svg>
+        Application
+      </h3>
+      <div id="answers-section"></div>
+    </section>
   `;
 
   wirePipeline();
@@ -677,6 +695,7 @@ function renderPursuit() {
     wireInlineField(el, (v) => savePostingField(j, el.dataset.k, v),
       { multiline: el.tagName === "TEXTAREA" }));
   renderOutreachSection();
+  renderAnswersSection();
 }
 
 // roleEditHTML is the always-editable role body: the URL (read-only — it's the
@@ -1204,6 +1223,290 @@ async function markDraftSent(id) {
   toast("marked sent");
   await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
   loadJobs();           // the posting's outreach_count/last_outreach moved server-side
+}
+
+// ---- application answers ----
+//
+// The "Application" panel section: the essay questions detected on the posting's
+// application form, each with an inline-save drafted answer. Detection happens
+// at capture; generation is on the "Draft answers" button (LLM spend is opt-in,
+// like outreach). Scout never submits — the user copy-pastes into the ATS.
+
+// loadAnswers fetches the posting's questions+answers and renders the section,
+// polling while any answer is still generating (the closed panel relies on the
+// next open to refresh).
+async function loadAnswers() {
+  if (!pursuit.postingId) return;
+  let data;
+  try {
+    const r = await fetch(`/api/postings/${pursuit.postingId}/answers`);
+    if (!r.ok) { renderAnswersSection(); return; }
+    data = await r.json();
+  } catch { renderAnswersSection(); return; }
+  pursuit.answers = data.answers || [];
+  pursuit.answersStatus = data.questions_status || "";
+  renderAnswersSection();
+  if (pursuit.answers.some(a => a.status === "generating")) startAnswersPoll();
+  else stopAnswersPoll();
+}
+
+function startAnswersPoll() { if (!pursuit.answersPoll) pursuit.answersPoll = setInterval(loadAnswers, 4000); }
+function stopAnswersPoll() { if (pursuit.answersPoll) { clearInterval(pursuit.answersPoll); pursuit.answersPoll = null; } }
+
+// renderAnswersSection draws the detection header, the per-question answer cards,
+// and the footer button (Draft answers / Re-detect), keyed off questions_status.
+function renderAnswersSection() {
+  const host = document.getElementById("answers-section");
+  if (!host) return;
+  const answers = pursuit.answers;
+  const status = pursuit.answersStatus;
+  const generating = answers.some(a => a.status === "generating");
+
+  const cards = answers.length
+    ? `<div class="answers-list">${answers.map(answerCardHTML).join("")}</div>` : "";
+
+  // Footer: when there are essay questions, offer Draft (fills blanks) + Re-detect;
+  // otherwise just Re-detect. "Draft answers" also detects-if-missing server-side,
+  // so it shows even when nothing's detected yet. Both buttons stay disabled
+  // while a draft or a re-detect is in flight (the state survives re-renders so a
+  // poll mid-request can't re-enable them).
+  const detecting = !!pursuit.detecting;
+  const startDis = (generating || detecting) ? " disabled" : "";
+  const redetect = (txt) => `<button class="btn" id="answers-redetect-btn"${detecting ? " disabled" : ""}>${detecting ? "Detecting…" : txt}</button>`;
+  let footer;
+  if (status === "ok" && answers.length) {
+    const anyBlank = answers.some(a => !answerText(a) && a.status !== "generating");
+    footer =
+      `<button class="btn ${anyBlank ? "btn-primary" : ""}" id="answers-start-btn"${startDis}>${generating ? "Drafting…" : "Draft answers"}</button>` +
+      redetect("Re-detect");
+  } else if (status === "" || status === "unreachable") {
+    footer =
+      `<button class="btn btn-primary" id="answers-start-btn"${startDis}>${generating ? "Drafting…" : "Draft answers"}</button>` +
+      redetect("Re-detect questions");
+  } else {
+    // none / unsupported — nothing to draft; allow a manual re-detect.
+    footer = redetect("Re-detect questions");
+  }
+
+  host.innerHTML =
+    `<div class="answers-meta">${escapeHTML(answersHeader(status, answers.length))}</div>` +
+    cards +
+    `<div class="answers-actions">${footer}</div>`;
+  wireAnswers();
+}
+
+// answersHeader renders questions_status as an honest one-liner.
+function answersHeader(status, n) {
+  switch (status) {
+    case "": return "Not detected yet";
+    case "ok": return `${n} question${n === 1 ? "" : "s"} found`;
+    case "none": return "No essay questions on this form";
+    case "unsupported": return "Couldn't read this form — apply on the site";
+    case "unreachable": return "Couldn't reach the application form — try re-detecting";
+    default: return "Couldn't read this form";
+  }
+}
+
+// answerText resolves the shown/edited body: the user's edit wins over the
+// generated answer (mirrors the server's edited-non-empty-wins rule).
+function answerText(a) {
+  return (a.edited && a.edited.trim()) ? a.edited : (a.answer || "");
+}
+
+function answerStatusPill(a) {
+  switch (a.status) {
+    case "ready": return `<span class="pill pill-yes">ready</span>`;
+    case "needs_review": return `<span class="pill pill-maybe">needs review</span>`;
+    case "failed": return `<span class="pill pill-no">failed</span>`;
+    case "generating": return `<span class="pill pill-info">drafting…</span>`;
+    default: return `<span class="pill pill-info">not drafted</span>`;
+  }
+}
+
+// answerCardHTML renders one question: the prompt, the inline-save answer
+// textarea (or a spinner while generating), a status pill, char count vs the
+// declared limit, and a per-question Regenerate.
+function answerCardHTML(a) {
+  const text = answerText(a);
+  const edited = a.edited && a.edited.trim();
+  const busy = a.status === "generating";
+  const count = text.length;
+  const over = a.max_length && count > a.max_length;
+  const counter = a.max_length
+    ? `<span class="answer-count${over ? " over" : ""}">${count} / ${a.max_length}</span>`
+    : `<span class="answer-count">${count} chars</span>`;
+
+  return `<div class="answer-card ac-${a.status}" data-aid="${a.id}">
+    <div class="answer-prompt">${escapeHTML(a.prompt)}</div>
+    ${busy
+      ? `<div class="answer-busy"><span class="spinner"></span><span>drafting…</span></div>`
+      : `<textarea class="ie answer-textarea" id="answer-edit-${a.id}" rows="5" spellcheck="false" placeholder="Draft answers to fill this in, or write your own.">${escapeHTML(text)}</textarea>`}
+    <div class="answer-foot">
+      ${answerStatusPill(a)}
+      ${edited ? `<span class="answer-edited" title="your edit wins over the drafted answer">edited</span>` : ""}
+      ${busy ? "" : counter}
+      ${busy ? "" : `<button class="btn answer-regen-btn" title="re-draft this answer (discards the current text)">Regenerate</button>`}
+    </div>
+    ${a.status === "needs_review" ? `<div class="answer-note answer-review">Flagged by the honesty check — confirm it doesn't overstate your experience before sending.</div>` : ""}
+    ${a.status === "failed" && a.fail_reason ? `<div class="answer-note answer-fail">${escapeHTML(trimReason(a.fail_reason))}</div>` : ""}
+  </div>`;
+}
+
+// trimReason keeps a failure note short (the honesty path appends raw JSON).
+function trimReason(s) {
+  s = String(s || "");
+  return s.length > 160 ? s.slice(0, 160) + "…" : s;
+}
+
+// wireAnswers binds the section controls after each render.
+function wireAnswers() {
+  const host = document.getElementById("answers-section");
+  if (!host) return;
+  const start = host.querySelector("#answers-start-btn");
+  if (start) start.addEventListener("click", startAnswers);
+  const redetect = host.querySelector("#answers-redetect-btn");
+  if (redetect) redetect.addEventListener("click", redetectQuestions);
+
+  host.querySelectorAll(".answer-card[data-aid]").forEach(card => {
+    const id = card.dataset.aid;
+    const ta = card.querySelector(".answer-textarea");
+    if (ta) {
+      wireInlineField(ta, (v) => saveAnswerEdit(id, v), { multiline: true });
+      ta.addEventListener("input", () => updateAnswerCount(card, ta));
+    }
+    const regen = card.querySelector(".answer-regen-btn");
+    if (regen) regen.addEventListener("click", () => regenerateAnswer(id));
+  });
+}
+
+// updateAnswerCount live-updates one card's char counter as the user types.
+function updateAnswerCount(card, ta) {
+  const counter = card.querySelector(".answer-count");
+  if (!counter) return;
+  const n = ta.value.length;
+  const m = counter.textContent.includes("/") ? parseInt(counter.textContent.split("/")[1], 10) : 0;
+  counter.textContent = m ? `${n} / ${m}` : `${n} chars`;
+  counter.classList.toggle("over", !!m && n > m);
+}
+
+// startAnswers POSTs generation (detect-if-missing server-side). 202 -> poll;
+// 412 -> the experience-block gate; 503 -> quiet dev notice.
+async function startAnswers() {
+  const host = document.getElementById("answers-section");
+  const btn = host && host.querySelector("#answers-start-btn");
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${pursuit.postingId}/answers`, { method: "POST" });
+  } catch (e) { toast(`draft failed: ${e.message}`); if (btn) btn.disabled = false; return; }
+
+  if (resp.status === 202) { await loadAnswers(); return; }
+  if (resp.status === 412) {
+    let body = {}; try { body = await resp.json(); } catch {}
+    renderAnswersBlocksGate(body.missing_blocks || []);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (resp.status === 503) {
+    appendAnswersNote("Answer generation isn't running in this build.");
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const txt = (await resp.text().catch(() => "")).trim();
+  toast(`draft failed: ${txt || "HTTP " + resp.status}`);
+  if (btn) btn.disabled = false;
+}
+
+// redetectQuestions forces a fresh detection run (idempotent — adds new
+// questions, never clobbers answers). The detecting flag rides pursuit state so
+// both action buttons stay gated across re-renders (incl. a poll mid-request);
+// loadAnswers always runs at the end, restoring correct button labels on any
+// outcome (HTTP error, network error, or success).
+async function redetectQuestions() {
+  pursuit.detecting = true;
+  renderAnswersSection();
+  try {
+    const resp = await fetch(`/api/postings/${pursuit.postingId}/answers/redetect`, { method: "POST" });
+    if (!resp.ok) {
+      const txt = (await resp.text().catch(() => "")).trim();
+      toast(`detect failed: ${txt || "HTTP " + resp.status}`);
+    }
+  } catch (e) {
+    toast(`detect failed: ${e.message}`);
+  }
+  pursuit.detecting = false;
+  await loadAnswers();
+}
+
+// saveAnswerEdit PUTs the inline edit; throws so wireInlineField rolls back and
+// flashes on failure. The cached answer is updated without a re-render (caret).
+async function saveAnswerEdit(id, value) {
+  const resp = await fetch(`/api/answers/${id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ edited: value }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  const i = pursuit.answers.findIndex(a => String(a.id) === String(id));
+  if (i >= 0) pursuit.answers[i] = fresh;
+}
+
+// regenerateAnswer re-runs generation for one question (the row clears to
+// generating server-side; only it re-drafts).
+async function regenerateAnswer(id) {
+  let resp;
+  try {
+    resp = await fetch(`/api/answers/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ regenerate: true }),
+    });
+  } catch (e) { toast(`regenerate failed: ${e.message}`); return; }
+  if (resp.status === 503) { appendAnswersNote("Answer generation isn't running in this build."); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`regenerate failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  await loadAnswers();
+}
+
+// renderAnswersBlocksGate swaps the actions for the missing-block list + a Sync
+// button (the answer engine needs the experience block synced).
+function renderAnswersBlocksGate(missing) {
+  const host = document.getElementById("answers-section");
+  if (!host) return;
+  const acts = host.querySelector(".answers-actions");
+  const gate = document.createElement("div");
+  gate.className = "blocks-gate";
+  gate.innerHTML = `
+    <div class="draft-note">Drafting answers needs the experience context block synced:</div>
+    <ul class="bg-list">${(missing.length ? missing : ["(unknown)"]).map(b => `<li>${escapeHTML(b)}</li>`).join("")}</ul>
+    <button class="btn btn-primary" id="answers-sync-btn">Sync blocks</button>`;
+  if (acts) acts.replaceWith(gate); else host.appendChild(gate);
+  const sb = gate.querySelector("#answers-sync-btn");
+  if (sb) sb.addEventListener("click", async () => {
+    sb.disabled = true; sb.textContent = "Syncing…";
+    try {
+      const r = await fetch(`/api/outreach/sync`, { method: "POST" });
+      if (!r.ok) {
+        const txt = (await r.text().catch(() => "")).trim();
+        toast(`sync failed: ${txt || "HTTP " + r.status}`);
+        sb.disabled = false; sb.textContent = "Sync blocks";
+        return;
+      }
+    } catch (e) { toast(`sync failed: ${e.message}`); sb.disabled = false; sb.textContent = "Sync blocks"; return; }
+    toast("blocks synced");
+    renderAnswersSection();
+  });
+}
+
+function appendAnswersNote(text) {
+  const host = document.getElementById("answers-section");
+  if (!host) return;
+  const n = document.createElement("div");
+  n.className = "draft-note";
+  n.textContent = text;
+  host.appendChild(n);
 }
 
 // ---- detail pane ----

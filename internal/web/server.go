@@ -55,6 +55,7 @@ type Server struct {
 	Resolver *criteria.Resolver // resolves criteria (cached brain profile → taste.md)
 	Runner   *jobs.Runner       // optional; nil disables the control surface
 	Outreach OutreachRunner     // optional; nil disables draft starts (503)
+	Answers  AnswersRunner      // optional; nil disables answer generation (503)
 
 	// Stage construction inputs (used by the run handlers).
 	Anthropic     *anthropic.Client
@@ -132,11 +133,12 @@ func (s *Server) Handler() http.Handler {
 	// read / triage
 	mux.HandleFunc("/api/companies", s.handleCompanies)
 	mux.HandleFunc("/api/companies/", s.handleCompany)
-	mux.HandleFunc("/api/postings", s.handlePostings)  // all postings across companies (jobs view)
-	mux.HandleFunc("/api/postings/", s.handlePosting)  // PUT {id}: application-lifecycle update
-	mux.HandleFunc("/api/capture", s.handleCapture)    // POST: link-capture agent pass
+	mux.HandleFunc("/api/postings", s.handlePostings)              // all postings across companies (jobs view)
+	mux.HandleFunc("/api/postings/", s.handlePosting)              // PUT {id}: application-lifecycle update
+	mux.HandleFunc("/api/capture", s.handleCapture)                // POST: link-capture agent pass
 	mux.HandleFunc("/api/outreach/sender", s.handleOutreachSender) // GET/PUT the cold-email identity (see sender.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)             // blocks / sync / drafts (see outreach.go)
+	mux.HandleFunc("/api/answers/", s.handleAnswer)                // PUT {id}: edit / regenerate one answer (see answers.go)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 

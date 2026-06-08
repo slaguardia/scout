@@ -156,7 +156,7 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	// company page; a failed resolve falls through to the generic path.
 	if req.Kind != KindCompany {
 		if job := resolveATS(ctx, httpc, rawURL); job != nil {
-			return c.runATS(rawURL, req, job)
+			return c.runATS(ctx, rawURL, req, job)
 		}
 	}
 
@@ -238,6 +238,10 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 		}
 		res.Posting = &p
 		res.PostingUpdated = updated
+		// Resolve the application-form questions (best-effort — capture has
+		// already succeeded; a detection failure is recorded as questions_status,
+		// never surfaced as a capture error).
+		c.detectAndStore(ctx, p.ID, finalURL)
 	}
 	return res, nil
 }
@@ -247,7 +251,7 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 // identifies the company, so its identity is the user-typed name or the
 // board's (slug-derived for ashby/lever, API-stated for greenhouse) — never a
 // domain. User-typed values win where they overlap, exactly like the LLM path.
-func (c *Capturer) runATS(rawURL string, req Request, job *atsJob) (*Result, error) {
+func (c *Capturer) runATS(ctx context.Context, rawURL string, req Request, job *atsJob) (*Result, error) {
 	res := &Result{Kind: KindJob, FetchStatus: "ok", URL: job.URL}
 
 	name := strings.TrimSpace(req.Fields.Name)
@@ -297,6 +301,8 @@ func (c *Capturer) runATS(rawURL string, req Request, job *atsJob) (*Result, err
 	res.Posting = &p
 	res.PostingUpdated = updated
 	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
+	// Resolve the application-form questions off the same ATS link (best-effort).
+	c.detectAndStore(ctx, p.ID, job.URL)
 	return res, nil
 }
 

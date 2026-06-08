@@ -34,6 +34,12 @@ type Engine struct {
 	// HTTP is the client for the deterministic JD pre-fetch. Optional; a nil
 	// value uses a default with a sane timeout.
 	HTTP *http.Client
+
+	// Brief produces the brain's company-fit brief (the same brief the verdict
+	// engine reasons over) for application-answer generation. Optional: nil or an
+	// error degrades generation to no company-fit grounding. The outreach draft
+	// pipeline never reads it — brain access stays at sync time there.
+	Brief func(context.Context) (string, error)
 }
 
 // sender resolves the identity seam: an explicitly set Who wins, else the

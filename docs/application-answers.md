@@ -1,8 +1,11 @@
 # Application Answers — system design (for Scout)
 
-Status: design only (2026-06-08). To be built into the Scout app. Reuses the
-outreach engine wholesale (`internal/outreach`) — see
-[`outreach-agent.md`](./outreach-agent.md).
+Status: **built** (2026-06-08). Reuses the outreach engine wholesale
+(`internal/outreach`) — see [`outreach-agent.md`](./outreach-agent.md). Code:
+detection in `internal/capture/questions.go`, generation in
+`internal/outreach/answers.go`, storage in `internal/store/posting_answers.go`
+(migration M32), HTTP in `internal/web/answers.go`, the pursuit panel's
+"Application" section, and CLI `scout questions detect`.
 
 ## Goal
 

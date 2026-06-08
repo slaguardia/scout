@@ -785,6 +785,54 @@
   }
   .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
+  /* application answers — detected essay questions + drafted answers */
+  .answers-meta { color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px; }
+  .answers-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+  .answer-card {
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--line-2);
+    border-radius: var(--r-md);
+    padding: 12px 14px;
+    background: var(--panel);
+  }
+  .answer-card.ac-ready        { border-left-color: var(--yes); }
+  .answer-card.ac-needs_review { border-left-color: var(--maybe); }
+  .answer-card.ac-failed       { border-left-color: var(--no); }
+  .answer-card.ac-generating   { border-left-color: var(--accent); }
+  .answer-prompt {
+    color: var(--fg); font-size: 13px; font-weight: 500; line-height: 1.45;
+    margin-bottom: 8px;
+  }
+  .answer-textarea {
+    width: 100%; min-height: 92px; resize: vertical;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 10px 12px;
+    font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    white-space: pre-wrap;
+    scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
+  }
+  .answer-textarea:focus { outline: none; border-color: var(--line-2); }
+  .answer-busy {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--fg-mute); font-size: 12.5px; padding: 8px 0;
+  }
+  .answer-foot {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .answer-foot .answer-count { color: var(--fg-dim); font-size: 11.5px; }
+  .answer-foot .answer-count.over { color: var(--no); }
+  .answer-foot .answer-edited {
+    color: var(--maybe); font-size: 11px; font-weight: 500;
+    background: var(--maybe-bg); border-radius: 999px; padding: 1px 8px;
+  }
+  .answer-foot .answer-regen-btn { margin-left: auto; }
+  .answer-note { font-size: 12px; line-height: 1.5; margin-top: 8px; }
+  .answer-note.answer-review { color: var(--maybe); }
+  .answer-note.answer-fail { color: var(--no); }
+  .answers-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
   /* lint chips — small warnings, never error-styled */
   .lint-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
   .lint-chip {

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/capture"
 	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/distill"
 	"github.com/slaguardia/scout/internal/enrich"
@@ -85,6 +87,8 @@ func main() {
 		exit(cmdDistill(args))
 	case "outreach":
 		exit(cmdOutreach(args))
+	case "questions":
+		exit(cmdQuestions(args))
 	case "serve":
 		exit(cmdServe(args))
 	case "stats":
@@ -121,6 +125,7 @@ Usage:
   scout outreach set --block NAME (--text S | --file PATH | <stdin) [--db scout.db]
   scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
   scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
+  scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
@@ -485,17 +490,33 @@ func cmdServe(args []string) error {
 	// key, draft starts return 503 (the panel surfaces that). The engine reads
 	// only the local block cache at draft time — never the brain.
 	if ac.APIKey != "" {
-		// Reap drafts orphaned in `researching` by a previous process — they
-		// block new drafts for their posting and the panel polls them forever.
+		// Reap drafts/answers orphaned in their in-flight status by a previous
+		// process — they block re-runs and the panel polls them forever.
 		if n, err := db.ReapStuckOutreachDrafts(0); err != nil {
 			fmt.Fprintf(os.Stderr, "outreach: reap stuck drafts: %v\n", err)
 		} else if n > 0 {
 			fmt.Fprintf(os.Stderr, "outreach: failed %d draft(s) orphaned by a restart\n", n)
 		}
-		srv.Outreach = &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
-		fmt.Fprintf(os.Stderr, "outreach drafting enabled (model %s)\n", *outreachModel)
+		if n, err := db.ReapStuckAnswers(0); err != nil {
+			fmt.Fprintf(os.Stderr, "answers: reap stuck answers: %v\n", err)
+		} else if n > 0 {
+			fmt.Fprintf(os.Stderr, "answers: failed %d answer(s) orphaned by a restart\n", n)
+		}
+		// One engine satisfies both runners (outreach Draft + answer Generate);
+		// answer generation also reads the brain company-fit brief via Brief.
+		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
+		eng.Brief = func(ctx context.Context) (string, error) {
+			blk, err := resolver.Resolve(ctx)
+			if err != nil {
+				return "", err
+			}
+			return blk.Text, nil
+		}
+		srv.Outreach = eng
+		srv.Answers = eng
+		fmt.Fprintf(os.Stderr, "outreach drafting + answer generation enabled (model %s)\n", *outreachModel)
 	} else {
-		fmt.Fprintln(os.Stderr, "outreach drafting disabled (no ANTHROPIC_API_KEY)")
+		fmt.Fprintln(os.Stderr, "outreach drafting + answer generation disabled (no ANTHROPIC_API_KEY)")
 	}
 
 	// Job runner persists each run to the runs table for durable history.
@@ -998,4 +1019,122 @@ func cmdOutreachSet(args []string) error {
 	}
 	fmt.Printf("declared %s (%s, %d bytes)\n", *block, version, len(content))
 	return nil
+}
+
+// cmdQuestions detects application-form essay questions on postings and stores
+// them (the same idempotent detection capture runs, exposed for existing rows).
+func cmdQuestions(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("questions: want a subcommand: detect")
+	}
+	switch args[0] {
+	case "detect":
+		return cmdQuestionsDetect(args[1:])
+	default:
+		return fmt.Errorf("questions: unknown subcommand %q (want detect)", args[0])
+	}
+}
+
+// cmdQuestionsDetect resolves a posting's (--posting) or every posting's
+// (--all) application questions and upserts them. --all prints a per-host
+// coverage summary so unsupported platforms are visible, not silently empty.
+// The ANTHROPIC_API_KEY only powers the HTML+LLM fallback for non-ATS hosts;
+// ATS detection (greenhouse/ashby) needs no key.
+func cmdQuestionsDetect(args []string) error {
+	fs := flag.NewFlagSet("questions detect", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	posting := fs.String("posting", "", "job_postings.id to detect questions for")
+	all := fs.Bool("all", false, "detect across every posting (backfill)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*posting == "") == (!*all) {
+		return fmt.Errorf("questions detect: pass exactly one of --posting <id> or --all")
+	}
+
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	c := &capture.Capturer{DB: db, Client: anthropic.New("")}
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	type target struct{ id, url string }
+	var targets []target
+	if *posting != "" {
+		p, err := db.GetPosting(*posting)
+		if err != nil {
+			return err
+		}
+		if p == nil {
+			return fmt.Errorf("questions detect: posting %s not found", *posting)
+		}
+		targets = append(targets, target{p.ID, p.URL})
+	} else {
+		rows, err := db.ListJobRows()
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			targets = append(targets, target{r.PostingID, r.URL})
+		}
+	}
+
+	type tally struct{ ok, none, unsupported, unreachable, questions int }
+	byHost := map[string]*tally{}
+	for _, t := range targets {
+		scan, err := c.DetectAndStoreQuestions(ctx, t.id, t.url)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s: store: %v\n", t.id, err)
+			continue
+		}
+		ti := byHost[urlHost(t.url)]
+		if ti == nil {
+			ti = &tally{}
+			byHost[urlHost(t.url)] = ti
+		}
+		switch scan.Status {
+		case capture.QuestionsOK:
+			ti.ok++
+			ti.questions += len(scan.Questions)
+		case capture.QuestionsNone:
+			ti.none++
+		case capture.QuestionsUnsupported:
+			ti.unsupported++
+		default:
+			ti.unreachable++
+		}
+		if *posting != "" {
+			fmt.Printf("%s  %s  (%d questions, source %s)\n", t.id, scan.Status, len(scan.Questions), scan.Source)
+			for _, q := range scan.Questions {
+				fmt.Printf("  - %s\n", q.Prompt)
+			}
+		}
+	}
+
+	if *all {
+		hosts := make([]string, 0, len(byHost))
+		for h := range byHost {
+			hosts = append(hosts, h)
+		}
+		sort.Strings(hosts)
+		fmt.Printf("%-34s %4s %5s %6s %5s %6s\n", "host", "ok", "none", "unsup", "err", "#q")
+		for _, h := range hosts {
+			t := byHost[h]
+			fmt.Printf("%-34s %4d %5d %6d %5d %6d\n", h, t.ok, t.none, t.unsupported, t.unreachable, t.questions)
+		}
+	}
+	return nil
+}
+
+// urlHost is the lowercased, www-stripped host of a posting URL, for the
+// per-host coverage summary; "(unknown)" when it can't be parsed.
+func urlHost(raw string) string {
+	if u, err := neturl.Parse(raw); err == nil && u.Host != "" {
+		return strings.ToLower(strings.TrimPrefix(u.Host, "www."))
+	}
+	return "(unknown)"
 }

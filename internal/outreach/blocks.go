@@ -59,11 +59,22 @@ var Slots = []Slot{
 // these five do not.
 var Required = []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES", "PAST_EXPERIENCE_FULL"}
 
-// MissingBlocks reports which Required blocks are absent or broken in the
-// local cache. Empty means drafting may start. Cache-only — no brain call.
-func MissingBlocks(db *store.DB) ([]string, error) {
+// AnswersRequired lists the blocks application-answer generation cannot run
+// without: the full experience doc, which is both the honesty checker's ground
+// truth and the source the EXPERIENCE_CARD derives from. VOICE_RULES degrades
+// gracefully (a less-voiced answer), so it is not required.
+var AnswersRequired = []string{"PAST_EXPERIENCE_FULL"}
+
+// MissingBlocks reports which Required (outreach) blocks are absent or broken in
+// the local cache. Empty means drafting may start. Cache-only — no brain call.
+func MissingBlocks(db *store.DB) ([]string, error) { return missingBlocks(db, Required) }
+
+// MissingAnswerBlocks is MissingBlocks for the answer-generation gate.
+func MissingAnswerBlocks(db *store.DB) ([]string, error) { return missingBlocks(db, AnswersRequired) }
+
+func missingBlocks(db *store.DB, names []string) ([]string, error) {
 	var missing []string
-	for _, name := range Required {
+	for _, name := range names {
 		b, err := db.GetOutreachBlock(name)
 		if err != nil {
 			return nil, err

@@ -197,6 +197,16 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingDetails(w, r, pid)
 		return
 	}
+	// {id}/answers/redetect forces a fresh question-detection run.
+	if pid, ok := strings.CutSuffix(id, "/answers/redetect"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingAnswersRedetect(w, r, pid)
+		return
+	}
+	// {id}/answers is the application-questions queue (see answers.go).
+	if pid, ok := strings.CutSuffix(id, "/answers"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingAnswers(w, r, pid)
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		http.NotFound(w, r)
 		return

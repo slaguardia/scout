@@ -60,6 +60,12 @@ type Posting struct {
 	// NextUp (M27) marks the posting as queued "next up for outreach" — a
 	// hand-set to-do that clears automatically when outreach_count bumps.
 	NextUp bool `json:"next_up"`
+
+	// Application-questions detection summary (M32), set by the question
+	// resolver at capture / re-detect. QuestionsStatus is the QuestionScan
+	// status ("ok"|"none"|"unsupported"|fetch status); "" = never detected.
+	QuestionsStatus string `json:"questions_status"`
+	QuestionsAt     string `json:"questions_at"`
 }
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
@@ -69,7 +75,8 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
-       COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at`
+       COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at,
+       COALESCE(questions_status, ''), COALESCE(questions_at, '')`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
@@ -79,7 +86,8 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
-		&p.Contacts, &p.Notes, &nextUpAt)
+		&p.Contacts, &p.Notes, &nextUpAt,
+		&p.QuestionsStatus, &p.QuestionsAt)
 	p.NextUp = nextUpAt.Valid
 	return p, err
 }
@@ -447,6 +455,11 @@ type JobRow struct {
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
 	// the fire-and-forget UX surfaces a finished draft on the next refresh.
 	OutreachDraftStatus string `json:"outreach_draft_status"`
+
+	// QuestionsStatus is the posting's application-questions detection status
+	// (M32) — "" when never detected. Lets the panel header reflect form state
+	// from the cached row before the per-posting answers fetch returns.
+	QuestionsStatus string `json:"questions_status"`
 }
 
 // ListJobRows returns every posting across all companies, newest first, for
@@ -466,7 +479,8 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
        COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
-                 WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), '')
+                 WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), ''),
+       COALESCE(p.questions_status, '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -488,7 +502,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
-			&r.Contacts, &r.Notes, &r.OutreachDraftStatus); err != nil {
+			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid
