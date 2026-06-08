@@ -234,18 +234,18 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request, thread
 	turn := s.chat.get(threadID)
 	if turn == nil {
 		// No turn running — nothing to stream (the thread may have just loaded).
-		writeSSE(w, "end", "idle")
+		writeChatSSE(w, "end", "idle")
 		flusher.Flush()
 		return
 	}
 
 	backlog, ch, done, status := turn.subscribe()
 	for _, line := range backlog {
-		writeSSE(w, "delta", line)
+		writeChatSSE(w, "delta", line)
 	}
 	flusher.Flush()
 	if done {
-		writeSSE(w, "end", status)
+		writeChatSSE(w, "end", status)
 		flusher.Flush()
 		return
 	}
@@ -254,16 +254,28 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request, thread
 		select {
 		case line, open := <-ch:
 			if !open {
-				writeSSE(w, "end", turn.statusSafe())
+				writeChatSSE(w, "end", turn.statusSafe())
 				flusher.Flush()
 				return
 			}
-			writeSSE(w, "delta", line)
+			writeChatSSE(w, "delta", line)
 			flusher.Flush()
 		case <-r.Context().Done():
 			return // client disconnected
 		}
 	}
+}
+
+// writeChatSSE emits one SSE event, preserving newlines: a text delta carries
+// real newlines (paragraphs, lists), so — unlike the job-log writeSSE that
+// collapses them — we split the payload across multiple data: lines, which the
+// browser's EventSource rejoins with "\n".
+func writeChatSSE(w http.ResponseWriter, event, data string) {
+	fmt.Fprintf(w, "event: %s\n", event)
+	for _, line := range strings.Split(data, "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprint(w, "\n")
 }
 
 func (t *chatTurn) statusSafe() string {
