@@ -69,13 +69,28 @@ type Request struct {
 	// The distiller pins it to 0 so the same chunks yield a stable brief and
 	// tuning changes trace to the prompt/corpus, not sampling noise.
 	Temperature *float64 `json:"-"`
-	// Tools, when set, are marshaled into the request's tools array. The only
-	// use today is the hosted web_search SERVER tool (see WebSearchTool): the
-	// API runs the searches itself, so there is no client-side tool loop — the
-	// final assistant prose arrives interleaved with server_tool_use and
-	// web_search_tool_result blocks, which Response.Text skips. Each element
-	// must be JSON-marshalable (a map or a typed struct with the right tags).
+	// Tools, when set, are marshaled into the request's tools array. Two kinds
+	// coexist: the hosted web_search SERVER tool (see WebSearchTool), which the
+	// API runs itself, and CUSTOM client tools (see ToolDef), which the model
+	// requests via a tool_use stop the caller executes and feeds back as a
+	// tool_result (see the Stream tool loop in internal/chat). Each element must
+	// be JSON-marshalable (a map or a typed struct with the right tags).
 	Tools []any `json:"-"`
+	// Thinking, when set, is sent as the request's `thinking` config. The chat
+	// engine pins it to {type:"adaptive"} so Sonnet 4.6 decides its own thinking
+	// depth and interleaves thinking between tool calls. nil omits the field.
+	Thinking any `json:"-"`
+}
+
+// ToolDef is a custom (client-executed) tool definition. The model emits a
+// tool_use block naming the tool; the caller runs the Go func behind it and
+// returns the result as a tool_result block (see internal/chat). Unlike the
+// hosted web_search server tool, scout executes these — so the request carries
+// only the schema, never a handler.
+type ToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 // WebSearchTool is the hosted web_search server tool. The Researcher hands it
@@ -123,6 +138,40 @@ type wireRequest struct {
 	Messages    []Message `json:"messages"`
 	Temperature *float64  `json:"temperature,omitempty"`
 	Tools       []any     `json:"tools,omitempty"`
+	Thinking    any       `json:"thinking,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
+}
+
+// AdaptiveThinking is the `thinking` config the chat engine pins: Sonnet 4.6
+// decides its own thinking depth and interleaves thinking between tool calls.
+var AdaptiveThinking = map[string]string{"type": "adaptive"}
+
+// buildWire maps a Request onto the on-the-wire shape, shared by Send and
+// Stream. Defaults (model, max_tokens) are the caller's to apply first. When
+// Cached is set, the system prompt is sent as a single ephemeral cache block so
+// identical prompts across calls hit the prompt cache.
+func buildWire(req Request, stream bool) wireRequest {
+	wire := wireRequest{
+		Model:       req.Model,
+		MaxTokens:   req.MaxTokens,
+		Messages:    req.Messages,
+		Temperature: req.Temperature,
+		Tools:       req.Tools,
+		Thinking:    req.Thinking,
+		Stream:      stream,
+	}
+	if req.System != "" {
+		if req.Cached {
+			wire.System = []systemBlock{{
+				Type:         "text",
+				Text:         req.System,
+				CacheControl: &cacheControl{Type: "ephemeral"},
+			}}
+		} else {
+			wire.System = req.System
+		}
+	}
+	return wire
 }
 
 // ContentBlock is one response content block. Type/Text cover the text blocks
@@ -205,26 +254,7 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 		req.Model = DefaultModel
 	}
 
-	wire := wireRequest{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Messages:    req.Messages,
-		Temperature: req.Temperature,
-		Tools:       req.Tools,
-	}
-	if req.System != "" {
-		if req.Cached {
-			wire.System = []systemBlock{{
-				Type:         "text",
-				Text:         req.System,
-				CacheControl: &cacheControl{Type: "ephemeral"},
-			}}
-		} else {
-			wire.System = req.System
-		}
-	}
-
-	body, err := json.Marshal(wire)
+	body, err := json.Marshal(buildWire(req, false))
 	if err != nil {
 		return nil, err
 	}
