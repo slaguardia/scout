@@ -197,6 +197,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingDetails(w, r, pid)
 		return
 	}
+	// {id}/url changes the posting's link (its identity — own path, validated).
+	if pid, ok := strings.CutSuffix(id, "/url"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingURL(w, r, pid)
+		return
+	}
 	// {id}/answers/redetect forces a fresh question-detection run.
 	if pid, ok := strings.CutSuffix(id, "/answers/redetect"); ok && pid != "" && !strings.Contains(pid, "/") {
 		s.handlePostingAnswersRedetect(w, r, pid)
@@ -260,6 +265,37 @@ func (s *Server) handlePostingDetails(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingURL changes a posting's link: PUT /api/postings/{id}/url
+// {"url": "https://…"}; returns the refreshed posting. The URL is the posting's
+// identity, so it gets its own validated path rather than riding in the
+// full-state details edit. A bad/empty url is a 400.
+func (s *Server) handlePostingURL(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := s.DB.UpdatePostingURL(id, body.URL)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			http.NotFound(w, r)
+		case strings.Contains(err.Error(), "url "):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, p)

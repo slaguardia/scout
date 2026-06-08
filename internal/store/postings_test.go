@@ -414,6 +414,43 @@ func TestUpdatePostingDetails(t *testing.T) {
 	}
 }
 
+func TestUpdatePostingURL(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Staff Engineer")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// Happy path: the link changes, trims, and other fields are untouched.
+	got, err := db.UpdatePostingURL(p.ID, "  https://acme.com/jobs/staff-se  ")
+	if err != nil {
+		t.Fatalf("UpdatePostingURL: %v", err)
+	}
+	if got.URL != "https://acme.com/jobs/staff-se" {
+		t.Errorf("URL not updated/trimmed: %q", got.URL)
+	}
+	if got.Title != "Staff Engineer" {
+		t.Errorf("title clobbered: %q", got.Title)
+	}
+
+	// Empty and non-http(s) urls are rejected (validatePostingURL).
+	if _, err := db.UpdatePostingURL(p.ID, "  "); err == nil {
+		t.Error("empty url: want error, got nil")
+	}
+	if _, err := db.UpdatePostingURL(p.ID, "ftp://acme.com/jobs"); err == nil {
+		t.Error("ftp url: want error, got nil")
+	}
+
+	// Unknown posting -> sql.ErrNoRows.
+	if _, err := db.UpdatePostingURL("no-such-posting", "https://x.com/j"); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("unknown posting: want sql.ErrNoRows, got %v", err)
+	}
+}
+
 func TestReapStuckOutreachDrafts(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", RawJSON: "{}"})

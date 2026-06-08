@@ -353,6 +353,26 @@ func (db *DB) UpdatePostingDetails(id string, e PostingEdit) (Posting, error) {
 	return db.readPosting(id)
 }
 
+// UpdatePostingURL changes a posting's link and returns the refreshed row. The
+// URL is the posting's identity (capture upserts by it), so it has its own path
+// rather than riding in the full-state details edit — and it's validated the
+// same way as on add (http(s), non-empty; empty would orphan the posting).
+// Returns sql.ErrNoRows for an unknown posting.
+func (db *DB) UpdatePostingURL(id, url string) (Posting, error) {
+	url, err := validatePostingURL(url)
+	if err != nil {
+		return Posting{}, err
+	}
+	res, err := db.Exec(`UPDATE job_postings SET url = ? WHERE id = ?`, url, id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("update posting url %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
 // SetPostingNextUp queues (next_up_at = now) or unqueues (NULL) a posting as
 // "next up for outreach", returning the refreshed row. The mark also clears on
 // its own when outreach_count bumps — see UpdatePostingTracking and

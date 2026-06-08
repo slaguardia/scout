@@ -547,6 +547,21 @@ async function savePostingField(j, key, val) {
   renderJobs();   // the table shows the role title — keep it current
 }
 
+// savePostingURL changes the posting's link via its own validated endpoint (the
+// URL is the row's identity). Folds the fresh url back in and re-points the open
+// affordance; throws so wireInlineField rolls back and flashes the error.
+async function savePostingURL(j, val) {
+  const resp = await fetch(`/api/postings/${j.posting_id}/url`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: val }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  j.url = fresh.url;
+  const open = document.querySelector("#role-body .role-url-open");
+  if (open) open.setAttribute("href", safeHref(j.url));
+}
+
 // saveCompanyField mirrors savePostingField for the company pane. Name is
 // required server-side; blanking it throws, the field rolls back.
 async function saveCompanyField(d, key, val) {
@@ -694,6 +709,8 @@ function renderPursuit() {
   if (co) co.addEventListener("click", () => openDetail(j.company_id));
   wireInlineField(document.getElementById("pursuit-title-input"),
     (v) => savePostingField(j, "title", v));
+  wireInlineField(document.getElementById("pursuit-url-input"),
+    (v) => savePostingURL(j, v));
   wireInlineField(document.getElementById("pursuit-notes-input"),
     (v) => savePursuitNotes(v), { multiline: true });
   document.querySelectorAll("#role-body [data-k]").forEach(el =>
@@ -703,14 +720,19 @@ function renderPursuit() {
   renderAnswersSection();
 }
 
-// roleEditHTML is the always-editable role body: the URL (read-only — it's the
-// posting's identity; re-capture via the Add dialog) plus seamless inline
-// fields for everything hand-editable. The role title lives in the pane header
-// (pursuit-title-input); posted date and company are read-only context.
-// Each field auto-saves on blur/Enter — see the wiring in renderPursuit.
+// roleEditHTML is the always-editable role body: the URL (inline-editable — it's
+// the posting's identity, so it has its own validated save path) with an open
+// affordance, plus seamless inline fields for everything hand-editable. The role
+// title lives in the pane header (pursuit-title-input); posted date and company
+// are read-only context. Each field auto-saves on blur/Enter — see renderPursuit.
 function roleEditHTML(j) {
   return `
-    <div class="role-url"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">${escapeHTML(j.url)} ↗</a></div>
+    <div class="role-url ie-field"><label>link</label>
+      <div class="role-url-row">
+        <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${escapeHTML(j.url || "")}">
+        <a class="role-url-open" href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open the posting">↗</a>
+      </div>
+    </div>
     <div class="ie-grid">
       <div class="prow">
         <div class="ie-field"><label>location</label>
