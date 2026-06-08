@@ -131,6 +131,10 @@ export const SCOUT_MARKUP = `
   </div>
 
   <div class="sidebar-foot">
+    <button class="doc-btn" id="open-chat" title="Chat: track applications and ask about your companies/jobs" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 2.5V11.5H2.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/></svg>
+      chat
+    </button>
     <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
       how it works
@@ -198,6 +202,9 @@ export const SCOUT_MARKUP = `
   <div class="pane-head">
     <h2 id="pane-title">—</h2>
     <span id="pane-pills" class="pills-inline"></span>
+    <button class="pane-chat-btn" id="pane-chat" title="Chat about this company" aria-label="chat" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 2.5V11.5H2.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/></svg>
+    </button>
     <button class="close-btn" id="pane-close" aria-label="close">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
         <path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>
@@ -214,6 +221,9 @@ export const SCOUT_MARKUP = `
   <div class="pane-head">
     <h2 id="pursuit-title">—</h2>
     <span id="pursuit-pills" class="pills-inline"></span>
+    <button class="pane-chat-btn" id="pursuit-chat" title="Chat about this role" aria-label="chat" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 2.5V11.5H2.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/></svg>
+    </button>
     <button class="close-btn" id="pursuit-close" aria-label="close">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
         <path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>
@@ -221,6 +231,29 @@ export const SCOUT_MARKUP = `
     </button>
   </div>
   <div class="pane-body" id="pursuit-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+</aside>
+
+<!-- chat pane: one slide-in reused for all scopes (global / company / posting).
+     The global tracking chat and the per-entity research chat share it; state
+     in app.ts tracks which thread is bound. -->
+<div class="scrim" id="chat-scrim"></div>
+<aside class="pane pane-chat" id="chat-pane" aria-hidden="true">
+  <div class="pane-head">
+    <h2 id="chat-title">Chat</h2>
+    <span id="chat-sub" class="chat-sub"></span>
+    <button class="close-btn" id="chat-close" aria-label="close">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/>
+      </svg>
+    </button>
+  </div>
+  <div class="chat-body" id="chat-messages"></div>
+  <form class="chat-compose" id="chat-form">
+    <textarea id="chat-input" rows="1" placeholder="Message scout… (Enter to send, Shift+Enter for a newline)"></textarea>
+    <button type="submit" class="chat-send" id="chat-send" aria-label="send">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8l12-5-5 12-2.5-4.5L2 8z"/></svg>
+    </button>
+  </form>
 </aside>
 
 <!-- progress drawer -->

@@ -614,6 +614,11 @@ function renderPursuit() {
   document.getElementById("pursuit-pills").innerHTML =
     `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>` +
     (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
+  const pursuitChat = document.getElementById("pursuit-chat");
+  if (pursuitChat) {
+    pursuitChat.style.display = state.meta && state.meta.chat ? "" : "none";
+    pursuitChat.onclick = () => openChat("posting", j.posting_id, j.title || j.company);
+  }
 
   document.getElementById("pursuit-body").innerHTML = `
     <section class="pane-section role-head">
@@ -1548,6 +1553,12 @@ function renderDetail(d) {
   document.getElementById("pane-pills").innerHTML = `
     <span class="${pillClass(d.has_verdict ? d.verdict : "")}">${escapeHTML(d.has_verdict ? d.verdict : "unscored")}</span>
   `;
+  // Per-entity chat button — gated on the chat capability (needs the API key).
+  const paneChat = document.getElementById("pane-chat");
+  if (paneChat) {
+    paneChat.style.display = state.meta && state.meta.chat ? "" : "none";
+    paneChat.onclick = () => openChat("company", d.company_id, d.name);
+  }
 
   const manual = d.model === "manual";
   const verdictBlock = d.has_verdict ? `
@@ -1866,12 +1877,15 @@ function postingsListHTML(d) {
       `<span class="pt-meta">${p.applied_at ? `applied ${escapeHTML(p.applied_at)}` : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
     ].filter(Boolean).join("");
+    const chatBtn = (state.meta && state.meta.chat)
+      ? `<button class="pcard-chat" data-pid="${escapeHTML(p.id)}" data-ptitle="${escapeHTML(p.title || "")}" title="chat about this role">chat</button>`
+      : "";
     return `
     <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
-      <div class="pcard-status">${status}<span class="pcard-open">pursuit →</span></div>
+      <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">pursuit →</span></div>
     </div>`;
   }).join("");
 }
@@ -1883,8 +1897,15 @@ function wirePostingCards() {
   document.querySelectorAll("#postings-list .posting-card").forEach(card => {
     card.addEventListener("click", e => {
       if (e.target.closest("a")) return;
+      if (e.target.closest(".pcard-chat")) return; // chat button handles its own click
       closeDetail();
       openPursuit(card.dataset.pid);
+    });
+  });
+  document.querySelectorAll("#postings-list .pcard-chat").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      openChat("posting", btn.dataset.pid, btn.dataset.ptitle || "");
     });
   });
 }
@@ -1999,6 +2020,9 @@ async function loadMeta() {
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
   vb.title = state.meta.verdict ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
+  // The global chat entry point appears only when chat is available (API key).
+  const chatBtn = document.getElementById("open-chat");
+  if (chatBtn) chatBtn.style.display = state.meta.chat ? "" : "none";
   // The Add dialog itself is always available (manual writes need no key);
   // its agent-pass tick is gated on meta.capture inside openAdd().
 }
@@ -2444,6 +2468,8 @@ document.getElementById("pursuit-close").onclick = closePursuit;
 document.getElementById("pursuit-scrim").onclick = closePursuit;
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  // Chat sits on top of whatever opened it (a pane or the global view) — peel it first.
+  if (document.getElementById("chat-pane").classList.contains("open")) { closeChat(); return; }
   if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
@@ -2767,6 +2793,201 @@ document.querySelectorAll("#docs-nav a").forEach(a => {
   }, { root: body, rootMargin: "0px 0px -65% 0px", threshold: 0 });
   document.querySelectorAll("#docs-body section").forEach(s => obs.observe(s));
 })();
+
+// ---- chat ----------------------------------------------------------------
+// One slide-in pane shared by the global tracking chat and the per-entity
+// research chat. POST /message kicks a turn; the SSE /stream feeds text deltas
+// into the live assistant bubble. After the turn ends we reload the canonical
+// thread (so tool chips show) and refresh the views the tools may have changed.
+state.chat = { scope: null, scopeId: "", threadId: null, streaming: false, es: null };
+
+// chatBlockText / chatBlockTools read the stored content-block array of a
+// message; tool_use / tool_result / thinking blocks are plumbing the bubble
+// hides, surfacing only the prose and a small "used X" footnote.
+function chatBlockText(content) {
+  return (content || []).filter(b => b && b.type === "text").map(b => b.text || "").join("");
+}
+function chatBlockTools(content) {
+  return (content || []).filter(b => b && b.type === "tool_use").map(b => b.name);
+}
+
+function chatBubbleEl(role, text) {
+  const div = document.createElement("div");
+  div.className = "chat-msg chat-" + role;
+  div.textContent = text || "";
+  return div;
+}
+
+function chatScrollBottom() {
+  const host = document.getElementById("chat-messages");
+  host.scrollTop = host.scrollHeight;
+}
+
+function chatEmptyHint() {
+  const div = document.createElement("div");
+  div.className = "chat-empty";
+  div.textContent = state.chat.scope === "global"
+    ? "Tell me about a job you applied to (paste the link), or ask what's already tracked."
+    : "Ask about this " + (state.chat.scope === "company" ? "company" : "role") +
+      " — I can research it on the web and update scout.";
+  return div;
+}
+
+function renderChatMessages(messages) {
+  const host = document.getElementById("chat-messages");
+  host.innerHTML = "";
+  for (const m of (messages || [])) {
+    const text = chatBlockText(m.content);
+    if (m.role === "user") {
+      if (text) host.appendChild(chatBubbleEl("user", text)); // skip pure tool_result turns
+    } else if (m.role === "assistant") {
+      const tools = chatBlockTools(m.content);
+      if (!text && !tools.length) continue;
+      const el = chatBubbleEl("assistant", text);
+      if (tools.length) {
+        const chips = document.createElement("div");
+        chips.className = "chat-tools";
+        chips.textContent = "· used " + tools.join(", ");
+        el.appendChild(chips);
+      }
+      host.appendChild(el);
+    }
+  }
+  if (!host.children.length) host.appendChild(chatEmptyHint());
+  chatScrollBottom();
+}
+
+async function openChat(scope, scopeId, title) {
+  if (!state.meta || !state.meta.chat) { toast("chat needs ANTHROPIC_API_KEY in the server env"); return; }
+  if (state.chat.es) { state.chat.es.close(); state.chat.es = null; }
+  state.chat = { scope, scopeId: scopeId || "", threadId: null, streaming: false, es: null };
+  document.getElementById("chat-title").textContent =
+    scope === "global" ? "Chat" : (scope === "company" ? "Chat · company" : "Chat · role");
+  document.getElementById("chat-sub").textContent = scope === "global" ? "" : (title || "");
+  const host = document.getElementById("chat-messages");
+  host.innerHTML = '<div class="chat-empty">loading…</div>';
+  const pane = document.getElementById("chat-pane");
+  pane.classList.add("open");
+  document.getElementById("chat-scrim").classList.add("open");
+  pane.setAttribute("aria-hidden", "false");
+  try {
+    const qs = "scope=" + encodeURIComponent(scope) + (scopeId ? "&scope_id=" + encodeURIComponent(scopeId) : "");
+    const r = await fetch("/api/chat/threads?" + qs);
+    if (!r.ok) throw new Error(((await r.text().catch(() => "")).trim()) || ("HTTP " + r.status));
+    const data = await r.json();
+    state.chat.threadId = data.thread.id;
+    renderChatMessages(data.messages || []);
+  } catch (e) {
+    host.innerHTML = '<div class="chat-empty">Failed to open chat: ' + escapeHTML(e.message) + "</div>";
+    return;
+  }
+  document.getElementById("chat-input").focus();
+}
+
+function closeChat() {
+  if (state.chat.es) { state.chat.es.close(); state.chat.es = null; }
+  const pane = document.getElementById("chat-pane");
+  pane.classList.remove("open");
+  document.getElementById("chat-scrim").classList.remove("open");
+  pane.setAttribute("aria-hidden", "true");
+}
+
+function chatSetSending(on) {
+  state.chat.streaming = on;
+  document.getElementById("chat-send").disabled = on;
+  const input = document.getElementById("chat-input");
+  input.disabled = on;
+  if (!on) input.focus();
+}
+
+function chatAutogrow() {
+  const t = document.getElementById("chat-input");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight, 160) + "px";
+}
+
+async function sendChat() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  if (!text || state.chat.streaming || !state.chat.threadId) return;
+  input.value = "";
+  chatAutogrow();
+  chatSetSending(true);
+
+  const host = document.getElementById("chat-messages");
+  const empty = host.querySelector(".chat-empty");
+  if (empty) empty.remove();
+  host.appendChild(chatBubbleEl("user", text));
+  const asst = chatBubbleEl("assistant", "");
+  asst.classList.add("chat-streaming");
+  host.appendChild(asst);
+  chatScrollBottom();
+
+  let acc = "";
+  const fail = (msg) => { asst.classList.remove("chat-streaming"); asst.textContent = "⚠ " + msg; chatSetSending(false); };
+
+  const threadId = state.chat.threadId;
+  let resp;
+  try {
+    resp = await fetch("/api/chat/" + threadId + "/message", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+  } catch (e) { fail(e.message); return; }
+  if (!resp.ok) { fail(((await resp.text().catch(() => "")).trim()) || ("HTTP " + resp.status)); return; }
+
+  // Consume the SSE stream — each "delta" is a text fragment (newlines
+  // preserved across multi-line data); "end" carries the status.
+  const es = new EventSource("/api/chat/" + threadId + "/stream");
+  state.chat.es = es;
+  es.addEventListener("delta", (e) => {
+    acc += e.data;
+    asst.textContent = acc;
+    chatScrollBottom();
+  });
+  es.addEventListener("end", async (e) => {
+    es.close();
+    if (state.chat.es === es) state.chat.es = null;
+    asst.classList.remove("chat-streaming");
+    chatSetSending(false);
+    if (state.chat.threadId === threadId) await reloadChat();
+    refreshAfterChat();
+    if (typeof e.data === "string" && e.data.indexOf("error") === 0) toast("chat: " + e.data);
+  });
+  es.onerror = () => {
+    es.close();
+    if (state.chat.es === es) state.chat.es = null;
+    asst.classList.remove("chat-streaming");
+    chatSetSending(false);
+  };
+}
+
+async function reloadChat() {
+  const scope = state.chat.scope, scopeId = state.chat.scopeId;
+  const qs = "scope=" + encodeURIComponent(scope) + (scopeId ? "&scope_id=" + encodeURIComponent(scopeId) : "");
+  try {
+    const r = await fetch("/api/chat/threads?" + qs);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderChatMessages(data.messages || []);
+  } catch {}
+}
+
+// A chat turn may have captured/tracked/updated entities — refresh the views and
+// any open pane so the rest of the UI reflects what the tools did.
+function refreshAfterChat() {
+  loadList(); loadJobs(); loadStats();
+  if (state.openId) openDetail(state.openId);
+}
+
+document.getElementById("open-chat").onclick = () => openChat("global", "", "");
+document.getElementById("chat-close").onclick = closeChat;
+document.getElementById("chat-scrim").onclick = closeChat;
+document.getElementById("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
+document.getElementById("chat-input").addEventListener("input", chatAutogrow);
+document.getElementById("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
 
 loadList();
 loadJobs();
