@@ -1,14 +1,14 @@
 ---
 name: goal-prompt
-description: "Emit a SHORT goal prompt — a couple of sentences that name the outcome and point at the spec doc/.tasks — to hand off to a separate Claude window. Does NOT implement, and does NOT reproduce the checklist, build order, or a delegation plan. Triggers on: /goal-prompt, goal prompt, hand-off prompt, make a prompt for another agent, orchestrator prompt."
+description: "Emit a SHORT hand-off prompt that STARTS WITH the `/goal` built-in command — a couple of sentences naming the outcome and pointing at the spec doc/.tasks — to paste into a separate Claude window. Does NOT implement, and does NOT reproduce the checklist, build order, or a delegation plan. Triggers on: /goal-prompt, goal prompt, hand-off prompt, make a prompt for another agent, orchestrator prompt."
 ---
 
 # Goal Prompt
 
 Emit **one short goal prompt** — a couple of sentences — that the user copies
-into a *separate* Claude window to drive a body of work. The goal names the
-outcome and **points at the spec doc** (or `.tasks/` feature) that holds all the
-detail.
+into a *separate* Claude window to drive a body of work. The block **always
+starts with the `/goal` built-in Claude Code command**, then names the outcome
+and **points at the spec doc** (or `.tasks/` feature) that holds all the detail.
 
 **This skill does not implement anything,** and it does **not** reproduce the
 checklist, build order, delegation plan, or constraints — those live in the doc.
@@ -34,15 +34,15 @@ prompt points at) and `execute` (implements in *this* conversation). Reach for
 
 ## Output shape
 
-A short paragraph in a fenced block — name the outcome, point at the doc, and add
-at most one must-know guardrail if it's genuinely essential:
+A short paragraph in a fenced block that **begins with the `/goal` command** —
+name the outcome, point at the doc, and add at most one must-know guardrail if
+it's genuinely essential:
 
 ````
-Goal: <one-line outcome — what to build/do>.
-
-The full spec, build order, and constraints are in **<path to doc / .tasks>** —
-read it and implement it end to end. <Optional: one sentence of a hard guardrail
-or the project's build/verify loop, only if essential.>
+/goal <one-line outcome — what to build/do>. The full spec, build order, and
+constraints are in <path to doc / .tasks> — read it and implement it end to end.
+<Optional: one sentence of a hard guardrail or the build/verify loop, only if
+essential.>
 ````
 
 Keep it tight. If there is **no** durable doc to point at, write a slightly
