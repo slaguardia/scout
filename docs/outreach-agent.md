@@ -110,9 +110,9 @@ scraping (Ashby `api.ashbyhq.com/posting-api/job-board/<org>` + non-user-graphql
 Greenhouse `boards-api.greenhouse.io/v1/boards/<org>/jobs`; Lever
 `api.lever.co/v0/postings/<org>`). Browser-UA fallback for 403ing sites.
 
-**Context:** company name, job URL, a ONE-line summary of Alex ("backend/platform
-engineer, 5y defense, forward-deployed style, builds agent tooling on the side") so
-it knows what's hook-relevant. NOT the experience card — it should report facts, not
+**Context:** company name, job URL, a ONE-line summary of the sender ("a
+platform engineer, builds developer tooling on the side") so it knows what's
+hook-relevant. NOT the experience card — it should report facts, not
 pre-thread them.
 
 **Prompt (system):**
@@ -136,10 +136,8 @@ Gather:
 
 Rules: exact quotes only, never paraphrase into marketing speak. If you can't
 find something after a reasonable look, return it as null — do not pad.
-The relevance lens: the sender is a backend/platform engineer, 5 years in
-defense in a forward-deployed-style role, builds agent tooling on the side.
-Prefer hooks about: deployment/reliability/infrastructure, customer-embedded
-work, government/defense adjacency, agent systems, or unusual engineering claims.
+The relevance lens: the sender is an engineer reaching out about a role.
+Prefer hooks about: the company's product, engineering challenges, or recent news.
 ```
 
 **Output schema:** `{company, what_they_do, customer, stage, headcount_est, role:
@@ -191,8 +189,8 @@ are assembled in code around its output.
 
 **Prompt (system):**
 ```
-You write two short paragraphs of a cold email for Alex, a backend/platform
-engineer moving from defense to startups. A locked middle paragraph carrying his
+You write two short paragraphs of a cold email for the sender, an engineer
+interested in joining the team. A locked middle paragraph carrying the sender's
 credentials already exists — you never write credentials.
 
 P1 (1-2 sentences): open with the chosen hook using its exact quote or specific
@@ -243,7 +241,7 @@ domains, projects, achievements) against the experience document.
 
 Flag: invented experience, inflated scope (e.g. "led the program" when the doc
 says "led a team"), implied domain expertise the doc doesn't support (e.g.
-healthcare claims when the doc shows only defense), and durations that don't
+healthcare claims when the doc shows only fintech), and durations that don't
 match.
 
 Do not flag: desire statements ("the work I want to do"), opinions about the

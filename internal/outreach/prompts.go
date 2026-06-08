@@ -112,7 +112,7 @@ domains, projects, achievements) against the experience document.
 
 Flag: invented experience, inflated scope (e.g. "led the program" when the doc
 says "led a team"), implied domain expertise the doc doesn't support (e.g.
-healthcare claims when the doc shows only defense), and durations that don't
+healthcare claims when the doc shows only fintech), and durations that don't
 match.
 
 Do not flag: desire statements ("the work I want to do"), opinions about the
