@@ -359,7 +359,7 @@ function renderJobs() {
     ].map(([v, label]) =>
       `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
     tr.innerHTML = `
-      <td><span class="row-name">${escapeHTML(j.title || j.company)}</span>${j.next_up ? '<span class="draft-badge db-next" title="queued next up for outreach">next up</span>' : ""}${draftBadgeHTML(j.outreach_draft_status)}
+      <td><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}
         ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
       <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
       <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
@@ -370,6 +370,7 @@ function renderJobs() {
     `;
     // Wire the inline controls to the cached row (the table re-renders from it).
     const isoToday = () => new Date().toISOString().slice(0, 10);
+    tr.querySelector(".jt-nextup").onclick = () => toggleNextUp(j, false);
     tr.querySelector(".jt-applied").onclick = () =>
       saveRowTracking(j, { applied_at: j.applied_at ? "" : isoToday() });
     tr.querySelector(".jt-resp").onchange = e => {
@@ -685,14 +686,14 @@ function wirePipeline() {
   if (sel) sel.addEventListener("change", e =>
     savePursuitTracking({ response: e.target.value }));
   const nextUp = document.querySelector("#pursuit-body .pt-nextup");
-  if (nextUp) nextUp.addEventListener("click", toggleNextUp);
+  if (nextUp) nextUp.addEventListener("click", () => toggleNextUp(pursuit.row, true));
 }
 
-// toggleNextUp queues/unqueues the open pursuit as "next up for outreach".
-// Its own endpoint (not the tracking PUT) so the server can also clear the
-// mark on its own when the outreach goes out.
-async function toggleNextUp() {
-  const j = pursuit.row;
+// toggleNextUp queues/unqueues a posting as "next up for outreach". Its own
+// endpoint (not the tracking PUT) so the server can also clear the mark on its
+// own when the outreach goes out. Shared by the pursuit panel and the inline
+// jobs-row star; pass refreshPanel=true to also re-render the open panel.
+async function toggleNextUp(j, refreshPanel) {
   let resp;
   try {
     resp = await fetch(`/api/postings/${j.posting_id}/next-up`, {
@@ -708,7 +709,7 @@ async function toggleNextUp() {
   const fresh = await resp.json();
   j.next_up = fresh.next_up;
   renderJobs();
-  renderPursuit();
+  if (refreshPanel) renderPursuit();
   toast(j.next_up ? "queued next up" : "removed from the queue");
 }
 

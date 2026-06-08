@@ -245,6 +245,16 @@
   }
   .jt-applied:hover { border-color: var(--line-2); color: var(--fg-mute); }
   .jt-applied.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
+  /* next-up star — an inline "queue for outreach" toggle on the name cell.
+     Subtle (hollow) when off so it doesn't crowd the row; accent when queued. */
+  .jt-nextup {
+    font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
+    margin-right: 6px; padding: 0; vertical-align: baseline;
+    background: none; border: none; color: var(--fg-faint);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .jt-nextup:hover { color: var(--accent); }
+  .jt-nextup.is-on { color: var(--accent); }
   .jt-resp {
     font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
     padding: 2px 22px 2px 9px; border-radius: 999px; border: 1px solid transparent;
