@@ -461,6 +461,7 @@
      verdict color. */
   #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
   #next-up-filter.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
+  #not-reached-filter.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
 
   /* column chips stay quiet — a set-once preference shouldn't outshine the
      filters. Lit = visible column. */
