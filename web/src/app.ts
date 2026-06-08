@@ -1723,7 +1723,7 @@ async function uploadCSV(file) {
 const ADD_FIELDS = ["add-url","add-name","add-location","add-headcount","add-title","add-job-company"];
 let addVerticals = [];               // available tags from the DB (sorted)
 let addVerticalsSel = new Set();     // currently selected tags (original spelling)
-let addKind = "company";             // sticky across opens — muscle memory
+let addKind = "company";             // set from the current view on each open
 
 function setAddKind(kind) {
   addKind = kind;
@@ -1775,7 +1775,8 @@ async function openAdd() {
   row.classList.toggle("disabled", !state.meta.capture);
   row.title = state.meta.capture ? "" : "set ANTHROPIC_API_KEY in the server env to enable";
   if (!state.meta.capture) enrich.checked = false;
-  setAddKind(addKind);
+  // Default to the tab the user is on — jobs view opens to "job", else company.
+  setAddKind(state.view === "jobs" ? "job" : "company");
   // Populate the stage + vertical pickers and the company suggestions from the
   // current DB before showing.
   const stageSel = document.getElementById("add-stage");
