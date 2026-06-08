@@ -1295,6 +1295,8 @@
   .ie.is-saved { border-color: var(--yes); }
   .ie.is-error { border-color: var(--no); }
   textarea.ie { display: block; }
+  /* company-pane notes: a roomy inline-edit textarea the user can drag taller. */
+  .ie-notes { min-height: 4.5em; resize: vertical; white-space: pre-wrap; }
   /* the big title at the top of a pane is itself an inline field */
   .pane-head h2 { overflow: visible; }
 

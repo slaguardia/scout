@@ -160,6 +160,47 @@ func TestCompanyDeleteCascades(t *testing.T) {
 	}
 }
 
+// TestUpdateCompanyNotes covers the human-only notes column: set, clear, the
+// unknown-id error, and — the whole point — that a re-ingest never clobbers it.
+func TestUpdateCompanyNotes(t *testing.T) {
+	db := openTestDB(t)
+	id, err := db.UpsertCompany(mkCompany("crunchbase", "Acme", "acme.com"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := db.UpdateCompanyNotes(id, "talked to a founder; warm intro pending"); err != nil {
+		t.Fatalf("set notes: %v", err)
+	}
+	d, _ := db.GetCompanyDetail(id)
+	if d == nil || d.Notes != "talked to a founder; warm intro pending" {
+		t.Fatalf("notes not stored: %+v", d)
+	}
+
+	// A re-ingest (same identity, fresh data) must leave the notes untouched —
+	// UpsertCompany doesn't list the column, so the user's note survives.
+	if _, err := db.UpsertCompany(mkCompany("manual", "Acme Inc", "acme.com")); err != nil {
+		t.Fatalf("re-ingest: %v", err)
+	}
+	d, _ = db.GetCompanyDetail(id)
+	if d.Notes != "talked to a founder; warm intro pending" {
+		t.Errorf("re-ingest clobbered notes: %q", d.Notes)
+	}
+
+	// Blank clears.
+	if err := db.UpdateCompanyNotes(id, ""); err != nil {
+		t.Fatalf("clear notes: %v", err)
+	}
+	d, _ = db.GetCompanyDetail(id)
+	if d.Notes != "" {
+		t.Errorf("notes not cleared: %q", d.Notes)
+	}
+
+	if err := db.UpdateCompanyNotes("nope", "x"); err != sql.ErrNoRows {
+		t.Errorf("unknown id: want sql.ErrNoRows, got %v", err)
+	}
+}
+
 // TestUpdateCompanyEditable covers the web edit path: a full replace of the
 // editable fields (blanks clear), name_key tracking the new name, and
 // sql.ErrNoRows for an unknown id.

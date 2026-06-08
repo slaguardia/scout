@@ -21,6 +21,7 @@ type CompanyDetail struct {
 	Vertical     string            `json:"vertical"`
 	IngestedAt   string            `json:"ingested_at"`
 	RawJSON      map[string]string `json:"raw_json"`
+	Notes        string            `json:"notes"` // free-form, human-only scratchpad
 
 	Flagged    bool   `json:"flagged"`
 	FlaggedAt  string `json:"flagged_at"`
@@ -51,6 +52,7 @@ SELECT c.id, c.name, c.source, COALESCE(c.source_id, ''),
        COALESCE(c.domain, ''), COALESCE(c.headcount, 0),
        COALESCE(c.funding_stage, ''), COALESCE(c.location, ''),
        COALESCE(c.vertical, ''), c.ingested_at, c.raw_json, c.flagged_at, c.reviewed_at,
+       COALESCE(c.notes, ''),
        v.verdict, v.reason, v.taste_version, v.model, v.scored_at,
        e.website_url, e.website_summary, e.fetch_status, e.fetch_error, e.fetched_at
 FROM companies c
@@ -68,6 +70,7 @@ WHERE c.id = ?`
 		&d.CompanyID, &d.Name, &d.Source, &d.SourceID,
 		&d.Domain, &d.Headcount, &d.FundingStage, &d.Location, &d.Vertical,
 		&d.IngestedAt, &rawJSON, &flaggedAt, &reviewedAt,
+		&d.Notes,
 		&verdict, &reason, &tasteVersion, &model, &scoredAt,
 		&websiteURL, &websiteSummary, &fetchStatus, &fetchError, &fetchedAt,
 	)

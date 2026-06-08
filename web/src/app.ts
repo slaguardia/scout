@@ -569,6 +569,19 @@ async function saveCompanyDomain(d, val) {
   loadJobs();
 }
 
+// saveCompanyNotes persists the free-form notes. A plain field write — the
+// server never reverse-writes this column, so we just fold the saved value back
+// into the cached detail. No re-render (the textarea keeps focus/caret).
+async function saveCompanyNotes(d, val) {
+  const resp = await fetch(`/api/companies/${d.company_id}/notes`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes: val }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  d.notes = fresh.notes;
+}
+
 // renderPursuit lays out the whole panel: role header, pipeline, outreach,
 // footer. The outreach queue is re-rendered on its own (renderOutreachSection)
 // so polling doesn't rebuild the pipeline controls under the user's cursor.
@@ -1287,6 +1300,14 @@ function renderDetail(d) {
 
     <section class="pane-section">
       <h3>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l3 3V13a.5.5 0 01-.5.5h-8A.5.5 0 014 13V3a.5.5 0 010-.5z"/><path d="M9.5 2.5V6h3M6 8.5h4M6 10.5h4"/></svg>
+        Notes
+      </h3>
+      <textarea class="ie ie-notes" id="pane-notes-input" rows="4" placeholder="Your notes on this company — ⌘/Ctrl+Enter or click away to save">${escapeHTML(d.notes || "")}</textarea>
+    </section>
+
+    <section class="pane-section">
+      <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M5 6h6M5 9h4"/></svg>
         Company facts
       </h3>
@@ -1343,6 +1364,8 @@ function renderDetail(d) {
     wireInlineField(el, (v) => saveCompanyField(d, el.dataset.k, v)));
   wireInlineField(document.getElementById("pane-domain-input"),
     (v) => saveCompanyDomain(d, v));
+  wireInlineField(document.getElementById("pane-notes-input"),
+    (v) => saveCompanyNotes(d, v), { multiline: true });
 
   const flagBtn = document.getElementById("flag-toggle-btn");
   if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));

@@ -332,6 +332,8 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyReviewed(w, r, id)
 	case len(parts) == 2 && parts[1] == "domain":
 		s.handleCompanyDomain(w, r, id)
+	case len(parts) == 2 && parts[1] == "notes":
+		s.handleCompanyNotes(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
@@ -614,6 +616,42 @@ func (s *Server) handleCompanyDomain(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	d, err := s.DB.GetCompanyDetail(newID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyNotes sets the free-form, human-only notes on a company. PUT
+// /api/companies/:id/notes with {"notes":"…"} — a plain column write, the only
+// path that ever touches notes (ingest/enrich/verdict never do). Blank clears.
+// Returns the refreshed detail so the client can re-render.
+func (s *Server) handleCompanyNotes(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Notes string `json:"notes"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.DB.UpdateCompanyNotes(id, strings.TrimSpace(body.Notes)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

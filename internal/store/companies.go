@@ -231,6 +231,21 @@ FROM companies WHERE id = ?`, newID, domain, oldID); err != nil {
 	return newID, nil
 }
 
+// UpdateCompanyNotes sets the free-form, human-only notes on a company. This is
+// the ONLY writer of the notes column — no ingest/enrich/verdict path touches it
+// (see migration 0030), so a re-ingest never clobbers what the user wrote. An
+// empty string clears it. Returns sql.ErrNoRows for an unknown id.
+func (db *DB) UpdateCompanyNotes(id, notes string) error {
+	res, err := db.Exec(`UPDATE companies SET notes = ? WHERE id = ?`, NullString(notes), id)
+	if err != nil {
+		return fmt.Errorf("update company notes %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // FillCompanyNamePlaceholder sets the company name only when the stored name is
 // still the domain placeholder (a manual add with no name defaults to the bare
 // domain) or empty. A real name — typed or ingested — is never overwritten.
