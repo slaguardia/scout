@@ -114,9 +114,14 @@
     max-height: 100vh;
     display: flex; flex-direction: column;
   }
-  /* pins the docs button to the bottom of the nav (after the last block when
-     content overflows). */
-  .sidebar-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+  /* pins the bottom group (chat + foot) to the bottom of the nav (after the
+     last block when content overflows). margin-top:auto lives on the wrapper —
+     not on .sidebar-foot — so the group stays pinned even when the chat button
+     above the divider is hidden (no API key). */
+  .sidebar-bottom { margin-top: auto; }
+  /* the chat entry sits ABOVE the divider, spaced from "how it works" below it. */
+  .sidebar-chat { width: 100%; justify-content: center; margin-bottom: 14px; }
+  .sidebar-foot { padding-top: 16px; border-top: 1px solid var(--line); }
   .sidebar-foot .doc-btn { width: 100%; justify-content: center; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */

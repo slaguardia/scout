@@ -124,15 +124,17 @@
     <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
   </div>
 
-  <div class="sidebar-foot">
-    <button class="doc-btn" id="open-chat" title="Chat: track applications and ask about your companies/jobs" style="display:none">
+  <div class="sidebar-bottom">
+    <button class="doc-btn sidebar-chat" id="open-chat" title="Chat: track applications and ask about your companies/jobs" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 2.5V11.5H2.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/></svg>
       chat
     </button>
-    <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
-      how it works
-    </button>
+    <div class="sidebar-foot">
+      <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
+        how it works
+      </button>
+    </div>
   </div>
 </aside>
 
