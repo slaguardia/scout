@@ -249,7 +249,7 @@
      Subtle (hollow) when off so it doesn't crowd the row; accent when queued.
      The star + text-column flex keeps the title AND the company subline aligned
      past the star, so a one-line and a two-line row read the same. */
-  .jt-namecell { display: flex; align-items: center; gap: 11px; }
+  .jt-namecell { display: flex; align-items: center; gap: 14px; }
   .jt-namecol { min-width: 0; }
   /* a touch of air between the title and the company subline */
   .jt-namecol .small.dim { margin-top: 3px; }
