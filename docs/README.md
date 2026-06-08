@@ -11,6 +11,8 @@ and links back to it.
 | [pipeline.md](./pipeline.md) | Each command in detail: inputs, behavior, idempotency. The web UI (`scout serve`) is the primary interface. |
 | [verdict.md](./verdict.md) | The LLM call: prompt assembly, brain-primary criteria, prompt caching. |
 | [enrichment.md](./enrichment.md) | About-page fetch, HTML strip, fetch-status taxonomy. |
+| [outreach-agent.md](./outreach-agent.md) | Cold-email pipeline design: blocks, pins, the research→draft→honesty stages. |
+| [application-answers.md](./application-answers.md) | Detect application essay questions + draft grounded answers per posting (reuses the outreach engine). |
 | [data-model.md](./data-model.md) | SQLite schema — every table and why it exists. |
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
 | [limitations.md](./limitations.md) | Known limits and where it breaks first. |
