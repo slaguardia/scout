@@ -38,7 +38,22 @@ type Engine struct {
 
 // sender resolves the identity seam: an explicitly set Who wins, else the
 // compiled-in DefaultSender.
+//
+// Resolution order: the identity stored in the local DB (set from the UI) wins,
+// so a save takes effect on the next draft with no restart; then an explicitly
+// injected Who (tests/CLI); then the neutral DefaultSender. A DB read error is
+// non-fatal — it logs and falls through.
 func (e *Engine) sender() Sender {
+	if e.DB != nil {
+		if s, err := e.DB.GetSenderIdentity(); err != nil {
+			e.log("sender: load identity: %v", err)
+		} else if s != nil {
+			return Sender{
+				SubjectName: s.SubjectName, Signature: s.Signature,
+				Lens: s.Lens, HookPrefs: s.HookPrefs, Arc: s.Arc,
+			}
+		}
+	}
 	if e.Who != (Sender{}) {
 		return e.Who
 	}

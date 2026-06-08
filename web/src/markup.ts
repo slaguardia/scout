@@ -254,6 +254,46 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<!-- outreach identity editor -->
+<div class="modal-scrim" id="sender-scrim">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>outreach identity</h2>
+    </div>
+    <div class="modal-body">
+      <div class="sender-form">
+        <label class="sender-field">
+          <span class="sender-label">Subject name <em>— short name in the subject line</em></span>
+          <input id="snd-subject_name" class="ie" type="text" spellcheck="false" placeholder="e.g. Alex">
+        </label>
+        <label class="sender-field">
+          <span class="sender-label">Sign-off <em>— the verbatim closer (models never write it)</em></span>
+          <textarea id="snd-signature" class="ie" rows="2" spellcheck="false" placeholder="Thanks,&#10;Alex"></textarea>
+        </label>
+        <label class="sender-field">
+          <span class="sender-label">Researcher lens <em>— one line of who you are</em></span>
+          <textarea id="snd-lens" class="ie" rows="2" spellcheck="false"></textarea>
+        </label>
+        <label class="sender-field">
+          <span class="sender-label">Hook preferences <em>— "prefer hooks about: …"</em></span>
+          <textarea id="snd-hook_prefs" class="ie" rows="2" spellcheck="false"></textarea>
+        </label>
+        <label class="sender-field">
+          <span class="sender-label">Drafter arc <em>— one-line framing of your move</em></span>
+          <input id="snd-arc" class="ie" type="text" spellcheck="false">
+        </label>
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Each field auto-saves on blur. This identity lives only in your local database — never the brain or the repo. The next draft uses it immediately.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="sender-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- brain profile viewer (read-only) -->
 <div class="modal-scrim" id="profile-scrim">
   <div class="modal">

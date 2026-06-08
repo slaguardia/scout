@@ -1933,6 +1933,48 @@ function closeEditor() {
   document.getElementById("editor-scrim").classList.remove("open");
   editorKind = null;
 }
+
+// ---- control surface: outreach identity ----
+const SENDER_FIELDS = ["subject_name", "signature", "lens", "hook_prefs", "arc"];
+let senderWired = false;
+async function openSenderEditor() {
+  const scrim = document.getElementById("sender-scrim");
+  scrim.classList.add("open");
+  let cur = {};
+  try {
+    cur = await (await fetch("/api/outreach/sender")).json();
+  } catch (e) { toast(`failed to load identity: ${e.message}`); }
+  for (const f of SENDER_FIELDS) {
+    const el = document.getElementById("snd-" + f);
+    if (el) el.value = cur[f] || "";
+  }
+  if (!senderWired) {
+    for (const f of SENDER_FIELDS) {
+      const el = document.getElementById("snd-" + f);
+      wireInlineField(el, (val) => saveSenderField(f, val),
+        { multiline: el && el.tagName === "TEXTAREA" });
+    }
+    senderWired = true;
+  }
+}
+// saveSenderField PUTs the whole record (one field changed) — the endpoint
+// upserts the singleton, and the engine reads it fresh at draft time.
+async function saveSenderField(key, val) {
+  const body = {};
+  for (const f of SENDER_FIELDS) {
+    const el = document.getElementById("snd-" + f);
+    body[f] = el ? el.value : "";
+  }
+  body[key] = val;
+  const resp = await fetch("/api/outreach/sender", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+}
+function closeSenderEditor() {
+  document.getElementById("sender-scrim").classList.remove("open");
+}
 async function saveEditor() {
   if (!editorKind) return;
   const content = document.getElementById("editor-text").value;
@@ -2022,6 +2064,7 @@ document.addEventListener("keydown", e => {
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
   if (document.getElementById("pursuit-pane").classList.contains("open")) { closePursuit(); return; }
+  if (document.getElementById("sender-scrim").classList.contains("open")) { closeSenderEditor(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
 
@@ -2173,6 +2216,10 @@ document.getElementById("editor-save").onclick = saveEditor;
 document.getElementById("editor-scrim").onclick = e => {
   if (e.target.id === "editor-scrim") closeEditor();
 };
+document.getElementById("sender-close").onclick = closeSenderEditor;
+document.getElementById("sender-scrim").onclick = e => {
+  if (e.target.id === "sender-scrim") closeSenderEditor();
+};
 
 // ---- brain profile + criteria block ----
 function relTime(sec) {
@@ -2232,6 +2279,9 @@ function renderCriteria() {
   html += `<div class="crit-row">
     <span class="crit-what">playbook</span>
     <button class="crit-edit" id="edit-playbook" title="edit playbook.md" aria-label="edit playbook">${PENCIL}</button></div>`;
+  html += `<div class="crit-row">
+    <span class="crit-what">outreach identity</span>
+    <button class="crit-edit" id="edit-sender" title="edit outreach identity" aria-label="edit outreach identity">${PENCIL}</button></div>`;
   if (stale > 0) {
     html += `<div class="stale">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
@@ -2247,6 +2297,8 @@ function renderCriteria() {
   if (et) et.onclick = () => openEditor("taste");
   const ep = document.getElementById("edit-playbook");
   if (ep) ep.onclick = () => openEditor("playbook");
+  const es = document.getElementById("edit-sender");
+  if (es) es.onclick = openSenderEditor;
 }
 
 async function refreshProfile() {

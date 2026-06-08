@@ -1282,6 +1282,19 @@
   textarea.ie { display: block; }
   /* the big title at the top of a pane is itself an inline field */
   .pane-head h2 { overflow: visible; }
+
+  /* outreach identity editor: a stacked form of inline-edit (.ie) fields, but
+     boxed so they read as real form inputs (not inline-in-prose). */
+  .sender-form { display: flex; flex-direction: column; gap: 14px; }
+  .sender-field { display: flex; flex-direction: column; gap: 5px; }
+  .sender-label { font-size: 12px; color: var(--fg-dim); }
+  .sender-label em { font-style: normal; opacity: 0.7; }
+  .sender-form .ie {
+    margin: 0;
+    border-color: var(--line-2);
+    background: var(--panel-2);
+  }
+  .sender-form textarea.ie { min-height: 2.4em; resize: vertical; }
   .ie-title { font: inherit; font-weight: inherit; letter-spacing: inherit; }
   /* two editable values side by side (location/comp, etc.) */
   .ie-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }

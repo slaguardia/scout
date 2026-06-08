@@ -247,7 +247,8 @@ func TestOutreachEndToEnd(t *testing.T) {
 
 	ac := anthropic.New("test-key")
 	ac.Endpoint = llm.URL
-	s.Outreach = &outreach.Engine{DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}}}
+	s.Outreach = &outreach.Engine{DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}},
+		Who: outreach.Sender{SubjectName: "Alex", Signature: "Thanks,\nAlex", Lens: "l", HookPrefs: "h", Arc: "a"}}
 	h := s.Handler()
 
 	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")

@@ -62,6 +62,12 @@ func newEngine(t *testing.T, fake *fakeAnthropic) (*Engine, *store.DB) {
 		DB:     db,
 		Client: &anthropic.Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()},
 		Model:  "test-model",
+		// Pin the identity so assertions don't depend on DefaultSender (now
+		// neutral) or on a stored row (the temp DB has none).
+		Who: Sender{
+			SubjectName: "Alex", Signature: "Thanks,\nAlex",
+			Lens: "test lens", HookPrefs: "test prefs", Arc: "test arc",
+		},
 		// HTTP is left nil → FetchJD does a plain GET against the (bogus) posting
 		// URL, which fails fast and the engine tolerates it.
 	}

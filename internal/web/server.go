@@ -135,7 +135,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/postings", s.handlePostings)  // all postings across companies (jobs view)
 	mux.HandleFunc("/api/postings/", s.handlePosting)  // PUT {id}: application-lifecycle update
 	mux.HandleFunc("/api/capture", s.handleCapture)    // POST: link-capture agent pass
-	mux.HandleFunc("/api/outreach/", s.handleOutreach) // blocks / sync / drafts (see outreach.go)
+	mux.HandleFunc("/api/outreach/sender", s.handleOutreachSender) // GET/PUT the cold-email identity (see sender.go)
+	mux.HandleFunc("/api/outreach/", s.handleOutreach)             // blocks / sync / drafts (see outreach.go)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 

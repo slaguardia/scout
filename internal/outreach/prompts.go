@@ -5,10 +5,10 @@ package outreach
 // instruction from the same doc's EXPERIENCE_CARD tier description.
 
 // Sender is the identity seam — the only place the pipeline knows who it
-// writes for. Scout ships the owner's values as DefaultSender; another user
-// supplies their own (docs/outreach-agent.md, "Generality"). Everything else
-// in the pipeline is user-agnostic: blocks carry the knowledge, Sender carries
-// the framing.
+// writes for. The real identity lives in the local DB (set from the UI's
+// "outreach identity" editor) and is read fresh at draft time; the repo ships
+// only a neutral DefaultSender fallback. Everything else in the pipeline is
+// user-agnostic: blocks carry the knowledge, Sender carries the framing.
 type Sender struct {
 	SubjectName string // short name in the subject line ("[Name] | <SubjectName> intro — <role>")
 	Signature   string // verbatim sign-off appended after the closer
@@ -17,13 +17,16 @@ type Sender struct {
 	Arc         string // drafter's one-line framing of the sender's move
 }
 
-// DefaultSender is the owner's identity.
+// DefaultSender is the neutral fallback identity, used only until a real one is
+// set from the UI (stored in the local DB, never the repo). It carries no
+// personal facts — generic framing that yields a coherent but plainly
+// placeholder email so the pipeline runs out of the box.
 var DefaultSender = Sender{
-	SubjectName: "Alex",
-	Signature:   "Thanks,\nAlex",
-	Lens:        "a backend/platform engineer, 5 years in defense in a forward-deployed-style role, builds agent tooling on the side",
-	HookPrefs:   "deployment/reliability/infrastructure, customer-embedded work, government/defense adjacency, agent systems, or unusual engineering claims",
-	Arc:         "a backend/platform engineer moving from defense to startups",
+	SubjectName: "Me",
+	Signature:   "Thanks",
+	Lens:        "an engineer reaching out about a role",
+	HookPrefs:   "the company's product, engineering challenges, or recent news",
+	Arc:         "an engineer interested in joining the team",
 }
 
 // researcherSystem is Agent 1 — the Researcher. It uses the hosted web_search
