@@ -359,8 +359,7 @@ function renderJobs() {
     ].map(([v, label]) =>
       `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
     tr.innerHTML = `
-      <td><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}
-        ${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</td>
+      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
       <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
       <td class="small" data-col="outreach"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span></td>

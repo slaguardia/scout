@@ -246,11 +246,14 @@
   .jt-applied:hover { border-color: var(--line-2); color: var(--fg-mute); }
   .jt-applied.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
   /* next-up star — an inline "queue for outreach" toggle on the name cell.
-     Subtle (hollow) when off so it doesn't crowd the row; accent when queued. */
+     Subtle (hollow) when off so it doesn't crowd the row; accent when queued.
+     The star + text-column flex keeps the title AND the company subline aligned
+     past the star, so a one-line and a two-line row read the same. */
+  .jt-namecell { display: flex; align-items: baseline; gap: 8px; }
+  .jt-namecol { min-width: 0; }
   .jt-nextup {
-    font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
-    margin-right: 6px; padding: 0; vertical-align: baseline;
-    background: none; border: none; color: var(--fg-faint);
+    flex: none; font: inherit; font-size: 17px; line-height: 1; cursor: pointer;
+    padding: 0; background: none; border: none; color: var(--fg-faint);
     transition: color var(--dur-fast) var(--ease);
   }
   .jt-nextup:hover { color: var(--accent); }
