@@ -14,6 +14,7 @@ and links back to it.
 | [outreach-agent.md](./outreach-agent.md) | Cold-email pipeline design: blocks, pins, the research→draft→honesty stages. |
 | [application-answers.md](./application-answers.md) | Detect application essay questions + draft grounded answers per posting (reuses the outreach engine). |
 | [data-model.md](./data-model.md) | SQLite schema — every table and why it exists. |
+| [chat.md](./chat.md) | The chat feature: two surfaces, the tool loop, tools, storage, build checklist. |
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
 | [limitations.md](./limitations.md) | Known limits and where it breaks first. |
 
