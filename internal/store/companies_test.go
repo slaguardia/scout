@@ -211,6 +211,95 @@ func TestUpdateCompanyEditable(t *testing.T) {
 	}
 }
 
+// TestSetCompanyDomain covers the web "add a website" path: a domain-less,
+// name-keyed company gets a domain, which re-keys it onto the domain identity
+// and carries its children along.
+func TestSetCompanyDomain(t *testing.T) {
+	db := openTestDB(t)
+
+	// A domain-less company with a posting child.
+	oldID, err := db.UpsertCompany(mkCompany("manual", "Acme", ""))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if want := CompanyID("", "Acme"); oldID != want {
+		t.Fatalf("name-keyed id = %q, want %q", oldID, want)
+	}
+	if _, err := db.AddPosting(oldID, "https://acme.com/jobs", "SE"); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	newID, err := db.SetCompanyDomain(oldID, "acme.com")
+	if err != nil {
+		t.Fatalf("set domain: %v", err)
+	}
+	if want := CompanyID("acme.com", "Acme"); newID != want {
+		t.Fatalf("re-keyed id = %q, want domain key %q", newID, want)
+	}
+	if exists, _ := db.CompanyExists(oldID); exists {
+		t.Errorf("old name-keyed row %q survived the re-key", oldID)
+	}
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Errorf("CountCompanies = %d, want 1", n)
+	}
+	d, err := db.GetCompanyDetail(newID)
+	if err != nil || d == nil {
+		t.Fatalf("detail: %v (nil=%v)", err, d == nil)
+	}
+	if d.Domain != "acme.com" {
+		t.Errorf("domain = %q, want acme.com", d.Domain)
+	}
+	if len(d.Postings) != 1 || d.Postings[0].URL != "https://acme.com/jobs" {
+		t.Errorf("posting did not follow the re-key: %+v", d.Postings)
+	}
+
+	if _, err := db.SetCompanyDomain("nope", "x.com"); err != sql.ErrNoRows {
+		t.Errorf("unknown id: want sql.ErrNoRows, got %v", err)
+	}
+}
+
+// TestSetCompanyDomainFoldsTwin: when a domain-keyed company of the same name
+// already exists, setting the domain on a name-keyed twin folds it in (the
+// reverse fold) rather than forking a row; a different name is refused.
+func TestSetCompanyDomainFoldsTwin(t *testing.T) {
+	db := openTestDB(t)
+
+	// Domain-keyed "Acme" already present.
+	domainID, _ := db.UpsertCompany(mkCompany("crunchbase", "Acme", "acme.com"))
+	// A separate name-keyed "Acme" with a posting.
+	nameID, _ := db.UpsertCompany(mkCompany("manual", "Acme", ""))
+	if nameID == domainID {
+		t.Fatalf("seed ids collided")
+	}
+	if _, err := db.AddPosting(nameID, "https://acme.com/careers", "PM"); err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	got, err := db.SetCompanyDomain(nameID, "acme.com")
+	if err != nil {
+		t.Fatalf("set domain (fold): %v", err)
+	}
+	if got != domainID {
+		t.Fatalf("fold target = %q, want existing domain row %q", got, domainID)
+	}
+	if exists, _ := db.CompanyExists(nameID); exists {
+		t.Errorf("name-keyed twin %q survived the fold", nameID)
+	}
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Errorf("CountCompanies = %d, want 1 after fold", n)
+	}
+	d, _ := db.GetCompanyDetail(domainID)
+	if d == nil || len(d.Postings) != 1 {
+		t.Errorf("posting did not fold into the domain row: %+v", d)
+	}
+
+	// A DIFFERENT company can't steal an owned domain.
+	otherID, _ := db.UpsertCompany(mkCompany("manual", "Globex", ""))
+	if _, err := db.SetCompanyDomain(otherID, "acme.com"); err != ErrDomainTaken {
+		t.Errorf("cross-identity claim: want ErrDomainTaken, got %v", err)
+	}
+}
+
 // TestFillCompanyNamePlaceholder pins the enrichment name-fill: only the
 // bare-domain placeholder (or empty) is replaced — a real name never is.
 func TestFillCompanyNamePlaceholder(t *testing.T) {

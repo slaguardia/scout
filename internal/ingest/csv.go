@@ -340,6 +340,26 @@ func AddManual(db *store.DB, m ManualCompany) (string, error) {
 	return out.id, nil
 }
 
+// SetCompanyDomain attaches or changes the website/domain on an existing
+// company from the web pane. It applies the SAME normalization and rejection
+// rules as a manual add (bare-domain normalization, validity + aggregator-host
+// checks), then re-keys the row onto its domain identity via
+// store.SetCompanyDomain. Returns the resulting company id (it changes when the
+// row is re-keyed).
+func SetCompanyDomain(db *store.DB, id, website string) (string, error) {
+	domain := normalizeDomain(website)
+	if domain == "" {
+		return "", errors.New("website is required (e.g. acme.com)")
+	}
+	if !looksLikeDomain(domain) {
+		return "", errors.New("website is not a valid domain (e.g. acme.com)")
+	}
+	if isAggregatorHost(domain) {
+		return "", errors.New("website looks like a social or profile link — enter the company's own domain (e.g. acme.com)")
+	}
+	return db.SetCompanyDomain(id, domain)
+}
+
 // indexHeader returns canonical-field -> column index, picking the first alias
 // that matches. When a header name is duplicated, the FIRST occurrence wins —
 // the primary column (e.g. the real "Website") normally precedes a secondary

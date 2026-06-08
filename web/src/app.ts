@@ -552,6 +552,24 @@ async function saveCompanyField(d, key, val) {
   loadJobs();   // job rows carry the company name too
 }
 
+// saveCompanyDomain attaches/changes the company's website. Unlike the other
+// fields the domain is the row's identity, so the server re-keys the company
+// and returns it under a (possibly new) id — re-point the open pane to it and
+// refresh everything keyed on the company. 409 = another company owns it.
+async function saveCompanyDomain(d, val) {
+  const resp = await fetch(`/api/companies/${d.company_id}/domain`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ website: val }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  state.openId = fresh.company_id;   // the id changes when the row is re-keyed
+  renderDetail(fresh);               // rebuild the pane (controls key on the id)
+  loadTrace(fresh.company_id);       // renderDetail reset the trail to a spinner
+  loadList();                        // re-keyed row may have merged a twin away
+  loadJobs();
+}
+
 // renderPursuit lays out the whole panel: role header, pipeline, outreach,
 // footer. The outreach queue is re-rendered on its own (renderOutreachSection)
 // so polling doesn't rebuild the pipeline controls under the user's cursor.
@@ -1324,6 +1342,8 @@ function renderDetail(d) {
     (v) => saveCompanyField(d, "name", v));
   document.querySelectorAll("#facts-body [data-k]").forEach(el =>
     wireInlineField(el, (v) => saveCompanyField(d, el.dataset.k, v)));
+  wireInlineField(document.getElementById("pane-domain-input"),
+    (v) => saveCompanyDomain(d, v));
 
   const flagBtn = document.getElementById("flag-toggle-btn");
   if (flagBtn) flagBtn.addEventListener("click", () => onToggleFlag(d.company_id));
@@ -1340,15 +1360,18 @@ function renderDetail(d) {
 }
 
 // factsEditHTML is the always-editable company facts: seamless inline fields
-// for vertical / location / headcount / stage (auto-save on blur/Enter — see
-// the wiring in renderDetail; name lives in the pane header), then read-only
-// provenance (domain, source, ingested).
+// for website / vertical / location / headcount / stage (auto-save on
+// blur/Enter — see the wiring in renderDetail; name lives in the pane header),
+// then read-only provenance (source, ingested). Website is special: it's the
+// row's identity key, so saving it re-keys the company (saveCompanyDomain).
 function factsEditHTML(d) {
-  const domainLine = d.domain
-    ? `<a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">${escapeHTML(d.domain)} ↗</a>`
-    : '<span class="muted">no domain</span>';
+  const openLink = d.domain
+    ? ` · <a href="https://${escapeHTML(d.domain)}" target="_blank" rel="noopener">open ↗</a>`
+    : "";
   return `
     <div class="ie-grid">
+      <div class="ie-field"><label>website${openLink}</label>
+        <input class="ie" id="pane-domain-input" placeholder="acme.com" value="${escapeHTML(d.domain || "")}"></div>
       <div class="ie-field"><label>vertical</label>
         <input class="ie" data-k="vertical" placeholder="—" value="${escapeHTML(d.vertical || "")}"></div>
       <div class="prow">
@@ -1361,7 +1384,6 @@ function factsEditHTML(d) {
         <input class="ie" data-k="funding_stage" placeholder="—" value="${escapeHTML(d.funding_stage || "")}"></div>
     </div>
     <dl class="kv facts-ro">
-      <dt>domain</dt><dd>${domainLine}</dd>
       <dt>source</dt><dd class="small muted">${escapeHTML(d.source)} · ${escapeHTML(d.source_id)}</dd>
       <dt>ingested</dt><dd class="small muted">${escapeHTML(d.ingested_at)}</dd>
     </dl>`;

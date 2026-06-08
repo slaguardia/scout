@@ -330,6 +330,8 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyFlagged(w, r, id)
 	case len(parts) == 2 && parts[1] == "reviewed":
 		s.handleCompanyReviewed(w, r, id)
+	case len(parts) == 2 && parts[1] == "domain":
+		s.handleCompanyDomain(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}
@@ -566,6 +568,52 @@ func (s *Server) handleCompanyEdit(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	d, err := s.DB.GetCompanyDetail(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if d == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyDomain attaches or changes a company's website/domain. PUT
+// /api/companies/:id/domain with {"website":"acme.com"}. Unlike the other
+// editable fields, the domain is the row's identity key, so setting it re-keys
+// the company (and folds in any pre-existing twin) — see ingest.SetCompanyDomain.
+// Returns the refreshed detail under the (possibly new) id so the client can
+// re-point its open pane. 409 when a different company already owns the domain.
+func (s *Server) handleCompanyDomain(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Website string `json:"website"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	newID, err := ingest.SetCompanyDomain(s.DB, id, body.Website)
+	switch {
+	case err == nil:
+	case errors.Is(err, sql.ErrNoRows):
+		http.NotFound(w, r)
+		return
+	case errors.Is(err, store.ErrDomainTaken):
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	case strings.HasPrefix(err.Error(), "website "): // validation messages
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d, err := s.DB.GetCompanyDetail(newID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

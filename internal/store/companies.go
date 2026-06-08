@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -151,6 +152,83 @@ WHERE id = ?;`
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// ErrDomainTaken is returned by SetCompanyDomain when another company (a
+// different name) already holds the requested domain identity. The caller maps
+// it to 409 — re-keying onto it would silently merge two distinct companies.
+var ErrDomainTaken = errors.New("another company already uses that website")
+
+// SetCompanyDomain attaches or changes a company's website/domain from the web
+// pane and re-keys the row onto its domain identity (CompanyID), so a later
+// same-domain ingest dedups against it instead of forking a twin. The id is the
+// domain-derived UUID, so re-keying necessarily changes it — the resulting id is
+// returned (it equals the input id only when the identity is unchanged).
+//
+// domain must already be normalized + validated by the caller (see
+// ingest.SetCompanyDomain). If a DIFFERENT company already holds the domain
+// identity it returns ErrDomainTaken; if the SAME company holds it under both
+// keys (the domain-keyed twin already exists — the reverse-fold case), oldID is
+// folded into it. Returns sql.ErrNoRows for an unknown id.
+func (db *DB) SetCompanyDomain(oldID, domain string) (string, error) {
+	var name string
+	err := db.QueryRow(`SELECT name FROM companies WHERE id = ?`, oldID).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", sql.ErrNoRows
+	}
+	if err != nil {
+		return "", fmt.Errorf("set domain: lookup %q: %w", oldID, err)
+	}
+
+	newID := CompanyID(domain, name)
+	if newID == oldID {
+		// Same identity (re-typing the domain, or a differently-cased equal) — just
+		// store the normalized value in place, no re-key.
+		if _, err := db.Exec(`UPDATE companies SET domain = ? WHERE id = ?`, domain, oldID); err != nil {
+			return "", fmt.Errorf("set domain %q: %w", oldID, err)
+		}
+		return oldID, nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("set domain %s→%s: begin: %w", oldID, newID, err)
+	}
+	defer tx.Rollback()
+
+	var targetName string
+	switch e := tx.QueryRow(`SELECT name FROM companies WHERE id = ?`, newID).Scan(&targetName); {
+	case e == nil:
+		// A company already holds this domain identity. Same name ⇒ the same
+		// company under both keys (the reverse fold): fold oldID in. Different
+		// name ⇒ two identities would collapse onto one row — refuse.
+		if normName(targetName) != normName(name) {
+			return "", ErrDomainTaken
+		}
+		if err := foldChildren(tx, oldID, newID); err != nil {
+			return "", fmt.Errorf("set domain %s→%s: %w", oldID, newID, err)
+		}
+	case errors.Is(e, sql.ErrNoRows):
+		// Re-key in place: clone the row under the domain id with the new domain,
+		// move children onto it, then drop the old (name-keyed) row (foldChildren
+		// deletes the old parent last).
+		if _, err := tx.Exec(`
+INSERT INTO companies (id, source, source_id, name, name_key, domain, headcount, funding_stage, location, vertical, raw_json, ingested_at, flagged_at, reviewed_at)
+SELECT ?, source, source_id, name, name_key, ?, headcount, funding_stage, location, vertical, raw_json, ingested_at, flagged_at, reviewed_at
+FROM companies WHERE id = ?`, newID, domain, oldID); err != nil {
+			return "", fmt.Errorf("set domain: rekey %q: %w", oldID, err)
+		}
+		if err := foldChildren(tx, oldID, newID); err != nil {
+			return "", fmt.Errorf("set domain %s→%s: %w", oldID, newID, err)
+		}
+	default:
+		return "", fmt.Errorf("set domain: lookup twin %q: %w", newID, e)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("set domain %s→%s: commit: %w", oldID, newID, err)
+	}
+	return newID, nil
 }
 
 // FillCompanyNamePlaceholder sets the company name only when the stored name is
