@@ -307,6 +307,19 @@ function compareJobs(a, b, k) {
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
+// Size a response <select> to its selected option so the pill shrink-wraps its
+// value. A native <select> sizes to its WIDEST option ("interview"/"screening"),
+// which strands a short value like "none"/"offer" on the left with a big gap
+// before the chevron. Measure the selected label and set an explicit width.
+function fitRespWidth(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const cs = getComputedStyle(sel);
+  const ctx = (fitRespWidth._c ||= document.createElement("canvas").getContext("2d"));
+  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = ctx.measureText(opt ? opt.text : "").width;
+  sel.style.width = Math.ceil(w + 35) + "px"; // 9 left pad + 22 chevron gutter + 2 border + 2 fudge
+}
+
 function renderJobs() {
   const tbody = document.querySelector("#jt tbody");
   tbody.innerHTML = "";
@@ -341,7 +354,7 @@ function renderJobs() {
     // The applied / response / outreach cells carry inline tracking controls so
     // the common lifecycle bumps don't require opening the pursuit panel.
     const respOpts = [
-      ["", "—"], ["screening", "screening"], ["interview", "interview"],
+      ["", "none"], ["screening", "screening"], ["interview", "interview"],
       ["offer", "offer"], ["rejected", "rejected"],
     ].map(([v, label]) =>
       `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
@@ -359,8 +372,10 @@ function renderJobs() {
     const isoToday = () => new Date().toISOString().slice(0, 10);
     tr.querySelector(".jt-applied").onclick = () =>
       saveRowTracking(j, { applied_at: j.applied_at ? "" : isoToday() });
-    tr.querySelector(".jt-resp").onchange = e =>
+    tr.querySelector(".jt-resp").onchange = e => {
+      fitRespWidth(e.target);
       saveRowTracking(j, { response: e.target.value });
+    };
     tr.querySelector(".jt-inc").onclick = () =>
       saveRowTracking(j, { outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: isoToday() });
     tr.querySelector(".jt-dec").onclick = () => {
@@ -369,6 +384,7 @@ function renderJobs() {
     };
     tbody.appendChild(tr);
   }
+  tbody.querySelectorAll(".jt-resp").forEach(fitRespWidth);
   applyColumnVisibility();
   // Row click opens the pursuit panel (role + pipeline + the outreach queue);
   // the external link and the inline tracking controls are guarded out.
