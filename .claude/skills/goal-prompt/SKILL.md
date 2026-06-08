@@ -31,8 +31,24 @@ Resolve the source in this order:
 
 Read the source fully before writing the prompt. For `.tasks/` features, read
 `feature.json` + every `stories/US-*.json`. For a docs spec, read the whole
-file. The goal prompt must be **self-contained** — the orchestrator may not
-have access to this conversation, so inline everything it needs.
+file.
+
+**Reference the checklist; don't duplicate it.** When the source is a durable,
+committed artifact the orchestrator can open itself (a `docs/*.md` spec, a
+`.tasks/` feature), the goal prompt must **point to that file as the source of
+record** and tell the orchestrator to read it — never copy the full checklist
+inline. A second copy in the prompt immediately drifts from the doc. Inline only
+the **orchestration layer** the doc doesn't carry: the delegation plan,
+sequencing/dependencies, constraints, and the definition of done. Keep the
+checklist itself as a thin list of deliverable *headlines* that map onto the
+doc's sections (e.g. "the storage layer — see the doc's Storage section"), not
+the full done-criteria and file lists.
+
+"Self-contained" therefore means the orchestrator needs nothing from *this
+conversation* — not that it needs nothing from the repo. Pointing it at a
+committed doc it can read is fine and preferred. Only when there is **no durable
+source** (the checklist exists solely in this chat) do you inline the full
+checklist, because there's nothing stable to reference.
 
 ---
 
@@ -104,17 +120,28 @@ Emit exactly this shape, filled in, inside one fenced block:
 ````
 # Goal: <one-line outcome>
 
+## Source of record — READ THIS FIRST   (include only when a durable doc/.tasks exists)
+The full spec and checklist live in **<path to doc / .tasks dir>**. Read it in
+full before doing anything; it is authoritative. This prompt only adds the
+orchestration layer (sequencing, delegation, verification) on top of it. If
+anything here conflicts with the doc, the doc wins.
+
 ## Context
 <2-4 sentences: what's being built, why, and the key architecture facts the
-orchestrator needs. Self-contained — assume no access to prior chat.>
+orchestrator needs. Needs nothing from prior chat — a committed doc it can read
+is fine to reference.>
 
 ## Definition of done
-The work is complete when every checklist item below is done AND verified, the
+The work is complete when every deliverable below is done AND verified, the
 full test suite passes (`go test ./...`, `go vet`), and <end-to-end smoke check>.
 
-## Checklist (in dependency order)
-1. [ ] <deliverable> — done when: <observable evidence>. Files: <paths>.
-2. [ ] <deliverable> — done when: <...>. Depends on: #1.
+## Deliverables (headlines — full done-criteria in the source doc)
+<When a source doc exists, list thin headlines that map onto its sections; do
+NOT restate the done-criteria/file lists — they live in the doc.>
+1. [ ] <deliverable headline> — see doc: <section>. Depends on: <#>.
+2. [ ] <deliverable headline> — see doc: <section>. Depends on: #1.
+<Only when there is NO durable source, inline full items instead:
+1. [ ] <deliverable> — done when: <observable evidence>. Files: <paths>.>
 ...
 
 ## Delegation plan
