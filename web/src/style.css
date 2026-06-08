@@ -697,7 +697,7 @@
      (replaces the old "View company" button). */
   .role-head .role-company-link {
     background: none; border: none; padding: 0; margin: 0;
-    font: inherit; color: var(--link); cursor: pointer;
+    font: inherit; font-size: 15px; font-weight: 550; color: var(--link); cursor: pointer;
     transition: color var(--dur-fast) var(--ease);
   }
   .role-head .role-company-link:hover { text-decoration: underline; }
