@@ -212,18 +212,24 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 			return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook, research, "", "", "", "", "")
 		}
 
+		// De-AI cleanup over the model-written holes (verbatim prose untouched),
+		// then a deterministic voice flag on whatever the humanizer leaves behind
+		// (LLM cleanup reintroduces patterns — the flag is the backstop).
+		filled = e.humanize(ctx, holes, filled, voice)
 		email := tmpl.Render(vars, filled)
+		holesText := concatFilled(holes, filled)
+		lint := voiceLintJSON(holesText)
 
 		// Honesty check the FILLED HOLES (the LLM-authored spans). The verbatim
 		// template prose is the user's own words — true by construction — so it
 		// is not re-verified.
-		verdict, violations, err := e.honestyCheckText(ctx, exp, concatFilled(holes, filled))
+		verdict, violations, err := e.honestyCheckText(ctx, exp, holesText)
 		if err != nil {
 			return fmt.Errorf("honesty checker: %w", err)
 		}
 		if verdict == "pass" {
 			e.log("outreach: draft %d honesty pass on attempt %d", draftID, attempt+1)
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, "[]", "", "")
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, lint, "", "")
 		}
 
 		violJSON, _ := json.Marshal(violations)
@@ -233,7 +239,7 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 			continue
 		}
 		return e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
-			research, "", email, "[]", string(violJSON), "honesty check failed twice")
+			research, "", email, lint, string(violJSON), "honesty check failed twice")
 	}
 	return nil
 }
@@ -323,6 +329,58 @@ func concatFilled(holes []Hole, filled map[string]string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// humanize runs the de-AI cleanup over the model-written holes, matching the
+// user's voice and removing AI tells, WITHOUT touching the verbatim template
+// prose (it only ever sees the holes). Best-effort: any error, unparseable
+// output, or empty hole keeps the original fill, so a flaky cleanup pass never
+// loses the draft. The honesty checker runs after it, catching any fact drift.
+func (e *Engine) humanize(ctx context.Context, holes []Hole, filled map[string]string, voice string) map[string]string {
+	in := map[string]string{}
+	for _, h := range holes {
+		in[h.Name] = filled[h.Name]
+	}
+	inJSON, _ := json.Marshal(in)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Paragraphs to clean (JSON):\n%s\n", inJSON)
+	if voice != "" {
+		fmt.Fprintf(&b, "\nVOICE rules:\n%s\n", voice)
+	}
+	raw, err := e.callJSON(ctx, humanizeSystem, b.String(), stageMaxTokens, nil)
+	if err != nil {
+		e.log("outreach: humanizer failed, keeping fill: %v", err)
+		return filled
+	}
+	cleaned, perr := extractJSONObject(raw)
+	if perr != nil {
+		e.log("outreach: humanizer output unparseable, keeping fill")
+		return filled
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(cleaned), &out); err != nil {
+		return filled
+	}
+	result := map[string]string{}
+	for _, h := range holes {
+		if t := strings.TrimSpace(out[h.Name]); t != "" {
+			result[h.Name] = t
+		} else {
+			result[h.Name] = filled[h.Name] // humanizer dropped it — keep the fill
+		}
+	}
+	return result
+}
+
+// voiceLintJSON runs the deterministic voice flag over text and returns the
+// findings as a JSON array (never null, so the panel renders [] cleanly).
+func voiceLintJSON(text string) string {
+	f := VoiceFindings(text)
+	if f == nil {
+		f = []LintFinding{}
+	}
+	b, _ := json.Marshal(f)
+	return string(b)
 }
 
 // --- honesty -------------------------------------------------------------

@@ -203,6 +203,17 @@ func (s *Server) sourcesPayload() map[string]any {
 	return map[string]any{"sources": out, "needs": outreach.KnowledgeNeeds}
 }
 
+// lintBody drops a leading "Subject:" line before the voice flag, since the
+// subject's em dash ("Name — intro") is intentional and not a violation.
+func lintBody(email string) string {
+	if strings.HasPrefix(email, "Subject:") {
+		if i := strings.IndexByte(email, '\n'); i >= 0 {
+			return email[i+1:]
+		}
+	}
+	return email
+}
+
 func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string) {
 	idStr, action, _ := strings.Cut(strings.Trim(rest, "/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -239,8 +250,14 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 			http.Error(w, "draft is "+cur.Status+" — only awaiting_review/no_hook drafts are editable", http.StatusConflict)
 			return
 		}
-		// The template model has no deterministic lint; the user owns their edit.
-		if err := s.DB.SetOutreachDraftEdited(id, body.Edited, "[]"); err != nil {
+		// Re-run the deterministic voice flag on the edit (body only — the subject
+		// line's em dash is intentional). Non-blocking: it just refreshes the chips.
+		findings := outreach.VoiceFindings(lintBody(body.Edited))
+		if findings == nil {
+			findings = []outreach.LintFinding{}
+		}
+		lintJSON, _ := json.Marshal(findings)
+		if err := s.DB.SetOutreachDraftEdited(id, body.Edited, string(lintJSON)); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.NotFound(w, r)
 				return

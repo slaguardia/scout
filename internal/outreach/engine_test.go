@@ -123,6 +123,13 @@ func fillReply(hook, closer string) string {
 	return string(b)
 }
 
+// humanizeReply is the humanizer's cleaned-holes JSON. Tests return the holes
+// unchanged so downstream assertions on the assembled email still hold.
+func humanizeReply(hook, closer string) string {
+	b, _ := json.Marshal(map[string]string{"hook": hook, "closer": closer})
+	return string(b)
+}
+
 const (
 	noSendReply = `{"no_send": true, "reason": "nothing specific connects to my work"}`
 	honestyPass = `{"verdict":"pass","violations":[]}`
@@ -132,7 +139,7 @@ const (
 // (a) Happy path: research → fill → honesty pass → awaiting_review, with the
 // filled holes + the verbatim prose present and the subject/greeting assembled.
 func TestRunHappyPath(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), honestyPass}}
+	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
@@ -152,8 +159,8 @@ func TestRunHappyPath(t *testing.T) {
 			t.Errorf("assembled email missing %q:\n%s", want, d.Draft)
 		}
 	}
-	if fake.calls != 3 {
-		t.Errorf("anthropic calls = %d, want 3 (research, fill, honesty)", fake.calls)
+	if fake.calls != 4 {
+		t.Errorf("anthropic calls = %d, want 4 (research, fill, humanize, honesty)", fake.calls)
 	}
 }
 
@@ -182,8 +189,8 @@ func TestRunNoSendMeansNoEmail(t *testing.T) {
 // (c) Honesty fail → fill retry → pass.
 func TestRunHonestyRetryPasses(t *testing.T) {
 	fake := &fakeAnthropic{replies: []string{
-		researchJSON, fillReply(hookText, closerText), honestyFail,
-		fillReply(hookText, closerText), honestyPass,
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass,
 	}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
@@ -196,16 +203,16 @@ func TestRunHonestyRetryPasses(t *testing.T) {
 	if d.Status != store.DraftAwaitingReview {
 		t.Fatalf("status = %q, want awaiting_review", d.Status)
 	}
-	if fake.calls != 5 {
-		t.Errorf("calls = %d, want 5 (research, fill, honesty, fill, honesty)", fake.calls)
+	if fake.calls != 7 {
+		t.Errorf("calls = %d, want 7 (research, fill, humanize, honesty ×2 attempts)", fake.calls)
 	}
 }
 
 // (d) Honesty fail twice → failed, violations saved.
 func TestRunHonestyTwiceFails(t *testing.T) {
 	fake := &fakeAnthropic{replies: []string{
-		researchJSON, fillReply(hookText, closerText), honestyFail,
-		fillReply(hookText, closerText), honestyFail,
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
 	}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
@@ -266,7 +273,7 @@ func TestRunFailsWithoutTemplate(t *testing.T) {
 
 // (g) A stored description is used for the JD (no network fetch).
 func TestRunUsesStoredDescription(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), honestyPass}}
+	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)

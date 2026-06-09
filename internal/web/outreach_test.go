@@ -290,6 +290,7 @@ func TestOutreachEndToEnd(t *testing.T) {
 	llm := fakeLLM(t, []string{
 		`{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80","role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x","source_url":"https://a.invalid","context":"c"}],"disambiguation":"","confidence":"high"}`,
 		`{"fills":{"hook":"You ship into customer environments, like my forward-deployed work."}}`,
+		`{"hook":"You ship into customer environments, like my forward-deployed work."}`,
 		`{"verdict":"pass","violations":[]}`,
 	})
 	defer llm.Close()

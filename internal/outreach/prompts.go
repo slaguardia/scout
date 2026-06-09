@@ -65,6 +65,25 @@ Return ONLY one JSON object, either:
 or:
   {"no_send": true, "reason": "<one sentence>"}`
 
+// humanizeSystem is the de-AI cleanup pass over the model-written holes. It
+// removes the LLM's tells and matches the user's voice WITHOUT changing any
+// fact — the honesty checker runs after it, so wording is all that may move.
+const humanizeSystem = `You clean up AI tells in short cold-email paragraphs the user is about to send.
+You are given a JSON object of named paragraphs and the user's VOICE rules.
+Rewrite each paragraph so it reads like the user wrote it, removing AI tells while
+keeping every factual claim identical.
+
+Fix: em dashes (rewrite the sentence — do not just swap punctuation), "excited
+to", "passionate about", "thrilled", "pick your brain", "resonate", hollow
+superlatives, and stiff or marketing phrasing. Match the voice rules. Keep it
+tight and plain-spoken.
+
+NEVER add, drop, or change a factual claim — only the wording. If a paragraph is
+already clean, return it unchanged.
+
+Return ONLY the same JSON object shape, each key mapped to its cleaned text:
+{"<name>": "<cleaned text>", ...}`
+
 // honestyCheckerSystem is the Honesty checker. Veto power, single purpose. It
 // sees only the experience document and the text to verify — never the intended
 // hook — and is strict-fail biased.
