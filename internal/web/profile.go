@@ -34,7 +34,11 @@ func (s *Server) handleProfileRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "brain not configured", http.StatusNotFound)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	// Distillation is two sequential Sonnet calls (classify, then synthesize)
+	// after a recall fan-out — 25s wasn't enough headroom and the refresh died
+	// mid-classify with a deadline error. Give it room; this is a manual button
+	// press, not a hot path.
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
 	if _, err := s.Resolver.Refresh(ctx); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
