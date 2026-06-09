@@ -124,6 +124,7 @@ Usage:
   scout outreach map [--brainbot URL]
   scout outreach pin --block NAME --pages id1,id2|file:/path [--approve] [--brainbot URL] [--db scout.db]
   scout outreach set --block NAME (--text S | --file PATH | <stdin) [--db scout.db]
+  scout outreach config [--word-min N] [--word-max N] [--subject-format T] [--db scout.db]
   scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
   scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
@@ -769,7 +770,7 @@ func exit(err error) {
 // the debug instrument for the retrieval layer, mirroring `scout distill`.
 func cmdOutreach(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("outreach: want a subcommand: map | pin | set | blocks | draft")
+		return fmt.Errorf("outreach: want a subcommand: map | pin | set | config | blocks | draft")
 	}
 	switch args[0] {
 	case "map":
@@ -778,13 +779,73 @@ func cmdOutreach(args []string) error {
 		return cmdOutreachPin(args[1:])
 	case "set":
 		return cmdOutreachSet(args[1:])
+	case "config":
+		return cmdOutreachConfig(args[1:])
 	case "blocks":
 		return cmdOutreachBlocks(args[1:])
 	case "draft":
 		return cmdOutreachDraft(args[1:])
 	default:
-		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | set | blocks | draft)", args[0])
+		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | set | config | blocks | draft)", args[0])
 	}
+}
+
+// cmdOutreachConfig prints or sets the outreach knobs (lint word window,
+// subject-line format). Structure editing is UI/JSON only (the web config
+// editor); the CLI covers the scalar knobs and the read-only dump for
+// debugging. With no set flags it prints the effective config.
+func cmdOutreachConfig(args []string) error {
+	fs := flag.NewFlagSet("outreach config", flag.ExitOnError)
+	dbPath := fs.String("db", "scout.db", "sqlite path")
+	wordMin := fs.Int("word-min", -1, "minimum body word count (lint)")
+	wordMax := fs.Int("word-max", -1, "maximum body word count (lint)")
+	subject := fs.String("subject-format", "", "subject template ({sender}, {role} tokens)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	db, err := store.Open(*dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	cfg, err := outreach.LoadConfig(db)
+	if err != nil {
+		return err
+	}
+	changed := false
+	if *wordMin >= 0 {
+		cfg.WordMin = *wordMin
+		changed = true
+	}
+	if *wordMax >= 0 {
+		cfg.WordMax = *wordMax
+		changed = true
+	}
+	if *subject != "" {
+		cfg.SubjectFormat = *subject
+		changed = true
+	}
+	if changed {
+		if err := outreach.SaveConfig(db, cfg); err != nil {
+			return fmt.Errorf("outreach config: %w", err)
+		}
+	}
+	fmt.Printf("word window: %d-%d\n", cfg.WordMin, cfg.WordMax)
+	fmt.Printf("subject:     %s\n", cfg.SubjectFormat)
+	fmt.Printf("structure:   ")
+	for i, s := range cfg.Structure {
+		if i > 0 {
+			fmt.Print(" -> ")
+		}
+		if s.Kind == outreach.SlotLocked {
+			fmt.Printf("locked(%s)", s.Block)
+		} else {
+			fmt.Printf("model(%s)", s.Source)
+		}
+	}
+	fmt.Println()
+	return nil
 }
 
 func cmdOutreachMap(args []string) error {
@@ -935,11 +996,22 @@ func cmdOutreachDraft(args []string) error {
 	}
 	defer db.Close()
 
-	// Gate on the required context blocks being healthy (mirrors the web POST).
-	if missing, err := outreach.MissingBlocks(db); err != nil {
+	// Gate on the HARD context blocks being healthy (mirrors the web POST):
+	// PAST_EXPERIENCE_FULL + the structure's locked blocks. SOFT blocks
+	// (HOOK_RULES / CLOSER_RULES / VOICE_RULES) only warn.
+	cfg, err := outreach.LoadConfig(db)
+	if err != nil {
+		return err
+	}
+	if missing, err := outreach.MissingHardBlocks(db, cfg); err != nil {
 		return err
 	} else if len(missing) > 0 {
 		return fmt.Errorf("outreach draft: required blocks missing or broken: %s (pin and sync them first)", strings.Join(missing, ", "))
+	}
+	if degraded, err := outreach.MissingSoftBlocks(db); err != nil {
+		return err
+	} else if len(degraded) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: drafting without %s — quality degrades, integrity unaffected\n", strings.Join(degraded, ", "))
 	}
 
 	// Reap drafts long-orphaned in `researching` (a dead process) so they don't

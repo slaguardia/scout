@@ -45,7 +45,15 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, "outreach pipeline not wired (no engine in this build)", http.StatusServiceUnavailable)
 			return
 		}
-		missing, err := outreach.MissingBlocks(s.DB)
+		cfg, err := outreach.LoadConfig(s.DB)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// HARD gate: PAST_EXPERIENCE_FULL + the structure's locked blocks.
+		// Missing any of these blocks the draft — never draft without the
+		// honesty checker's ground truth or a renderable locked slot.
+		missing, err := outreach.MissingHardBlocks(s.DB, cfg)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -55,6 +63,12 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 				"error":          "required context blocks are missing or broken — pin and sync them first",
 				"missing_blocks": missing,
 			})
+			return
+		}
+		// SOFT blocks degrade gracefully: the draft proceeds, the UI warns.
+		degraded, err := outreach.MissingSoftBlocks(s.DB)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		d, err := s.DB.CreateOutreachDraft(postingID)
@@ -70,7 +84,7 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		s.Outreach.Draft(d.ID)
-		writeJSON(w, http.StatusAccepted, d)
+		writeJSON(w, http.StatusAccepted, map[string]any{"draft": d, "degraded_blocks": degraded})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -194,14 +208,18 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 	}
 }
 
-// lintDraft lints email text against the cached locked paragraph (when
-// healthy); a missing P2 block just skips the verbatim-presence rule.
+// lintDraft lints edited email text against the configured word window and
+// every healthy locked block the structure renders (a missing/broken locked
+// block just skips its verbatim-presence rule).
 func (s *Server) lintDraft(text string) []outreach.LintFinding {
-	p2 := ""
-	if b, err := s.DB.GetOutreachBlock("P2_LOCKED"); err == nil && b != nil && b.Broken == "" {
-		p2 = b.Content
+	cfg, _ := outreach.LoadConfig(s.DB)
+	var locked []string
+	for _, name := range cfg.LockedBlocks() {
+		if b, err := s.DB.GetOutreachBlock(name); err == nil && b != nil && b.Broken == "" && b.Content != "" {
+			locked = append(locked, b.Content)
+		}
 	}
-	findings := outreach.Lint(text, p2)
+	findings := outreach.Lint(text, locked, cfg)
 	if findings == nil {
 		findings = []outreach.LintFinding{}
 	}

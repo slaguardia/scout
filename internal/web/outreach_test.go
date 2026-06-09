@@ -59,10 +59,17 @@ func TestOutreachDraftQueue(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("start: want 202, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	var d store.OutreachDraft
-	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+	var started struct {
+		Draft    store.OutreachDraft `json:"draft"`
+		Degraded []string            `json:"degraded_blocks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
 		t.Fatal(err)
 	}
+	if len(started.Degraded) != 0 {
+		t.Fatalf("all blocks seeded healthy, but degraded = %v", started.Degraded)
+	}
+	d := started.Draft
 	if d.Status != store.DraftResearching || len(runner.started) != 1 || runner.started[0] != d.ID {
 		t.Fatalf("draft %+v, runner %+v", d, runner.started)
 	}
@@ -150,19 +157,56 @@ func TestOutreachStartGates(t *testing.T) {
 	var body struct {
 		Missing []string `json:"missing_blocks"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Missing) != 5 {
-		t.Fatalf("missing_blocks = %v (%v)", body.Missing, err)
+	// Only the HARD set gates: PAST_EXPERIENCE_FULL (honesty ground truth) plus
+	// the default structure's locked block (P2_LOCKED). The three rules blocks
+	// are SOFT and never appear here.
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Missing) != 2 {
+		t.Fatalf("missing_blocks = %v (%v); want exactly the 2 hard blocks", body.Missing, err)
+	}
+	for _, want := range []string{"PAST_EXPERIENCE_FULL", "P2_LOCKED"} {
+		if !hasString(body.Missing, want) {
+			t.Errorf("hard gate missing %s; got %v", want, body.Missing)
+		}
 	}
 
-	// Broken block also gates.
+	// A broken SOFT block degrades, it does NOT gate: 202 with the block named
+	// in degraded_blocks (VOICE_RULES no longer blocks a draft).
 	seedOutreachReady(t, s, cid)
 	if err := s.DB.MarkOutreachBlockBroken("VOICE_RULES", "drifted"); err != nil {
 		t.Fatal(err)
 	}
 	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
-	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("broken block: want 412, got %d", rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("broken SOFT block: want 202 (degrade), got %d (%s)", rec.Code, rec.Body.String())
 	}
+	var soft struct {
+		Degraded []string `json:"degraded_blocks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &soft); err != nil {
+		t.Fatal(err)
+	}
+	if !hasString(soft.Degraded, "VOICE_RULES") {
+		t.Fatalf("degraded_blocks = %v, want VOICE_RULES", soft.Degraded)
+	}
+
+	// A broken HARD block still gates: the honesty/locked guarantee holds.
+	if err := s.DB.MarkOutreachBlockBroken("PAST_EXPERIENCE_FULL", "drifted"); err != nil {
+		t.Fatal(err)
+	}
+	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("broken HARD block: want 412, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// hasString reports whether xs contains s.
+func hasString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOutreachBlocksEndpoint(t *testing.T) {

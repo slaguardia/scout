@@ -1136,6 +1136,13 @@ async function startDraft() {
   }
 
   if (resp.status === 202) {
+    // Soft blocks may be missing — the draft proceeds, degraded. Warn loudly so
+    // it never looks like full-quality output.
+    let body = {};
+    try { body = await resp.json(); } catch {}
+    if (Array.isArray(body.degraded_blocks) && body.degraded_blocks.length) {
+      toast(`drafting without ${body.degraded_blocks.join(", ")} — quality degrades, integrity unaffected`);
+    }
     await loadDrafts();        // the new researching row + poll
     return;
   }
@@ -2402,6 +2409,131 @@ async function saveSenderField(key, val) {
 function closeSenderEditor() {
   document.getElementById("sender-scrim").classList.remove("open");
 }
+
+// ---- outreach config editor (lint knobs + email structure) ----
+//
+// Mirrors the sender editor: a modal of always-editable knobs that auto-save and
+// take effect on the next draft. The email structure is the reorderable list of
+// body slots; every mutation persists the whole config (the server validates and
+// returns the normalized copy). OUTREACH_CONFIG is the working source of truth.
+let OUTREACH_CONFIG = null;
+let configWired = false;
+
+async function openConfigEditor() {
+  document.getElementById("config-scrim").classList.add("open");
+  try {
+    OUTREACH_CONFIG = await (await fetch("/api/outreach/config")).json();
+  } catch (e) { toast(`failed to load config: ${e.message}`); return; }
+  fillConfigInputs();
+  renderConfigStructure();
+  if (!configWired) {
+    const min = document.getElementById("cfg-word_min");
+    const max = document.getElementById("cfg-word_max");
+    const subj = document.getElementById("cfg-subject_format");
+    min.addEventListener("change", () => { OUTREACH_CONFIG.word_min = parseInt(min.value, 10); saveConfig(); });
+    max.addEventListener("change", () => { OUTREACH_CONFIG.word_max = parseInt(max.value, 10); saveConfig(); });
+    subj.addEventListener("change", () => { OUTREACH_CONFIG.subject_format = subj.value; saveConfig(); });
+    subj.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); subj.blur(); } });
+    document.getElementById("cfg-add-btn").addEventListener("click", addConfigSlot);
+    configWired = true;
+  }
+}
+
+function closeConfigEditor() {
+  document.getElementById("config-scrim").classList.remove("open");
+}
+
+function fillConfigInputs() {
+  if (!OUTREACH_CONFIG) return;
+  document.getElementById("cfg-word_min").value = OUTREACH_CONFIG.word_min ?? "";
+  document.getElementById("cfg-word_max").value = OUTREACH_CONFIG.word_max ?? "";
+  document.getElementById("cfg-subject_format").value = OUTREACH_CONFIG.subject_format || "";
+}
+
+// saveConfig PUTs the whole working config; on success it adopts the server's
+// normalized copy and refreshes the inputs/structure. Returns whether the save
+// stuck, so callers can revert an optimistic structure edit.
+async function saveConfig() {
+  let resp;
+  try {
+    resp = await fetch("/api/outreach/config", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(OUTREACH_CONFIG),
+    });
+  } catch (e) { toast(`config save failed: ${e.message}`); return false; }
+  if (!resp.ok) {
+    toast(`config save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`);
+    return false;
+  }
+  OUTREACH_CONFIG = await resp.json();
+  fillConfigInputs();
+  renderConfigStructure();
+  return true;
+}
+
+// renderConfigStructure draws the ordered slot rows with reorder/remove controls.
+function renderConfigStructure() {
+  const host = document.getElementById("cfg-structure");
+  if (!host) return;
+  const slots = (OUTREACH_CONFIG && OUTREACH_CONFIG.structure) || [];
+  if (!slots.length) {
+    host.innerHTML = `<div class="dim small">no slots — add at least one</div>`;
+    return;
+  }
+  host.innerHTML = slots.map((s, i) => {
+    const label = s.kind === "locked"
+      ? `${escapeHTML(s.block)} <span class="cfg-kind">locked</span>`
+      : `${escapeHTML(s.source)} <span class="cfg-kind">model</span>`;
+    return `<div class="cfg-slot" data-i="${i}">
+      <span class="cfg-slot-label">${label}</span>
+      <span class="cfg-slot-acts">
+        <button class="cfg-up" title="move up"${i === 0 ? " disabled" : ""}>↑</button>
+        <button class="cfg-down" title="move down"${i === slots.length - 1 ? " disabled" : ""}>↓</button>
+        <button class="cfg-rm" title="remove slot">✕</button>
+      </span></div>`;
+  }).join("");
+  host.querySelectorAll(".cfg-slot").forEach(row => {
+    const i = +row.dataset.i;
+    const up = row.querySelector(".cfg-up");
+    const down = row.querySelector(".cfg-down");
+    const rm = row.querySelector(".cfg-rm");
+    if (up) up.onclick = () => moveConfigSlot(i, -1);
+    if (down) down.onclick = () => moveConfigSlot(i, 1);
+    if (rm) rm.onclick = () => mutateStructure(s => { s.splice(i, 1); });
+  });
+}
+
+function moveConfigSlot(i, dir) {
+  mutateStructure(s => {
+    const j = i + dir;
+    if (j < 0 || j >= s.length) return;
+    [s[i], s[j]] = [s[j], s[i]];
+  });
+}
+
+function addConfigSlot() {
+  const sel = document.getElementById("cfg-add-select");
+  const [kind, ref] = (sel.value || "").split(":");
+  mutateStructure(s => {
+    s.push(kind === "locked" ? { kind: "locked", block: ref } : { kind: "model", source: ref });
+  });
+}
+
+// mutateStructure applies an in-place edit to a copy of the working structure,
+// persists it, and reverts on a server rejection (e.g. removing the last slot,
+// which the validator forbids).
+async function mutateStructure(fn) {
+  if (!OUTREACH_CONFIG) return;
+  const prev = OUTREACH_CONFIG.structure || [];
+  const next = JSON.parse(JSON.stringify(prev));
+  fn(next);
+  OUTREACH_CONFIG.structure = next;
+  renderConfigStructure();  // optimistic
+  if (!(await saveConfig())) {
+    OUTREACH_CONFIG.structure = prev;
+    renderConfigStructure();
+  }
+}
 async function saveEditor() {
   if (!editorKind) return;
   const content = document.getElementById("editor-text").value;
@@ -2498,6 +2630,7 @@ document.addEventListener("keydown", e => {
   // top); close the company pane first so Escape peels them back in order.
   if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
   if (document.getElementById("pursuit-pane").classList.contains("open")) { closePursuit(); return; }
+  if (document.getElementById("config-scrim").classList.contains("open")) { closeConfigEditor(); return; }
   if (document.getElementById("sender-scrim").classList.contains("open")) { closeSenderEditor(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
@@ -2654,6 +2787,10 @@ document.getElementById("sender-close").onclick = closeSenderEditor;
 document.getElementById("sender-scrim").onclick = e => {
   if (e.target.id === "sender-scrim") closeSenderEditor();
 };
+document.getElementById("config-close").onclick = closeConfigEditor;
+document.getElementById("config-scrim").onclick = e => {
+  if (e.target.id === "config-scrim") closeConfigEditor();
+};
 
 // ---- brain profile + criteria block ----
 function relTime(sec) {
@@ -2716,6 +2853,9 @@ function renderCriteria() {
   html += `<div class="crit-row">
     <span class="crit-what">outreach identity</span>
     <button class="crit-edit" id="edit-sender" title="edit outreach identity" aria-label="edit outreach identity">${PENCIL}</button></div>`;
+  html += `<div class="crit-row">
+    <span class="crit-what">outreach config</span>
+    <button class="crit-edit" id="edit-config" title="edit outreach config (lint knobs + email structure)" aria-label="edit outreach config">${PENCIL}</button></div>`;
   if (stale > 0) {
     html += `<div class="stale">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
@@ -2733,6 +2873,8 @@ function renderCriteria() {
   if (ep) ep.onclick = () => openEditor("playbook");
   const es = document.getElementById("edit-sender");
   if (es) es.onclick = openSenderEditor;
+  const ec = document.getElementById("edit-config");
+  if (ec) ec.onclick = openConfigEditor;
 }
 
 async function refreshProfile() {

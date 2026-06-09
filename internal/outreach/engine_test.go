@@ -346,7 +346,46 @@ func TestRunFailsLoudWhenBlockBreaksMidRun(t *testing.T) {
 	}
 }
 
-// (g) A posting captured with a stored description never goes to the network
+// (g2) The HARD GUARDRAIL under a non-default structure: a structure with NO
+// locked slot drops P2 from the email, but the honesty checker STILL runs over
+// the whole assembled email. Honesty is never a casualty of a thinner/reordered
+// structure.
+func TestRunCustomStructureStillHonestyChecks(t *testing.T) {
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON,                 // researcher
+		hookJSONReply,                // hook selector
+		drafterReply(longP1, longP3), // drafter
+		honestyPass,                  // honesty checker — MUST be consumed
+	}}
+	eng, db := newEngine(t, fake)
+	seedRequiredBlocks(t, db, p2Block)
+	// A structure of two model paragraphs only — no locked slot. P2_LOCKED is
+	// therefore not hard-required and must not appear.
+	if err := SaveConfig(db, Config{
+		WordMin: 1, WordMax: 1000, SubjectFormat: DefaultSubjectFormat,
+		Structure: []StructureSlot{{Kind: SlotModel, Source: "P1"}, {Kind: SlotModel, Source: "P3"}},
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	id := seedPostingDraft(t, db)
+
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftAwaitingReview {
+		t.Fatalf("status = %q, want awaiting_review (honesty must still gate)", d.Status)
+	}
+	if strings.Contains(d.Draft, p2Block) {
+		t.Errorf("structure has no locked slot, yet P2 appeared:\n%s", d.Draft)
+	}
+	// The honesty checker ran: exactly 4 calls (research, hook, draft, honesty).
+	if fake.calls != 4 {
+		t.Errorf("anthropic calls = %d, want 4 — the honesty checker must run regardless of structure", fake.calls)
+	}
+}
+
+// (h) A posting captured with a stored description never goes to the network
 // for the JD — the stored text is used directly, so drafts keep working after
 // the posting is taken down. The posting URL here is unreachable: a fallback
 // fetch would log a fetch failure instead of the stored-JD status.

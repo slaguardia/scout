@@ -66,6 +66,17 @@ func (e *Engine) sender() Sender {
 	return DefaultSender
 }
 
+// config resolves the outreach knobs (lint word window, subject format, email
+// structure). Stored config wins; a load error or absent row falls back to the
+// compiled-in DefaultConfig — a draft never blocks on a config read.
+func (e *Engine) config() Config {
+	cfg, err := LoadConfig(e.DB)
+	if err != nil {
+		e.log("outreach: load config: %v (using defaults)", err)
+	}
+	return cfg
+}
+
 const (
 	// draftTimeout bounds one full pipeline run (5 LLM calls + web search +
 	// possible drafter retry). Generous: web_search adds latency.
@@ -206,9 +217,22 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 // hookRoute drives the drafter/assemble/lint/humanize/honesty path, retrying
 // the drafter once when the honesty checker flags a violation.
 func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSON string, hook hookOutput, company, role string) error {
-	p2, err := e.requireBlock("P2_LOCKED")
-	if err != nil {
-		return err
+	cfg := e.config()
+
+	// Resolve every verbatim locked block the structure renders. These are
+	// hard-required (gated at draft start), but re-required here because a
+	// concurrent sync can break one mid-run — never assemble an email with a
+	// missing locked slot. lockedByName feeds the assembler; lockedContents the
+	// verbatim lint + the humanizer's mangle guard.
+	lockedByName := map[string]string{}
+	var lockedContents []string
+	for _, name := range cfg.LockedBlocks() {
+		c, err := e.requireBlock(name)
+		if err != nil {
+			return err
+		}
+		lockedByName[name] = c
+		lockedContents = append(lockedContents, c)
 	}
 
 	var violationNote string
@@ -219,10 +243,13 @@ func (e *Engine) hookRoute(ctx context.Context, draftID int64, research, hookJSO
 			return fmt.Errorf("drafter: %w", err)
 		}
 
-		// Assemble in code, then lint, then humanize, then re-lint.
-		email := assembleEmail(e.sender(), drafted.P1, p2, drafted.P3, role)
-		email = e.humanize(ctx, email, p2)
-		lintJSON := lintJSON(email, p2)
+		// Assemble in code from the configured structure, then humanize, then
+		// lint. The honesty checker below runs over the whole assembled email
+		// regardless of structure — the integrity invariant.
+		model := map[string]string{"P1": drafted.P1, "P3": drafted.P3}
+		email := assembleEmail(e.sender(), cfg, role, model, lockedByName)
+		email = e.humanize(ctx, email, cfg, lockedContents)
+		lintJSON := lintJSON(email, lockedContents, cfg)
 
 		// Honesty check.
 		verdict, violations, err := e.honestyCheck(ctx, email)
@@ -355,24 +382,25 @@ type hookOutput struct {
 // EXPERIENCE_CARD. It returns the cleaned JSON (for the row) and the parsed
 // decision (to branch on).
 func (e *Engine) selectHook(ctx context.Context, research string) (string, hookOutput, error) {
-	rules, err := e.requireBlock("HOOK_RULES")
-	if err != nil {
-		return "", hookOutput{}, err
+	// HOOK_RULES is SOFT — degrade gracefully when absent. The integrity gate
+	// itself lives in hookSelectorSystem and the honesty checker is the
+	// backstop, so a missing rules doc lowers selection quality, not honesty.
+	rules := e.blockContent("HOOK_RULES")
+	if rules == "" {
+		e.log("outreach: HOOK_RULES absent — hook selection on the system prompt's integrity rules only")
 	}
 	card, err := e.requireBlock("EXPERIENCE_CARD")
 	if err != nil {
 		return "", hookOutput{}, err
 	}
-	user := fmt.Sprintf(`Researched hook candidates (JSON):
-%s
+	var b strings.Builder
+	fmt.Fprintf(&b, "Researched hook candidates (JSON):\n%s\n\n", research)
+	if rules != "" {
+		fmt.Fprintf(&b, "HOOK_RULES:\n%s\n\n", rules)
+	}
+	fmt.Fprintf(&b, "EXPERIENCE_CARD:\n%s", card)
 
-HOOK_RULES:
-%s
-
-EXPERIENCE_CARD:
-%s`, research, rules, card)
-
-	raw, err := e.callJSON(ctx, hookSelectorSystem, user, stageMaxTokens, nil)
+	raw, err := e.callJSON(ctx, hookSelectorSystem, b.String(), stageMaxTokens, nil)
 	if err != nil {
 		return "", hookOutput{}, err
 	}
@@ -401,19 +429,20 @@ type draftOutput struct {
 // VOICE_RULES + (optional) BANK_ROWS. violationNote, when non-empty, is the
 // honesty-retry feedback appended to the input.
 func (e *Engine) draft(ctx context.Context, hookJSON, role string, hook hookOutput, violationNote string) (draftOutput, error) {
-	closers, err := e.requireBlock("CLOSER_RULES")
-	if err != nil {
-		return draftOutput{}, err
-	}
-	voice, err := e.requireBlock("VOICE_RULES")
-	if err != nil {
-		return draftOutput{}, err
-	}
+	// CLOSER_RULES and VOICE_RULES are SOFT — degrade gracefully when absent
+	// (the section is simply omitted). The honesty checker still vets the
+	// result, so a thinner block set lowers polish, not integrity.
+	closers := e.blockContent("CLOSER_RULES")
+	voice := e.blockContent("VOICE_RULES")
 	var b strings.Builder
 	fmt.Fprintf(&b, "Hook selector output (JSON):\n%s\n\n", hookJSON)
 	fmt.Fprintf(&b, "Role title: %s\n\n", role)
-	fmt.Fprintf(&b, "CLOSER_RULES:\n%s\n\n", closers)
-	fmt.Fprintf(&b, "VOICE_RULES:\n%s\n", voice)
+	if closers != "" {
+		fmt.Fprintf(&b, "CLOSER_RULES:\n%s\n\n", closers)
+	}
+	if voice != "" {
+		fmt.Fprintf(&b, "VOICE_RULES:\n%s\n", voice)
+	}
 	if bank := e.blockContent("BANK_ROWS"); bank != "" {
 		fmt.Fprintf(&b, "\nWriting-bank exemplars (match their voice):\n%s\n", bank)
 	}
@@ -442,9 +471,10 @@ func (e *Engine) draft(ctx context.Context, hookJSON, role string, hook hookOutp
 // --- stage 9: humanizer --------------------------------------------------
 
 // humanize runs the optional HUMANIZER cleanup pass. It is skipped when the
-// block is absent. If the revision drops P2_LOCKED verbatim (the humanizer
-// mangled the locked paragraph), the pre-humanizer text is kept.
-func (e *Engine) humanize(ctx context.Context, email, p2 string) string {
+// block is absent. If the revision drops ANY locked block verbatim (the
+// humanizer mangled a locked slot), the pre-humanizer text is kept — the
+// verbatim guarantee wins over the cleanup pass.
+func (e *Engine) humanize(ctx context.Context, email string, cfg Config, locked []string) string {
 	prompt := e.blockContent("HUMANIZER")
 	if prompt == "" {
 		return email
@@ -452,7 +482,7 @@ func (e *Engine) humanize(ctx context.Context, email, p2 string) string {
 	var b strings.Builder
 	b.WriteString("Email to clean up:\n")
 	b.WriteString(email)
-	if findings := Lint(email, p2); len(findings) > 0 {
+	if findings := Lint(email, locked, cfg); len(findings) > 0 {
 		b.WriteString("\n\nLint flagged these — fix them:\n")
 		for _, f := range findings {
 			fmt.Fprintf(&b, "- %s\n", f.Message)
@@ -478,10 +508,12 @@ func (e *Engine) humanize(ctx context.Context, email, p2 string) string {
 	if revised == "" {
 		return email
 	}
-	// If the humanizer dropped the locked paragraph, discard its output.
-	if p2 != "" && !strings.Contains(revised, p2) {
-		e.log("outreach: humanizer mangled P2_LOCKED — discarding its revision")
-		return email
+	// If the humanizer dropped any locked block, discard its output.
+	for _, lc := range locked {
+		if lc != "" && !strings.Contains(revised, lc) {
+			e.log("outreach: humanizer mangled a locked block — discarding its revision")
+			return email
+		}
 	}
 	return revised
 }
@@ -593,29 +625,39 @@ func (e *Engine) callJSON(ctx context.Context, system, user string, maxTokens in
 
 // --- assembly + parsing helpers ------------------------------------------
 
-// assembleEmail builds the final email in code: subject line, greeting, P1,
-// P2_LOCKED, P3. The recipient name stays a placeholder (contact-finding is the
-// user's job). The subject is the first "Subject: ..." line, then a blank line,
-// then the body — stored as one draft text field.
-func assembleEmail(snd Sender, p1, p2, p3, role string) string {
-	subject := "Subject: [Name] | " + snd.SubjectName + " intro"
-	if r := strings.TrimSpace(role); r != "" {
-		subject += " — " + r
-	}
-	parts := []string{"Hi [Name],", strings.TrimSpace(p1)}
-	if strings.TrimSpace(p2) != "" {
-		parts = append(parts, strings.TrimSpace(p2))
+// assembleEmail builds the final email from the configured structure: the
+// subject line (template-expanded), the greeting, the ordered body slots, and
+// the deterministic sign-off. A `model` slot inserts the named drafter
+// paragraph; a `locked` slot inserts its block content VERBATIM — the integrity
+// guarantee that locked content is never paraphrased. The model/locked maps
+// carry resolved content keyed by Source/Block; an empty-content slot is
+// skipped. The subject keeps its fixed "Subject: " prefix (the lint relies on
+// it to strip the chrome); the recipient name stays a placeholder.
+func assembleEmail(snd Sender, cfg Config, role string, model, locked map[string]string) string {
+	subject := "Subject: " + renderSubject(cfg.SubjectFormat, snd.SubjectName, role)
+	parts := []string{"Hi [Name],"}
+	for _, s := range cfg.Structure {
+		var content string
+		switch s.Kind {
+		case SlotModel:
+			content = strings.TrimSpace(model[s.Source])
+		case SlotLocked:
+			content = strings.TrimSpace(locked[s.Block])
+		}
+		if content != "" {
+			parts = append(parts, content)
+		}
 	}
 	// The sign-off is deterministic (snd.Signature) — models never write it.
-	parts = append(parts, strings.TrimSpace(p3), snd.Signature)
-	body := strings.Join(parts, "\n\n")
-	return subject + "\n\n" + body
+	parts = append(parts, snd.Signature)
+	return subject + "\n\n" + strings.Join(parts, "\n\n")
 }
 
-// lintJSON lints text against p2 and returns the findings as a JSON array
-// (always an array, never null, so the panel renders [] cleanly).
-func lintJSON(text, p2 string) string {
-	findings := Lint(text, p2)
+// lintJSON lints text against the locked-block contents + config and returns the
+// findings as a JSON array (always an array, never null, so the panel renders
+// [] cleanly).
+func lintJSON(text string, locked []string, cfg Config) string {
+	findings := Lint(text, locked, cfg)
 	if findings == nil {
 		findings = []LintFinding{}
 	}

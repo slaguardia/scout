@@ -54,10 +54,28 @@ var Slots = []Slot{
 	{"BANK_ROWS", TierDerived, "writing-bank exemplars, selected by move per draft"},
 }
 
-// Required lists the blocks a draft run cannot start without. HUMANIZER and
-// the derived blocks degrade gracefully (skipped pass / no exemplars) —
-// these five do not.
-var Required = []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES", "PAST_EXPERIENCE_FULL"}
+// SoftRequired blocks shape the model's prose but degrade gracefully when
+// absent: the draft proceeds (the relevant prompt section is simply omitted)
+// and the UI shows a quality warning. They are NOT gates — "fewer blocks"
+// lowers quality, never integrity. The hook selector's integrity instructions
+// live in its system prompt, and the honesty checker is the real backstop, so a
+// draft missing these is worse-written, not dishonest.
+var SoftRequired = []string{"HOOK_RULES", "CLOSER_RULES", "VOICE_RULES"}
+
+// HardRequired blocks a draft cannot run without, independent of email
+// structure. PAST_EXPERIENCE_FULL is the one fixed member: it is the honesty
+// checker's ground truth AND the EXPERIENCE_CARD's source.
+//
+// GUARDRAIL — do not relax: PAST_EXPERIENCE_FULL stays HARD precisely so the
+// honesty checker always runs over the assembled email. The check is never
+// disabled as a side effect of "fewer blocks"; if this block goes missing the
+// draft is BLOCKED, never quietly drafted without verification. Disabling
+// honesty checking, if ever offered, must be an explicit, loud toggle — not a
+// consequence of a thinner block set.
+//
+// The active structure's locked blocks are ALSO hard (see HardBlocks): a
+// missing locked block means an email that cannot render its verbatim slot.
+var HardRequired = []string{"PAST_EXPERIENCE_FULL"}
 
 // AnswersRequired lists the blocks application-answer generation cannot run
 // without: the full experience doc, which is both the honesty checker's ground
@@ -65,11 +83,36 @@ var Required = []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES"
 // gracefully (a less-voiced answer), so it is not required.
 var AnswersRequired = []string{"PAST_EXPERIENCE_FULL"}
 
-// MissingBlocks reports which Required (outreach) blocks are absent or broken in
-// the local cache. Empty means drafting may start. Cache-only — no brain call.
-func MissingBlocks(db *store.DB) ([]string, error) { return missingBlocks(db, Required) }
+// HardBlocks is the full hard-required set for a given email structure:
+// HardRequired plus every block the structure renders verbatim (its locked
+// slots), distinct and in a stable order.
+func HardBlocks(cfg Config) []string {
+	out := append([]string{}, HardRequired...)
+	seen := map[string]bool{}
+	for _, b := range out {
+		seen[b] = true
+	}
+	for _, b := range cfg.LockedBlocks() {
+		if !seen[b] {
+			seen[b] = true
+			out = append(out, b)
+		}
+	}
+	return out
+}
 
-// MissingAnswerBlocks is MissingBlocks for the answer-generation gate.
+// MissingHardBlocks reports which HARD blocks (for the given structure) are
+// absent or broken in the local cache. Empty means drafting may start.
+// Cache-only — no brain call.
+func MissingHardBlocks(db *store.DB, cfg Config) ([]string, error) {
+	return missingBlocks(db, HardBlocks(cfg))
+}
+
+// MissingSoftBlocks reports which SOFT blocks are absent or broken. The draft
+// still runs (degraded), but the UI warns. Cache-only — no brain call.
+func MissingSoftBlocks(db *store.DB) ([]string, error) { return missingBlocks(db, SoftRequired) }
+
+// MissingAnswerBlocks is the answer-generation gate (the experience doc only).
 func MissingAnswerBlocks(db *store.DB) ([]string, error) { return missingBlocks(db, AnswersRequired) }
 
 func missingBlocks(db *store.DB, names []string) ([]string, error) {

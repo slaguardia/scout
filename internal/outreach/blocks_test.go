@@ -245,8 +245,9 @@ func TestDeclaredBlockSurvivesSync(t *testing.T) {
 	if b == nil || b.Content != "the frozen paragraph" {
 		t.Fatalf("declared content lost: %+v", b)
 	}
-	// Declared content satisfies the gate.
-	missing, err := MissingBlocks(db)
+	// Declared content satisfies the gate (P2_LOCKED is a hard block under the
+	// default structure, which renders it as a locked slot).
+	missing, err := MissingHardBlocks(db, DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

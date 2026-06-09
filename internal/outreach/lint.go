@@ -85,12 +85,16 @@ func emailBody(text string) string {
 
 // Lint checks an assembled email against the deterministic rules from the
 // Cold email template + Voice & style pages: no em dashes, no banned phrases,
-// 75–125 body words, no doubled words, and — when p2 is non-empty — the
-// locked credential paragraph present VERBATIM (catches the humanizer
+// the configured body-word window, no doubled words, and — for each non-empty
+// locked block — that its content is present VERBATIM (catches the humanizer
 // mangling it). Rules run against the body (subject/greeting/sign-off
-// stripped); the P2 check runs against the full text. Returns findings,
-// empty when clean.
-func Lint(text, p2 string) []LintFinding {
+// stripped); the locked-block checks run against the full text.
+//
+// The word window comes from cfg (defaults reproduce the old 75–125). `locked`
+// is every verbatim block the structure renders — the integrity guarantee that
+// locked slots survive byte-for-byte; pass nil/empty to skip that class of
+// check. Returns findings, empty when clean.
+func Lint(text string, locked []string, cfg Config) []LintFinding {
 	var out []LintFinding
 	add := func(code, msg string) { out = append(out, LintFinding{Code: code, Message: msg}) }
 
@@ -110,11 +114,13 @@ func Lint(text, p2 string) []LintFinding {
 	if m := doubledWord(body); m != "" {
 		add("doubled_word", fmt.Sprintf("doubled word: %q", m))
 	}
-	if n := len(wordSplitter.FindAllString(body, -1)); n < 75 || n > 125 {
-		add("word_count", fmt.Sprintf("%d body words; want 75-125", n))
+	if n := len(wordSplitter.FindAllString(body, -1)); n < cfg.WordMin || n > cfg.WordMax {
+		add("word_count", fmt.Sprintf("%d body words; want %d-%d", n, cfg.WordMin, cfg.WordMax))
 	}
-	if p2 != "" && !strings.Contains(text, p2) {
-		add("p2_missing", "locked credential paragraph is not present verbatim")
+	for _, lc := range locked {
+		if lc != "" && !strings.Contains(text, lc) {
+			add("p2_missing", "a locked block is not present verbatim")
+		}
 	}
 	return out
 }

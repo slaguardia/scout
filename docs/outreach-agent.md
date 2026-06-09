@@ -255,15 +255,33 @@ a false pass costs more than a false fail.
 
 ## Deterministic code (not agents)
 
-- **Assembly:** greeting + P1 + P2_LOCKED + P3 + signature; subject
-  `[Name] | Alex intro — [role]`. Name left as placeholder — contact-finding is
-  out of scope (Alex finds the person).
-- **Lint (regex/rules):** em dashes; banned-phrase list; word count 75–125;
-  doubled-word check ("has has"); P2_LOCKED verbatim-presence assertion. Rules
-  run against the BODY — the subject line (whose canonical format contains an
-  em dash), greeting, and sign-off are stripped first. The old applied-mention
+- **Assembly:** greeting + an ordered list of body slots + signature. The slot
+  list is **config** (`OutreachConfig.structure`, default
+  `model(P1) → locked(P2_LOCKED) → model(P3)`): each slot is `model`
+  (agent-authored, P1/P3) or `locked` (a block inserted verbatim). The subject is
+  a template (default `[Name] | {sender} intro — {role}`; `{role}` and its
+  separator drop when the role is empty). Name left as placeholder —
+  contact-finding is out of scope (the user finds the person). Edited from the
+  Criteria panel's "outreach config" or `scout outreach config`. **Locked slots
+  are verbatim and PAST_EXPERIENCE_FULL is never a body slot** — both are enforced
+  by the config validator, not convention.
+- **Lint (regex/rules):** em dashes; banned-phrase list; a configurable
+  body-word window (`OutreachConfig.word_min/max`, default 75–125); doubled-word
+  check ("has has"); every `locked` block verbatim-presence assertion. Rules run
+  against the BODY — the subject line (whose canonical format contains an em
+  dash), greeting, and sign-off are stripped first. The old applied-mention
   detector is gone: the refactored template sanctions "saw your post, applied
   today" as the light hook. Runs before AND after the humanizer pass.
+- **Required blocks are tiered.** HARD blocks gate a draft: `PAST_EXPERIENCE_FULL`
+  (the honesty checker's ground truth, always required — see below) plus whatever
+  the active structure renders as a `locked` slot. SOFT blocks
+  (`HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`) degrade gracefully — the draft
+  proceeds with the section omitted and the UI warns; integrity is unaffected
+  because the hook selector's gate is in its system prompt and the honesty
+  checker still runs. **GUARDRAIL:** the honesty checker runs over the whole
+  assembled email against `PAST_EXPERIENCE_FULL` regardless of structure; it is
+  never disabled as a side effect of a thinner block set — only a missing
+  `PAST_EXPERIENCE_FULL` blocks the draft, never silently skips the check.
 - **No-email route:** on no_honest_hook there is NO draft — "if you can't write
   even one true sentence for a company, don't email them" (Cold email template
   page). Scout's job is making sure there IS something true to say; when there
@@ -357,12 +375,16 @@ posting row (Add-by-link capture). Outreach becomes a verb on the tracker, and
 The pipeline, refusal path, lint-twice, locked-credentials pattern, and honesty
 checker are the product; the blocks are a **profile pack** another user fills via
 their own brain + pins — the map-pinning GUI adapts to any hierarchy, no hardcoded
-page ids. Known gaps: the Researcher's relevance lens and the Drafter's sender
-line must derive from the user's one-line summary (currently Alex-hardcoded);
-lint constants (word count, subject format) become config with these as defaults;
-an empty Writing Bank degrades gracefully (skip voice calibration, rules only).
-Non-configurable on purpose: never auto-send, never invent experience,
-refusal-as-success.
+page ids. The user-specific framing is now data: the Researcher's relevance lens
+and the Drafter's sender line come from the `Sender` identity, and the lint
+constants (word window, subject format) plus the email structure are
+`OutreachConfig` (defaults reproduce the original hardcoded values). An empty
+Writing Bank degrades gracefully (skip voice calibration, rules only), and the
+three rules blocks degrade too (SOFT tier). **Non-configurable on purpose:** never
+auto-send; never invent experience (the honesty checker over `PAST_EXPERIENCE_FULL`
+is unconditional and HARD-required); refusal-as-success; locked slots stay
+verbatim. Disabling honesty checking, if ever offered, must be an explicit loud
+toggle — never a consequence of fewer blocks.
 
 ## Open questions
 

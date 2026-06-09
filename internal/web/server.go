@@ -141,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/postings/", s.handlePosting)              // PUT {id}: application-lifecycle update
 	mux.HandleFunc("/api/capture", s.handleCapture)                // POST: link-capture agent pass
 	mux.HandleFunc("/api/outreach/sender", s.handleOutreachSender) // GET/PUT the cold-email identity (see sender.go)
+	mux.HandleFunc("/api/outreach/config", s.handleOutreachConfig) // GET/PUT the lint/structure knobs (see outreach_config.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)             // blocks / sync / drafts (see outreach.go)
 	mux.HandleFunc("/api/answers/", s.handleAnswer)                // PUT {id}: edit / regenerate one answer (see answers.go)
 	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)       // GET open-or-create a (scope,scope_id) thread
