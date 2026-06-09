@@ -333,10 +333,35 @@ func concatFilled(holes []Hole, filled map[string]string) string {
 
 // humanize runs the de-AI cleanup over the model-written holes, matching the
 // user's voice and removing AI tells, WITHOUT touching the verbatim template
-// prose (it only ever sees the holes). Best-effort: any error, unparseable
-// output, or empty hole keeps the original fill, so a flaky cleanup pass never
-// loses the draft. The honesty checker runs after it, catching any fact drift.
+// prose (it only ever sees the holes). The model is stubborn about em dashes, so
+// it runs the deterministic flag after each pass and retries ONCE with the exact
+// leftovers fed back. Best-effort throughout: any error keeps the current text,
+// so a flaky cleanup pass never loses the draft. The honesty checker runs after
+// it, catching any fact drift.
 func (e *Engine) humanize(ctx context.Context, holes []Hole, filled map[string]string, voice string) map[string]string {
+	cur := filled
+	var feedback string
+	for attempt := 0; attempt < 2; attempt++ {
+		next := e.humanizeOnce(ctx, holes, cur, voice, feedback)
+		cur = next
+		bad := VoiceFindings(concatFilled(holes, cur))
+		if len(bad) == 0 {
+			return cur
+		}
+		msgs := make([]string, len(bad))
+		for i, f := range bad {
+			msgs[i] = f.Message
+		}
+		feedback = "Your last pass still left: " + strings.Join(msgs, "; ") +
+			". Fix each by REWRITING the sentence (especially: replace every em dash, do not just move it)."
+		e.log("outreach: humanizer left voice issues, retrying: %s", strings.Join(msgs, "; "))
+	}
+	return cur // still flagged after the retry — the deterministic flag surfaces it
+}
+
+// humanizeOnce is a single cleanup pass. feedback, when set, names the exact
+// leftovers from the prior pass. Returns the current text unchanged on any error.
+func (e *Engine) humanizeOnce(ctx context.Context, holes []Hole, filled map[string]string, voice, feedback string) map[string]string {
 	in := map[string]string{}
 	for _, h := range holes {
 		in[h.Name] = filled[h.Name]
@@ -347,14 +372,17 @@ func (e *Engine) humanize(ctx context.Context, holes []Hole, filled map[string]s
 	if voice != "" {
 		fmt.Fprintf(&b, "\nVOICE rules:\n%s\n", voice)
 	}
+	if feedback != "" {
+		fmt.Fprintf(&b, "\n%s\n", feedback)
+	}
 	raw, err := e.callJSON(ctx, humanizeSystem, b.String(), stageMaxTokens, nil)
 	if err != nil {
-		e.log("outreach: humanizer failed, keeping fill: %v", err)
+		e.log("outreach: humanizer failed, keeping current text: %v", err)
 		return filled
 	}
 	cleaned, perr := extractJSONObject(raw)
 	if perr != nil {
-		e.log("outreach: humanizer output unparseable, keeping fill")
+		e.log("outreach: humanizer output unparseable, keeping current text")
 		return filled
 	}
 	var out map[string]string
@@ -366,7 +394,7 @@ func (e *Engine) humanize(ctx context.Context, holes []Hole, filled map[string]s
 		if t := strings.TrimSpace(out[h.Name]); t != "" {
 			result[h.Name] = t
 		} else {
-			result[h.Name] = filled[h.Name] // humanizer dropped it — keep the fill
+			result[h.Name] = filled[h.Name] // humanizer dropped it — keep current
 		}
 	}
 	return result
