@@ -637,10 +637,6 @@ function renderPursuit() {
 
   document.getElementById("pursuit-body").innerHTML = `
     <section class="pane-section role-head">
-      <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1m-9 0h11a1 1 0 011 1v7a1 1 0 01-1 1H2.5a1 1 0 01-1-1V5a1 1 0 011-1z"/></svg>
-        Role
-      </h3>
       <div id="role-body">${roleEditHTML(j)}</div>
     </section>
 

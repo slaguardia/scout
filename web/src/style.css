@@ -695,6 +695,12 @@
   /* role header — title, link, location, secondary company */
   .role-head .role-url { font-size: 13px; word-break: break-all; }
   .role-head .role-url-head { display: flex; gap: 8px; align-items: center; }
+  /* the link label is nested under role-url-head, so it misses the
+     .ie-field > label (direct-child) rule — restate it to stay consistent. */
+  .role-head .role-url-head > label {
+    color: var(--fg-mute); font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
   .role-head .role-url-open {
     color: var(--link); text-decoration: none; line-height: 1;
     font-size: 18px; padding: 0 2px;
@@ -1382,8 +1388,8 @@
   .sender-form textarea.ie { min-height: 2.4em; resize: vertical; }
   .ie-title { font: inherit; font-weight: inherit; letter-spacing: inherit; }
   /* two editable values side by side (location/comp, etc.) */
-  .ie-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
-  .ie-grid .prow { display: flex; gap: 14px; }
+  .ie-grid { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+  .ie-grid .prow { display: flex; gap: 16px; }
   .ie-grid .prow > * { flex: 1; min-width: 0; }
   .ie-field { display: flex; flex-direction: column; gap: 2px; }
   .ie-field > label {
