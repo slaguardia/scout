@@ -727,11 +727,12 @@ function renderPursuit() {
 // are read-only context. Each field auto-saves on blur/Enter — see renderPursuit.
 function roleEditHTML(j) {
   return `
-    <div class="role-url ie-field"><label>link</label>
-      <div class="role-url-row">
-        <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${escapeHTML(j.url || "")}">
+    <div class="role-url ie-field">
+      <div class="role-url-head">
+        <label>link</label>
         <a class="role-url-open" href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open the posting">↗</a>
       </div>
+      <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${escapeHTML(j.url || "")}">
     </div>
     <div class="ie-grid">
       <div class="prow">

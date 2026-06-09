@@ -777,11 +777,12 @@ Return the JSON verdict now.</pre>
       <div id="answers-section"></div>
     </section>
   `,jt();const s=document.getElementById("pursuit-company-link");s&&s.addEventListener("click",()=>G(e.company_id)),j(document.getElementById("pursuit-title-input"),a=>Je(e,"title",a)),j(document.getElementById("pursuit-url-input"),a=>_t(e,a)),j(document.getElementById("pursuit-notes-input"),a=>St(a),{multiline:!0}),document.querySelectorAll("#role-body [data-k]").forEach(a=>j(a,o=>Je(e,a.dataset.k,o),{multiline:a.tagName==="TEXTAREA"})),Y(),D()}function Lt(e){return`
-    <div class="role-url ie-field"><label>link</label>
-      <div class="role-url-row">
-        <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${i(e.url||"")}">
+    <div class="role-url ie-field">
+      <div class="role-url-head">
+        <label>link</label>
         <a class="role-url-open" href="${f(e.url)}" target="_blank" rel="noopener" title="open the posting">↗</a>
       </div>
+      <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${i(e.url||"")}">
     </div>
     <div class="ie-grid">
       <div class="prow">

@@ -694,11 +694,10 @@
 
   /* role header — title, link, location, secondary company */
   .role-head .role-url { font-size: 13px; word-break: break-all; }
-  .role-head .role-url-row { display: flex; gap: 6px; align-items: center; }
-  .role-head .role-url-row .ie { flex: 1 1 auto; min-width: 0; }
+  .role-head .role-url-head { display: flex; gap: 8px; align-items: center; }
   .role-head .role-url-open {
-    flex: 0 0 auto; color: var(--link); text-decoration: none;
-    font-size: 14px; padding: 0 2px;
+    color: var(--link); text-decoration: none; line-height: 1;
+    font-size: 18px; padding: 0 2px;
   }
   .role-head .role-url-open:hover { text-decoration: underline; }
   .role-head .role-meta {
