@@ -1,0 +1,23 @@
+# mprocs — one window for every scout dev server.
+#
+# Run `mprocs` from the repo root. You get a TUI listing both processes with
+# live logs; select one and press:
+#   r  restart      x  stop/start      ↑/↓  switch      q  quit (kills all)
+#
+# This is the canonical place scout's dev servers live. If you ever see a
+# stray `scout serve` or `vite` running outside this window, it's an orphan
+# you can kill — nothing here started it.
+#
+# Install: brew install mprocs
+procs:
+  api:
+    # Go control surface + local SQLite, serves /api on :8765.
+    # Needs ANTHROPIC_API_KEY (shell env or a .env in the repo root) for
+    # verdict/capture/outreach; runs read-only without it.
+    shell: "go run ./cmd/scout serve"
+
+  web:
+    # Vite dev server on :5173, proxies /api/* to the Go server on :8765.
+    # This is the URL you open in the browser.
+    shell: "npm run dev"
+    cwd: web
