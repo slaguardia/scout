@@ -125,8 +125,8 @@
     padding-top: 16px; border-top: 1px solid var(--line);
     display: flex; gap: 8px; justify-content: center;
   }
-  .foot-icon { flex: none; width: 34px; height: 30px; padding: 0; justify-content: center; }
-  .foot-icon svg { width: 15px; height: 15px; }
+  .foot-btn { flex: none; justify-content: center; }
+  .foot-btn svg { width: 14px; height: 14px; flex: none; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
   aside.sidebar .block { padding: 18px 0; }
@@ -1075,14 +1075,14 @@
   /* floating chat CTA — bottom-right, above the main view but below side panes */
   .chat-fab {
     position: fixed; bottom: 22px; right: 22px; z-index: 40;
-    width: 48px; height: 48px; border-radius: 50%;
+    width: 58px; height: 58px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     background: var(--panel); color: var(--link);
     border: 1px solid var(--line-2); box-shadow: 0 4px 16px rgba(0,0,0,0.32);
     cursor: pointer; transition: all var(--dur-fast) var(--ease);
   }
   .chat-fab:hover { border-color: var(--link); background: var(--link-bg); transform: translateY(-1px); }
-  .chat-fab svg { width: 20px; height: 20px; }
+  .chat-fab svg { width: 24px; height: 24px; }
   .modal {
     width: 760px; max-width: 92vw; max-height: 86vh;
     background: var(--bg-2); border: 1px solid var(--line-2);
