@@ -40,9 +40,20 @@ func New(apiKey string) *Client {
 	return &Client{
 		APIKey:   apiKey,
 		Endpoint: defaultEndpoint,
-		HTTP:     &http.Client{Timeout: 45 * time.Second},
+		// Generous backstop only; the real per-call deadline is enforced via
+		// context in Send (so web_search calls get room and streaming chat isn't
+		// capped at a few seconds).
+		HTTP: &http.Client{Timeout: 10 * time.Minute},
 	}
 }
+
+// Per-call deadlines (enforced via context in Send). Plain calls get a tight
+// bound; hosted web_search requests run a server-side search loop that can sit
+// well past a normal timeout before the first byte, so they get much more room.
+const (
+	defaultCallTimeout = 90 * time.Second
+	toolCallTimeout    = 5 * time.Minute
+)
 
 // Message is a single turn. Content is a plain string for normal turns; pass
 // a Response.RawContent() to replay a prior assistant turn verbatim (the
@@ -80,6 +91,9 @@ type Request struct {
 	// engine pins it to {type:"adaptive"} so Sonnet 4.6 decides its own thinking
 	// depth and interleaves thinking between tool calls. nil omits the field.
 	Thinking any `json:"-"`
+	// Timeout overrides the per-call deadline for this request. Zero uses the
+	// default (or the longer web_search default when Tools are set).
+	Timeout time.Duration `json:"-"`
 }
 
 // ToolDef is a custom (client-executed) tool definition. The model emits a
@@ -263,6 +277,14 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 	// blips) with backoff. Without this, raising the verdict/enrich worker
 	// counts just converts rate-limit pressure into silently-failed companies.
 	// We honor the server's retry-after when present, else exponential backoff.
+	callTimeout := defaultCallTimeout
+	if len(req.Tools) > 0 {
+		callTimeout = toolCallTimeout // hosted web_search runs server-side — give it room
+	}
+	if req.Timeout > 0 {
+		callTimeout = req.Timeout
+	}
+
 	var lastErr error
 	var retryAfter time.Duration
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -275,26 +297,36 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 			retryAfter = 0
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
+		// Each attempt gets its own deadline (derived from the caller's ctx, so a
+		// cancelled/expired parent still wins). A per-call timeout surfaces as a
+		// retryable error, NOT a hard parent-cancel.
+		raw, status, hdr, err := func() ([]byte, int, http.Header, error) {
+			attemptCtx, cancel := context.WithTimeout(ctx, callTimeout)
+			defer cancel()
+			httpReq, rErr := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
+			if rErr != nil {
+				return nil, 0, nil, rErr
+			}
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq.Header.Set("x-api-key", c.APIKey)
+			httpReq.Header.Set("anthropic-version", apiVersion)
+			resp, dErr := c.HTTP.Do(httpReq)
+			if dErr != nil {
+				return nil, 0, nil, dErr
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			return b, resp.StatusCode, resp.Header, nil
+		}()
 		if err != nil {
-			return nil, err
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("x-api-key", c.APIKey)
-		httpReq.Header.Set("anthropic-version", apiVersion)
-
-		resp, err := c.HTTP.Do(httpReq)
-		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil { // parent cancelled/expired — stop
 				return nil, ctx.Err()
 			}
-			lastErr = fmt.Errorf("anthropic POST: %w", err) // transient network — retry
+			lastErr = fmt.Errorf("anthropic POST: %w", err) // transient (incl. per-call timeout) — retry
 			continue
 		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-		resp.Body.Close()
 
-		if resp.StatusCode/100 == 2 {
+		if status/100 == 2 {
 			var out Response
 			if err := json.Unmarshal(raw, &out); err != nil {
 				return nil, fmt.Errorf("anthropic decode: %w (body=%s)", err, string(raw))
@@ -302,11 +334,11 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 			return &out, nil
 		}
 
-		lastErr = fmt.Errorf("anthropic HTTP %d: %s", resp.StatusCode, string(raw))
-		if !retryableStatus(resp.StatusCode) {
+		lastErr = fmt.Errorf("anthropic HTTP %d: %s", status, string(raw))
+		if !retryableStatus(status) {
 			return nil, lastErr
 		}
-		retryAfter = parseRetryAfter(resp.Header.Get("retry-after"))
+		retryAfter = parseRetryAfter(hdr.Get("retry-after"))
 	}
 	return nil, fmt.Errorf("anthropic: giving up after %d retries: %w", maxRetries, lastErr)
 }

@@ -44,8 +44,9 @@ type Engine struct {
 
 const (
 	// draftTimeout bounds one full pipeline run (research + fill + honesty +
-	// possible retry). Generous: web_search adds latency.
-	draftTimeout = 8 * time.Minute
+	// possible retry). Generous: the hosted web_search researcher can take a few
+	// minutes on its own.
+	draftTimeout = 12 * time.Minute
 	// researcherMaxTokens covers the structured-facts JSON (hooks + quotes).
 	researcherMaxTokens = 4000
 	// stageMaxTokens covers the smaller per-stage JSON outputs (fill, honesty).
