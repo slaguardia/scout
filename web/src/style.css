@@ -121,7 +121,10 @@
   .sidebar-bottom { margin-top: auto; }
   /* the chat entry sits ABOVE the divider, spaced from "how it works" below it. */
   .sidebar-chat { width: 100%; justify-content: center; margin-bottom: 14px; }
-  .sidebar-foot { padding-top: 16px; border-top: 1px solid var(--line); }
+  .sidebar-foot {
+    padding-top: 16px; border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
+  }
   .sidebar-foot .doc-btn { width: 100%; justify-content: center; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
