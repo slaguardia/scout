@@ -94,7 +94,7 @@ function renderStats() {
   // The only count worth surfacing — riding the unscored filter chip itself.
   document.getElementById("unscored-n").textContent = s.unscored ?? 0;
 
-  // Criteria block (source + playbook + stale badge) reads stats too.
+  // Criteria block (source + playbook) reads stats too.
   renderCriteria();
 }
 
@@ -2567,7 +2567,7 @@ async function saveEditor() {
   if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
   toast(`${editorKind}.md saved`);
   closeEditor();
-  loadStats(); // stale-count updates immediately
+  loadStats(); // refresh the criteria version shown in the sidebar
 }
 
 // ---- wiring ----
@@ -2839,7 +2839,7 @@ async function loadProfile() {
 // renderCriteria draws the Criteria block: the active "what the user wants"
 // source (the company-fit brief when the brain is live — click the name to view,
 // icon button to re-distill — or taste.md when the brain is offline — editable),
-// the always-editable playbook, and the stale-verdicts badge. Driven by
+// the always-editable playbook. Driven by
 // state.profile + state.stats.
 const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.6 2.4a1.2 1.2 0 0 1 1.7 1.7L5.6 11.8l-3 1 1-3z"/><path d="M10.4 3.6l2 2"/></svg>';
 const REFRESH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8"/><path d="M13.6 2.6V5.2H11"/></svg>';
@@ -2848,7 +2848,6 @@ function renderCriteria() {
   const el = document.getElementById("criteria-stats");
   if (!el) return;
   const p = state.profile;
-  const stale = (state.stats && state.stats.stale_verdicts) || 0;
   const active = (p && p.active_source) || (state.stats && state.stats.taste_source) || "";
   const usingBrain = active.startsWith("brain:");
   const hasBody = p && typeof p.body === "string";
@@ -2881,11 +2880,6 @@ function renderCriteria() {
   html += `<div class="crit-row">
     <span class="crit-what">outreach config</span>
     <button class="crit-edit" id="edit-config" title="edit outreach config (lint knobs + email structure)" aria-label="edit outreach config">${PENCIL}</button></div>`;
-  if (stale > 0) {
-    html += `<div class="stale">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5v4M8 11.5v.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6.5"/></svg>
-      ${stale} verdicts stale</div>`;
-  }
   el.innerHTML = html;
 
   const vp = document.getElementById("view-profile");
@@ -2921,7 +2915,7 @@ async function refreshProfile() {
   state.profile = await resp.json();
   renderCriteria();
   toast("company-fit brief refreshed");
-  loadStats(); // criteria version / stale-count may have changed
+  loadStats(); // criteria version shown in the sidebar may have changed
 }
 
 function openProfileModal(d) {

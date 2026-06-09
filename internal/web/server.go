@@ -92,9 +92,9 @@ func (s *Server) ReloadTaste() {
 	}
 	pb, _ := playbook.Load(s.PlaybookPath)
 	if tb != nil && pb != "" {
-		// Fold the playbook into the version (not the brief text): tb.Version is
-		// already the stable basis hash, so a playbook edit re-scores while
-		// cosmetic brief drift does not.
+		// Fold the playbook into the version: it stamps each new verdict with the
+		// exact criteria (brief basis + playbook) it was scored under, recorded in
+		// the decision trail. It no longer gates re-scoring.
 		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Version)
 		tb.Source = tb.Source + " + " + s.PlaybookPath
 	}

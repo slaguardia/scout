@@ -148,12 +148,11 @@ type Stats struct {
 	FetchStatus       map[string]int `json:"fetch_status"`
 	CurrentTaste      string         `json:"current_taste"`       // version hash, e.g. "b4cd783174d6"
 	TasteSource       string         `json:"taste_source"`        // "file:taste.md" or "brainbot:<url>" or "" if unknown
-	StaleVerdicts     int            `json:"stale_verdicts"`      // verdicts whose taste_version != CurrentTaste
-	TasteVersionsSeen []string       `json:"taste_versions_seen"` // distinct taste_versions present in verdicts
 }
 
-// GetStats computes the sidebar payload. currentTasteVersion may be empty
-// (e.g. taste.md unreadable at serve start); when empty, StaleVerdicts is 0.
+// GetStats computes the sidebar payload. currentTasteVersion is recorded as the
+// active criteria version (shown in the decision trail); it no longer gates any
+// re-scoring — a verdict, once scored, persists until an explicit re-score.
 func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, error) {
 	s := &Stats{
 		ByVerdict:    map[string]int{},
@@ -181,33 +180,6 @@ func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, 
 	}
 	if err := scanHist(db, `SELECT fetch_status, COUNT(1) FROM enrichment GROUP BY fetch_status`, s.FetchStatus); err != nil {
 		return nil, err
-	}
-
-	rows, err := db.Query(`SELECT DISTINCT taste_version FROM verdicts ORDER BY taste_version`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, err
-		}
-		s.TasteVersionsSeen = append(s.TasteVersionsSeen, v)
-		if currentTasteVersion != "" && v != currentTasteVersion {
-			// Count stale below in a single query for accuracy; we'll overwrite.
-		}
-	}
-	if currentTasteVersion != "" {
-		// Manual overrides are sticky — a re-run skips them — so they'd never
-		// clear from this count. Exclude them so the badge reflects only rows a
-		// verdict run would actually re-score.
-		if err := db.QueryRow(
-			`SELECT COUNT(1) FROM verdicts WHERE taste_version != ? AND model != ?`,
-			currentTasteVersion, ManualModel,
-		).Scan(&s.StaleVerdicts); err != nil {
-			return nil, err
-		}
 	}
 
 	return s, nil

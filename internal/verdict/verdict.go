@@ -1,7 +1,8 @@
 // Package verdict scores enriched survivors with the Anthropic API using the
-// current taste block. Results are persisted to verdicts. Idempotent by
-// (company_id, taste_version): if the existing row already matches, the call
-// is skipped.
+// current taste block. Results are persisted to verdicts. A scored company is
+// sticky: a default run skips any company that already has a verdict (criteria
+// or playbook edits do not re-score it). Re-scoring is always explicit — a
+// targeted per-company run, or a --force run that re-scores everything.
 package verdict
 
 import (
@@ -27,11 +28,13 @@ type Scorer struct {
 	Filter *filter.Taste
 	Client *anthropic.Client
 	Model  string
-	Force  bool // re-score even if taste_version matches
+	Force  bool // re-score every eligible company, replacing existing verdicts
 
 	// OnlyBlanks limits the run to companies with no verdict row at all — the
-	// cheap "just the new arrivals" pass. Stale and manual verdicts are left
-	// untouched. Takes precedence over Force.
+	// "just the new arrivals" pass. This is also what a default (non-force) run
+	// now does, since scored companies are sticky; the flag stays for explicit
+	// callers and to share the run-dialog knob with enrich. Takes precedence
+	// over Force.
 	OnlyBlanks bool
 
 	// CompanyIDs limits the run to exactly these companies and always
@@ -44,8 +47,8 @@ type Scorer struct {
 
 	// Playbook is the agent's operating manual (how to decide) — distinct from
 	// Taste (what the user wants). Empty means fall back to the built-in rubric.
-	// The caller is responsible for folding the playbook text into
-	// Taste.Version so verdicts re-score when the playbook changes.
+	// It's recorded in Taste.Version (the criteria the verdict was scored under,
+	// shown in the trail), but editing it no longer re-scores existing verdicts.
 	Playbook string
 
 	// RunID, when set, tags every decision-trail row with the UI run uuid so a
@@ -246,18 +249,11 @@ func (s *Scorer) scoreOne(ctx context.Context, c store.VerdictCandidate) (*store
 			return nil, 0, 0, err
 		}
 		if existing != nil {
-			// Blanks-only run: anything already scored is out of scope.
-			if s.OnlyBlanks {
-				return nil, 0, 0, nil
-			}
-			// A hand-set verdict is sticky: leave it untouched unless --force. A
-			// manual correction that auto-reverts on the next run would be pointless.
-			if existing.Model == store.ManualModel {
-				return nil, 0, 0, nil // manual override, skip
-			}
-			if existing.TasteVersion == s.Taste.Version {
-				return nil, 0, 0, nil // up to date, skip
-			}
+			// Any already-scored company is left untouched on a default or
+			// blanks-only run. Verdicts don't go stale on a criteria change — they
+			// persist until an explicit re-score (--force, or a targeted run). This
+			// keeps a brief/playbook edit from silently churning every verdict.
+			return nil, 0, 0, nil
 		}
 	}
 

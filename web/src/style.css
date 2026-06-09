@@ -186,17 +186,6 @@
     width: 13px; height: 13px; color: var(--fg-dim); pointer-events: none;
   }
 
-  .stale {
-    margin-top: 8px;
-    padding: 8px 10px;
-    background: var(--maybe-bg);
-    color: var(--maybe);
-    border-radius: var(--r-md);
-    font-size: 12px;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .stale svg { width: 13px; height: 13px; flex: none; }
-
   aside.sidebar code {
     color: var(--fg);
     background: var(--panel);

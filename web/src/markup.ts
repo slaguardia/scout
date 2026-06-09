@@ -280,7 +280,7 @@ export const SCOUT_MARKUP = `
       <textarea id="editor-text" spellcheck="false"></textarea>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Edits write the local file only — never the brain. Saving re-scores everything on the next verdict run (the version changes).</span>
+        <span>Edits write the local file only — never the brain. Existing verdicts are left as-is; the new criteria apply to companies you score or re-score from here on.</span>
       </div>
     </div>
     <div class="modal-foot">
@@ -695,7 +695,7 @@ Return the JSON verdict now.</pre>
           <ul>
             <li>The first pass runs on <strong>Haiku</strong> (<code>claude-haiku-4-5</code>) — cheap and fast. <strong>Prompt caching</strong> is on: the system block is identical across the run, so it's billed once.</li>
             <li>scout parses <code>{"verdict": …, "reason": …}</code> tolerantly (it copes with stray fences or text) and stores one row per company.</li>
-            <li>A verdict is tagged with a <strong>criteria version</strong> — a hash of the playbook + your criteria. When the brain learns something new, or you edit the playbook or <code>taste.md</code>, the version changes and those companies <strong>re-score on the next run</strong>. That's the "N verdicts stale" badge in the sidebar. Up-to-date rows are skipped, so re-running is cheap.</li>
+            <li>A verdict is tagged with the <strong>criteria version</strong> it was scored under — a hash of the playbook + your criteria — recorded as provenance in the company's decision trail. A scored company is <strong>sticky</strong>: editing the playbook, the brief, or <code>taste.md</code> does <em>not</em> re-score it. Re-scoring is always explicit (see <em>Re-running</em> below), so a criteria tweak never silently churns your existing verdicts.</li>
           </ul>
         </section>
 
@@ -712,7 +712,7 @@ Return the JSON verdict now.</pre>
               <tr><td class="field">scout.db</td><td>The local SQLite working set: companies, enrichment, verdicts, and run history. Disposable — rebuild from a CSV anytime.</td><td>managed by scout</td></tr>
             </tbody>
           </table>
-          <div class="callout">The in-UI editor writes the <strong>local files only</strong> and never touches the brain — that separation is deliberate. Saving an edit changes the criteria version, so the next verdict run re-scores everything.</div>
+          <div class="callout">The in-UI editor writes the <strong>local files only</strong> and never touches the brain — that separation is deliberate. An edit changes the criteria version going forward; existing verdicts stay put until you re-score them.</div>
         </section>
 
         <section id="doc-triage">
@@ -731,7 +731,7 @@ Return the JSON verdict now.</pre>
             <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
-          <p>The <strong>unscored</strong> filter chip carries a live count of companies still awaiting a verdict. When your criteria or playbook change, a <strong>"N verdicts stale"</strong> badge appears — re-run Verdict to refresh just those. Everything is incremental, so re-running only touches what's out of date.</p>
+          <p>The <strong>unscored</strong> filter chip carries a live count of companies still awaiting a verdict. A <strong>Verdict</strong> run scores those new arrivals and leaves everything already scored untouched — so re-running is always cheap and never disturbs verdicts you've reviewed. Changing your criteria or playbook doesn't invalidate anything. When you do want a company re-judged against the latest criteria, use the <strong>↻ re-score</strong> button in its detail pane (a single, deliberate call); to refresh the whole set, run <code>scout verdict --force</code>.</p>
         </section>
 
       </div>

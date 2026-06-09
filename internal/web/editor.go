@@ -53,8 +53,8 @@ func (s *Server) handleEditorFile(w http.ResponseWriter, r *http.Request, path, 
 			http.Error(w, "write "+kind+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Recompute the server's taste block so /api/stats (version + stale
-		// count) reflects the edit immediately.
+		// Recompute the server's taste block so new scores use the edited
+		// criteria immediately. Existing verdicts are untouched (no auto re-score).
 		s.ReloadTaste()
 		writeJSON(w, http.StatusOK, s.editorPayload(kind, path, body.Content))
 
@@ -64,8 +64,8 @@ func (s *Server) handleEditorFile(w http.ResponseWriter, r *http.Request, path, 
 }
 
 // editorPayload reports the file content plus the *effective* version the
-// verdict stage would use, so the UI can show "this edit makes N verdicts
-// stale" without a round-trip to /api/stats.
+// verdict stage would use to tag new scores, so the UI can show it without a
+// round-trip to /api/stats.
 func (s *Server) editorPayload(kind, path, content string) map[string]any {
 	out := map[string]any{
 		"kind":    kind,
