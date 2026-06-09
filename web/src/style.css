@@ -123,9 +123,11 @@
   .sidebar-chat { width: 100%; justify-content: center; margin-bottom: 14px; }
   .sidebar-foot {
     padding-top: 16px; border-top: 1px solid var(--line);
-    display: flex; flex-direction: column; gap: 8px;
+    display: flex; gap: 8px;
   }
-  .sidebar-foot .doc-btn { width: 100%; justify-content: center; }
+  .sidebar-foot .doc-btn { flex: 1; justify-content: center; }
+  .foot-icon { padding: 6px 0; }
+  .foot-icon svg { width: 15px; height: 15px; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
   aside.sidebar .block { padding: 18px 0; }
@@ -1068,6 +1070,20 @@
     display: flex; align-items: center; justify-content: center;
   }
   .modal-scrim.open { opacity: 1; pointer-events: auto; }
+  /* Settings is a base modal: editors/viewers opened from it (z 70) stack above. */
+  #settings-scrim { z-index: 68; }
+
+  /* floating chat CTA — bottom-right, above the main view but below side panes */
+  .chat-fab {
+    position: fixed; bottom: 22px; right: 22px; z-index: 40;
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel); color: var(--link);
+    border: 1px solid var(--line-2); box-shadow: 0 4px 16px rgba(0,0,0,0.32);
+    cursor: pointer; transition: all var(--dur-fast) var(--ease);
+  }
+  .chat-fab:hover { border-color: var(--link); background: var(--link-bg); transform: translateY(-1px); }
+  .chat-fab svg { width: 20px; height: 20px; }
   .modal {
     width: 760px; max-width: 92vw; max-height: 86vh;
     background: var(--bg-2); border: 1px solid var(--line-2);
