@@ -66,16 +66,14 @@ func (e *Engine) GenerateAnswers(ctx context.Context, postingID string) error {
 		return e.failAnswers(pending, fmt.Errorf("posting %s not found", postingID))
 	}
 
-	// The experience doc is required (honesty ground truth + card source); the
-	// card derives from it. A missing block fails every answer loud, not silent.
-	if _, err := e.requireBlock("PAST_EXPERIENCE_FULL"); err != nil {
+	// The experience bundle is required — it is the honesty ground truth and the
+	// only facts an answer may claim. Empty fails every answer loud, not silent.
+	exp, err := e.requireExperience()
+	if err != nil {
 		return e.failAnswers(pending, err)
 	}
-	if err := e.ensureExperienceCard(ctx); err != nil {
-		return e.failAnswers(pending, fmt.Errorf("experience card: %w", err))
-	}
 
-	ac := e.answerContext(ctx, posting)
+	ac := e.answerContext(ctx, posting, exp)
 
 	sem := make(chan struct{}, answerConcurrency)
 	var wg sync.WaitGroup
@@ -105,17 +103,17 @@ func (e *Engine) GenerateAnswers(ctx context.Context, postingID string) error {
 
 // answerContext is the shared per-posting grounding, gathered once.
 type answerContext struct {
-	role  string
-	jd    string
-	brief string
-	card  string
-	voice string
+	role       string
+	jd         string
+	brief      string
+	experience string
+	voice      string
 }
 
 // answerContext assembles the JD (stored description, or a live fetch like the
 // drafter), the brain company-fit brief (optional — degrades to none), the
-// experience card, and the voice rules.
-func (e *Engine) answerContext(ctx context.Context, posting *store.Posting) answerContext {
+// experience bundle (the honesty ground truth), and the voice bundle.
+func (e *Engine) answerContext(ctx context.Context, posting *store.Posting, exp string) answerContext {
 	jd := trunc(posting.Description, jdMaxChars)
 	if strings.TrimSpace(jd) == "" {
 		jd = FetchJD(ctx, e.HTTP, posting.URL).Text
@@ -129,11 +127,11 @@ func (e *Engine) answerContext(ctx context.Context, posting *store.Posting) answ
 		}
 	}
 	return answerContext{
-		role:  strings.TrimSpace(posting.Title),
-		jd:    jd,
-		brief: brief,
-		card:  e.blockContent("EXPERIENCE_CARD"),
-		voice: e.blockContent("VOICE_RULES"),
+		role:       strings.TrimSpace(posting.Title),
+		jd:         jd,
+		brief:      brief,
+		experience: exp,
+		voice:      e.knowledge("voice"),
 	}
 }
 
@@ -148,7 +146,7 @@ func (e *Engine) draftAnswer(ctx context.Context, ac answerContext, a store.Post
 		if err != nil {
 			return "", store.AnswerFailed, "draft: " + err.Error()
 		}
-		verdict, violations, err := e.honestyCheck(ctx, text)
+		verdict, violations, err := e.honestyCheckText(ctx, ac.experience, text)
 		if err != nil {
 			return "", store.AnswerFailed, "honesty check: " + err.Error()
 		}
@@ -179,7 +177,7 @@ func (e *Engine) answerCall(ctx context.Context, ac answerContext, a store.Posti
 	if ac.brief != "" {
 		fmt.Fprintf(&b, "Company-fit brief (the applicant's own values — use ONLY to make \"why this company\" specific and true, never to invent fit):\n%s\n\n", ac.brief)
 	}
-	fmt.Fprintf(&b, "Applicant experience card (the ONLY facts you may claim):\n%s\n\n", ac.card)
+	fmt.Fprintf(&b, "Applicant experience (the ONLY facts you may claim):\n%s\n\n", ac.experience)
 	if ac.voice != "" {
 		fmt.Fprintf(&b, "Voice rules (write like this):\n%s\n\n", ac.voice)
 	}

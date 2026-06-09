@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,12 +23,24 @@ type fakeOutreachRunner struct{ started []int64 }
 
 func (f *fakeOutreachRunner) Draft(id int64) { f.started = append(f.started, id) }
 
-// seedOutreachReady satisfies the block-health gate and creates a posting.
+const seedTemplate = "Subject: [Name] | intro — {{role}}\n\nHi [Name],\n\n" +
+	"{{hook: one true thing about {{company}}}}\n\nI spent five years at Globex.\n\nThanks,\nAlex"
+
+// seedOutreachReady satisfies the draft gate (a template file + a discovered
+// experience + voice bundle) and creates a posting.
 func seedOutreachReady(t *testing.T, s *Server, cid string) (postingID string) {
 	t.Helper()
-	for _, name := range []string{"P2_LOCKED", "HOOK_RULES", "CLOSER_RULES", "VOICE_RULES", "PAST_EXPERIENCE_FULL"} {
-		if err := s.DB.PutOutreachBlock(name, "content of "+name, "v1"); err != nil {
-			t.Fatalf("seed block %s: %v", name, err)
+	path := filepath.Join(t.TempDir(), "outreach-template.md")
+	if err := os.WriteFile(path, []byte(seedTemplate), 0o644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+	s.OutreachTemplatePath = path
+	for _, src := range []store.OutreachSource{
+		{Need: "experience", PageID: "exp1", Title: "Past Experience", Content: "Five years at Globex, forward-deployed.", Version: "v1"},
+		{Need: "voice", PageID: "voice1", Title: "Voice & Style", Content: "Plain, tight sentences.", Version: "v1"},
+	} {
+		if err := s.DB.UpsertOutreachSource(src); err != nil {
+			t.Fatalf("seed source: %v", err)
 		}
 	}
 	p, err := s.DB.AddPosting(cid, "https://acme.com/jobs/fde", "FDE")
@@ -54,20 +68,20 @@ func TestOutreachDraftQueue(t *testing.T) {
 	h := s.Handler()
 	pid := seedOutreachReady(t, s, cid)
 
-	// Start a draft: 202, runner fired, status researching.
+	// Start a draft: 202, runner fired, status researching, nothing degraded.
 	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("start: want 202, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	var started struct {
 		Draft    store.OutreachDraft `json:"draft"`
-		Degraded []string            `json:"degraded_blocks"`
+		Degraded []string            `json:"degraded"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
 		t.Fatal(err)
 	}
 	if len(started.Degraded) != 0 {
-		t.Fatalf("all blocks seeded healthy, but degraded = %v", started.Degraded)
+		t.Fatalf("experience + voice seeded, but degraded = %v", started.Degraded)
 	}
 	d := started.Draft
 	if d.Status != store.DraftResearching || len(runner.started) != 1 || runner.started[0] != d.ID {
@@ -78,7 +92,6 @@ func TestOutreachDraftQueue(t *testing.T) {
 	if rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", ""); rec.Code != http.StatusConflict {
 		t.Errorf("double start: want 409, got %d", rec.Code)
 	}
-
 	// Unknown posting: 404.
 	if rec := do(t, h, http.MethodPost, "/api/postings/nope/outreach", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("bad posting: want 404, got %d", rec.Code)
@@ -93,19 +106,19 @@ func TestOutreachDraftQueue(t *testing.T) {
 		t.Fatalf("list: %v %s", err, rec.Body.String())
 	}
 
-	// Pipeline finishes -> user edits -> lint runs (em dash + word count here).
-	if err := s.DB.SetOutreachDraftResult(d.ID, store.DraftAwaitingReview, "{}", "{}", "draft text", "[]", "", ""); err != nil {
+	// Pipeline finishes -> user edits (no lint in the template model).
+	if err := s.DB.SetOutreachDraftResult(d.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	idStr := strconv.FormatInt(d.ID, 10)
-	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"short — edit"}`)
+	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"my edited email"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("edit: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Edited != "short — edit" || d.Lint == "[]" || d.Lint == "" {
+	if d.Edited != "my edited email" || d.Lint != "[]" {
 		t.Fatalf("edited draft: %+v", d)
 	}
 
@@ -127,7 +140,6 @@ func TestOutreachDraftQueue(t *testing.T) {
 	if rows[0].OutreachCount != 1 || rows[0].LastOutreachAt == "" {
 		t.Fatalf("posting tracking not bumped: %+v", rows[0])
 	}
-
 	// After terminal status a new draft may start.
 	if rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", ""); rec.Code != http.StatusAccepted {
 		t.Errorf("restart after sent: want 202, got %d (%s)", rec.Code, rec.Body.String())
@@ -146,57 +158,60 @@ func TestOutreachStartGates(t *testing.T) {
 	if rec := do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", ""); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("no engine: want 503, got %d", rec.Code)
 	}
-
-	// Engine wired but blocks missing: 412 naming them.
 	s.Outreach = &fakeOutreachRunner{}
 	h = s.Handler()
+
+	// No template: 412 need=template.
 	rec := do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
 	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("missing blocks: want 412, got %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("no template: want 412, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	var body struct {
-		Missing []string `json:"missing_blocks"`
-	}
-	// Only the HARD set gates: PAST_EXPERIENCE_FULL (honesty ground truth) plus
-	// the default structure's locked block (P2_LOCKED). The three rules blocks
-	// are SOFT and never appear here.
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Missing) != 2 {
-		t.Fatalf("missing_blocks = %v (%v); want exactly the 2 hard blocks", body.Missing, err)
-	}
-	for _, want := range []string{"PAST_EXPERIENCE_FULL", "P2_LOCKED"} {
-		if !hasString(body.Missing, want) {
-			t.Errorf("hard gate missing %s; got %v", want, body.Missing)
-		}
+	if need := gateNeed(t, rec); need != "template" {
+		t.Errorf("need = %q, want template", need)
 	}
 
-	// A broken SOFT block degrades, it does NOT gate: 202 with the block named
-	// in degraded_blocks (VOICE_RULES no longer blocks a draft).
-	seedOutreachReady(t, s, cid)
-	if err := s.DB.MarkOutreachBlockBroken("VOICE_RULES", "drifted"); err != nil {
+	// Template present, no experience: 412 need=experience.
+	path := filepath.Join(t.TempDir(), "tmpl.md")
+	if err := os.WriteFile(path, []byte(seedTemplate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.OutreachTemplatePath = path
+	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("no experience: want 412, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if need := gateNeed(t, rec); need != "experience" {
+		t.Errorf("need = %q, want experience", need)
+	}
+
+	// Experience present, no voice: 202 with voice degraded.
+	if err := s.DB.UpsertOutreachSource(store.OutreachSource{Need: "experience", PageID: "exp1", Title: "Exp", Content: "5y Globex", Version: "v1"}); err != nil {
 		t.Fatal(err)
 	}
 	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("broken SOFT block: want 202 (degrade), got %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("ready: want 202, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	var soft struct {
-		Degraded []string `json:"degraded_blocks"`
+	var body struct {
+		Degraded []string `json:"degraded"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &soft); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !hasString(soft.Degraded, "VOICE_RULES") {
-		t.Fatalf("degraded_blocks = %v, want VOICE_RULES", soft.Degraded)
+	if !hasString(body.Degraded, "voice") {
+		t.Errorf("degraded = %v, want voice", body.Degraded)
 	}
+}
 
-	// A broken HARD block still gates: the honesty/locked guarantee holds.
-	if err := s.DB.MarkOutreachBlockBroken("PAST_EXPERIENCE_FULL", "drifted"); err != nil {
-		t.Fatal(err)
+func gateNeed(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Need string `json:"need"`
 	}
-	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
-	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("broken HARD block: want 412, got %d (%s)", rec.Code, rec.Body.String())
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode gate: %v (%s)", err, rec.Body.String())
 	}
+	return body.Need
 }
 
 // hasString reports whether xs contains s.
@@ -209,38 +224,37 @@ func hasString(xs []string, s string) bool {
 	return false
 }
 
-func TestOutreachBlocksEndpoint(t *testing.T) {
-	s, cid := newTestServer(t)
+func TestOutreachSourcesEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
 	h := s.Handler()
-	seedOutreachReady(t, s, cid)
-
-	rec := do(t, h, http.MethodGet, "/api/outreach/blocks", "")
+	for _, src := range []store.OutreachSource{
+		{Need: "experience", PageID: "exp1", Title: "Past Experience", Content: "x", Version: "v1"},
+		{Need: "voice", PageID: "voice1", Title: "Voice", Content: "y", Version: "v1"},
+	} {
+		if err := s.DB.UpsertOutreachSource(src); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := do(t, h, http.MethodGet, "/api/outreach/sources", "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("blocks: want 200, got %d", rec.Code)
+		t.Fatalf("sources: want 200, got %d", rec.Code)
 	}
 	var body struct {
-		Blocks []struct {
-			Block string `json:"block"`
-			State string `json:"state"`
-		} `json:"blocks"`
+		Sources []struct {
+			Need  string `json:"need"`
+			Title string `json:"title"`
+		} `json:"sources"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Blocks) != 8 {
-		t.Fatalf("want 8 slots, got %d", len(body.Blocks))
-	}
-	states := map[string]string{}
-	for _, b := range body.Blocks {
-		states[b.Block] = b.State
-	}
-	if states["P2_LOCKED"] != "ok" || states["HUMANIZER"] != "unpinned" || states["BANK_ROWS"] != "derived" {
-		t.Fatalf("states = %v", states)
+	if len(body.Sources) != 2 {
+		t.Fatalf("want 2 sources, got %d", len(body.Sources))
 	}
 }
 
-// errRT fails every request instantly — keeps the engine's JD pre-fetch
-// offline in tests (the fetch degrades gracefully by design).
+// errRT fails every request instantly — keeps the engine's JD pre-fetch offline
+// in tests (the fetch degrades gracefully by design).
 type errRT struct{}
 
 func (errRT) RoundTrip(*http.Request) (*http.Response, error) {
@@ -266,33 +280,26 @@ func fakeLLM(t *testing.T, replies []string) *httptest.Server {
 	}))
 }
 
-// TestOutreachEndToEnd drives the REAL stack the way the panel does: POST
-// start fires the async engine (scripted LLM), the test polls the queue until
-// the draft lands in review, then edits and marks it sent.
+// TestOutreachEndToEnd drives the REAL stack the way the panel does: POST start
+// fires the async engine (scripted LLM: research → fill → honesty), the test
+// polls the queue until the draft lands in review, then edits and sends it.
 func TestOutreachEndToEnd(t *testing.T) {
 	s, cid := newTestServer(t)
 	pid := seedOutreachReady(t, s, cid)
-	// The engine derives EXPERIENCE_CARD unless it is fresh; seed it fresh
-	// against the seeded PAST_EXPERIENCE_FULL version ("v1").
-	if err := s.DB.PutOutreachBlock("EXPERIENCE_CARD", "5y forward-deployed; infra lead; agent tooling.", "derived:v1"); err != nil {
-		t.Fatal(err)
-	}
 
-	p2 := "content of P2_LOCKED" // what seedOutreachReady stored
-	p1 := strings.Repeat("true platform words ", 12)
-	p3 := strings.Repeat("desire framed words ", 12) + "Open to a quick call about the role?"
 	llm := fakeLLM(t, []string{
 		`{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80","role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x","source_url":"https://a.invalid","context":"c"}],"disambiguation":"","confidence":"high"}`,
-		`{"decision":"hook","hook":{"quote":"x","source_url":"https://a.invalid","thread":"like my work"},"closer_mode":"role_posted","reasoning":"honest"}`,
-		`{"p1":"` + p1 + `","p3":"` + p3 + `"}`,
+		`{"fills":{"hook":"You ship into customer environments, like my forward-deployed work."}}`,
 		`{"verdict":"pass","violations":[]}`,
 	})
 	defer llm.Close()
 
 	ac := anthropic.New("test-key")
 	ac.Endpoint = llm.URL
-	s.Outreach = &outreach.Engine{DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}},
-		Who: outreach.Sender{SubjectName: "Alex", Signature: "Thanks,\nAlex", Lens: "l", HookPrefs: "h", Arc: "a"}}
+	s.Outreach = &outreach.Engine{
+		DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}},
+		TemplatePath: s.OutreachTemplatePath,
+	}
 	h := s.Handler()
 
 	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")
@@ -300,7 +307,6 @@ func TestOutreachEndToEnd(t *testing.T) {
 		t.Fatalf("start: %d (%s)", rec.Code, rec.Body.String())
 	}
 
-	// Poll like the panel does.
 	var d store.OutreachDraft
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -323,16 +329,20 @@ func TestOutreachEndToEnd(t *testing.T) {
 	if d.Status != store.DraftAwaitingReview {
 		t.Fatalf("status = %q (fail_reason=%q)", d.Status, d.FailReason)
 	}
-	if !strings.Contains(d.Draft, p2) || !strings.Contains(d.Draft, "Subject: [Name] | Alex intro — FDE") || !strings.Contains(d.Draft, "Thanks,\nAlex") {
-		t.Fatalf("assembled draft wrong:\n%s", d.Draft)
-	}
-	if d.Lint != "[]" {
-		t.Errorf("lint = %s", d.Lint)
+	for _, want := range []string{
+		"You ship into customer environments", // filled hole
+		"I spent five years at Globex.",       // verbatim prose
+		"Subject: [Name] | intro — FDE",       // {{role}} resolved
+		"Thanks,\nAlex",
+	} {
+		if !strings.Contains(d.Draft, want) {
+			t.Fatalf("assembled draft missing %q:\n%s", want, d.Draft)
+		}
 	}
 
 	// Edit, then send.
 	idStr := strconv.FormatInt(d.ID, 10)
-	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"`+strings.TrimSpace(p1)+`"}`)
+	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"my edited email"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("edit: %d", rec.Code)
 	}

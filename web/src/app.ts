@@ -1152,12 +1152,12 @@ async function startDraft() {
   }
 
   if (resp.status === 202) {
-    // Soft blocks may be missing — the draft proceeds, degraded. Warn loudly so
-    // it never looks like full-quality output.
+    // Voice may be missing — the draft proceeds, degraded. Warn loudly so it
+    // never looks like full-quality output.
     let body = {};
     try { body = await resp.json(); } catch {}
-    if (Array.isArray(body.degraded_blocks) && body.degraded_blocks.length) {
-      toast(`drafting without ${body.degraded_blocks.join(", ")} — quality degrades, integrity unaffected`);
+    if (Array.isArray(body.degraded) && body.degraded.length) {
+      toast(`drafting without ${body.degraded.join(", ")} — quality degrades, integrity unaffected`);
     }
     await loadDrafts();        // the new researching row + poll
     return;
@@ -1170,7 +1170,7 @@ async function startDraft() {
   if (resp.status === 412) {
     let body = {};
     try { body = await resp.json(); } catch {}
-    renderBlocksGate(body.missing_blocks || []);
+    renderInputGate(body.need, body.error);
     if (btn) btn.disabled = false;
     return;
   }
@@ -1190,38 +1190,28 @@ async function startDraft() {
   if (btn) btn.disabled = false;
 }
 
-// renderBlocksGate replaces the start button with the missing-blocks list +
-// a Sync button (POST /api/outreach/sync) that refreshes blocks then retries.
-function renderBlocksGate(missing) {
+// renderInputGate replaces the start button when a required input is missing:
+// the email template (write it) or the experience bundle (discover it). It
+// offers a fix button (opens the right editor) and a retry.
+function renderInputGate(need, error) {
   const host = document.getElementById("outreach-section");
   if (!host) return;
   const acts = host.querySelector(".draft-actions");
+  const isTemplate = need === "template";
+  const label = isTemplate ? "Write email template" : "Discover sources";
   const gate = document.createElement("div");
   gate.className = "blocks-gate";
   gate.innerHTML = `
-    <div class="draft-note">Outreach needs context blocks that aren't synced yet:</div>
-    <ul class="bg-list">${(missing.length ? missing : ["(unknown)"]).map(b => `<li>${escapeHTML(b)}</li>`).join("")}</ul>
-    <button class="btn btn-primary" id="blocks-sync-btn">Sync blocks</button>`;
+    <div class="draft-note">${escapeHTML(error || "Outreach isn't set up yet.")}</div>
+    <div class="draft-actions">
+      <button class="btn btn-primary" id="gate-fix-btn">${label}</button>
+      <button class="btn" id="gate-retry-btn">Retry</button>
+    </div>`;
   if (acts) acts.replaceWith(gate); else host.appendChild(gate);
-  const sb = gate.querySelector("#blocks-sync-btn");
-  if (sb) sb.addEventListener("click", syncBlocks);
-}
-
-async function syncBlocks() {
-  const btn = document.getElementById("blocks-sync-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
-  let resp;
-  try {
-    resp = await fetch(`/api/outreach/sync`, { method: "POST" });
-  } catch (e) { toast(`sync failed: ${e.message}`); if (btn) { btn.disabled = false; btn.textContent = "Sync blocks"; } return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`sync failed: ${txt || "HTTP " + resp.status}`);
-    if (btn) { btn.disabled = false; btn.textContent = "Sync blocks"; }
-    return;
-  }
-  toast("blocks synced");
-  renderOutreachSection();  // restore the start button, then the user retries
+  const fix = gate.querySelector("#gate-fix-btn");
+  if (fix) fix.addEventListener("click", () => isTemplate ? openEditor("outreach-template") : openSourcesModal());
+  const retry = gate.querySelector("#gate-retry-btn");
+  if (retry) retry.addEventListener("click", startDraft);
 }
 
 // saveDraftEdit PUTs the edited body; the server re-lints and returns fresh
@@ -1450,7 +1440,7 @@ async function startAnswers() {
   if (resp.status === 202) { await loadAnswers(); return; }
   if (resp.status === 412) {
     let body = {}; try { body = await resp.json(); } catch {}
-    renderAnswersBlocksGate(body.missing_blocks || []);
+    renderAnswersInputGate(body.error);
     if (btn) btn.disabled = false;
     return;
   }
@@ -1517,34 +1507,25 @@ async function regenerateAnswer(id) {
   await loadAnswers();
 }
 
-// renderAnswersBlocksGate swaps the actions for the missing-block list + a Sync
-// button (the answer engine needs the experience block synced).
-function renderAnswersBlocksGate(missing) {
+// renderAnswersInputGate swaps the actions for a "discover sources" prompt — the
+// answer engine needs the same experience bundle the email pipeline does.
+function renderAnswersInputGate(error) {
   const host = document.getElementById("answers-section");
   if (!host) return;
   const acts = host.querySelector(".answers-actions");
   const gate = document.createElement("div");
   gate.className = "blocks-gate";
   gate.innerHTML = `
-    <div class="draft-note">Drafting answers needs the experience context block synced:</div>
-    <ul class="bg-list">${(missing.length ? missing : ["(unknown)"]).map(b => `<li>${escapeHTML(b)}</li>`).join("")}</ul>
-    <button class="btn btn-primary" id="answers-sync-btn">Sync blocks</button>`;
+    <div class="draft-note">${escapeHTML(error || "Drafting answers needs your experience discovered.")}</div>
+    <div class="answers-actions">
+      <button class="btn btn-primary" id="answers-fix-btn">Discover sources</button>
+      <button class="btn" id="answers-retry-btn">Retry</button>
+    </div>`;
   if (acts) acts.replaceWith(gate); else host.appendChild(gate);
-  const sb = gate.querySelector("#answers-sync-btn");
-  if (sb) sb.addEventListener("click", async () => {
-    sb.disabled = true; sb.textContent = "Syncing…";
-    try {
-      const r = await fetch(`/api/outreach/sync`, { method: "POST" });
-      if (!r.ok) {
-        const txt = (await r.text().catch(() => "")).trim();
-        toast(`sync failed: ${txt || "HTTP " + r.status}`);
-        sb.disabled = false; sb.textContent = "Sync blocks";
-        return;
-      }
-    } catch (e) { toast(`sync failed: ${e.message}`); sb.disabled = false; sb.textContent = "Sync blocks"; return; }
-    toast("blocks synced");
-    renderAnswersSection();
-  });
+  const fix = gate.querySelector("#answers-fix-btn");
+  if (fix) fix.addEventListener("click", openSourcesModal);
+  const retry = gate.querySelector("#answers-retry-btn");
+  if (retry) retry.addEventListener("click", startAnswers);
 }
 
 function appendAnswersNote(text) {
@@ -2385,172 +2366,75 @@ function closeEditor() {
   editorKind = null;
 }
 
-// ---- control surface: outreach identity ----
-const SENDER_FIELDS = ["subject_name", "signature", "lens", "hook_prefs", "arc"];
-let senderWired = false;
-async function openSenderEditor() {
-  const scrim = document.getElementById("sender-scrim");
-  scrim.classList.add("open");
-  let cur = {};
-  try {
-    cur = await (await fetch("/api/outreach/sender")).json();
-  } catch (e) { toast(`failed to load identity: ${e.message}`); }
-  for (const f of SENDER_FIELDS) {
-    const el = document.getElementById("snd-" + f);
-    if (el) el.value = cur[f] || "";
-  }
-  if (!senderWired) {
-    for (const f of SENDER_FIELDS) {
-      const el = document.getElementById("snd-" + f);
-      wireInlineField(el, (val) => saveSenderField(f, val),
-        { multiline: el && el.tagName === "TEXTAREA" });
-    }
-    senderWired = true;
-  }
-}
-// saveSenderField PUTs the whole record (one field changed) — the endpoint
-// upserts the singleton, and the engine reads it fresh at draft time.
-async function saveSenderField(key, val) {
-  const body = {};
-  for (const f of SENDER_FIELDS) {
-    const el = document.getElementById("snd-" + f);
-    body[f] = el ? el.value : "";
-  }
-  body[key] = val;
-  const resp = await fetch("/api/outreach/sender", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
-}
-function closeSenderEditor() {
-  document.getElementById("sender-scrim").classList.remove("open");
-}
-
-// ---- outreach config editor (lint knobs + email structure) ----
+// ---- control surface: outreach knowledge sources ----
 //
-// Mirrors the sender editor: a modal of always-editable knobs that auto-save and
-// take effect on the next draft. The email structure is the reorderable list of
-// body slots; every mutation persists the whole config (the server validates and
-// returns the normalized copy). OUTREACH_CONFIG is the working source of truth.
-let OUTREACH_CONFIG = null;
-let configWired = false;
+// The discovered experience + voice bundle (brain pages, whole-fetched + cached).
+// The modal lists them per need, refreshes discovery, and supports removing a
+// wrong pick. DEFAULT_NEEDS mirrors the server's KnowledgeNeeds for the case
+// where a response (refresh) omits the needs list.
+const DEFAULT_NEEDS = [{ key: "experience", hard: true }, { key: "voice", hard: false }];
 
-async function openConfigEditor() {
-  document.getElementById("config-scrim").classList.add("open");
+async function openSourcesModal() {
+  document.getElementById("sources-scrim").classList.add("open");
+  document.getElementById("sources-list").innerHTML =
+    `<div class="loading-row"><span class="spinner"></span><span>loading…</span></div>`;
   try {
-    OUTREACH_CONFIG = await (await fetch("/api/outreach/config")).json();
-  } catch (e) { toast(`failed to load config: ${e.message}`); return; }
-  fillConfigInputs();
-  renderConfigStructure();
-  if (!configWired) {
-    const min = document.getElementById("cfg-word_min");
-    const max = document.getElementById("cfg-word_max");
-    const subj = document.getElementById("cfg-subject_format");
-    min.addEventListener("change", () => { OUTREACH_CONFIG.word_min = parseInt(min.value, 10); saveConfig(); });
-    max.addEventListener("change", () => { OUTREACH_CONFIG.word_max = parseInt(max.value, 10); saveConfig(); });
-    subj.addEventListener("change", () => { OUTREACH_CONFIG.subject_format = subj.value; saveConfig(); });
-    subj.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); subj.blur(); } });
-    document.getElementById("cfg-add-btn").addEventListener("click", addConfigSlot);
-    configWired = true;
-  }
+    renderSourcesList(await (await fetch("/api/outreach/sources")).json());
+  } catch (e) { toast(`failed to load sources: ${e.message}`); }
 }
-
-function closeConfigEditor() {
-  document.getElementById("config-scrim").classList.remove("open");
+function closeSourcesModal() {
+  document.getElementById("sources-scrim").classList.remove("open");
 }
-
-function fillConfigInputs() {
-  if (!OUTREACH_CONFIG) return;
-  document.getElementById("cfg-word_min").value = OUTREACH_CONFIG.word_min ?? "";
-  document.getElementById("cfg-word_max").value = OUTREACH_CONFIG.word_max ?? "";
-  document.getElementById("cfg-subject_format").value = OUTREACH_CONFIG.subject_format || "";
+// renderSourcesList groups the cached sources by need (experience required,
+// voice optional), each removable. Needs come capitalized from Go's KnowledgeNeeds.
+function renderSourcesList(data) {
+  const host = document.getElementById("sources-list");
+  if (!host) return;
+  const needs = (data && data.needs && data.needs.length)
+    ? data.needs.map(n => ({ key: n.Key || n.key, hard: n.Hard ?? n.hard }))
+    : DEFAULT_NEEDS;
+  const byNeed = {};
+  ((data && data.sources) || []).forEach(s => { (byNeed[s.need] = byNeed[s.need] || []).push(s); });
+  host.innerHTML = needs.map(n => {
+    const rows = byNeed[n.key] || [];
+    const items = rows.length
+      ? rows.map(s => `<li><span class="src-title">${escapeHTML(s.title || s.page_id)}</span><button class="src-rm" data-need="${escapeHTML(n.key)}" data-id="${escapeHTML(s.page_id)}" title="remove">✕</button></li>`).join("")
+      : `<li class="dim small">${n.hard ? "none yet — required for drafting" : "none (optional)"}</li>`;
+    return `<div class="src-need">
+      <div class="src-need-h">${escapeHTML(n.key)}${n.hard ? ' <span class="dim">required</span>' : ' <span class="dim">optional</span>'}</div>
+      <ul class="src-items">${items}</ul></div>`;
+  }).join("");
+  host.querySelectorAll(".src-rm").forEach(b => b.addEventListener("click", () => removeSource(b.dataset.need, b.dataset.id)));
 }
-
-// saveConfig PUTs the whole working config; on success it adopts the server's
-// normalized copy and refreshes the inputs/structure. Returns whether the save
-// stuck, so callers can revert an optimistic structure edit.
-async function saveConfig() {
+async function refreshSources() {
+  const btn = document.getElementById("sources-refresh-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Discovering…"; }
   let resp;
   try {
-    resp = await fetch("/api/outreach/config", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(OUTREACH_CONFIG),
-    });
-  } catch (e) { toast(`config save failed: ${e.message}`); return false; }
+    resp = await fetch("/api/outreach/sources/refresh", { method: "POST" });
+  } catch (e) { toast(`refresh failed: ${e.message}`); if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; } return; }
   if (!resp.ok) {
-    toast(`config save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`);
-    return false;
-  }
-  OUTREACH_CONFIG = await resp.json();
-  fillConfigInputs();
-  renderConfigStructure();
-  return true;
-}
-
-// renderConfigStructure draws the ordered slot rows with reorder/remove controls.
-function renderConfigStructure() {
-  const host = document.getElementById("cfg-structure");
-  if (!host) return;
-  const slots = (OUTREACH_CONFIG && OUTREACH_CONFIG.structure) || [];
-  if (!slots.length) {
-    host.innerHTML = `<div class="dim small">no slots — add at least one</div>`;
+    toast(`refresh failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`);
+    if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; }
     return;
   }
-  host.innerHTML = slots.map((s, i) => {
-    const label = s.kind === "locked"
-      ? `${escapeHTML(s.block)} <span class="cfg-kind">locked</span>`
-      : `${escapeHTML(s.source)} <span class="cfg-kind">model</span>`;
-    return `<div class="cfg-slot" data-i="${i}">
-      <span class="cfg-slot-label">${label}</span>
-      <span class="cfg-slot-acts">
-        <button class="cfg-up" title="move up"${i === 0 ? " disabled" : ""}>↑</button>
-        <button class="cfg-down" title="move down"${i === slots.length - 1 ? " disabled" : ""}>↓</button>
-        <button class="cfg-rm" title="remove slot">✕</button>
-      </span></div>`;
-  }).join("");
-  host.querySelectorAll(".cfg-slot").forEach(row => {
-    const i = +row.dataset.i;
-    const up = row.querySelector(".cfg-up");
-    const down = row.querySelector(".cfg-down");
-    const rm = row.querySelector(".cfg-rm");
-    if (up) up.onclick = () => moveConfigSlot(i, -1);
-    if (down) down.onclick = () => moveConfigSlot(i, 1);
-    if (rm) rm.onclick = () => mutateStructure(s => { s.splice(i, 1); });
-  });
+  const data = await resp.json();
+  if (data.warning) toast(data.warning); else toast("sources refreshed");
+  renderSourcesList(data);
+  if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; }
+}
+async function removeSource(need, pageId) {
+  let resp;
+  try {
+    resp = await fetch("/api/outreach/sources/remove", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ need, page_id: pageId }),
+    });
+  } catch (e) { toast(`remove failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`remove failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
+  renderSourcesList(await resp.json());
 }
 
-function moveConfigSlot(i, dir) {
-  mutateStructure(s => {
-    const j = i + dir;
-    if (j < 0 || j >= s.length) return;
-    [s[i], s[j]] = [s[j], s[i]];
-  });
-}
-
-function addConfigSlot() {
-  const sel = document.getElementById("cfg-add-select");
-  const [kind, ref] = (sel.value || "").split(":");
-  mutateStructure(s => {
-    s.push(kind === "locked" ? { kind: "locked", block: ref } : { kind: "model", source: ref });
-  });
-}
-
-// mutateStructure applies an in-place edit to a copy of the working structure,
-// persists it, and reverts on a server rejection (e.g. removing the last slot,
-// which the validator forbids).
-async function mutateStructure(fn) {
-  if (!OUTREACH_CONFIG) return;
-  const prev = OUTREACH_CONFIG.structure || [];
-  const next = JSON.parse(JSON.stringify(prev));
-  fn(next);
-  OUTREACH_CONFIG.structure = next;
-  renderConfigStructure();  // optimistic
-  if (!(await saveConfig())) {
-    OUTREACH_CONFIG.structure = prev;
-    renderConfigStructure();
-  }
-}
 async function saveEditor() {
   if (!editorKind) return;
   const content = document.getElementById("editor-text").value;
@@ -2653,8 +2537,7 @@ document.addEventListener("keydown", e => {
     if (companyOpen) { closeDetail(); return; }
     closePursuit(); return;
   }
-  if (document.getElementById("config-scrim").classList.contains("open")) { closeConfigEditor(); return; }
-  if (document.getElementById("sender-scrim").classList.contains("open")) { closeSenderEditor(); return; }
+  if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
 });
 
@@ -2806,14 +2689,11 @@ document.getElementById("editor-save").onclick = saveEditor;
 document.getElementById("editor-scrim").onclick = e => {
   if (e.target.id === "editor-scrim") closeEditor();
 };
-document.getElementById("sender-close").onclick = closeSenderEditor;
-document.getElementById("sender-scrim").onclick = e => {
-  if (e.target.id === "sender-scrim") closeSenderEditor();
+document.getElementById("sources-close").onclick = closeSourcesModal;
+document.getElementById("sources-scrim").onclick = e => {
+  if (e.target.id === "sources-scrim") closeSourcesModal();
 };
-document.getElementById("config-close").onclick = closeConfigEditor;
-document.getElementById("config-scrim").onclick = e => {
-  if (e.target.id === "config-scrim") closeConfigEditor();
-};
+document.getElementById("sources-refresh-btn").onclick = refreshSources;
 
 // ---- company-fit brief + criteria block ----
 function relTime(sec) {
@@ -2875,11 +2755,11 @@ function renderCriteria() {
     <span class="crit-what">playbook</span>
     <button class="crit-edit" id="edit-playbook" title="edit playbook.md" aria-label="edit playbook">${PENCIL}</button></div>`;
   html += `<div class="crit-row">
-    <span class="crit-what">outreach identity</span>
-    <button class="crit-edit" id="edit-sender" title="edit outreach identity" aria-label="edit outreach identity">${PENCIL}</button></div>`;
+    <span class="crit-what">email template</span>
+    <button class="crit-edit" id="edit-template" title="edit the outreach email template" aria-label="edit email template">${PENCIL}</button></div>`;
   html += `<div class="crit-row">
-    <span class="crit-what">outreach config</span>
-    <button class="crit-edit" id="edit-config" title="edit outreach config (lint knobs + email structure)" aria-label="edit outreach config">${PENCIL}</button></div>`;
+    <span class="crit-what">outreach knowledge</span>
+    <button class="crit-edit" id="edit-sources" title="discovered experience + voice from the brain" aria-label="outreach knowledge sources">${REFRESH}</button></div>`;
   el.innerHTML = html;
 
   const vp = document.getElementById("view-profile");
@@ -2890,10 +2770,10 @@ function renderCriteria() {
   if (et) et.onclick = () => openEditor("taste");
   const ep = document.getElementById("edit-playbook");
   if (ep) ep.onclick = () => openEditor("playbook");
-  const es = document.getElementById("edit-sender");
-  if (es) es.onclick = openSenderEditor;
-  const ec = document.getElementById("edit-config");
-  if (ec) ec.onclick = openConfigEditor;
+  const et2 = document.getElementById("edit-template");
+  if (et2) et2.onclick = () => openEditor("outreach-template");
+  const esrc = document.getElementById("edit-sources");
+  if (esrc) esrc.onclick = openSourcesModal;
 }
 
 async function refreshProfile() {

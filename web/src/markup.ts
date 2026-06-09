@@ -290,86 +290,22 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
-<!-- outreach identity editor -->
-<div class="modal-scrim" id="sender-scrim">
+<!-- outreach knowledge sources (brain-discovered) -->
+<div class="modal-scrim" id="sources-scrim">
   <div class="modal">
     <div class="modal-head">
-      <h2>outreach identity</h2>
+      <h2>outreach knowledge</h2>
     </div>
     <div class="modal-body">
-      <div class="sender-form">
-        <label class="sender-field">
-          <span class="sender-label">Subject name <em>— short name in the subject line</em></span>
-          <input id="snd-subject_name" class="ie" type="text" spellcheck="false" placeholder="e.g. Alex">
-        </label>
-        <label class="sender-field">
-          <span class="sender-label">Sign-off <em>— the verbatim closer (models never write it)</em></span>
-          <textarea id="snd-signature" class="ie" rows="2" spellcheck="false" placeholder="Thanks,&#10;Alex"></textarea>
-        </label>
-        <label class="sender-field">
-          <span class="sender-label">Researcher lens <em>— one line of who you are</em></span>
-          <textarea id="snd-lens" class="ie" rows="2" spellcheck="false"></textarea>
-        </label>
-        <label class="sender-field">
-          <span class="sender-label">Hook preferences <em>— "prefer hooks about: …"</em></span>
-          <textarea id="snd-hook_prefs" class="ie" rows="2" spellcheck="false"></textarea>
-        </label>
-        <label class="sender-field">
-          <span class="sender-label">Drafter arc <em>— one-line framing of your move</em></span>
-          <input id="snd-arc" class="ie" type="text" spellcheck="false">
-        </label>
-      </div>
+      <div id="sources-list"></div>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Each field auto-saves on blur. This identity lives only in your local database — never the brain or the repo. The next draft uses it immediately.</span>
+        <span>Discovered from your brain by an LLM over the document map: <strong>experience</strong> (required — the honesty checker's ground truth) and <strong>voice</strong> (optional). “Refresh” re-runs discovery when new pages appear; remove a wrong pick with ✕. The pages are fetched whole and cached locally; drafting reads the cache.</span>
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn" id="sender-close">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- outreach config editor (lint knobs + email structure) -->
-<div class="modal-scrim" id="config-scrim">
-  <div class="modal">
-    <div class="modal-head">
-      <h2>outreach config</h2>
-    </div>
-    <div class="modal-body">
-      <div class="sender-form">
-        <label class="sender-field">
-          <span class="sender-label">Body word count <em>— the lint target window (min – max)</em></span>
-          <span class="cfg-window">
-            <input id="cfg-word_min" class="ie" type="number" min="1" inputmode="numeric" aria-label="minimum words">
-            <span class="dim">–</span>
-            <input id="cfg-word_max" class="ie" type="number" min="1" inputmode="numeric" aria-label="maximum words">
-          </span>
-        </label>
-        <label class="sender-field">
-          <span class="sender-label">Subject format <em>— {sender} and {role} expand; {role} drops when empty</em></span>
-          <input id="cfg-subject_format" class="ie" type="text" spellcheck="false" placeholder="[Name] | {sender} intro — {role}">
-        </label>
-        <div class="sender-field">
-          <span class="sender-label">Email structure <em>— the ordered body slots, between greeting and sign-off</em></span>
-          <div id="cfg-structure" class="cfg-structure"></div>
-          <div class="cfg-add">
-            <select id="cfg-add-select" class="ie">
-              <option value="model:P1">model · P1 (opening)</option>
-              <option value="model:P3">model · P3 (close)</option>
-              <option value="locked:P2_LOCKED">locked · P2_LOCKED (credentials)</option>
-            </select>
-            <button class="btn" id="cfg-add-btn">Add slot</button>
-          </div>
-        </div>
-      </div>
-      <div class="modal-note">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Changes auto-save and apply to the next draft. <strong>locked</strong> slots are inserted verbatim, and the honesty checker always runs over the whole email against your experience doc — that guarantee is fixed. HOOK_RULES / CLOSER_RULES / VOICE_RULES are <em>soft</em>: a draft proceeds without them (lower quality, flagged), but the experience doc is always required.</span>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" id="config-close">Close</button>
+      <button class="btn btn-primary" id="sources-refresh-btn">Refresh from brain</button>
+      <button class="btn" id="sources-close">Close</button>
     </div>
   </div>
 </div>

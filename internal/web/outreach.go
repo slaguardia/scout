@@ -17,8 +17,8 @@ import (
 // OutreachRunner runs the outreach draft pipeline for one created draft row,
 // asynchronously: Draft returns immediately and the pipeline writes its
 // progress/result to the draft row (the panel polls). The engine owns models,
-// retries, and the no-hook route; the web layer owns the queue discipline
-// (one active draft per posting) and the block-health gate.
+// retries, and the no-send route; the web layer owns the queue discipline (one
+// active draft per posting) and the inputs-present gate.
 type OutreachRunner interface {
 	Draft(draftID int64)
 }
@@ -28,8 +28,9 @@ type OutreachRunner interface {
 //	GET  /api/postings/{id}/outreach  -> {drafts: [...]} newest first
 //	POST /api/postings/{id}/outreach  -> start a draft (202 + the new row)
 //
-// POST gates on the required context blocks being healthy in the cache and on
-// no other active draft for the posting; it fails 503 when no engine is wired.
+// POST gates on the two required inputs being present — the scout-local email
+// template and a discovered experience bundle (the honesty ground truth) — and
+// on no other active draft for the posting; it fails 503 when no engine is wired.
 func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, postingID string) {
 	switch r.Method {
 	case http.MethodGet:
@@ -45,31 +46,30 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, "outreach pipeline not wired (no engine in this build)", http.StatusServiceUnavailable)
 			return
 		}
-		cfg, err := outreach.LoadConfig(s.DB)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// HARD gate: PAST_EXPERIENCE_FULL + the structure's locked blocks.
-		// Missing any of these blocks the draft — never draft without the
-		// honesty checker's ground truth or a renderable locked slot.
-		missing, err := outreach.MissingHardBlocks(s.DB, cfg)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if len(missing) > 0 {
+		// GATE: a draft needs the email template and an experience bundle. A
+		// missing template can't render; a missing experience defeats the honesty
+		// check. Either is a 412 pointing the UI at the thing to fix.
+		if tmpl, _ := outreach.LoadTemplate(s.OutreachTemplatePath); strings.TrimSpace(tmpl) == "" {
 			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error":          "required context blocks are missing or broken — pin and sync them first",
-				"missing_blocks": missing,
+				"error": "no email template — write your outreach template first",
+				"need":  "template",
 			})
 			return
 		}
-		// SOFT blocks degrade gracefully: the draft proceeds, the UI warns.
-		degraded, err := outreach.MissingSoftBlocks(s.DB)
-		if err != nil {
+		if exp, err := s.DB.OutreachKnowledge("experience"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		} else if strings.TrimSpace(exp) == "" {
+			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
+				"need":  "experience",
+			})
+			return
+		}
+		// Voice is soft: drafting proceeds without it (a less-voiced email).
+		degraded := []string{}
+		if v, _ := s.DB.OutreachKnowledge("voice"); strings.TrimSpace(v) == "" {
+			degraded = append(degraded, "voice")
 		}
 		d, err := s.DB.CreateOutreachDraft(postingID)
 		if err != nil {
@@ -84,7 +84,7 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		s.Outreach.Draft(d.ID)
-		writeJSON(w, http.StatusAccepted, map[string]any{"draft": d, "degraded_blocks": degraded})
+		writeJSON(w, http.StatusAccepted, map[string]any{"draft": d, "degraded": degraded})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -93,49 +93,114 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 
 // handleOutreach routes /api/outreach/*:
 //
-//	GET  /api/outreach/blocks            -> cached block statuses (no brain call)
-//	POST /api/outreach/sync              -> refresh blocks from the brain
-//	PUT  /api/outreach/drafts/{id}       -> save the user's edit (re-lints)
-//	POST /api/outreach/drafts/{id}/sent  -> mark sent (bumps posting tracking)
+//	GET  /api/outreach/sources           -> the discovered knowledge sources
+//	POST /api/outreach/sources/refresh   -> re-run discovery over the brain map
+//	POST /api/outreach/sources/add       -> manually add {need,page_id}
+//	POST /api/outreach/sources/remove    -> manually remove {need,page_id}
+//	PUT  /api/outreach/drafts/{id}        -> save the user's edit
+//	POST /api/outreach/drafts/{id}/sent   -> mark sent (bumps posting tracking)
 func (s *Server) handleOutreach(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/outreach/")
 	switch {
-	case rest == "blocks":
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		statuses, err := outreach.CachedStatuses(s.DB)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"blocks": statuses})
+	case rest == "sources" || strings.HasPrefix(rest, "sources/"):
+		s.handleOutreachSources(w, r, strings.TrimPrefix(strings.TrimPrefix(rest, "sources"), "/"))
+	case strings.HasPrefix(rest, "drafts/"):
+		s.handleDraft(w, r, strings.TrimPrefix(rest, "drafts/"))
+	default:
+		http.NotFound(w, r)
+	}
+}
 
-	case rest == "sync":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+// handleOutreachSources serves the discovered knowledge sources: list, refresh
+// (re-discover from the brain), and the manual add/remove overrides.
+func (s *Server) handleOutreachSources(w http.ResponseWriter, r *http.Request, action string) {
+	switch {
+	case action == "" && r.Method == http.MethodGet:
+		writeJSON(w, http.StatusOK, s.sourcesPayload())
+
+	case action == "refresh" && r.Method == http.MethodPost:
 		if s.Brainbot == nil || !s.Brainbot.Enabled() {
 			http.Error(w, "brain not configured", http.StatusPreconditionFailed)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		if s.Anthropic == nil || s.Anthropic.APIKey == "" {
+			http.Error(w, "discovery needs ANTHROPIC_API_KEY", http.StatusPreconditionFailed)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
-		statuses, err := outreach.Sync(ctx, s.Brainbot, s.DB)
-		if err != nil {
+		result, err := outreach.Discover(ctx, s.Brainbot, s.Anthropic, s.DB, "")
+		if err != nil && !errors.Is(err, outreach.ErrNoExperience) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"blocks": statuses})
+		out := map[string]any{"result": result, "sources": s.sourcesPayload()["sources"]}
+		if errors.Is(err, outreach.ErrNoExperience) {
+			out["warning"] = err.Error()
+		}
+		writeJSON(w, http.StatusOK, out)
 
-	case strings.HasPrefix(rest, "drafts/"):
-		s.handleDraft(w, r, strings.TrimPrefix(rest, "drafts/"))
+	case (action == "add" || action == "remove") && r.Method == http.MethodPost:
+		var body struct {
+			Need   string `json:"need"`
+			PageID string `json:"page_id"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.Need == "" || body.PageID == "" {
+			http.Error(w, "need and page_id are required", http.StatusBadRequest)
+			return
+		}
+		if action == "remove" {
+			if err := s.DB.DeleteOutreachSource(body.Need, body.PageID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			if s.Brainbot == nil || !s.Brainbot.Enabled() {
+				http.Error(w, "brain not configured", http.StatusPreconditionFailed)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			src, err := outreach.FetchSource(ctx, s.Brainbot, body.Need, body.PageID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			if err := s.DB.UpsertOutreachSource(src); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, s.sourcesPayload())
 
 	default:
-		http.NotFound(w, r)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// sourcesPayload lists the cached sources without their (large) content — the
+// per-need pointers the UI renders.
+func (s *Server) sourcesPayload() map[string]any {
+	srcs, err := s.DB.ListOutreachSources()
+	if err != nil {
+		return map[string]any{"sources": []any{}, "error": err.Error()}
+	}
+	type lite struct {
+		Need       string `json:"need"`
+		PageID     string `json:"page_id"`
+		Title      string `json:"title"`
+		Version    string `json:"version"`
+		ResolvedAt string `json:"resolved_at"`
+	}
+	out := make([]lite, 0, len(srcs))
+	for _, s := range srcs {
+		out = append(out, lite{s.Need, s.PageID, s.Title, s.Version, s.ResolvedAt})
+	}
+	return map[string]any{"sources": out, "needs": outreach.KnowledgeNeeds}
 }
 
 func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string) {
@@ -167,16 +232,15 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Edits are only meaningful pre-send: a sent draft is the record of
-		// what was actually emailed, and a researching one is pipeline-owned.
+		// Edits are only meaningful pre-send: a sent draft is the record of what
+		// was actually emailed, and a researching one is pipeline-owned.
 		if cur, err := s.DB.GetOutreachDraft(id); err == nil && cur != nil &&
 			cur.Status != store.DraftAwaitingReview && cur.Status != store.DraftNoHook {
 			http.Error(w, "draft is "+cur.Status+" — only awaiting_review/no_hook drafts are editable", http.StatusConflict)
 			return
 		}
-		findings := s.lintDraft(body.Edited)
-		lintJSON, _ := json.Marshal(findings)
-		if err := s.DB.SetOutreachDraftEdited(id, body.Edited, string(lintJSON)); err != nil {
+		// The template model has no deterministic lint; the user owns their edit.
+		if err := s.DB.SetOutreachDraftEdited(id, body.Edited, "[]"); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.NotFound(w, r)
 				return
@@ -206,22 +270,4 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
-}
-
-// lintDraft lints edited email text against the configured word window and
-// every healthy locked block the structure renders (a missing/broken locked
-// block just skips its verbatim-presence rule).
-func (s *Server) lintDraft(text string) []outreach.LintFinding {
-	cfg, _ := outreach.LoadConfig(s.DB)
-	var locked []string
-	for _, name := range cfg.LockedBlocks() {
-		if b, err := s.DB.GetOutreachBlock(name); err == nil && b != nil && b.Broken == "" && b.Content != "" {
-			locked = append(locked, b.Content)
-		}
-	}
-	findings := outreach.Lint(text, locked, cfg)
-	if findings == nil {
-		findings = []outreach.LintFinding{}
-	}
-	return findings
 }

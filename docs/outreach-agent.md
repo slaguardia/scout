@@ -1,397 +1,203 @@
 # Outreach Agent — system design (for Scout)
 
-Status: design only (2026-06-04). Harness-agnostic — to be built into the Scout app.
-Systematizes the manual pipeline (research → hook → assemble → style → humanize →
-verify) from the 2026-06-03 12-company batch.
+Status: redesign (2026-06-08). Supersedes the original block/pin/sync design.
 
-## Goal
+Input: a saved posting (company + job URL, already on the tracker).
+Output: a ready-to-review cold email. **Never auto-sends.** ~2 minutes per
+company instead of ~2 hours, without faking personalization.
 
-Input: company name + job URL.
-Output: a ready-to-review cold email in Alex's voice.
-**Never auto-sends.** The system's job is ~2 minutes per company instead of ~2 hours,
-without faking personalization.
+## The model — three things, cleanly separated
 
-## Shared context blocks (static, cacheable, versioned)
+The old design encoded one person's manual cold-email method as a fixed schema
+of named blocks (`P2_LOCKED`, `HOOK_RULES`, `EXPERIENCE_CARD`, …) that the user
+had to pin to brain pages by hand. That was backwards: scout shipped opinions
+and made the user map their knowledge onto them. This redesign follows the
+north-star — **the brain owns the knowledge; scout owns the method and the
+intelligence.** Three inputs, three sources:
 
-Every agent gets only the blocks listed in its spec. Notion stays where the content
-is *authored*, but **Scout never talks to Notion** — blocks arrive via the brain
-(see "Retrieval — the brain, not Notion" below).
-
-| Block | Contents | Authored in |
+| Input | What it is | Where it lives |
 |---|---|---|
-| `EXPERIENCE_CARD` | ~150-word compact fact sheet: 5y Globex (FDE-like, embedded with customer teams, enterprise deployments into operational environments, feedback to engineering, ~2y leading an infra team, Secret-level), side projects one-liners (a handheld console 2k+ users, Taskly, Devbot agent bot). Facts only, no narrative. | derived from Past Experience |
-| `P2_LOCKED` | The frozen credential paragraph + signature (Usul version, template v7.1) | Cold Outreach Templates |
-| `HOOK_RULES` | Effort ladder, earned-vs-performed examples, gating test, "drop 'I applied'" rule | Cold Outreach Templates |
-| `CLOSER_RULES` | The 3 closer patterns (role posted / none / not sure which) + Usul closer example | Cold Outreach Templates |
-| `VOICE_RULES` | Voice & style rules + voice anchors + hard-no language list | Notion Voice & style page |
-| `BANK_ROWS` | 2–3 Writing Bank rows selected per draft, matched by move (not static) | Writing Bank — outreach DB |
-| `PAST_EXPERIENCE_FULL` | Full structured experience doc — honesty checker only | Notion Past Experience |
-| `HUMANIZER` | The humanizer skill prompt, verbatim | the user's personal skill repo — file-pinned (`file:/path`), re-read each sync |
+| **Template** | the email's *format* — greeting, sign-off, any verbatim prose, and the holes the LLM fills | scout-local file (`outreach-template.md`), authored by the user, like `playbook.md` |
+| **Knowledge** | the user's *experience* and *voice* | the **brain** — discovered, fetched, cached (never hand-maintained, never an opinionated block) |
+| **Research** | facts about the target *company* | the web (ATS JSON APIs + hosted `web_search`) |
 
-Context-minimization principle: each agent sees the smallest set that lets it do its
-one job. Notably, the Researcher knows almost nothing about Alex, and only the
-honesty checker sees the full experience doc.
+A template is a *style decision* (legitimately scout-local). Experience and
+voice are *knowledge* (the brain's job). Company facts are *external research*.
+Nothing is an opinionated block, and the user never pins anything by hand.
 
----
+## The template
 
-## Retrieval — the brain, not Notion
+One scout-local file. Fixed prose is the user's own words, copied verbatim into
+every email — that is where the old "locked credential paragraph" guarantee now
+comes from, for free. Two kinds of syntax punctuate the prose:
 
-Scout connecting to Notion directly would create a second knowledge substrate and a
-second sync problem. The brain stays the **single knowledge gateway**:
-Notion → brain sync → scout pins/fetches/caches → pipeline reads cache.
+- `{{var}}` — a simple substitution resolved in code from the posting (no LLM):
+  `{{role}}`, `{{company}}`.
+- `{{name: instructions}}` — a **hole** the LLM fills from research + the
+  knowledge bundle, e.g.
+  `{{hook: 1–2 true sentences about {{company}} tied to my actual work; if there is no honest hook, don't send}}`.
 
-The brain stays a dumb librarian — no LLM calls at serve time. All intelligence
-(extraction, distillation, drafting) lives in scout. `/recall` remains for
-*questions* (company fit; later, hook-thread checks against experience) — never for
-fetching documents. Top-k similarity gives no completeness or exactness guarantee,
-and the failure mode is silent: a missing rule or a stale template version degrades
-the email without erroring.
-
-### Brain surface (prerequisites — brainbot work, blocks everything below)
-
-1. `GET /doc?id=<stable-page-id>` — one page's **full text verbatim** + title +
-   version stamp. The new primitive; `P2_LOCKED` must round-trip byte-exact.
-2. Consumer `GET /map` — document hierarchy: stable page ids, titles, parent/child,
-   version stamps. Deliberately amends the owner-only rule in
-   `brainbot/plans/scout-migration.md`. No chunk contents, no owner metadata.
-3. **Stable IDs** — Notion's immutable page ids are the canonical keys; titles are
-   display-only. A rename changes the title, never the id, so pins don't dangle.
-4. **Sync coverage** — the outreach pages (Cold Outreach Templates, Voice & Style,
-   Past Experience, Writing Bank DB) must be in the synced set, synced regularly.
-
-### Pins
-
-A **pin** is a scout-side binding: block slot → list of page ids, stored in scout's
-SQLite. The brain doesn't know pins exist. The GUI renders the map tree; a
-**pin-proposal agent** (map-driven: read hierarchy → fetch candidates via `/doc` →
-judge content against a per-block spec) proposes bindings with confidence + excerpt
-evidence; the user confirms or overrides. Renames self-heal (stable ids). A `404`
-on a pinned id is a **loud failure** (per the migration spec): the sync marks the
-block broken and outreach drafting is blocked until it's re-pinned — never draft
-against a vanished source, never fuzzy-match to the closest surviving page.
-Caveat from the spec: Notion *deletions* don't 404 — a deleted/unshared page just
-stops re-syncing and keeps serving its last content ("version unchanged" ≠ "still
-exists upstream"). Fine for frozen blocks; accepted silent-staleness risk for
-rules docs in v1.
-
-**v1 pinning is manual** (browse the map tree in the GUI, click). The pin-proposal
-agent is a later layer on the same surface — you pin ~8 things once.
-
-**Exception: the email template is never discovered.** `P2_LOCKED` is a decision,
-not a fact lying in a doc — the user declares it directly (`scout outreach set
---block P2_LOCKED`), once per template version; the declaration is the approval
-(content-hash version, sync never touches it). No Notion subpage needed even
-though the paragraph lives inline on the Cold email template page. Automate
-*derivation*, never *authorship*.
-
-### Block tiers and stale policy
-
-| Tier | Blocks | On upstream version change |
-|---|---|---|
-| **User-declared** | `P2_LOCKED` (via `scout outreach set`) | Content-hash versioned; sync leaves it alone. A new template version is a new declaration. |
-| **Pointed-at** | `HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`, `PAST_EXPERIENCE_FULL` (brain pins); `HUMANIZER` (file pin) | Silent refetch into the cache; file pins re-read every sync. |
-| **Derived** | `EXPERIENCE_CARD` (distilled from Past Experience at sync time), `BANK_ROWS` (synced wholesale; selected by move at draft time, in code) | Re-derive at sync when inputs change. |
-
-### Sync time vs draft time
-
-All brain access happens at **sync time**: walk the pins, `GET /doc` each, assemble
-blocks (concat for multi-page pins; extraction agent for messy ones), cache
-versioned in SQLite (same pattern as `brain_profile_cache`). Drafting reads **only
-the cache** — no map, no recall, no agent rummaging while an email waits. Plus a
-deterministic lint: assert `P2_LOCKED` appears verbatim in every assembled email
-(catches the humanizer mangling it — the one model that sees the full text).
-
----
-
-## Agent 1 — Researcher
-
-**Job:** gather hook candidates. Tools: HTTP fetch, web search. ATS JSON APIs before
-scraping (Ashby `api.ashbyhq.com/posting-api/job-board/<org>` + non-user-graphql;
-Greenhouse `boards-api.greenhouse.io/v1/boards/<org>/jobs`; Lever
-`api.lever.co/v0/postings/<org>`). Browser-UA fallback for 403ing sites.
-
-**Context:** company name, job URL, a ONE-line summary of the sender ("a
-platform engineer, builds developer tooling on the side") so it knows what's
-hook-relevant. NOT the experience card — it should report facts, not
-pre-thread them.
-
-**Prompt (system):**
-```
-You research companies for job-search outreach. Given a company name and job URL,
-produce structured facts. You do not write emails and you do not flatter.
-
-Gather:
-1. What the company does and who pays them, one line.
-2. Stage, funding, rough headcount.
-3. The posted role: exact title, and 2-3 distinctive lines from the job
-   description (quote exactly — skip boilerplate like "fast-paced environment").
-4. 3-5 candidate hooks, each one of:
-   - a distinctive positioning phrase from their site (exact quote)
-   - a recent (≤3 months) launch/news item, one line
-   - a founder/exec public statement (podcast, blog, interview) with the quote
-   - a distinctive line in the job posting itself
-   For each: the exact quote, source URL, and one neutral sentence of context.
-5. Disambiguation: if the company name could be multiple entities, say which one
-   you chose and why.
-
-Rules: exact quotes only, never paraphrase into marketing speak. If you can't
-find something after a reasonable look, return it as null — do not pad.
-The relevance lens: the sender is an engineer reaching out about a role.
-Prefer hooks about: the company's product, engineering challenges, or recent news.
-```
-
-**Output schema:** `{company, what_they_do, customer, stage, headcount_est, role:
-{title, jd_quotes[]}, hooks: [{type, quote, source_url, context}], disambiguation,
-confidence}`
-
----
-
-## Agent 2 — Hook selector
-
-**Job:** pick one honest hook, or refuse. No tools.
-
-**Context:** Researcher JSON + `HOOK_RULES` + `EXPERIENCE_CARD` (it must judge
-whether a genuine half-clause thread to Alex's actual work exists).
-
-**Prompt (system):**
-```
-You select the hook for a cold email, or decide there isn't one. You are the
-integrity gate: a faked hook is worse than no hook.
-
-Given researched hook candidates and the sender's experience card, pick the ONE
-hook where both are true:
-1. It is specific to this company (only this company could receive it).
-2. There is an honest half-clause connecting it to something in the experience
-   card. The connection must already exist — never invent or stretch experience.
-
-Prefer cheaper rungs of the ladder when equally honest: job-posting shape >
-site positioning line > recent news > podcast/talk.
-
-Return: {decision: "hook" | "no_honest_hook", hook: {quote, source_url, thread:
-"<the half-clause connecting it to the sender's work>"}, closer_mode:
-"role_posted" | "no_role" | "unsure_which_role", reasoning: <2 sentences>}
-
-If every candidate requires stretching the truth or could be sent to any
-company, return no_honest_hook. That means "don't email them (yet)" — the
-correct outcome, not a failure.
-```
-
----
-
-## Agent 3 — Drafter
-
-**Job:** write P1 (1-2 sentences) and P3 (1-2 sentences) ONLY. P2/signature/subject
-are assembled in code around its output.
-
-**Context:** Hook selector output + role title + `CLOSER_RULES` + `VOICE_RULES` +
-`BANK_ROWS` (retrieved by move: e.g. selector chose a podcast hook → pull the
-"podcast hook" bank row as exemplar).
-
-**Prompt (system):**
-```
-You write two short paragraphs of a cold email for the sender, an engineer
-interested in joining the team. A locked middle paragraph carrying the sender's
-credentials already exists — you never write credentials.
-
-P1 (1-2 sentences): open with the chosen hook using its exact quote or specific
-fact, then the provided thread connecting it to Alex's work. Plain spoken
-English. No greeting (added in code).
-
-P3 (1-2 sentences): one sentence of why this company, specific, desire-framed
-("the work I want to be doing", never "where I excel"). Then the ask per
-closer_mode — for role_posted: "Open to a quick call in the next week or two
-about the [role] role?"
-
-Style: write like the bank examples provided. Tight sentences. No em dashes.
-Never: "resonates", "huge fan", "passionate about", "pick your brain", "excited
-to" as an opener, or any superlative not earned by a specific fact. Never
-mention having applied.
-
-Return: {p1, p3}
-```
-
----
-
-## Agent 4 — Humanizer (cleanup pass)
-
-**Job:** final de-AI pass over the assembled email.
-
-**Context:** `HUMANIZER` prompt verbatim + the assembled full email + 1-2 `BANK_ROWS`
-bodies as the voice-matching sample (the skill supports voice calibration from a
-sample — use it).
-
-Runs AFTER deterministic lint (below), because lint output tells it what to fix;
-its output goes through lint again (models reintroduce patterns — observed twice
-on 2026-06-03).
-
----
-
-## Agent 5 — Honesty checker
-
-**Job:** veto power. Single purpose.
-
-**Context:** `PAST_EXPERIENCE_FULL` + the final email. Nothing else — it should not
-know what the hook was supposed to be, only whether claims are true.
-
-**Prompt (system):**
-```
-You verify that a job-search email makes no claim beyond the sender's documented
-experience. Compare every factual claim in the email (roles, durations, skills,
-domains, projects, achievements) against the experience document.
-
-Flag: invented experience, inflated scope (e.g. "led the program" when the doc
-says "led a team"), implied domain expertise the doc doesn't support (e.g.
-healthcare claims when the doc shows only fintech), and durations that don't
-match.
-
-Do not flag: desire statements ("the work I want to do"), opinions about the
-company, or the hook's observation about THEM.
-
-Return: {verdict: "pass" | "fail", violations: [{claim, why}]}. Be strict;
-a false pass costs more than a false fail.
-```
-
----
-
-## Deterministic code (not agents)
-
-- **Assembly:** greeting + an ordered list of body slots + signature. The slot
-  list is **config** (`OutreachConfig.structure`, default
-  `model(P1) → locked(P2_LOCKED) → model(P3)`): each slot is `model`
-  (agent-authored, P1/P3) or `locked` (a block inserted verbatim). The subject is
-  a template (default `[Name] | {sender} intro — {role}`; `{role}` and its
-  separator drop when the role is empty). Name left as placeholder —
-  contact-finding is out of scope (the user finds the person). Edited from the
-  Criteria panel's "outreach config" or `scout outreach config`. **Locked slots
-  are verbatim and PAST_EXPERIENCE_FULL is never a body slot** — both are enforced
-  by the config validator, not convention.
-- **Lint (regex/rules):** em dashes; banned-phrase list; a configurable
-  body-word window (`OutreachConfig.word_min/max`, default 75–125); doubled-word
-  check ("has has"); every `locked` block verbatim-presence assertion. Rules run
-  against the BODY — the subject line (whose canonical format contains an em
-  dash), greeting, and sign-off are stripped first. The old applied-mention
-  detector is gone: the refactored template sanctions "saw your post, applied
-  today" as the light hook. Runs before AND after the humanizer pass.
-- **Required blocks are tiered.** HARD blocks gate a draft: `PAST_EXPERIENCE_FULL`
-  (the honesty checker's ground truth, always required — see below) plus whatever
-  the active structure renders as a `locked` slot. SOFT blocks
-  (`HOOK_RULES`, `CLOSER_RULES`, `VOICE_RULES`) degrade gracefully — the draft
-  proceeds with the section omitted and the UI warns; integrity is unaffected
-  because the hook selector's gate is in its system prompt and the honesty
-  checker still runs. **GUARDRAIL:** the honesty checker runs over the whole
-  assembled email against `PAST_EXPERIENCE_FULL` regardless of structure; it is
-  never disabled as a side effect of a thinner block set — only a missing
-  `PAST_EXPERIENCE_FULL` blocks the draft, never silently skips the check.
-- **No-email route:** on no_honest_hook there is NO draft — "if you can't write
-  even one true sentence for a company, don't email them" (Cold email template
-  page). Scout's job is making sure there IS something true to say; when there
-  isn't, the honest output is a recommendation not to email. Writing one anyway
-  in the panel is a manual override.
-- **Logging:** on Alex's confirmed send ("mark sent" in the job panel), bump the
-  outreach count AND stamp the send date via `PUT /api/postings/{id}`. Send dates
-  are what make Touch 2 follow-ups cheap later.
-
-## Pipeline order
+Example:
 
 ```
-Researcher → Hook selector ─┬─ hook ──→ Drafter → assemble → lint → Humanizer → lint → Honesty → review queue
-                            └─ no hook → no draft (recommend not emailing) → review queue
+Subject: [Name] | Alex intro — {{role}}
+
+Hi [Name],
+
+{{hook: one specific, true observation about {{company}} threaded to my work}}
+
+I spent five years at Globex in a forward-deployed role… [verbatim — the LLM
+never touches this; the user typed it]
+
+{{closer: ask for a quick call about the {{role}} role}}
+
+Thanks,
+Alex
 ```
 
-Honesty fail → back to Drafter once with violations attached; second fail → human.
+The template *is* the structure, the voice of the fixed parts, the locked text,
+and the subject format — all in one artifact the user controls. Edited in the UI
+exactly like `taste.md` / `playbook.md` (reuses the editor modal), and like them
+it is **committed** — a sanitized example (placeholder name, a bracketed
+credential paragraph to replace, the hole syntax demonstrated). The user
+localizes it; their real name/credentials are a local edit, and the personal
+*facts* live in the brain, not here.
 
-## Scope & UI
+## Knowledge retrieval — discover, store, fetch
 
-**v1 is single-job drafting**: trigger one company/posting, review the result.
-Batch ("feed it 12, review tomorrow") is a later mode — the pipeline supports it,
-but it upgrades the review queue from a panel section to a required UI surface.
+The user's experience and voice live in the brain. Scout finds the right pages
+**intelligently**, once, and remembers them — it does not hardcode page ids and
+does not make the user pin them.
 
-**The review queue lives in the jobs-page side panel**, which gets redesigned
-around the pursuit, not the company. Wider panel, role-centric:
+### Discovery (the pin-proposal agent, generalized)
 
-- **Role header** — title, posting link, location. Lean; we don't store much
-  about the role itself.
-- **Pipeline** — applied date, response stage, existing tracking controls.
-- **Outreach** — outreach count + last date + contacts (existing), then:
-  "Draft outreach" action, draft status (researching / awaiting review /
-  no-honest-hook), the draft itself for review/edit, "mark sent".
-- **Footer** — "View company" button pops the original company sidebar; the
-  company is secondary context here.
+A discovery pass, run on demand and re-runnable:
 
-**no_honest_hook renders as a neutral result, not an error** — "no honest hook
-found — nothing true to say yet; scout recommends not emailing." The integrity
-gate working must not look like a failure; writing an email anyway in the panel
-is a deliberate manual override.
+1. `GET /map` — the brain's document hierarchy (stable page ids, titles, paths).
+   Titles only, no content.
+2. A cheap **Haiku** call selects, for each general **knowledge-need**, the page
+   ids whose titles/paths match. The needs are a small, fixed, *method-level*
+   list (not opinions about the user):
+   - **experience** — roles, projects, scope, skills, achievements, credentials
+   - **voice** — the user's writing tone and style
+3. Scout fetches each selected page **whole** via `GET /doc?id=` and **caches**
+   the text + version stamp locally (`outreach_sources`).
 
-The trigger integration is nearly free: company, URL, and title already sit on the
-posting row (Add-by-link capture). Outreach becomes a verb on the tracker, and
-"sent" lands on the same posting.
+**Fail loud on an empty brain.** The discovery agent's instructions explicitly
+require it to *walk the returned map and report a not-found signal per need when
+nothing is genuinely relevant* — it must never pick an off-topic page just to
+avoid returning empty (a wrong "experience" page silently corrupts every hook and
+defeats the honesty check). If the brain returns nothing relevant to
+**experience**, that is a hard error: discovery surfaces it, and outreach
+drafting (and answer generation) are blocked until the brain has experience
+content and is re-discovered — the same loud-gate posture the old
+`PAST_EXPERIENCE_FULL` requirement had. A missing **voice** page degrades
+gracefully (the email is less voiced, not dishonest) and only warns.
 
-## Implementation decisions (2026-06-04 hash-out)
+The resolved selection is shown in the UI (which pages map to which need) with an
+**add/remove** override and a **Refresh** button. `/map` is title-only, so the
+LLM can miss or over-pick; the user stays in control, and Refresh re-runs
+discovery against a fresh map when new pages appear upstream.
 
-- **Researcher tooling:** scout pre-fetches the JD in Go code (Ashby/Greenhouse/
-  Lever JSON APIs are deterministic HTTP — no model needed) and hands it to the
-  Researcher as context; the agent itself uses the Anthropic hosted `web_search`
-  tool for news/site/podcast hooks. No custom tool-use loop in v1; sites that
-  403 the JD fetch just yield fewer hook candidates.
-- **Models:** Sonnet for all five agents — including the honesty checker
-  ("a false pass costs more than a false fail" rules out cheaping out). ~5 calls
-  per email.
-- **Data model:** `outreach_pins` (block → page ids), `outreach_blocks` (name,
-  content, version, fetched_at — the cache), `outreach_drafts` (posting_id FK,
-  status: researching / awaiting_review / no_hook / sent / failed, research JSON,
-  hook JSON, draft text, violations, edited text, sent_at). Draft history kept
-  per posting — Touch 2 needs it.
-- **Sync trigger:** manual refresh button + a cheap `/map` version check at draft
-  start (re-fetch only changed blocks per tier rules). No background cron.
-- **Draft UX is fire-and-forget:** click "Draft outreach", keep browsing; the job
-  row shows a draft-ready badge when the pipeline finishes (~1–2 min).
-- **EXPERIENCE_CARD is reviewable:** shown in the UI with an edit override
-  (Criteria-panel style); re-derivation flags a diff instead of silently swapping —
-  an error in the card propagates into hook threads.
-- **Post-edit lint:** editing a draft in the panel re-runs lint on save (regex,
-  instant). The honesty checker does not re-run on the user's own edits.
+### Why whole-fetch, not per-company recall
 
-## Design decisions
+One person's experience is a few pages, not a corpus — so scout fetches it
+*whole* and feeds the full bundle to both the fill step and the honesty check.
+The fill LLM does relevance selection in-context (it has the company research +
+the full experience). This matters for integrity: **verification needs
+completeness.** Top-k `/recall` gives no completeness guarantee, so verifying an
+email against a partial view can pass a fabrication. Whole-fetch of the
+discovered pages is the complete ground truth the honesty checker requires.
 
-1. **Lock what's lockable.** Models touch ~4 sentences per email.
-2. **The Hook selector can refuse**, and refusal is a success path: the
-   recommendation is "don't email this company (yet)" — never a fallback blast.
-3. **Lint is code and runs twice.** LLM cleanup passes reintroduce the patterns
-   they're meant to remove.
-4. **Honesty checker is isolated** — full experience doc, no knowledge of intent,
-   strict-fail bias. "Never invent experience" is the system's hard rule.
-5. **The brain is the only knowledge gateway.** Scout never talks to Notion.
-   Blocks are pinned by stable page id, fetched whole via `/doc` at sync time,
-   cached versioned in SQLite. `/recall` is for questions, never documents.
-6. **Automate derivation, never authorship.** The pin-proposal agent suggests,
-   the extraction agent distills — but the template is user-declared, and locked
-   blocks never auto-adopt upstream changes.
-7. **All brain access at sync time.** Drafting reads only the cache; an email
-   never waits on retrieval.
+### Caching
 
-## Generality (if others use this)
+Discovery/refresh fetches and caches the page **content** (not just pointers), so
+drafting reads the cache — fast, and resilient if the brain is down at draft
+time. Refresh re-fetches and surfaces what changed.
 
-The pipeline, refusal path, lint-twice, locked-credentials pattern, and honesty
-checker are the product; the blocks are a **profile pack** another user fills via
-their own brain + pins — the map-pinning GUI adapts to any hierarchy, no hardcoded
-page ids. The user-specific framing is now data: the Researcher's relevance lens
-and the Drafter's sender line come from the `Sender` identity, and the lint
-constants (word window, subject format) plus the email structure are
-`OutreachConfig` (defaults reproduce the original hardcoded values). An empty
-Writing Bank degrades gracefully (skip voice calibration, rules only), and the
-three rules blocks degrade too (SOFT tier). **Non-configurable on purpose:** never
-auto-send; never invent experience (the honesty checker over `PAST_EXPERIENCE_FULL`
-is unconditional and HARD-required); refusal-as-success; locked slots stay
-verbatim. Disabling honesty checking, if ever offered, must be an explicit loud
-toggle — never a consequence of fewer blocks.
+## Pipeline
 
-## Open questions
+```
+research the company ─▶ load template + knowledge bundle ─▶ ONE fill call
+   (ATS + web_search)      (cache; vars resolved in code)    (holes filled)
+        │                                                          │
+        │                                            ┌─────────────┴──────────────┐
+        │                                       honest hook?                  no honest hook
+        ▼                                            │                            │
+   research JSON                              honesty check the                don't send
+   on the draft row                           FILLED HOLES vs the              (DraftNoHook —
+                                              complete experience               a success path,
+                                              (one retry)                       no draft)
+                                                   │
+                                          pass ─▶ review queue (DraftAwaitingReview)
+                                          fail twice ─▶ DraftFailed
+```
 
-- Researcher proposing the target person too (it did this well in the 2026-06-03
-  batch) — Alex currently wants contact-finding manual. Revisit.
-- Follow-up generation (Touch 2 "news not nudge" needs a fresh mini-research pass
-  at +7 days; Touch 3 is pure template). Natural v2 once send dates are logged —
-  which v1 does from day one ("mark sent" stamps the date).
-- ~~Where Scout's review queue lives~~ — resolved: the jobs-page side panel
-  (see Scope & UI). Still open: whether batch mode needs a dedicated queue view.
+- **Research** — ATS JSON pre-fetch (Ashby/Greenhouse/Lever) + hosted
+  `web_search`. Gathers true, specific company facts. No identity framing.
+- **Fill** — one LLM call (Sonnet). It is told: the fixed prose is the user's and
+  must not change; fill each labeled hole using ONLY the research facts and the
+  knowledge bundle; never invent; if a hole says don't-send and you can't fill it
+  honestly, signal no-send. Output is `{holeName: text}` (or a no-send signal);
+  code re-assembles verbatim prose + resolved vars + filled holes into the email.
+- **Honesty** — checks the *filled holes* (the LLM-generated spans; the fixed
+  prose is true by construction) against the **complete** experience bundle. One
+  retry feeds violations back into the fill call. A false claim to a recruiter is
+  worse than a thin one.
+- **Refusal-as-success** — no honest hook ⇒ no draft, no fallback template. "If
+  you can't write even one true sentence for a company, don't email them."
+
+## Application answers — same knowledge, same check
+
+Application-answer generation runs the identical flow: the essay question is the
+context, the same brain knowledge bundle is the experience source, and the same
+honesty checker vets the answer against the complete experience. There is no
+separate experience block — outreach and answers share one retrieval path.
+
+## Non-negotiable (method, not opinion)
+
+These are scout's, fixed, and *not* derived from any one person's style:
+
+- **Never auto-send.** Scout drafts; the user sends.
+- **Never invent experience.** The honesty checker runs over every generated span
+  against the *complete* experience bundle — always, regardless of template.
+- **Refusal is a success path**, never a fallback blast.
+- **Verbatim prose stays verbatim** — the user's own words are never paraphrased.
+
+## Data model
+
+- `outreach-template.md` — scout-local file, committed (sanitized example, like
+  `taste.md`/`playbook.md`). The email format.
+- `outreach_sources` — the discovered knowledge: one row per (need, page_id) with
+  the cached page text, title, and version; populated by discovery/refresh.
+  Replaces the deleted `outreach_pins` + `outreach_blocks`.
+- `outreach_drafts` — unchanged. The review queue (research JSON, filled email,
+  status, sent_at).
+- **Dropped:** `outreach_pins`, `outreach_blocks`, `outreach_sender`,
+  `outreach_config` (the old block schema, the identity, and the lint/structure
+  knobs all go).
+
+## Surfaces
+
+- **Criteria panel** — an "email template" editor (reuses the editor modal) and a
+  "knowledge sources" view: the resolved pages per need, add/remove override, and
+  a Refresh button.
+- **HTTP** — `GET/PUT /api/outreach-template`; `GET /api/outreach/sources`;
+  `POST /api/outreach/sources/refresh`. The draft queue endpoints
+  (`/api/postings/{id}/outreach`, `/api/outreach/drafts/{id}`, `…/sent`) are
+  unchanged.
+- **CLI** — `scout outreach sources [--refresh]`, `scout outreach draft
+  --posting <id>`. (`map`/`pin`/`set`/`config`/`blocks` are gone.)
+- **Review queue** — the jobs-page pursuit panel, unchanged: draft cards by
+  status, edit, mark-sent bumps tracking. `no_honest_hook` renders as a neutral
+  result ("nothing true to say yet — scout recommends not emailing").
+
+## What changed from the original design
+
+Deleted: the named-block taxonomy (`P2_LOCKED`, `HOOK_RULES`, `CLOSER_RULES`,
+`VOICE_RULES`, `PAST_EXPERIENCE_FULL`, `EXPERIENCE_CARD`, `BANK_ROWS`,
+`HUMANIZER`), manual pins + sync, the five named agents (researcher and a thin
+honesty pass survive; hook-selector/drafter/humanizer collapse into the single
+fill call), the Sender identity, and the lint/structure config knobs. The
+genuinely-general parts — research, honesty, refusal-as-success, the review
+queue — stay.

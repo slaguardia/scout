@@ -94,25 +94,27 @@ canonical port defeats that safety net — don't.
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
-- **Outreach pipeline, built (not yet live):** `docs/outreach-agent.md` is the
-  spec. Context **blocks** (P2 paragraph, hook/closer/voice rules, experience
-  doc, humanizer prompt) are bound by scout-side **pins** to brain page ids
-  (or `file:` paths), fetched whole via `/doc` at sync time, cached versioned
-  in SQLite; `P2_LOCKED` is user-declared (`scout outreach set`, declaration =
-  approval); locked blocks halt loud on upstream drift, 404s on pinned sources
-  go loud. The **engine** (`internal/outreach`, all Sonnet): JD from the
-  posting's stored description (capture writes it; survives posting takedown),
-  live Go pre-fetch (ATS JSON APIs) as fallback → researcher (hosted
-  `web_search`, pause_turn-aware) →
-  hook selector (integrity gate) → drafter (P1/P3 only; P2 + sign-off
-  assembled in code) → lint → humanizer → lint → honesty checker (one retry).
-  `no_honest_hook` = **don't email** (no draft, no fallback template) — a
-  success path. Body-scoped deterministic lint. The jobs panel is the review
-  queue (draft cards by status, edit/re-lint, mark-sent bumps tracking);
-  fire-and-forget with a row badge. CLI: `scout outreach map | pin | set |
-  blocks | draft`. Engine wires into serve when `ANTHROPIC_API_KEY` is set.
-  Notion guidance pages (refactored 2026-06-06) are not yet ingested into the
-  brain, so no blocks are pinned yet — that's the go-live gate.
+- **Outreach pipeline, redesigned (template model, 2026-06-08):**
+  `docs/outreach-agent.md` is the spec. The old opinionated block taxonomy
+  (`P2_LOCKED`/`HOOK_RULES`/`EXPERIENCE_CARD`/… + manual pins + the 5-agent
+  chain) is **gone**. Three inputs now: a scout-local **email template**
+  (`outreach-template.md`, committed sanitized example, edited like
+  taste/playbook — the email *format*: verbatim prose + `{{var}}` substitutions +
+  `{{name: instructions}}` holes); **brain knowledge** (experience + voice),
+  *discovered* not pinned; and **company research** (web). **Discovery**
+  (`internal/outreach/discover.go`): Haiku over the brain `/map` selects pages
+  per fixed knowledge-need (experience HARD, voice soft), whole-fetched via
+  `/doc` and cached in `outreach_sources` (M35); fail-loud `ErrNoExperience`
+  when experience comes back empty; UI shows the picks with Refresh + remove.
+  The **engine** (`internal/outreach`, Sonnet): JD pre-fetch → researcher
+  (`web_search`) → **one fill call** (writes the holes against research +
+  experience + voice; a no-send signal = refusal, a success path) → **honesty
+  check on the filled holes** against the complete experience bundle (one retry).
+  Verbatim template prose is true by construction. The jobs panel is the review
+  queue (edit, mark-sent bumps tracking); fire-and-forget. CLI: `scout outreach
+  sources [--refresh] | draft`. Engine wires into serve when
+  `ANTHROPIC_API_KEY` is set. Go-live gate: ingest the guidance pages into the
+  brain, then Refresh sources + localize the template.
 - **Application answers, built:** `docs/application-answers.md` is the spec; it
   reuses the outreach engine. **Detection** runs at capture time
   (`internal/capture/questions.go`) via per-platform resolvers — Greenhouse
@@ -122,26 +124,28 @@ canonical port defeats that safety net — don't.
   file / choice fields are filtered out and essays kept, with a load-bearing
   `questions_status` (ok|none|unsupported|unreachable). **Generation** is on a
   button (`Engine.GenerateAnswers`, Sonnet): per question it assembles JD +
-  company-fit brief + experience card + voice, drafts once, then routes through
-  the same outreach **honesty checker** (a false claim to a recruiter is worse
-  than a thin answer); a second honesty fail keeps the answer flagged
-  `needs_review` rather than shipping it. One row per question
-  (`posting_answers`, M32), independently editable/regenerable via the pursuit
-  panel's "Application" section (inline auto-save, per-question Regenerate,
-  "Draft answers" / "Re-detect"). Endpoints mirror outreach
+  company-fit brief + the **experience bundle** + voice (the same discovered
+  `outreach_sources` the email pipeline uses — no more `PAST_EXPERIENCE_FULL`
+  block), drafts once, then routes through the same outreach **honesty checker**
+  (a false claim to a recruiter is worse than a thin answer); a second honesty
+  fail keeps the answer flagged `needs_review` rather than shipping it. One row
+  per question (`posting_answers`, M32), independently editable/regenerable via
+  the pursuit panel's "Application" section (inline auto-save, per-question
+  Regenerate, "Draft answers" / "Re-detect"). Endpoints mirror outreach
   (`GET/POST /api/postings/{id}/answers`, `…/redetect`, `PUT /api/answers/{id}`),
-  gated on the `PAST_EXPERIENCE_FULL` block + `ANTHROPIC_API_KEY`. CLI: `scout
+  gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. CLI: `scout
   questions detect --posting <id> | --all`. **Scout never submits** — it drafts;
   the user copy-pastes into the ATS.
 
 ## What's next
 
-**Outreach go-live:** ingest the Notion guidance pages into the brain (Cold
-email, Voice & style, Past Experience), pin the blocks, `scout outreach set`
-the P2 paragraph (body only — the sign-off is assembled in code) and the
-humanizer prompt, then run the first real draft via `scout outreach draft
---posting <id>`. Pinning `PAST_EXPERIENCE_FULL` in that pass also unblocks
-**application-answer generation** (it shares that gate). Also still pending: a
+**Outreach go-live:** ingest the experience + voice pages into the brain, then
+**Refresh sources** (Criteria → outreach knowledge; or `scout outreach sources
+--refresh`) so discovery caches the experience bundle, and **localize the
+template** (`outreach-template.md` — your real name, sign-off, and the verbatim
+credential paragraph). Then run the first real draft via `scout outreach draft
+--posting <id>`. The same experience bundle also unblocks
+**application-answer generation** (shared gate). Also still pending: a
 real **Crunchbase CSV run** end-to-end
 (verify ingest column aliases against the real header first). The web UI is
 the primary interface; the CLI is the secondary automation/debug surface.

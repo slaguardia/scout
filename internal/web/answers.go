@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/slaguardia/scout/internal/capture"
-	"github.com/slaguardia/scout/internal/outreach"
 )
 
 // AnswersRunner generates application-question answers for a posting,
@@ -61,18 +60,16 @@ func (s *Server) handlePostingAnswers(w http.ResponseWriter, r *http.Request, po
 			http.NotFound(w, r)
 			return
 		}
-		// The honesty gate needs the experience block synced — fail loud and
+		// The honesty gate needs the experience bundle discovered — fail loud and
 		// early (mirrors the outreach draft gate) rather than drafting answers
 		// that can't be checked.
-		missing, err := outreach.MissingAnswerBlocks(s.DB)
-		if err != nil {
+		if exp, err := s.DB.OutreachKnowledge("experience"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		if len(missing) > 0 {
+		} else if strings.TrimSpace(exp) == "" {
 			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error":          "the experience context block is missing or broken — pin and sync it first",
-				"missing_blocks": missing,
+				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
+				"need":  "experience",
 			})
 			return
 		}

@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -55,10 +56,10 @@ const defaultBrainURL = "http://127.0.0.1:8100"
 // verdict scoring stays on the cheaper anthropic.DefaultModel (Haiku).
 const defaultDistillModel = "claude-sonnet-4-6"
 
-// defaultOutreachModel is the model for all five outreach pipeline agents
-// (researcher through honesty checker). Sonnet: the honesty checker's
-// "a false pass costs more than a false fail" rule rules out cheaping out, and
-// the researcher needs strong tool use for the hosted web_search pass.
+// defaultOutreachModel is the model for the outreach pipeline (research, fill,
+// honesty). Sonnet: the honesty checker's "a false pass costs more than a false
+// fail" rule rules out cheaping out, and the researcher needs strong tool use
+// for the hosted web_search pass. (Discovery uses cheaper Haiku separately.)
 const defaultOutreachModel = "claude-sonnet-4-6"
 
 // defaultBrainCacheTTL is how long a locally-cached distilled brief is reused
@@ -121,12 +122,8 @@ Usage:
   scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
-  scout outreach map [--brainbot URL]
-  scout outreach pin --block NAME --pages id1,id2|file:/path [--approve] [--brainbot URL] [--db scout.db]
-  scout outreach set --block NAME (--text S | --file PATH | <stdin) [--db scout.db]
-  scout outreach config [--word-min N] [--word-max N] [--subject-format T] [--db scout.db]
-  scout outreach blocks [--full] [--brainbot URL] [--db scout.db]
-  scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
+  scout outreach sources [--refresh] [--brainbot URL] [--db scout.db]
+  scout outreach draft --posting <id> [--template outreach-template.md] [--model claude-sonnet-4-6] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
@@ -442,11 +439,12 @@ func cmdServe(args []string) error {
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (editable in the UI)")
 	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
+	outreachTemplate := fs.String("outreach-template", "outreach-template.md", "scout-local email template (editable in the UI)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
-	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (all five agents)")
+	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -475,14 +473,15 @@ func cmdServe(args []string) error {
 	}
 
 	srv := &web.Server{
-		DB:            db,
-		Brainbot:      bc,
-		Anthropic:     ac,
-		TasteMDPath:   *tasteMD,
-		TasteTOMLPath: *tasteTOML,
-		PlaybookPath:  *playbookPath,
-		IngestSource:  *source,
-		Resolver:      resolver,
+		DB:                   db,
+		Brainbot:             bc,
+		Anthropic:            ac,
+		TasteMDPath:          *tasteMD,
+		TasteTOMLPath:        *tasteTOML,
+		PlaybookPath:         *playbookPath,
+		OutreachTemplatePath: *outreachTemplate,
+		IngestSource:         *source,
+		Resolver:             resolver,
 	}
 	// Load taste + playbook into the server (folds playbook into the version,
 	// matching `scout verdict`). Re-run after every editor PUT.
@@ -506,7 +505,7 @@ func cmdServe(args []string) error {
 		}
 		// One engine satisfies both runners (outreach Draft + answer Generate);
 		// answer generation also reads the brain company-fit brief via Brief.
-		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
+		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, TemplatePath: *outreachTemplate, Log: logLine}
 		eng.Brief = func(ctx context.Context) (string, error) {
 			blk, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -762,44 +761,33 @@ func exit(err error) {
 	}
 }
 
-// --- outreach (blocks debug + pinning) ---
+// --- outreach (knowledge sources + drafting) ---
 
-// cmdOutreach manages the outreach context blocks: `map` prints the brain's
-// document tree (where pinnable ids come from), `pin` binds a block slot to
-// page ids, and `blocks` syncs every pinned block and prints the result —
-// the debug instrument for the retrieval layer, mirroring `scout distill`.
+// cmdOutreach manages the outreach pipeline: `sources` lists or refreshes the
+// brain-discovered knowledge bundle (experience + voice), and `draft` runs the
+// full pipeline against one posting.
 func cmdOutreach(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("outreach: want a subcommand: map | pin | set | config | blocks | draft")
+		return fmt.Errorf("outreach: want a subcommand: sources | draft")
 	}
 	switch args[0] {
-	case "map":
-		return cmdOutreachMap(args[1:])
-	case "pin":
-		return cmdOutreachPin(args[1:])
-	case "set":
-		return cmdOutreachSet(args[1:])
-	case "config":
-		return cmdOutreachConfig(args[1:])
-	case "blocks":
-		return cmdOutreachBlocks(args[1:])
+	case "sources":
+		return cmdOutreachSources(args[1:])
 	case "draft":
 		return cmdOutreachDraft(args[1:])
 	default:
-		return fmt.Errorf("outreach: unknown subcommand %q (want map | pin | set | config | blocks | draft)", args[0])
+		return fmt.Errorf("outreach: unknown subcommand %q (want sources | draft)", args[0])
 	}
 }
 
-// cmdOutreachConfig prints or sets the outreach knobs (lint word window,
-// subject-line format). Structure editing is UI/JSON only (the web config
-// editor); the CLI covers the scalar knobs and the read-only dump for
-// debugging. With no set flags it prints the effective config.
-func cmdOutreachConfig(args []string) error {
-	fs := flag.NewFlagSet("outreach config", flag.ExitOnError)
+// cmdOutreachSources lists the brain-discovered knowledge sources, or (with
+// --refresh) re-runs discovery over the brain map (Haiku selects experience +
+// voice pages, whole-fetched and cached).
+func cmdOutreachSources(args []string) error {
+	fs := flag.NewFlagSet("outreach sources", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
-	wordMin := fs.Int("word-min", -1, "minimum body word count (lint)")
-	wordMax := fs.Int("word-max", -1, "maximum body word count (lint)")
-	subject := fs.String("subject-format", "", "subject template ({sender}, {role} tokens)")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
+	refresh := fs.Bool("refresh", false, "re-run discovery over the brain map")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -809,167 +797,26 @@ func cmdOutreachConfig(args []string) error {
 	}
 	defer db.Close()
 
-	cfg, err := outreach.LoadConfig(db)
-	if err != nil {
-		return err
-	}
-	changed := false
-	if *wordMin >= 0 {
-		cfg.WordMin = *wordMin
-		changed = true
-	}
-	if *wordMax >= 0 {
-		cfg.WordMax = *wordMax
-		changed = true
-	}
-	if *subject != "" {
-		cfg.SubjectFormat = *subject
-		changed = true
-	}
-	if changed {
-		if err := outreach.SaveConfig(db, cfg); err != nil {
-			return fmt.Errorf("outreach config: %w", err)
-		}
-	}
-	fmt.Printf("word window: %d-%d\n", cfg.WordMin, cfg.WordMax)
-	fmt.Printf("subject:     %s\n", cfg.SubjectFormat)
-	fmt.Printf("structure:   ")
-	for i, s := range cfg.Structure {
-		if i > 0 {
-			fmt.Print(" -> ")
-		}
-		if s.Kind == outreach.SlotLocked {
-			fmt.Printf("locked(%s)", s.Block)
-		} else {
-			fmt.Printf("model(%s)", s.Source)
-		}
-	}
-	fmt.Println()
-	return nil
-}
-
-func cmdOutreachMap(args []string) error {
-	fs := flag.NewFlagSet("outreach map", flag.ExitOnError)
-	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	ctx, cancel := signalCtx()
-	defer cancel()
-	m, err := brainbot.New(*brainbotURL).Map(ctx)
-	if err != nil {
-		return err
-	}
-	for _, s := range m.Sources {
-		fmt.Printf("%s  %-40s  %s\n", s.ID, s.Path, s.Version)
-	}
-	return nil
-}
-
-func cmdOutreachPin(args []string) error {
-	fs := flag.NewFlagSet("outreach pin", flag.ExitOnError)
-	dbPath := fs.String("db", "scout.db", "sqlite path")
-	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
-	block := fs.String("block", "", "block slot name (e.g. VOICE_RULES)")
-	pages := fs.String("pages", "", "comma-separated brain page ids, in order (empty = unpin)")
-	approve := fs.Bool("approve", false, "locked blocks: approve the pages' CURRENT brain versions")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	slot := outreach.SlotByName(*block)
-	if slot == nil {
-		return fmt.Errorf("outreach pin: unknown block %q", *block)
-	}
-	if slot.Tier == outreach.TierDerived {
-		return fmt.Errorf("outreach pin: %s is a derived block — it is synthesized, not pinned", slot.Name)
-	}
-
-	db, err := store.Open(*dbPath)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	var ids []string
-	for _, id := range strings.Split(*pages, ",") {
-		if id = strings.TrimSpace(id); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		if err := db.SetOutreachPin(slot.Name, nil, ""); err != nil {
-			return err
-		}
-		fmt.Printf("unpinned %s\n", slot.Name)
-		return nil
-	}
-
-	// Locked blocks record the approved upstream version at pin time; sync
-	// halts the block on any drift. --approve fetches and stamps it.
-	approvedVersion := ""
-	if slot.Tier == outreach.TierLocked {
-		if !*approve {
-			return fmt.Errorf("outreach pin: %s is locked — re-run with --approve to accept the pages' current versions", slot.Name)
-		}
+	if *refresh {
 		ctx, cancel := signalCtx()
 		defer cancel()
-		brain := brainbot.New(*brainbotURL)
-		versions := make([]string, 0, len(ids))
-		for _, id := range ids {
-			_, version, err := outreach.FetchPin(ctx, brain, id)
-			if err != nil {
-				return fmt.Errorf("outreach pin: fetch %s for approval: %w", id, err)
+		if _, derr := outreach.Discover(ctx, brainbot.New(*brainbotURL), anthropic.New(""), db, ""); derr != nil {
+			if !errors.Is(derr, outreach.ErrNoExperience) {
+				return derr
 			}
-			versions = append(versions, version)
+			fmt.Fprintf(os.Stderr, "warning: %v\n", derr)
 		}
-		approvedVersion = strings.Join(versions, "+")
 	}
-	if err := db.SetOutreachPin(slot.Name, ids, approvedVersion); err != nil {
-		return err
-	}
-	fmt.Printf("pinned %s -> %s", slot.Name, strings.Join(ids, ", "))
-	if approvedVersion != "" {
-		fmt.Printf(" (approved %s)", approvedVersion)
-	}
-	fmt.Println()
-	return nil
-}
-
-func cmdOutreachBlocks(args []string) error {
-	fs := flag.NewFlagSet("outreach blocks", flag.ExitOnError)
-	dbPath := fs.String("db", "scout.db", "sqlite path")
-	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
-	full := fs.Bool("full", false, "print full block contents, not previews")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	db, err := store.Open(*dbPath)
+	srcs, err := db.ListOutreachSources()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-
-	ctx, cancel := signalCtx()
-	defer cancel()
-	statuses, err := outreach.Sync(ctx, brainbot.New(*brainbotURL), db)
-	if err != nil {
-		return err
+	if len(srcs) == 0 {
+		fmt.Println("(no sources — run `scout outreach sources --refresh`)")
+		return nil
 	}
-	for _, st := range statuses {
-		fmt.Printf("%-22s %-8s %-10s %s", st.Block, st.Tier, st.State, st.Version)
-		if st.Detail != "" {
-			fmt.Printf("  %s", st.Detail)
-		}
-		fmt.Println()
-		if st.State == "ok" || st.State == "unchanged" {
-			if b, err := db.GetOutreachBlock(st.Block); err == nil && b != nil {
-				body := b.Content
-				if !*full && len(body) > 240 {
-					body = body[:240] + " …"
-				}
-				fmt.Printf("    %s\n", strings.ReplaceAll(body, "\n", "\n    "))
-			}
-		}
+	for _, s := range srcs {
+		fmt.Printf("%-12s %-40s %s\n", s.Need, s.Title, s.PageID)
 	}
 	return nil
 }
@@ -982,7 +829,8 @@ func cmdOutreachDraft(args []string) error {
 	fs := flag.NewFlagSet("outreach draft", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	posting := fs.String("posting", "", "job_postings.id to draft outreach for")
-	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (all five agents)")
+	templatePath := fs.String("template", "outreach-template.md", "scout-local email template file")
+	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -996,22 +844,18 @@ func cmdOutreachDraft(args []string) error {
 	}
 	defer db.Close()
 
-	// Gate on the HARD context blocks being healthy (mirrors the web POST):
-	// PAST_EXPERIENCE_FULL + the structure's locked blocks. SOFT blocks
-	// (HOOK_RULES / CLOSER_RULES / VOICE_RULES) only warn.
-	cfg, err := outreach.LoadConfig(db)
-	if err != nil {
-		return err
+	// Gate on the two inputs (mirrors the web POST): the email template and a
+	// discovered experience bundle (the honesty ground truth). Voice is soft.
+	if tmpl, _ := outreach.LoadTemplate(*templatePath); strings.TrimSpace(tmpl) == "" {
+		return fmt.Errorf("outreach draft: no email template at %s — write it first", *templatePath)
 	}
-	if missing, err := outreach.MissingHardBlocks(db, cfg); err != nil {
+	if exp, err := db.OutreachKnowledge("experience"); err != nil {
 		return err
-	} else if len(missing) > 0 {
-		return fmt.Errorf("outreach draft: required blocks missing or broken: %s (pin and sync them first)", strings.Join(missing, ", "))
+	} else if strings.TrimSpace(exp) == "" {
+		return fmt.Errorf("outreach draft: no experience knowledge — run `scout outreach sources --refresh`")
 	}
-	if degraded, err := outreach.MissingSoftBlocks(db); err != nil {
-		return err
-	} else if len(degraded) > 0 {
-		fmt.Fprintf(os.Stderr, "warning: drafting without %s — quality degrades, integrity unaffected\n", strings.Join(degraded, ", "))
+	if v, _ := db.OutreachKnowledge("voice"); strings.TrimSpace(v) == "" {
+		fmt.Fprintln(os.Stderr, "warning: no voice knowledge — drafting a less-voiced email")
 	}
 
 	// Reap drafts long-orphaned in `researching` (a dead process) so they don't
@@ -1027,10 +871,11 @@ func cmdOutreachDraft(args []string) error {
 	}
 
 	eng := &outreach.Engine{
-		DB:     db,
-		Client: anthropic.New(""),
-		Model:  *model,
-		Log:    func(line string) { fmt.Fprintln(os.Stderr, line) },
+		DB:           db,
+		Client:       anthropic.New(""),
+		Model:        *model,
+		TemplatePath: *templatePath,
+		Log:          func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
 	ctx, cancel := signalCtx()
 	defer cancel()
@@ -1054,48 +899,6 @@ func cmdOutreachDraft(args []string) error {
 	}
 	fmt.Println("---")
 	fmt.Println(out.Draft)
-	return nil
-}
-
-// cmdOutreachSet stores user-declared block content directly (no pin, no
-// brain) — the path for P2_LOCKED, whose frozen paragraph is a decision the
-// user makes, not a doc to discover. Content comes from --text, --file, or
-// stdin; for locked blocks the declaration is the approval.
-func cmdOutreachSet(args []string) error {
-	fs := flag.NewFlagSet("outreach set", flag.ExitOnError)
-	dbPath := fs.String("db", "scout.db", "sqlite path")
-	block := fs.String("block", "", "block slot name (e.g. P2_LOCKED)")
-	text := fs.String("text", "", "block content (inline)")
-	file := fs.String("file", "", "block content (file path)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	content := *text
-	if content == "" && *file != "" {
-		data, err := os.ReadFile(*file)
-		if err != nil {
-			return fmt.Errorf("outreach set: %w", err)
-		}
-		content = string(data)
-	}
-	if content == "" {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("outreach set: read stdin: %w", err)
-		}
-		content = string(data)
-	}
-
-	db, err := store.Open(*dbPath)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	version, err := outreach.DeclareBlock(db, *block, content)
-	if err != nil {
-		return fmt.Errorf("outreach set: %w", err)
-	}
-	fmt.Printf("declared %s (%s, %d bytes)\n", *block, version, len(content))
 	return nil
 }
 

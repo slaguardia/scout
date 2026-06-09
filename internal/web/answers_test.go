@@ -75,24 +75,24 @@ func TestAnswersGenerateGate(t *testing.T) {
 		t.Fatalf("no engine: want 503, got %d", rec.Code)
 	}
 
-	// Runner wired but the experience block is missing → 412 + missing_blocks.
+	// Runner wired but no experience discovered → 412 + need=experience.
 	runner := &fakeAnswersRunner{}
 	s.Answers = runner
 	h := s.Handler()
 	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/answers", "")
 	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("missing block: want 412, got %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("missing experience: want 412, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	var gate struct {
-		MissingBlocks []string `json:"missing_blocks"`
+		Need string `json:"need"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &gate)
-	if len(gate.MissingBlocks) != 1 || gate.MissingBlocks[0] != "PAST_EXPERIENCE_FULL" {
-		t.Errorf("missing_blocks = %v", gate.MissingBlocks)
+	if gate.Need != "experience" {
+		t.Errorf("need = %q, want experience", gate.Need)
 	}
 
-	// Seed the block → 202 + runner fired for the posting.
-	if err := s.DB.PutOutreachBlock("PAST_EXPERIENCE_FULL", "exp doc", "v1"); err != nil {
+	// Seed the experience source → 202 + runner fired for the posting.
+	if err := s.DB.UpsertOutreachSource(store.OutreachSource{Need: "experience", PageID: "exp1", Title: "Exp", Content: "exp doc", Version: "v1"}); err != nil {
 		t.Fatal(err)
 	}
 	rec = do(t, h, http.MethodPost, "/api/postings/"+pid+"/answers", "")

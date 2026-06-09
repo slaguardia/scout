@@ -24,6 +24,46 @@ func (s *Server) handlePlaybook(w http.ResponseWriter, r *http.Request) {
 	s.handleEditorFile(w, r, s.PlaybookPath, "playbook")
 }
 
+// handleOutreachTemplate edits the scout-local email template. Unlike
+// taste/playbook it must NOT fold into the verdict version (editing it never
+// re-scores companies) and the engine re-reads the file at draft time, so there
+// is no ReloadTaste and no taste_version in the payload.
+func (s *Server) handleOutreachTemplate(w http.ResponseWriter, r *http.Request) {
+	path := s.OutreachTemplatePath
+	if path == "" {
+		http.Error(w, "outreach template path not configured", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		content := ""
+		if b, err := os.ReadFile(path); err == nil {
+			content = string(b)
+		} else if !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-template", "path": path, "content": content})
+
+	case http.MethodPut:
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {
+			http.Error(w, "write outreach template: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-template", "path": path, "content": body.Content})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleEditorFile(w http.ResponseWriter, r *http.Request, path, kind string) {
 	if path == "" {
 		http.Error(w, kind+" path not configured", http.StatusServiceUnavailable)

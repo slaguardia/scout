@@ -1379,31 +1379,23 @@
   }
   .sender-form textarea.ie { min-height: 2.4em; resize: vertical; }
 
-  /* outreach config: the lint word window + the reorderable email structure */
-  .cfg-window { display: flex; align-items: center; gap: 8px; }
-  .cfg-window .ie { width: 5.5em; margin: 0; border-color: var(--line-2); background: var(--panel-2); }
-  .cfg-structure { display: flex; flex-direction: column; gap: 5px; }
-  .cfg-slot {
+  /* outreach knowledge sources: discovered brain pages, grouped by need */
+  #sources-list { display: flex; flex-direction: column; gap: 14px; }
+  .src-need-h { font-size: 12px; color: var(--fg-dim); margin-bottom: 5px; text-transform: lowercase; }
+  .src-need-h .dim { font-size: 11px; }
+  .src-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .src-items li {
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; padding: 6px 9px;
     border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2);
   }
-  .cfg-slot-label { font-size: 13px; }
-  .cfg-kind {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--fg-dim); border: 1px solid var(--line-2); border-radius: 3px;
-    padding: 0 4px; margin-left: 6px;
-  }
-  .cfg-slot-acts { display: flex; gap: 2px; }
-  .cfg-slot-acts button {
+  .src-title { font-size: 13px; }
+  .src-rm {
     width: 22px; height: 22px; padding: 0; line-height: 1;
     border: 1px solid transparent; border-radius: 4px;
     background: none; color: var(--fg-dim); cursor: pointer;
   }
-  .cfg-slot-acts button:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); background: var(--panel); }
-  .cfg-slot-acts button:disabled { opacity: 0.3; cursor: default; }
-  .cfg-add { display: flex; gap: 8px; margin-top: 8px; }
-  .cfg-add .ie { margin: 0; flex: 1; border-color: var(--line-2); background: var(--panel-2); }
+  .src-rm:hover { color: var(--no); border-color: var(--line-2); background: var(--panel); }
 
   .ie-title { font: inherit; font-weight: inherit; letter-spacing: inherit; }
   /* two editable values side by side (location/comp, etc.) */
