@@ -21,6 +21,21 @@ data-model, operations, limitations).
 Go · SQLite (`modernc.org/sqlite`, pure-Go, no CGO) · BurntSushi/toml ·
 Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
 
+## Dev servers
+
+The user's long-running dev servers (Go API on `:8765`, Vite on `:5173`) live in
+[`mprocs.yaml`](./mprocs.yaml) and run in a single `mprocs` TUI window. **Those
+canonical ports belong to the user — never bind them.** If the app just needs to
+be up, ask the user to start `mprocs` or restart a pane.
+
+When you need to *test* against a running server, start your own freely — but
+always on a **non-default `--addr` and `--db`** (e.g. `scout serve --addr :8807
+--db /tmp/scout-test.db`) so you never collide with the user's mprocs window.
+Kill it when you're done; a global `Stop` hook
+(`~/.claude/hooks/reap-test-servers.py`) reaps any test server you forget,
+sparing anything on the canonical ports or running under `mprocs`. Binding a
+canonical port defeats that safety net — don't.
+
 ## Posture
 
 - Direct, blunt when useful. No hedging, no pep talks.
