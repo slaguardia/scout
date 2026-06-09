@@ -374,18 +374,18 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
-<!-- brain profile viewer (read-only) -->
+<!-- company-fit brief viewer (read-only) -->
 <div class="modal-scrim" id="profile-scrim">
   <div class="modal">
     <div class="modal-head">
-      <h2>Brain profile</h2>
+      <h2>Company-fit brief</h2>
       <span class="ver" id="profile-modal-meta"></span>
     </div>
     <div class="modal-body">
       <div class="summary-box" id="profile-modal-body" style="max-height:54vh"></div>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Read-only. This is scout's cached copy of your brain profile — the exact criteria text the verdict stage feeds the LLM. Use “refresh” in the Criteria panel to refetch it.</span>
+        <span>Read-only. This is scout's cached copy of your company-fit brief — the exact criteria text the verdict stage feeds the LLM. Use the refresh icon in the Criteria panel to re-distill it.</span>
       </div>
     </div>
     <div class="modal-foot">

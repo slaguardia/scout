@@ -2792,7 +2792,7 @@ document.getElementById("config-scrim").onclick = e => {
   if (e.target.id === "config-scrim") closeConfigEditor();
 };
 
-// ---- brain profile + criteria block ----
+// ---- company-fit brief + criteria block ----
 function relTime(sec) {
   if (sec == null) return "—";
   let s = Math.max(0, sec | 0);
@@ -2814,10 +2814,12 @@ async function loadProfile() {
 }
 
 // renderCriteria draws the Criteria block: the active "what the user wants"
-// source (the brain profile when it's live — view-only + refresh — or taste.md
-// when the brain is offline — editable), the always-editable playbook, and the
-// stale-verdicts badge. Driven by state.profile + state.stats.
+// source (the company-fit brief when the brain is live — click the name to view,
+// icon button to re-distill — or taste.md when the brain is offline — editable),
+// the always-editable playbook, and the stale-verdicts badge. Driven by
+// state.profile + state.stats.
 const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.6 2.4a1.2 1.2 0 0 1 1.7 1.7L5.6 11.8l-3 1 1-3z"/><path d="M10.4 3.6l2 2"/></svg>';
+const REFRESH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8"/><path d="M13.6 2.6V5.2H11"/></svg>';
 
 function renderCriteria() {
   const el = document.getElementById("criteria-stats");
@@ -2834,12 +2836,12 @@ function renderCriteria() {
     if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
     else if (p && p.stale) { dot = "warn"; note = "cached · stale"; }
     else if (hasBody) { dot = "ok"; note = "fetched " + relTime(p.age_seconds); }
+    const name = hasBody
+      ? '<span class="edit-link" id="view-profile" title="view the company-fit brief">company-fit brief</span>'
+      : 'company-fit brief';
     html += `<div class="crit-row">
-      <span class="crit-what"><span class="pf-dot ${dot}"></span>brain profile</span>
-      <span class="crit-acts">
-        ${hasBody ? '<span class="edit-link" id="view-profile">view</span><span class="dim">·</span>' : ''}
-        <span class="edit-link" id="refresh-profile">refresh</span>
-      </span></div>`;
+      <span class="crit-what"><span class="pf-dot ${dot}"></span>${name}</span>
+      <button class="crit-edit" id="refresh-profile" title="re-distill the company-fit brief from the brain" aria-label="refresh company-fit brief">${REFRESH}</button></div>`;
     if (note) html += `<div class="crit-note dim small">${escapeHTML(note)}</div>`;
   } else {
     html += `<div class="crit-row">
@@ -2878,8 +2880,11 @@ function renderCriteria() {
 }
 
 async function refreshProfile() {
-  const link = document.getElementById("refresh-profile");
-  if (link) { link.textContent = "refreshing…"; link.style.pointerEvents = "none"; }
+  // Re-distilling is two sequential Sonnet calls (~40s) — spin the icon and
+  // disable it so the long press reads as working, not stuck. Every exit path
+  // re-renders the row, which recreates the button and clears the spin.
+  const btn = document.getElementById("refresh-profile");
+  if (btn) { btn.classList.add("spinning"); btn.disabled = true; }
   let resp;
   try {
     resp = await fetch("/api/profile/refresh", { method: "POST" });
@@ -2892,7 +2897,7 @@ async function refreshProfile() {
   }
   state.profile = await resp.json();
   renderCriteria();
-  toast("brain profile refreshed");
+  toast("company-fit brief refreshed");
   loadStats(); // criteria version / stale-count may have changed
 }
 

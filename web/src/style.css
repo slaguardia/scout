@@ -1459,6 +1459,9 @@
     transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
   .crit-edit:hover { color: var(--link); background: var(--panel); }
+  .crit-edit:disabled { opacity: .55; cursor: default; }
+  .crit-edit:disabled:hover { color: var(--fg-dim); background: none; }
+  .crit-edit.spinning svg { animation: spin 800ms linear infinite; }
   .crit-edit svg { width: 13px; height: 13px; }
   .pf-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; flex: none; }
   .pf-dot.ok   { background: var(--yes); box-shadow: 0 0 7px var(--yes); }
