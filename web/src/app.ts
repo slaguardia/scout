@@ -2354,6 +2354,13 @@ async function openEditor(kind) {
   scrim.classList.add("open");
   try {
     const r = await fetch(`/api/${kind}`);
+    if (!r.ok) {
+      const t = (await r.text().catch(() => "")).trim();
+      document.getElementById("editor-text").value = r.status === 404
+        ? "failed to load: HTTP 404 — this route is missing. Restart the scout server (your running binary may predate this feature)."
+        : `failed to load: ${t || "HTTP " + r.status}`;
+      return;
+    }
     const d = await r.json();
     document.getElementById("editor-text").value = d.content || "";
     if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
@@ -2538,7 +2545,8 @@ document.addEventListener("keydown", e => {
     closePursuit(); return;
   }
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
-  if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
+  if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
+  if (document.getElementById("settings-scrim").classList.contains("open")) { closeSettings(); return; }
 });
 
 // run controls — Enrich / Verdict open a confirmation modal that carries the
@@ -2757,9 +2765,22 @@ function renderCriteria() {
   html += `<div class="crit-row">
     <span class="crit-what">email template</span>
     <button class="crit-edit" id="edit-template" title="edit the outreach email template" aria-label="edit email template">${PENCIL}</button></div>`;
+  // Outreach knowledge mirrors the company-fit brief row: a status dot, a
+  // clickable name that opens the discovered sources, a refresh (re-discover),
+  // and a freshness/count note.
+  const srcs = (state.sources && state.sources.sources) || [];
+  const expN = srcs.filter(s => s.need === "experience").length;
+  const voiceN = srcs.filter(s => s.need === "voice").length;
+  let kdot = "off", knote = "not discovered yet — refresh from the brain";
+  if (expN > 0) { kdot = "ok"; knote = `${expN} experience · ${voiceN} voice`; }
+  else if (srcs.length > 0) { kdot = "warn"; knote = "no experience yet — refresh"; }
+  const kname = srcs.length
+    ? '<span class="edit-link" id="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
+    : 'outreach knowledge';
   html += `<div class="crit-row">
-    <span class="crit-what">outreach knowledge</span>
-    <button class="crit-edit" id="edit-sources" title="discovered experience + voice from the brain" aria-label="outreach knowledge sources">${REFRESH}</button></div>`;
+    <span class="crit-what"><span class="pf-dot ${kdot}"></span>${kname}</span>
+    <button class="crit-edit" id="refresh-sources" title="re-discover experience + voice from the brain" aria-label="refresh outreach knowledge">${REFRESH}</button></div>`;
+  html += `<div class="crit-note dim small">${escapeHTML(knote)}</div>`;
   el.innerHTML = html;
 
   const vp = document.getElementById("view-profile");
@@ -2772,8 +2793,39 @@ function renderCriteria() {
   if (ep) ep.onclick = () => openEditor("playbook");
   const et2 = document.getElementById("edit-template");
   if (et2) et2.onclick = () => openEditor("outreach-template");
-  const esrc = document.getElementById("edit-sources");
-  if (esrc) esrc.onclick = openSourcesModal;
+  const vsrc = document.getElementById("view-sources");
+  if (vsrc) vsrc.onclick = openSourcesModal;
+  const rsrc = document.getElementById("refresh-sources");
+  if (rsrc) rsrc.onclick = refreshSourcesInline;
+}
+
+// loadSources fetches the discovered knowledge into state for the Criteria row.
+async function loadSources() {
+  try {
+    state.sources = await (await fetch("/api/outreach/sources")).json();
+  } catch { state.sources = null; }
+  renderCriteria();
+}
+
+// refreshSourcesInline re-runs discovery from the Criteria row (mirrors
+// refreshProfile): spin the icon, POST, adopt the result, re-render.
+async function refreshSourcesInline() {
+  const btn = document.getElementById("refresh-sources");
+  if (btn) { btn.classList.add("spinning"); btn.disabled = true; }
+  let resp;
+  try {
+    resp = await fetch("/api/outreach/sources/refresh", { method: "POST" });
+  } catch (e) { toast(`refresh failed: ${e.message}`); loadSources(); return; }
+  if (!resp.ok) {
+    const t = (await resp.text().catch(() => "")).trim();
+    toast(`refresh failed: ${t || "HTTP " + resp.status}`);
+    loadSources();
+    return;
+  }
+  const data = await resp.json();
+  if (data.warning) toast(data.warning); else toast("outreach knowledge refreshed");
+  state.sources = { sources: data.sources || [], needs: (state.sources && state.sources.needs) || [] };
+  renderCriteria();
 }
 
 async function refreshProfile() {
@@ -2837,6 +2889,18 @@ document.getElementById("open-docs").onclick = openDocs;
 document.getElementById("docs-close").onclick = closeDocs;
 document.getElementById("docs-scrim").onclick = e => {
   if (e.target.id === "docs-scrim") closeDocs();
+};
+
+// ---- settings overlay (the moved Criteria panel) ----
+function openSettings() {
+  document.getElementById("settings-scrim").classList.add("open");
+  renderCriteria(); // ensure the rows reflect current state
+}
+function closeSettings() { document.getElementById("settings-scrim").classList.remove("open"); }
+document.getElementById("open-settings").onclick = openSettings;
+document.getElementById("settings-close").onclick = closeSettings;
+document.getElementById("settings-scrim").onclick = e => {
+  if (e.target.id === "settings-scrim") closeSettings();
 };
 document.querySelectorAll("#docs-nav a").forEach(a => {
   a.onclick = () => {
@@ -3058,4 +3122,5 @@ loadStats();
 loadMeta();
 loadRuns();
 loadProfile();
+loadSources();
 }

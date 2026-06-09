@@ -122,20 +122,16 @@ export const SCOUT_MARKUP = `
     </details>
   </div>
 
-  <div class="block" id="block-criteria">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L8 3l5 10H3z"/></svg>
-      Criteria
-    </h3>
-    <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-  </div>
-
   <div class="sidebar-bottom">
     <button class="doc-btn sidebar-chat" id="open-chat" title="Chat: track applications and ask about your companies/jobs" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 2.5V11.5H2.5a1 1 0 01-1-1v-6a1 1 0 011-1z"/></svg>
       chat
     </button>
     <div class="sidebar-foot">
+      <button class="doc-btn" id="open-settings" title="Criteria, playbook, email template, and outreach knowledge">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4"/></svg>
+        settings
+      </button>
       <button class="doc-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
         how it works
@@ -306,6 +302,28 @@ export const SCOUT_MARKUP = `
     <div class="modal-foot">
       <button class="btn btn-primary" id="sources-refresh-btn">Refresh from brain</button>
       <button class="btn" id="sources-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- settings: criteria, playbook, email template, outreach knowledge -->
+<div class="modal-scrim" id="settings-scrim">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Settings</h2>
+    </div>
+    <div class="modal-body">
+      <div class="settings-group">
+        <div class="settings-group-h">Criteria &amp; outreach</div>
+        <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>What scout uses to judge companies and write outreach: the company-fit brief / taste, the playbook, the email template, and the brain-discovered outreach knowledge. Each opens its own editor or viewer.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="settings-close">Close</button>
     </div>
   </div>
 </div>
