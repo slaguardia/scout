@@ -537,8 +537,11 @@
     display: flex; flex-direction: column;
   }
   .pane.open { transform: translateX(0); }
-  /* The company pane stacks above the pursuit panel — "View company" opens it
-     on top (Escape then peels them back in order: company first). */
+  /* The company pane and the pursuit panel can stack either way — open a
+     company then a posting (pursuit on top), or open a pursuit then "View
+     company" (company on top). raisePane() in app.ts lifts whichever opened
+     last to z 54/55 and drops the other to 52/53; these are the base layer.
+     Chat (56/57) stays above both. */
   #scrim { z-index: 52; }
   #pane { z-index: 53; }
 
@@ -1496,9 +1499,10 @@
      per-entity research chat. Reuses .pane (slide-in transform + width); the
      body is a scrolling message column and a sticky compose row.
   --------------------------------------------------------------------------- */
-  /* Chat sits on top of whatever opened it (the company/pursuit panes). */
-  #chat-scrim { z-index: 54; }
-  #chat-pane  { z-index: 55; }
+  /* Chat sits on top of whatever opened it (the company/pursuit panes, which
+     ride at 52–55 depending on stack order). */
+  #chat-scrim { z-index: 56; }
+  #chat-pane  { z-index: 57; }
 
   /* The small chat icon button in the company / pursuit pane heads. */
   .pane-chat-btn {

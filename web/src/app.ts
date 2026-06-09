@@ -446,9 +446,25 @@ async function openPursuit(postingId) {
   document.getElementById("pursuit-pane").classList.add("open");
   document.getElementById("pursuit-scrim").classList.add("open");
   document.getElementById("pursuit-pane").setAttribute("aria-hidden", "false");
+  raisePane("pursuit");
   renderPursuit();
   loadDrafts();
   loadAnswers();
+}
+
+// The company pane and the pursuit panel can stack either way — open a company,
+// then a posting (pursuit over company); or open a pursuit, then "View company"
+// (company over pursuit). raisePane lifts whichever opened last to the top
+// layer and drops the other to the base layer; chat (z 56/57) stays above both.
+// topPane records the winner so Escape peels the top one first.
+let topPane = null;
+function raisePane(which) {
+  topPane = which;
+  const company = which === "company";
+  document.getElementById("scrim").style.zIndex = company ? "54" : "52";
+  document.getElementById("pane").style.zIndex = company ? "55" : "53";
+  document.getElementById("pursuit-scrim").style.zIndex = company ? "52" : "54";
+  document.getElementById("pursuit-pane").style.zIndex = company ? "53" : "55";
 }
 
 function closePursuit() {
@@ -1547,6 +1563,7 @@ async function openDetail(id) {
   const scrim = document.getElementById("scrim");
   pane.classList.add("open"); scrim.classList.add("open");
   pane.setAttribute("aria-hidden", "false");
+  raisePane("company");
   document.getElementById("pane-title").textContent = "loading…";
   document.getElementById("pane-pills").innerHTML = "";
   document.getElementById("pane-body").innerHTML =
@@ -1911,20 +1928,20 @@ function postingsListHTML(d) {
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
-      <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">pursuit →</span></div>
+      <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">open →</span></div>
     </div>`;
   }).join("");
 }
 
-// wirePostingCards makes each card open its pursuit panel (the company pane
-// closes — the pursuit is the new focus). The external link is guarded out,
+// wirePostingCards makes each card open its pursuit panel. The panel stacks
+// OVER the company pane (the company stays open underneath) — openPursuit
+// raises the pursuit layer above it. The external link is guarded out,
 // mirroring the jobs-table rows.
 function wirePostingCards() {
   document.querySelectorAll("#postings-list .posting-card").forEach(card => {
     card.addEventListener("click", e => {
       if (e.target.closest("a")) return;
       if (e.target.closest(".pcard-chat")) return; // chat button handles its own click
-      closeDetail();
       openPursuit(card.dataset.pid);
     });
   });
@@ -2626,10 +2643,16 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
   if (document.getElementById("help-scrim").classList.contains("open")) { closeHelp(); return; }
-  // The pursuit panel can sit over the company pane (View company opens it on
-  // top); close the company pane first so Escape peels them back in order.
-  if (document.getElementById("pane").classList.contains("open")) { closeDetail(); return; }
-  if (document.getElementById("pursuit-pane").classList.contains("open")) { closePursuit(); return; }
+  // The company pane and the pursuit panel can stack either way; peel whichever
+  // raisePane() last lifted to the top, falling back to whichever is open.
+  const companyOpen = document.getElementById("pane").classList.contains("open");
+  const pursuitOpen = document.getElementById("pursuit-pane").classList.contains("open");
+  if (companyOpen || pursuitOpen) {
+    if (topPane === "pursuit" && pursuitOpen) { closePursuit(); return; }
+    if (topPane === "company" && companyOpen) { closeDetail(); return; }
+    if (companyOpen) { closeDetail(); return; }
+    closePursuit(); return;
+  }
   if (document.getElementById("config-scrim").classList.contains("open")) { closeConfigEditor(); return; }
   if (document.getElementById("sender-scrim").classList.contains("open")) { closeSenderEditor(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) closeEditor();
