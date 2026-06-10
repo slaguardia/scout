@@ -56,7 +56,7 @@ type QuestionScan struct {
 
 // DetectQuestions resolves a posting link's essay questions through the
 // platform's API — no LLM, no page fetch beyond the API call. Recognized ATS
-// hosts (greenhouse, ashby) resolve; any other link returns "unsupported", so
+// hosts (greenhouse, ashby, rippling) resolve; any other link returns "unsupported", so
 // the caller can decide whether to try the HTML+LLM fallback. It dispatches on
 // the same atsTarget that ats.go's capture resolvers use.
 func DetectQuestions(ctx context.Context, httpc *http.Client, rawURL string) QuestionScan {
@@ -69,6 +69,8 @@ func DetectQuestions(ctx context.Context, httpc *http.Client, rawURL string) Que
 		return detectGreenhouseQuestions(ctx, httpc, t.base, t.org, t.id)
 	case "ashby":
 		return detectAshbyQuestions(ctx, httpc, t.org, t.id)
+	case "rippling":
+		return detectRipplingQuestions(ctx, httpc, t.base, t.org, t.id)
 	default:
 		// Lever surfaces no public application-form API — treat it like any
 		// other unread platform; the user applies on the site.
@@ -274,6 +276,75 @@ func detectAshbyQuestions(ctx context.Context, httpc *http.Client, org, jobID st
 		}
 	}
 	return scanFrom(qs, "ashby")
+}
+
+// --- Rippling (public board API) ---------------------------------------------
+
+// detectRipplingQuestions reads the application form off the same per-posting
+// board endpoint ats.go's resolver uses — activeJobApplication.customQuestions
+// carries the form fields. Rippling has no dedicated long-answer field type:
+// everything is SHORT_ANSWER (identity AND custom questions alike), with
+// PHONE_NUMBER / FILE / PRONOUN for the structured fields. So an essay question
+// is a SHORT_ANSWER whose title reads like a real question and isn't identity —
+// the same shape as Greenhouse's input_text branch. (A future long-form type is
+// admitted up front, in case Rippling adds one.) A null activeJobApplication or
+// empty form degrades to none/unsupported, never a crash.
+func detectRipplingQuestions(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) QuestionScan {
+	var payload struct {
+		ActiveJobApplication *struct {
+			CustomQuestions *struct {
+				Fields []struct {
+					Title     string `json:"title"`
+					FieldType string `json:"fieldType"`
+					OID       string `json:"oid"`
+				} `json:"fields"`
+			} `json:"customQuestions"`
+		} `json:"activeJobApplication"`
+	}
+	url := apiBase + "/platform/api/ats/v1/board/" + neturl.PathEscape(org) + "/jobs/" + neturl.PathEscape(jobID)
+	if err := fetchATSJSON(ctx, httpc, url, &payload); err != nil {
+		return QuestionScan{Status: QuestionsUnreachable, Source: "rippling"}
+	}
+	if payload.ActiveJobApplication == nil || payload.ActiveJobApplication.CustomQuestions == nil {
+		// No application form attached — apply on the site.
+		return QuestionScan{Status: QuestionsUnsupported, Source: "rippling"}
+	}
+
+	var qs []AppQuestion
+	for _, f := range payload.ActiveJobApplication.CustomQuestions.Fields {
+		if !ripplingIsEssay(f.FieldType, f.Title) {
+			continue
+		}
+		if p := cleanPrompt(f.Title); p != "" {
+			qs = append(qs, AppQuestion{Prompt: p, Key: f.OID}) // Rippling exposes no length cap
+		}
+	}
+	return scanFrom(qs, "rippling")
+}
+
+// ripplingIsEssay keeps only content-bearing free-text questions. Structured
+// types (FILE, PRONOUN, PHONE_NUMBER) and identity labels are never essays; a
+// SHORT_ANSWER counts only when its title actually reads like a question (so
+// "First name" / "Current company" / "Location (city only)" drop while "Why do
+// you want to join?" stays). A long-form type, should one appear, is admitted
+// on type alone (still minus identity).
+func ripplingIsEssay(fieldType, title string) bool {
+	if isIdentityLabel(title) {
+		return false
+	}
+	ft := strings.ToUpper(fieldType)
+	switch ft {
+	case "FILE", "PRONOUN", "PHONE_NUMBER":
+		return false
+	}
+	if strings.Contains(ft, "PARAGRAPH") || strings.Contains(ft, "LONG") ||
+		strings.Contains(ft, "ESSAY") || strings.Contains(ft, "MULTILINE") {
+		return true
+	}
+	if ft == "SHORT_ANSWER" {
+		return looksLikeQuestion(title)
+	}
+	return false
 }
 
 // --- HTML + LLM fallback -----------------------------------------------------

@@ -176,6 +176,100 @@ func TestDetectAshbyFailsSoft(t *testing.T) {
 	}
 }
 
+// --- Rippling ----------------------------------------------------------------
+
+// ripplingFixture mirrors the real board shape (plenful, 2026-06-09): the form
+// lives under activeJobApplication.customQuestions.fields. The structured/identity
+// fields (SHORT_ANSWER name/email/company/location/linkedin, PHONE_NUMBER, FILE,
+// PRONOUN) must drop; only the two genuine questions survive — a SHORT_ANSWER
+// that reads like a question, and a (future-proofed) LONG_ANSWER type.
+const ripplingFixture = `{
+  "name": "Product Engineer",
+  "activeJobApplication": {"customQuestions": {"fields": [
+    {"title": "First name", "fieldType": "SHORT_ANSWER", "required": true, "oid": "first_name"},
+    {"title": "Email", "fieldType": "SHORT_ANSWER", "required": true, "oid": "email"},
+    {"title": "Current company", "fieldType": "SHORT_ANSWER", "required": false, "oid": "current_company"},
+    {"title": "Location (city only)", "fieldType": "SHORT_ANSWER", "required": true, "oid": "location"},
+    {"title": "Phone number", "fieldType": "PHONE_NUMBER", "required": true, "oid": "phone_number"},
+    {"title": "LinkedIn link", "fieldType": "SHORT_ANSWER", "required": true, "oid": "linkedin_link"},
+    {"title": "Resume", "fieldType": "FILE", "required": true, "oid": "resume"},
+    {"title": "Pronouns", "fieldType": "PRONOUN", "required": false, "oid": "pronouns"},
+    {"title": "Why do you want to join Plenful?", "fieldType": "SHORT_ANSWER", "required": true, "oid": "why_plenful"},
+    {"title": "Describe a project you're proud of", "fieldType": "LONG_ANSWER", "required": false, "oid": "proud_project"}
+  ]}}
+}`
+
+func TestDetectRipplingQuestions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/platform/api/ats/v1/board/plenful/jobs/"+ashbyJobID {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(ripplingFixture))
+	}))
+	defer srv.Close()
+	defer swap(&ripplingAPIBase, srv.URL)()
+
+	scan := DetectQuestions(context.Background(), srv.Client(),
+		"https://ats.rippling.com/plenful/jobs/"+ashbyJobID)
+	if scan.Status != QuestionsOK || scan.Source != "rippling" {
+		t.Fatalf("status=%s source=%s, want ok/rippling", scan.Status, scan.Source)
+	}
+	got := prompts(scan)
+	want := []string{"Why do you want to join Plenful?", "Describe a project you're proud of"}
+	if len(got) != len(want) {
+		t.Fatalf("kept %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("question[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	for _, bad := range []string{"First name", "Email", "Current company", "Location (city only)", "LinkedIn link", "Resume", "Phone number", "Pronouns"} {
+		if has(got, bad) {
+			t.Errorf("kept identity/structured field %q", bad)
+		}
+	}
+	if scan.Questions[0].Key != "why_plenful" { // oid is the stable key
+		t.Errorf("key = %q, want why_plenful", scan.Questions[0].Key)
+	}
+}
+
+// A Rippling form of only identity/structured fields (the common case) is a
+// clean "none" — readable form, no essays — not "unsupported".
+func TestDetectRipplingNoEssays(t *testing.T) {
+	const body = `{"name":"X","activeJobApplication":{"customQuestions":{"fields":[
+	  {"title":"First name","fieldType":"SHORT_ANSWER","oid":"first_name"},
+	  {"title":"Resume","fieldType":"FILE","oid":"resume"}
+	]}}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	defer swap(&ripplingAPIBase, srv.URL)()
+
+	scan := DetectQuestions(context.Background(), srv.Client(),
+		"https://ats.rippling.com/plenful/jobs/"+ashbyJobID)
+	if scan.Status != QuestionsNone || scan.Source != "rippling" {
+		t.Fatalf("status=%s source=%s, want none/rippling", scan.Status, scan.Source)
+	}
+}
+
+// No application form attached → unsupported (apply on the site), not a crash.
+func TestDetectRipplingNoForm(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"name":"X","activeJobApplication":null}`))
+	}))
+	defer srv.Close()
+	defer swap(&ripplingAPIBase, srv.URL)()
+
+	scan := DetectQuestions(context.Background(), srv.Client(),
+		"https://ats.rippling.com/plenful/jobs/"+ashbyJobID)
+	if scan.Status != QuestionsUnsupported {
+		t.Fatalf("status=%s, want unsupported", scan.Status)
+	}
+}
+
 // --- dispatch ----------------------------------------------------------------
 
 func TestDetectUnsupportedHost(t *testing.T) {
