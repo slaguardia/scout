@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -58,21 +57,18 @@ const testTemplate = "Subject: [Name] | intro — {{role}}\n\nHi [Name],\n\n" +
 func newEngine(t *testing.T, fake *fakeAnthropic) (*Engine, *store.DB) {
 	t.Helper()
 	srv := fake.server(t)
-	dir := t.TempDir()
-	db, err := store.Open(filepath.Join(dir, "scout.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "scout.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	tmplPath := filepath.Join(dir, "outreach-template.md")
-	if err := os.WriteFile(tmplPath, []byte(testTemplate), 0o644); err != nil {
-		t.Fatalf("write template: %v", err)
+	if err := db.PutOutreachTemplate(testTemplate); err != nil {
+		t.Fatalf("seed template: %v", err)
 	}
 	eng := &Engine{
-		DB:           db,
-		Client:       &anthropic.Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()},
-		Model:        "test-model",
-		TemplatePath: tmplPath,
+		DB:     db,
+		Client: &anthropic.Client{APIKey: "k", Endpoint: srv.URL, HTTP: srv.Client()},
+		Model:  "test-model",
 	}
 	return eng, db
 }
@@ -239,28 +235,6 @@ func TestRunFailsWithoutExperience(t *testing.T) {
 
 	if err := eng.Run(context.Background(), id); err == nil {
 		t.Fatal("Run: want error when no experience is cached")
-	}
-	d, _ := db.GetOutreachDraft(id)
-	if d.Status != store.DraftFailed {
-		t.Fatalf("status = %q, want failed", d.Status)
-	}
-	if fake.calls != 0 {
-		t.Errorf("made %d LLM calls; the gate must fail before any call", fake.calls)
-	}
-}
-
-// (f) Missing template → drafting fails loud before any LLM call.
-func TestRunFailsWithoutTemplate(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{}}
-	eng, db := newEngine(t, fake)
-	if err := os.WriteFile(eng.TemplatePath, []byte("   "), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	seedExperience(t, db)
-	id := seedPostingDraft(t, db)
-
-	if err := eng.Run(context.Background(), id); err == nil {
-		t.Fatal("Run: want error when the template is empty")
 	}
 	d, _ := db.GetOutreachDraft(id)
 	if d.Status != store.DraftFailed {

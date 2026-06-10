@@ -2378,10 +2378,16 @@ async function cancelActiveJob() {
 
 // ---- control surface: editor ----
 let editorKind = null;
+// editorLabel names the artifact in the modal title / save toast. taste and
+// playbook are .md files; the outreach template is a DB row, so no extension.
+function editorLabel(kind) {
+  return kind === "outreach-template" ? "outreach template" : kind + ".md";
+}
+
 async function openEditor(kind) {
   editorKind = kind;
   const scrim = document.getElementById("editor-scrim");
-  document.getElementById("editor-title").textContent = "edit " + kind + ".md";
+  document.getElementById("editor-title").textContent = "edit " + editorLabel(kind);
   document.getElementById("editor-text").value = "loading…";
   document.getElementById("editor-ver").textContent = "";
   scrim.classList.add("open");
@@ -2489,7 +2495,7 @@ async function saveEditor() {
   if (!resp.ok) { toast(`save failed: HTTP ${resp.status}`); return; }
   const d = await resp.json();
   if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
-  toast(`${editorKind}.md saved`);
+  toast(`${editorLabel(editorKind)} saved`);
   closeEditor();
   loadStats(); // refresh the criteria version shown in the sidebar
 }

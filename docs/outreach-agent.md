@@ -17,7 +17,7 @@ intelligence.** Three inputs, three sources:
 
 | Input | What it is | Where it lives |
 |---|---|---|
-| **Template** | the email's *format* — greeting, sign-off, any verbatim prose, and the holes the LLM fills | scout-local file (`outreach-template.md`), authored by the user, like `playbook.md` |
+| **Template** | the email's *format* — greeting, sign-off, any verbatim prose, and the holes the LLM fills | scout-local, stored in SQLite (a singleton row), edited from the dashboard; a compiled-in default seeds it |
 | **Knowledge** | the user's *experience* and *voice* | the **brain** — discovered, fetched, cached (never hand-maintained, never an opinionated block) |
 | **Research** | facts about the target *company* | the web (ATS JSON APIs + hosted `web_search`) |
 
@@ -27,9 +27,10 @@ Nothing is an opinionated block, and the user never pins anything by hand.
 
 ## The template
 
-One scout-local file. Fixed prose is the user's own words, copied verbatim into
-every email — that is where the old "locked credential paragraph" guarantee now
-comes from, for free. Two kinds of syntax punctuate the prose:
+One scout-local template, stored in SQLite. Fixed prose is the user's own words,
+copied verbatim into every email — that is where the old "locked credential
+paragraph" guarantee now comes from, for free. Two kinds of syntax punctuate the
+prose:
 
 - `{{var}}` — a simple substitution resolved in code from the posting (no LLM):
   `{{role}}`, `{{company}}`.
@@ -57,11 +58,12 @@ Alex
 
 The template *is* the structure, the voice of the fixed parts, the locked text,
 and the subject format — all in one artifact the user controls. Edited in the UI
-exactly like `taste.md` / `playbook.md` (reuses the editor modal), and like them
-it is **committed** — a sanitized example (placeholder name, a bracketed
-credential paragraph to replace, the hole syntax demonstrated). The user
-localizes it; their real name/credentials are a local edit, and the personal
-*facts* live in the brain, not here.
+via the editor modal (like `taste.md` / `playbook.md`), but **stored in the DB**
+(a singleton row) rather than a file — a dashboard save can't be clobbered by a
+git checkout, and the user's real name/credentials live only in their local DB,
+never committed. A compiled-in default (`outreach.DefaultTemplate`) seeds an
+empty install with a sanitized example; the personal *facts* live in the brain,
+not here.
 
 ## Knowledge retrieval — discover, store, fetch
 
@@ -166,8 +168,9 @@ These are scout's, fixed, and *not* derived from any one person's style:
 
 ## Data model
 
-- `outreach-template.md` — scout-local file, committed (sanitized example, like
-  `taste.md`/`playbook.md`). The email format.
+- `outreach_template` — scout-local, a singleton SQLite row (key `default`)
+  holding the email format. Seeded from the compiled-in `outreach.DefaultTemplate`
+  when empty; edited from the dashboard, never committed.
 - `outreach_sources` — the discovered knowledge: one row per (need, page_id) with
   the cached page text, title, and version; populated by discovery/refresh.
   Replaces the deleted `outreach_pins` + `outreach_blocks`.

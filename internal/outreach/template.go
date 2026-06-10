@@ -2,12 +2,13 @@ package outreach
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
+
+	"github.com/slaguardia/scout/internal/store"
 )
 
-// The email template is a scout-local file: fixed prose (sent verbatim) plus two
+// The email template is the email's format: fixed prose (sent verbatim) plus two
 // kinds of token:
 //
 //	{{var}}              — a simple substitution resolved in code from the posting
@@ -16,21 +17,35 @@ import (
 //	                       Instructions may themselves contain {{var}} references,
 //	                       which are resolved before the LLM sees them.
 //
-// Parsing is the one genuinely-new piece of logic in the redesign, so it fails
-// loud on a malformed template (unterminated or non-identifier token) rather
-// than silently mis-filling an email.
+// It lives in the DB (a singleton row) so a dashboard save can't clobber it and
+// git never touches it. Parsing fails loud on a malformed template rather than
+// silently mis-filling an email.
 
-// LoadTemplate reads the scout-local email template. A missing file returns ""
-// (the draft gate reports the absence); other errors propagate.
-func LoadTemplate(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
+// DefaultTemplate is the compiled-in starting template, used until the user saves
+// their own. Observation-led hook + a credentials placeholder the user replaces
+// with their own verbatim paragraph.
+const DefaultTemplate = `Subject: [Recipient] | Your Name — intro re {{role}}
+
+Hi [Recipient],
+
+{{hook: One or two tight sentences — a specific, true observation about {{company}} that shows you understand their world and makes a point. Don't recite their news back to them. Plain and short, no flattery, no stating interest. If there's no honest observation worth making, don't send.}}
+
+[Replace this paragraph with your standing credentials: the two or three sentences about your background you want in every cold email, in your exact words. This text is sent verbatim — the LLM never edits it.]
+
+{{closer: A short, specific reason this company in particular is worth a conversation (concrete — never "I'm interested" or "the work I want/enjoy"), then a brief, natural ask for a quick call about the {{role}} role. One casual line; vary the ask.}}
+
+Thanks,
+Your Name`
+
+// TemplateOrDefault returns the user's saved template, or the compiled-in default
+// when none is saved (or on a read error — a draft never blocks on this).
+func TemplateOrDefault(db *store.DB) string {
+	if db != nil {
+		if c, err := db.GetOutreachTemplate(); err == nil && strings.TrimSpace(c) != "" {
+			return c
 		}
-		return "", err
 	}
-	return string(b), nil
+	return DefaultTemplate
 }
 
 type segKind int

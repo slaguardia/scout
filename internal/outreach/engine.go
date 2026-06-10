@@ -29,9 +29,6 @@ type Engine struct {
 	Model  string // research + fill + honesty; empty → anthropic.DefaultModel
 	Log    func(string)
 
-	// TemplatePath is the scout-local email template file (the email format).
-	TemplatePath string
-
 	// HTTP is the client for the deterministic JD pre-fetch. Optional; a nil
 	// value uses a default with a sane timeout.
 	HTTP *http.Client
@@ -143,16 +140,9 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 	role := strings.TrimSpace(posting.Title)
 	e.log("outreach: draft %d — %s / %q", draftID, company, role)
 
-	// Load the template + the knowledge bundle up front so a missing input fails
-	// before spending the research call.
-	tmplText, err := LoadTemplate(e.TemplatePath)
-	if err != nil {
-		return fmt.Errorf("load template: %w", err)
-	}
-	if strings.TrimSpace(tmplText) == "" {
-		return fmt.Errorf("no email template configured — write your template first (Criteria → email template)")
-	}
-	tmpl, err := ParseTemplate(tmplText)
+	// Load the template (DB, or compiled-in default) + the knowledge bundle up
+	// front so a malformed template fails before spending the research call.
+	tmpl, err := ParseTemplate(TemplateOrDefault(e.DB))
 	if err != nil {
 		return err // already a clear "template: ..." message
 	}

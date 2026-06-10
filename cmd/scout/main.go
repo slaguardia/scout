@@ -133,7 +133,7 @@ Usage:
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout outreach sources [--refresh] [--brainbot URL] [--db scout.db]
-  scout outreach draft --posting <id> [--template outreach-template.md] [--model claude-sonnet-4-6] [--db scout.db]
+  scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
               [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
@@ -449,7 +449,6 @@ func cmdServe(args []string) error {
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (editable in the UI)")
 	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
 	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
-	outreachTemplate := fs.String("outreach-template", "outreach-template.md", "scout-local email template (editable in the UI)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
@@ -490,7 +489,6 @@ func cmdServe(args []string) error {
 		TasteMDPath:          *tasteMD,
 		TasteTOMLPath:        *tasteTOML,
 		PlaybookPath:         *playbookPath,
-		OutreachTemplatePath: *outreachTemplate,
 		IngestSource:         *source,
 		Resolver:             resolver,
 	}
@@ -516,7 +514,7 @@ func cmdServe(args []string) error {
 		}
 		// One engine satisfies both runners (outreach Draft + answer Generate);
 		// answer generation also reads the brain company-fit brief via Brief.
-		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, TemplatePath: *outreachTemplate, Log: logLine}
+		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
 		eng.Brief = func(ctx context.Context) (string, error) {
 			blk, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -851,7 +849,6 @@ func cmdOutreachDraft(args []string) error {
 	fs := flag.NewFlagSet("outreach draft", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	posting := fs.String("posting", "", "job_postings.id to draft outreach for")
-	templatePath := fs.String("template", "outreach-template.md", "scout-local email template file")
 	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -866,11 +863,8 @@ func cmdOutreachDraft(args []string) error {
 	}
 	defer db.Close()
 
-	// Gate on the two inputs (mirrors the web POST): the email template and a
-	// discovered experience bundle (the honesty ground truth). Voice is soft.
-	if tmpl, _ := outreach.LoadTemplate(*templatePath); strings.TrimSpace(tmpl) == "" {
-		return fmt.Errorf("outreach draft: no email template at %s — write it first", *templatePath)
-	}
+	// Gate on the experience bundle (the honesty ground truth). The template
+	// always exists (the DB row or the compiled-in default). Voice is soft.
 	if exp, err := db.OutreachKnowledge("experience"); err != nil {
 		return err
 	} else if strings.TrimSpace(exp) == "" {
@@ -893,11 +887,10 @@ func cmdOutreachDraft(args []string) error {
 	}
 
 	eng := &outreach.Engine{
-		DB:           db,
-		Client:       anthropic.New(""),
-		Model:        *model,
-		TemplatePath: *templatePath,
-		Log:          func(line string) { fmt.Fprintln(os.Stderr, line) },
+		DB:     db,
+		Client: anthropic.New(""),
+		Model:  *model,
+		Log:    func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
 	ctx, cancel := signalCtx()
 	defer cancel()

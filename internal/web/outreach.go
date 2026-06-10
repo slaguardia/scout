@@ -46,16 +46,9 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, "outreach pipeline not wired (no engine in this build)", http.StatusServiceUnavailable)
 			return
 		}
-		// GATE: a draft needs the email template and an experience bundle. A
-		// missing template can't render; a missing experience defeats the honesty
-		// check. Either is a 412 pointing the UI at the thing to fix.
-		if tmpl, _ := outreach.LoadTemplate(s.OutreachTemplatePath); strings.TrimSpace(tmpl) == "" {
-			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error": "no email template — write your outreach template first",
-				"need":  "template",
-			})
-			return
-		}
+		// GATE: a draft needs an experience bundle (the honesty ground truth).
+		// The email template always exists (the DB row or the compiled-in
+		// default), so it is never a gate.
 		if exp, err := s.DB.OutreachKnowledge("experience"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

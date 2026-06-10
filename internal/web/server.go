@@ -60,12 +60,11 @@ type Server struct {
 	Chat     *chat.Engine       // optional; nil disables chat (412 on message POST)
 
 	// Stage construction inputs (used by the run handlers).
-	Anthropic            *anthropic.Client
-	TasteMDPath          string
-	TasteTOMLPath        string
-	PlaybookPath         string
-	OutreachTemplatePath string
-	IngestSource         string
+	Anthropic     *anthropic.Client
+	TasteMDPath   string
+	TasteTOMLPath string
+	PlaybookPath  string
+	IngestSource  string
 
 	mu           sync.RWMutex
 	taste        *taste.Block // current; recomputed by ReloadTaste

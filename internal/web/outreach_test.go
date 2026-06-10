@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,15 +24,13 @@ func (f *fakeOutreachRunner) Draft(id int64) { f.started = append(f.started, id)
 const seedTemplate = "Subject: [Name] | intro — {{role}}\n\nHi [Name],\n\n" +
 	"{{hook: one true thing about {{company}}}}\n\nI spent five years at Globex.\n\nThanks,\nAlex"
 
-// seedOutreachReady satisfies the draft gate (a template file + a discovered
+// seedOutreachReady satisfies the draft gate (a DB template + a discovered
 // experience + voice bundle) and creates a posting.
 func seedOutreachReady(t *testing.T, s *Server, cid string) (postingID string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "outreach-template.md")
-	if err := os.WriteFile(path, []byte(seedTemplate), 0o644); err != nil {
-		t.Fatalf("write template: %v", err)
+	if err := s.DB.PutOutreachTemplate(seedTemplate); err != nil {
+		t.Fatalf("seed template: %v", err)
 	}
-	s.OutreachTemplatePath = path
 	for _, src := range []store.OutreachSource{
 		{Need: "experience", PageID: "exp1", Title: "Past Experience", Content: "Five years at Globex, forward-deployed.", Version: "v1"},
 		{Need: "voice", PageID: "voice1", Title: "Voice & Style", Content: "Plain, tight sentences.", Version: "v1"},
@@ -161,22 +157,9 @@ func TestOutreachStartGates(t *testing.T) {
 	s.Outreach = &fakeOutreachRunner{}
 	h = s.Handler()
 
-	// No template: 412 need=template.
+	// The template always exists (DB row or compiled-in default), so it is never
+	// a gate. With no experience cached: 412 need=experience.
 	rec := do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
-	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("no template: want 412, got %d (%s)", rec.Code, rec.Body.String())
-	}
-	if need := gateNeed(t, rec); need != "template" {
-		t.Errorf("need = %q, want template", need)
-	}
-
-	// Template present, no experience: 412 need=experience.
-	path := filepath.Join(t.TempDir(), "tmpl.md")
-	if err := os.WriteFile(path, []byte(seedTemplate), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s.OutreachTemplatePath = path
-	rec = do(t, h, http.MethodPost, "/api/postings/"+p.ID+"/outreach", "")
 	if rec.Code != http.StatusPreconditionFailed {
 		t.Fatalf("no experience: want 412, got %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -299,7 +282,6 @@ func TestOutreachEndToEnd(t *testing.T) {
 	ac.Endpoint = llm.URL
 	s.Outreach = &outreach.Engine{
 		DB: s.DB, Client: ac, HTTP: &http.Client{Transport: errRT{}},
-		TemplatePath: s.OutreachTemplatePath,
 	}
 	h := s.Handler()
 
