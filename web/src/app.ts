@@ -2764,6 +2764,29 @@ async function loadProfile() {
 const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.6 2.4a1.2 1.2 0 0 1 1.7 1.7L5.6 11.8l-3 1 1-3z"/><path d="M10.4 3.6l2 2"/></svg>';
 const REFRESH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8"/><path d="M13.6 2.6V5.2H11"/></svg>';
 
+// Per-item glyphs for the settings cards.
+const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></svg>';
+const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
+const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
+const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
+
+// One settings card: icon tile, name (optionally a clickable link), description,
+// a status line (dot + note) for brain-backed items, and a trailing action.
+function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: string; note?: string; actID: string; actIcon: string; actTitle: string; actLabel: string; }): string {
+  const status = (o.dot || o.note)
+    ? `<div class="crit-status">${o.dot ? `<span class="pf-dot ${o.dot}"></span>` : ""}${o.note ? `<span class="crit-note-t">${escapeHTML(o.note)}</span>` : ""}</div>`
+    : "";
+  return `<div class="settings-item">
+    <span class="settings-item-icon">${o.icon}</span>
+    <div class="settings-item-main">
+      <div class="settings-item-name">${o.nameHTML}</div>
+      <div class="settings-item-desc">${escapeHTML(o.desc)}</div>
+      ${status}
+    </div>
+    <button class="crit-edit" id="${o.actID}" title="${o.actTitle}" aria-label="${o.actLabel}">${o.actIcon}</button>
+  </div>`;
+}
+
 function renderCriteria() {
   const el = document.getElementById("criteria-stats");
   if (!el) return;
@@ -2791,22 +2814,33 @@ function renderCriteria() {
     const name = hasBody
       ? '<span class="edit-link" id="view-profile" title="view the company-fit brief">company-fit brief</span>'
       : 'company-fit brief';
-    html += `<div class="crit-row">
-      <span class="crit-what"><span class="pf-dot ${dot}"></span>${name}</span>
-      <button class="crit-edit" id="refresh-profile" title="re-distill the company-fit brief from the brain" aria-label="refresh company-fit brief">${REFRESH}</button></div>`;
-    if (note) html += `<div class="crit-note dim small">${escapeHTML(note)}</div>`;
+    html += critCard({
+      icon: ICON_BRIEF, nameHTML: name, dot, note,
+      desc: "The criteria scout feeds the verdict stage — distilled from the brain.",
+      actID: "refresh-profile", actIcon: REFRESH,
+      actTitle: "re-distill the company-fit brief from the brain", actLabel: "refresh company-fit brief",
+    });
   } else {
-    html += `<div class="crit-row">
-      <span class="crit-what">taste</span>
-      <button class="crit-edit" id="edit-taste" title="edit taste.md" aria-label="edit taste">${PENCIL}</button></div>`;
-    if (p && p.configured) html += `<div class="crit-note dim small">brain offline — local fallback</div>`;
+    html += critCard({
+      icon: ICON_BRIEF, nameHTML: '<span class="edit-link" id="edit-taste" title="edit taste.md">taste</span>',
+      note: (p && p.configured) ? "brain offline — local fallback" : "",
+      dot: (p && p.configured) ? "warn" : "",
+      desc: "Local fallback criteria used when the brain is unreachable.",
+      actID: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
+    });
   }
-  html += `<div class="crit-row">
-    <span class="crit-what">playbook</span>
-    <button class="crit-edit" id="edit-playbook" title="edit playbook.md" aria-label="edit playbook">${PENCIL}</button></div>`;
-  html += `<div class="crit-row">
-    <span class="crit-what">email template</span>
-    <button class="crit-edit" id="edit-template" title="edit the outreach email template" aria-label="edit email template">${PENCIL}</button></div>`;
+  html += critCard({
+    icon: ICON_PLAYBOOK,
+    nameHTML: '<span class="edit-link" id="edit-playbook" title="edit playbook.md">playbook</span>',
+    desc: "How scout judges — the reasoning rules behind every verdict.",
+    actID: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
+  });
+  html += critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" id="edit-template" title="edit the outreach email template">email template</span>',
+    desc: "The outreach email format — verbatim prose with fill-in holes.",
+    actID: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
+  });
   // Outreach knowledge mirrors the company-fit brief row: a status dot, a
   // clickable name that opens the discovered sources, a refresh (re-discover),
   // and a freshness/count note.
@@ -2819,10 +2853,12 @@ function renderCriteria() {
   const kname = srcs.length
     ? '<span class="edit-link" id="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
     : 'outreach knowledge';
-  html += `<div class="crit-row">
-    <span class="crit-what"><span class="pf-dot ${kdot}"></span>${kname}</span>
-    <button class="crit-edit" id="refresh-sources" title="re-discover experience + voice from the brain" aria-label="refresh outreach knowledge">${REFRESH}</button></div>`;
-  html += `<div class="crit-note dim small">${escapeHTML(knote)}</div>`;
+  html += critCard({
+    icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
+    desc: "Your experience + voice, discovered from the brain to ground outreach.",
+    actID: "refresh-sources", actIcon: REFRESH,
+    actTitle: "re-discover experience + voice from the brain", actLabel: "refresh outreach knowledge",
+  });
   el.innerHTML = html;
 
   const vp = document.getElementById("view-profile");

@@ -309,18 +309,20 @@ export const SCOUT_MARKUP = `
 
 <!-- settings: criteria, playbook, email template, outreach knowledge -->
 <div class="modal-scrim" id="settings-scrim">
-  <div class="modal">
+  <div class="modal modal-settings">
     <div class="modal-head">
-      <h2>Settings</h2>
+      <div class="modal-head-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3 3.2 3.2"/></svg>
+      </div>
+      <div class="modal-head-text">
+        <h2>Settings</h2>
+        <div class="modal-head-sub">What scout uses to judge companies and write your outreach.</div>
+      </div>
     </div>
     <div class="modal-body">
       <div class="settings-group">
         <div class="settings-group-h">Criteria &amp; outreach</div>
         <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-      </div>
-      <div class="modal-note">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>What scout uses to judge companies and write outreach: the company-fit brief / taste, the playbook, the email template, and the brain-discovered outreach knowledge. Each opens its own editor or viewer.</span>
       </div>
     </div>
     <div class="modal-foot">
