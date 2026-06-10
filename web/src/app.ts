@@ -2774,9 +2774,19 @@ function renderCriteria() {
 
   let html = "";
   if (usingBrain) {
+    // Honest tri-state from the change-aware cascade (criteria_state), replacing
+    // the old age>=TTL "stale" badge: 'current' is confirmed against the brain,
+    // 'changed' means the brain moved (re-distill via Refresh), 'unverified' means
+    // we can't confirm right now (brain offline, or never verified).
     let dot = "off", note = "";
-    if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
-    else if (p && p.stale) { dot = "warn"; note = "cached · stale"; }
+    const cs = p && p.criteria_state;
+    if (cs === "current") { dot = "ok"; note = "current · verified " + relTime(p.verified_age_seconds); }
+    else if (cs === "changed") { dot = "warn"; note = "changed — re-distill"; }
+    else if (cs === "unverified") {
+      dot = "warn";
+      note = (p && !p.reachable && hasBody) ? "brain offline · using cache" : "unverified — re-distill";
+    }
+    else if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
     else if (hasBody) { dot = "ok"; note = "fetched " + relTime(p.age_seconds); }
     const name = hasBody
       ? '<span class="edit-link" id="view-profile" title="view the company-fit brief">company-fit brief</span>'

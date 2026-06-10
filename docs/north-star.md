@@ -125,7 +125,7 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | Store | Holds | Disposable? |
 |---|---|---|
 | **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
-| **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — reused within `--brain-cache-ttl`, stale-fallback when the brain is down | yes — a disposable cache; the brain is the source of truth |
+| **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — kept current by the change-propagation cascade (`/changes` cursor → distill basis → re-synthesize), served verbatim until the brain actually changes; stale-fallback (within `--brain-cache-ttl`) when the brain is down. See [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md) | yes — a disposable cache; the brain is the source of truth |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
 | **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
@@ -141,7 +141,8 @@ filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard 
           headcount, stage, has-domain)                 NOT judgment)
 enrich    fetch company site → text                    (no brain — company data)
 verdict   reads  the user's criteria  ← brain: recall → distilled brief
-                                         (cached locally, TTL)
+                                         (cached locally; kept current by the
+                                          /changes cost cascade, not a TTL)
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
 triage    browse / promote                             (no brain)

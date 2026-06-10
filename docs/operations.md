@@ -133,25 +133,42 @@ Re-running any stage is safe. Each stage skips work it's already done.
 
 ## How scoring resolves criteria
 
+Resolution follows the **change-propagation cost cascade** — each tier only pays
+for the next when something genuinely changed — not a dumb TTL. The cascade is
+canonical in
+[`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md);
+the `/changes` contract scout consumes is in
+[`brainbot/docs/consumer-api.md`](../../brainbot/docs/consumer-api.md).
+
 ```
-scout verdict
+scout verdict (criteria resolved once per run)
    │
-   ├─ fresh cached brief? (age < --brain-cache-ttl, default 6h) → use it
+   ├─ cached brief WITH a stored cursor? → the cascade:
+   │     ├─ Tier 0  GET /changes since the cursor — one cheap call, no LLM
+   │     │            └─ nothing moved → serve the cached brief VERBATIM, stamp verified_at
+   │     ├─ Tier 1  brain moved → re-run recall, compare the distill basis
+   │     │            └─ basis unchanged (coarse cursor / irrelevant edit) → serve VERBATIM
+   │     └─ Tier 2  basis actually changed → re-synthesize, store brief+basis+cursor,
+   │                  bump the version (only a real change re-scores)
    │
-   ├─ else --brainbot set (default :8100) and healthy?
-   │     ├─ yes → recall (company-fit questions) + distill → company-fit brief
-   │     │        (Hard dealbreakers / Strong preferences / Context, in prose)
-   │     │        ↳ cache it locally (brain_profile_cache), then use it
-   │     │        ↳ empty? fall back to taste.md
-   │     └─ no/unreachable/failed → stale cached brief if any, else taste.md  (logged)
+   ├─ cold (no cache, or a pre-0037 row with no cursor) → full distill,
+   │     stored WITH the current cursor so the next run goes warm
+   │
+   ├─ brain unreachable → serve the cached brief while it is within the TTL
+   │     ceiling (--brain-cache-ttl); past it (or no cache) → taste.md  (logged)
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite
 ```
 
-The brain is touched in exactly one place — distilling the user's criteria
-(`recall` + one synthesis call), cached locally (TTL) so repeated runs don't
-re-distill. `recall(query)` is the only brain call; there is no per-company
-brain query and scout never passes a `scope`.
+Steady state is **one cheap `/changes` call per run, zero LLM spend and zero brief
+wobble until the brain changes in a way that touches the criteria**. The brain is
+touched only for distilling the user's criteria (`recall` + one synthesis call),
+cached locally; `recall(query)` and `/changes` are the only brain calls, there is
+no per-company brain query, and scout never passes a `scope`. The TTL is no longer
+the re-distill trigger — it survives only as the ceiling above for serving an
+unverifiable cached brief, and as an input to the Criteria panel's
+**current / unverified / changed** badge (which replaced the old age-based
+"stale" pill).
 
 Verdicts are written to scout's SQLite and nowhere else — the brain is
 read-only for scout. The **criteria version** (`taste_version` in the schema) is
@@ -193,7 +210,7 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`recall`, distilled into a brief). **Empty disables** → `taste.md` fallback. |
-| `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before the resolver re-distills. |
+| `--brain-cache-ttl` | `6h` | Ceiling for serving a cached brief while the brain is unreachable (NOT a re-distill trigger — re-distilling is driven by the `/changes` cascade). Also feeds the Criteria panel's current/unverified state. |
 | `--model` | `claude-haiku-4-5` | Anthropic model for per-company scoring. |
 | `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 | `--workers` | `4` | Parallel API calls. |

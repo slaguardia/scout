@@ -1,17 +1,32 @@
 // Package criteria resolves the user's criteria block (what the user wants) for
 // the verdict stage, with a locally-cached distilled brief in front of the brain.
 //
-// Source priority:
+// Resolution follows the change-propagation cost cascade
+// (brainbot/docs/change-propagation.md) rather than a dumb TTL: each tier only
+// pays for the next when something genuinely changed.
 //
-//  1. a FRESH locally-cached brief (within TTL) — no brain call;
-//  2. a live distillation (recall + LLM synthesis, which refreshes the cache);
-//  3. the LAST cached brief, even if stale, when the brain is unreachable;
-//  4. the offline taste.md file.
+//   - Warm path (a cached brief WITH a stored cursor):
+//     Tier 0 — ask the brain GET /changes whether anything moved since the stored
+//     cursor. Nothing moved → serve the cached brief VERBATIM (one cheap call, no
+//     recall, no LLM), just re-stamping verified_at.
+//     Tier 1 — something moved → re-run the recall gather and compare the distill
+//     basis. The cursor is coarse (a no-op re-sync advances it), so a move there
+//     need not touch what THIS view draws from; an unchanged basis → still serve
+//     verbatim, no LLM.
+//     Tier 2 — the basis actually changed → re-synthesize, store the new brief +
+//     basis + cursor, and bump the version (which is keyed off the basis, so only
+//     a real change re-scores).
+//   - Cold path (no cache, or a pre-0037 row with no cursor): a full distill,
+//     stored WITH the current cursor so the next resolve goes warm.
+//   - Fallbacks: when the brain is unreachable, serve the last cached brief while
+//     it is within the TTL ceiling; past the ceiling (or with no cache), fall back
+//     to the offline taste.md file.
 //
-// The brain holds the user's notes, not per-company data, and the distilled
-// brief changes rarely, so caching it keeps every CLI run and server restart
-// from re-distilling. The brain stays read-only; the cache lives in scout's
-// SQLite working set (it is disposable, not the system of record).
+// TTL is no longer the trigger for re-distilling — it survives only as the
+// ceiling above for serving an unverifiable cached brief, and as an input to the
+// criteria-state display (internal/web/profile.go). The brain stays read-only;
+// the cache lives in scout's SQLite working set (it is disposable, not the system
+// of record).
 package criteria
 
 import (
@@ -33,18 +48,37 @@ const healthTimeout = 5 * time.Second
 // ErrBrainUnavailable is returned by Refresh when the brain isn't configured.
 var ErrBrainUnavailable = errors.New("brain not configured")
 
-// BriefSource produces the user's criteria from the brain: the brief (what the
-// verdict LLM reads) and a stable basis (the version key). The concrete
-// implementation is *distill.Distiller; the interface keeps the resolver
-// testable without a live brain or LLM. An empty brief with a nil error means
-// the brain genuinely knows nothing yet (fall back to local criteria); any
-// error is surfaced so the resolver distinguishes an outage from an empty brain.
+// BriefSource produces the user's criteria from the brain. It is split into the
+// cost cascade's two phases so the resolver can gate the expensive LLM step on
+// what actually changed (see brainbot/docs/change-propagation.md):
+//
+//   - Gather runs the brain read fan-out (recall + dedup, NO LLM) and returns the
+//     gathered material plus a stable basis — the version key over the prompts +
+//     recalled content. The resolver compares the basis (Tier 1) to decide
+//     whether synthesis is needed, then carries the same chunks into Synthesize
+//     without inspecting them, so a single resolve never does a second recall.
+//   - Synthesize runs the LLM step over a prior Gather's chunks → brief. Reached
+//     (Tier 2) only when the basis actually changed.
+//   - Distill is the whole pipeline (Gather → Synthesize), used by the cold path,
+//     Refresh(), and `scout distill`.
+//
+// The concrete implementation is *distill.Distiller; the interface keeps the
+// resolver testable without a live brain or LLM. Contract: a non-empty brief with
+// a nil error is a successful distillation. The resolver treats EVERY error as a
+// signal to fall back (to the cached brief, then taste.md), so the concrete
+// *distill.Distiller never returns an empty brief with a nil error — an empty
+// corpus (a healthy brain with nothing to distill) is reported as an error, like
+// any other failure. (A test fake may instead return an empty brief with a nil
+// error to mean the same "brain knows nothing"; the resolver's "" checks tolerate
+// both encodings.)
 //
 // basis keys the criteria version instead of the brief prose: the brief drifts
 // cosmetically across re-distills, so versioning off basis avoids re-scoring
 // every company when nothing actually changed (see distill.Result.Basis).
 type BriefSource interface {
-	Distill(context.Context) (brief, basis string, err error)
+	Gather(ctx context.Context) (chunks []brainbot.Chunk, basis string, err error)
+	Synthesize(ctx context.Context, chunks []brainbot.Chunk) (brief string, err error)
+	Distill(ctx context.Context) (brief, basis string, err error)
 }
 
 // Resolver resolves criteria with a TTL-cached distilled brief + taste.md fallback.
@@ -87,39 +121,135 @@ func blockFromCache(cp *store.BrainProfile, url string) *taste.Block {
 	return blk
 }
 
-// Resolve returns the current criteria block following the source priority in
-// the package doc. It never returns a nil block without an error.
+// Resolve returns the current criteria block following the cost cascade in the
+// package doc. It never returns a nil block without an error.
 func (r *Resolver) Resolve(ctx context.Context) (*taste.Block, error) {
 	if r.brainEnabled() {
 		url := r.Brain.BaseURL
+		cp, _ := r.Store.GetBrainProfile(url)
+		hasCache := cp != nil && strings.TrimSpace(cp.Body) != ""
 
-		// 1. Fresh cache → use it without touching the brain.
-		if cp, err := r.Store.GetBrainProfile(url); err == nil && cp != nil && strings.TrimSpace(cp.Body) != "" {
-			if r.TTL > 0 && time.Duration(cp.AgeSeconds)*time.Second < r.TTL {
-				r.log("criteria: cached brain profile (age %ds < ttl %s)", cp.AgeSeconds, r.TTL)
-				return blockFromCache(cp, url), nil
+		// Warm path: a cached brief WITH a stored cursor → run the cascade.
+		if hasCache && cp.Cursor != "" {
+			if blk, err := r.cascade(ctx, url, cp); err == nil {
+				return blk, nil
+			} else {
+				// The cascade only errors when the brain is unverifiable AND the
+				// cached brief is past the TTL ceiling — fall through to taste.md.
+				r.log("criteria: %v; falling back to %s", err, r.TasteMDPath)
+				return taste.LoadFile(r.TasteMDPath)
 			}
 		}
 
-		// 2. Cache missing or stale → fetch live and refresh the cache.
+		// Cold path: no cache, or a pre-0037 row with no cursor → full distill,
+		// stored WITH the current cursor so the next resolve takes the warm path.
 		if blk, err := r.fetchAndCache(ctx, url); err == nil {
-			r.log("criteria: refreshed brain profile from %s", url)
+			r.log("criteria: cold distill from %s (cursor stored)", url)
 			return blk, nil
+		} else if hasCache && r.withinCeiling(cp) {
+			// Couldn't refresh (brain unreachable, or healthy-but-empty) but the
+			// last brief is still within the TTL ceiling → serve it verbatim.
+			r.log("criteria: %v; serving cached brief within ttl ceiling (verified %s)", err, verifiedAgo(cp))
+			return blockFromCache(cp, url), nil
 		} else {
-			// 3. Couldn't refresh (brain unreachable, or healthy-but-empty) →
-			// fall back to the last cached copy. The error string already says
-			// which case it is, so surface it verbatim rather than labelling it
-			// "unavailable" (a healthy-but-empty brain is reachable, just empty).
-			if cp, cerr := r.Store.GetBrainProfile(url); cerr == nil && cp != nil && strings.TrimSpace(cp.Body) != "" {
-				r.log("criteria: %v; using stale cached profile (age %ds)", err, cp.AgeSeconds)
-				return blockFromCache(cp, url), nil
-			}
-			r.log("criteria: %v; no cache — falling back to %s", err, r.TasteMDPath)
+			r.log("criteria: %v; no usable cache — falling back to %s", err, r.TasteMDPath)
 		}
 	}
 
-	// 4. Offline fallback.
+	// Offline fallback.
 	return taste.LoadFile(r.TasteMDPath)
+}
+
+// cascade runs the change-propagation cost cascade for a cached brief that has a
+// stored cursor (cp non-nil, Body and Cursor non-empty). It returns the cached
+// brief verbatim unless a real basis change forces a fresh synthesis; it only
+// errors when the brain can't be reached for Tier 0 AND the cached brief is past
+// the TTL ceiling (the caller then falls back to taste.md).
+func (r *Resolver) cascade(ctx context.Context, url string, cp *store.BrainProfile) (*taste.Block, error) {
+	// Tier 0: did anything in the brain move since we last confirmed-current?
+	cr, err := r.Brain.Changes(ctx, cp.Cursor)
+	if err != nil {
+		if r.withinCeiling(cp) {
+			r.log("criteria: Tier 0 unreachable (%v); serving cached brief within ttl ceiling (verified %s)", err, verifiedAgo(cp))
+			return blockFromCache(cp, url), nil
+		}
+		return nil, fmt.Errorf("brain change-signal unreachable at %s and cached brief past ttl ceiling: %w", url, err)
+	}
+	if !cr.Changed {
+		// Tier 0 hit: nothing moved. Stamp confirmed-current; serve verbatim.
+		r.touch(url, cr.Cursor)
+		r.log("criteria: Tier 0 — brain unchanged since cursor; cached brief served verbatim")
+		return blockFromCache(cp, url), nil
+	}
+
+	// changed=true → Tier 1: re-run the recall gather and compare the basis.
+	chunks, basis, err := r.Distiller.Gather(ctx)
+	if err != nil {
+		// A recall hiccup (or a momentarily-empty brain) mid-gather → don't drop
+		// the good cached brief; serve it and re-check on the next resolve.
+		r.log("criteria: Tier 1 gather failed (%v); serving cached brief", err)
+		return blockFromCache(cp, url), nil
+	}
+	freshVersion := taste.Hash(basis)
+	if freshVersion == cp.ContentHash {
+		// Tier 1 absorb: the coarse cursor advanced (a re-sync, or an edit to a
+		// page this view doesn't draw from) but OUR basis is unchanged. Stamp
+		// confirmed-current and serve verbatim — no synthesis, no version bump.
+		r.touch(url, cr.Cursor)
+		r.log("criteria: Tier 1 — basis unchanged; cursor advanced, brief served verbatim")
+		return blockFromCache(cp, url), nil
+	}
+
+	// Tier 2: the company-fit-relevant content actually changed → synthesize.
+	brief, err := r.Distiller.Synthesize(ctx, chunks)
+	if err != nil {
+		r.log("criteria: Tier 2 synthesis failed (%v); serving cached brief", err)
+		return blockFromCache(cp, url), nil
+	}
+	brief = strings.TrimSpace(brief)
+	if brief == "" {
+		r.log("criteria: Tier 2 produced an empty brief; serving cached brief")
+		return blockFromCache(cp, url), nil
+	}
+	if perr := r.Store.PutBrainProfile(url, brief, freshVersion, cr.Cursor); perr != nil {
+		r.log("criteria: cache write failed: %v", perr)
+	}
+	r.log("criteria: Tier 2 — basis changed; re-distilled (version %s)", freshVersion)
+	blk := taste.FromBrain(brief, brainSource(url))
+	blk.Version = freshVersion
+	return blk, nil
+}
+
+// touch records "confirmed unchanged as of now" (cursor + verified_at), logging
+// a write failure rather than failing the resolve.
+func (r *Resolver) touch(url, cursor string) {
+	if err := r.Store.TouchBrainProfile(url, cursor); err != nil {
+		r.log("criteria: verified-stamp write failed: %v", err)
+	}
+}
+
+// withinCeiling reports whether a cached brief is still fresh enough to serve
+// when the brain can't be reached to verify it. The ceiling is the demoted TTL:
+// it measures time since the brief was last CONFIRMED current (verified_at), or,
+// for a never-verified legacy row, since it was fetched. A non-positive TTL means
+// "no ceiling" — always prefer a cached brief over taste.md when the brain is down.
+func (r *Resolver) withinCeiling(cp *store.BrainProfile) bool {
+	if r.TTL <= 0 {
+		return true
+	}
+	age := cp.VerifiedAgeSeconds
+	if age < 0 {
+		age = cp.AgeSeconds
+	}
+	return time.Duration(age)*time.Second < r.TTL
+}
+
+// verifiedAgo renders a cached row's confirmed-current age for logs.
+func verifiedAgo(cp *store.BrainProfile) string {
+	if cp.VerifiedAgeSeconds < 0 {
+		return "never"
+	}
+	return fmt.Sprintf("%ds ago", cp.VerifiedAgeSeconds)
 }
 
 // Refresh forces a live brain fetch, updates the cache, and returns the new
@@ -140,15 +270,29 @@ func (r *Resolver) Cached() (*store.BrainProfile, error) {
 	return r.Store.GetBrainProfile(r.Brain.BaseURL)
 }
 
-// fetchAndCache health-checks the brain, distills the criteria brief, writes the
-// cache (best-effort), and returns the block. Errors on an unreachable brain or
-// an empty (healthy-but-no-criteria) brain.
+// fetchAndCache health-checks the brain, captures the current change cursor,
+// distills the criteria brief, writes the cache (best-effort, stamping
+// verified_at + cursor), and returns the block. It is the cold path and the
+// Refresh() path — an UNCONDITIONAL full distill. Errors on an unreachable brain
+// or an empty (healthy-but-no-criteria) brain.
 func (r *Resolver) fetchAndCache(ctx context.Context, url string) (*taste.Block, error) {
 	hctx, cancel := context.WithTimeout(ctx, healthTimeout)
 	herr := r.Brain.Health(hctx)
 	cancel()
 	if herr != nil {
 		return nil, fmt.Errorf("brain unreachable at %s: %w", url, herr)
+	}
+	// Capture the brain's cursor BEFORE distilling so the stored cursor reflects
+	// (at worst, an earlier snapshot of) the state the brief was built from — if
+	// the brain changes mid-distill, the next Tier 0 check conservatively re-checks
+	// rather than masking the change. An empty `since` always reports changed=true;
+	// we only want the cursor. A cursor read failure is non-fatal: store "" and the
+	// next resolve takes the cold path again (e.g. a brain that predates /changes).
+	cursor := ""
+	if cr, cerr := r.Brain.Changes(ctx, ""); cerr == nil {
+		cursor = cr.Cursor
+	} else {
+		r.log("criteria: cursor read failed during distill (%v); storing empty cursor", cerr)
 	}
 	brief, basis, err := r.Distiller.Distill(ctx)
 	if err != nil {
@@ -162,7 +306,7 @@ func (r *Resolver) fetchAndCache(ctx context.Context, url string) (*taste.Block,
 	// brief prose — content_hash stores it, so a cosmetically-drifted brief over
 	// unchanged inputs keeps the same version and doesn't re-score.
 	version := taste.Hash(basis)
-	if err := r.Store.PutBrainProfile(url, brief, version); err != nil {
+	if err := r.Store.PutBrainProfile(url, brief, version, cursor); err != nil {
 		// A cache-write failure shouldn't block scoring — log and continue.
 		r.log("criteria: cache write failed: %v", err)
 	}

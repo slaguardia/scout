@@ -182,6 +182,35 @@ func (c *Client) Map(ctx context.Context) (MapResult, error) {
 	return out, err
 }
 
+// ChangesResult is GET /changes: the brain's Tier 0 change signal. Cursor is the
+// brain's current opaque change stamp; Changed reports whether it differs from
+// the `since` the caller passed.
+type ChangesResult struct {
+	Cursor  string `json:"cursor"`
+	Changed bool   `json:"changed"`
+}
+
+// Changes is the cheap "did anything in the brain move since `since`?" read — one
+// indexed aggregate, no recall fan-out and no LLM. It is the Tier 0 trigger of
+// the change-propagation cost cascade (see brainbot/docs/change-propagation.md):
+// the resolver calls it once per resolve and only pays for recall/synthesis when
+// it reports a change.
+//
+// CONTRACT (verbatim from brainbot/docs/consumer-api.md): Cursor is OPAQUE —
+// compare it for equality only, never parse it. It is backed by count(*) +
+// max(updated_at) over the brain's sources and is deliberately COARSER than
+// /doc's version: a no-op re-sync advances it even though no document's content
+// changed. So Changed=true is a "re-check now" trigger, NOT proof the caller's
+// specific view changed — callers MUST gate any expensive recompute on their own
+// basis (e.g. the recalled chunk text), never on the cursor alone. `since` is
+// sent as-is; an empty `since` yields Changed=true (the brain treats absent/stale
+// the same), so do not special-case it client-side.
+func (c *Client) Changes(ctx context.Context, since string) (ChangesResult, error) {
+	var out ChangesResult
+	err := c.getJSON(ctx, "/changes", url.Values{"since": {since}}, &out)
+	return out, err
+}
+
 // --- transport ---
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {

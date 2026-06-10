@@ -109,6 +109,57 @@ func TestDistillFanOutClassifyThenSynthesize(t *testing.T) {
 	}
 }
 
+// TestGatherThenSynthesizeEqualsDistill proves the two-phase split is behavior-
+// preserving: Gather → Synthesize yields the same brief AND the same basis as the
+// one-shot Distill, and the split does not add a second recall fan-out.
+func TestGatherThenSynthesizeEqualsDistill(t *testing.T) {
+	chunks := `{"chunks":[
+		{"heading":"Target company","text":"Wants zero-to-one product companies.","score":0.5,"path":"Job Hunting/Target company"},
+		{"heading":"Job Hunting","text":"Avoids fintech and crypto.","score":0.4,"path":"Job Hunting"}
+	]}`
+	const reply = "## Hard dealbreakers\n- Avoids fintech and crypto."
+
+	// Two-phase: Gather (recall only) then Synthesize (classify+synthesize).
+	var gHits int32
+	var gBodies []string
+	dg := &Distiller{Brain: brainStub(t, &gHits, "", chunks), Client: anthropicStub(t, &gBodies, reply)}
+	gathered, gatherBasis, err := dg.Gather(context.Background())
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	if len(gBodies) != 0 {
+		t.Fatalf("Gather must not call the LLM; saw %d calls", len(gBodies))
+	}
+	gatherRecalls := atomic.LoadInt32(&gHits)
+	if int(gatherRecalls) != len(companyQuestions) {
+		t.Fatalf("Gather recalls = %d, want %d (one fan-out)", gatherRecalls, len(companyQuestions))
+	}
+	twoPhaseBrief, err := dg.Synthesize(context.Background(), gathered)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	// No SECOND recall fan-out: Synthesize must not re-hit /recall.
+	if after := atomic.LoadInt32(&gHits); after != gatherRecalls {
+		t.Fatalf("Synthesize re-ran recall (%d → %d); want zero extra fan-out", gatherRecalls, after)
+	}
+
+	// One-shot: Distill (gather+classify+synthesize in one call).
+	var dHits int32
+	var dBodies []string
+	dd := &Distiller{Brain: brainStub(t, &dHits, "", chunks), Client: anthropicStub(t, &dBodies, reply)}
+	oneShotBrief, oneShotBasis, err := dd.Distill(context.Background())
+	if err != nil {
+		t.Fatalf("Distill: %v", err)
+	}
+
+	if twoPhaseBrief != oneShotBrief {
+		t.Fatalf("brief differs: two-phase %q vs one-shot %q", twoPhaseBrief, oneShotBrief)
+	}
+	if gatherBasis != oneShotBasis {
+		t.Fatalf("basis differs: Gather %q vs Distill %q — the split changed the hash", gatherBasis, oneShotBasis)
+	}
+}
+
 // basisOf is the version key — it must be independent of hybrid-search score and
 // input order (both jitter run-to-run) but change when chunk content changes.
 func TestBasisIgnoresScoreAndOrder(t *testing.T) {

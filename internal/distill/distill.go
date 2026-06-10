@@ -107,28 +107,68 @@ func (d *Distiller) Distill(ctx context.Context) (brief, basis string, err error
 	return res.Brief, res.Basis, nil
 }
 
-// Run does the whole distillation: gather → classify → synthesize.
-func (d *Distiller) Run(ctx context.Context) (*Result, error) {
-	chunks, err := d.gather(ctx)
+// Gather runs ONLY the recall fan-out + dedup (no LLM) and returns the deduped
+// chunks plus the stable Basis. It is the Tier 1 relevance-gate input of the
+// change-propagation cost cascade: because Basis depends only on the recall
+// result (basisOf over both prompts + chunk content), the resolver can compute
+// it here, before any LLM call, and skip synthesis when the brain moved but the
+// company-fit-relevant content did not — without a second recall (the gathered
+// chunks are handed straight to Synthesize).
+//
+// An empty corpus is an error here, exactly as the one-shot pipeline reports it:
+// the resolver treats a Gather error as "fall back to the cached brief / taste.md".
+func (d *Distiller) Gather(ctx context.Context) (chunks []brainbot.Chunk, basis string, err error) {
+	chunks, err = d.gather(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(chunks) == 0 {
 		// A reachable-but-empty brain: no company-fit material to distill. The
 		// resolver treats an error here as "fall back to local criteria".
-		return nil, fmt.Errorf("brain returned no chunks for company-fit recalls")
+		return nil, "", fmt.Errorf("brain returned no chunks for company-fit recalls")
 	}
-	items, err := d.classify(ctx, chunks)
+	return chunks, basisOf(chunks), nil
+}
+
+// Synthesize runs the LLM step — classify then synthesize — over chunks from a
+// prior Gather and returns the company-fit brief. No recall here: a single
+// Resolve that needs synthesis performs exactly one Gather, then one Synthesize.
+func (d *Distiller) Synthesize(ctx context.Context, chunks []brainbot.Chunk) (string, error) {
+	_, brief, err := d.synthesizeWithItems(ctx, chunks)
+	return brief, err
+}
+
+// synthesizeWithItems is the shared classify→synthesize body; it also returns the
+// intermediate classified Items so Run can expose them on Result for the CLI
+// debug path.
+func (d *Distiller) synthesizeWithItems(ctx context.Context, chunks []brainbot.Chunk) (items, brief string, err error) {
+	items, err = d.classify(ctx, chunks)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 	d.log("distill: classified %d chunks → %d chars of tagged items", len(chunks), len(items))
-	brief, err := d.synthesize(ctx, items)
+	brief, err = d.synthesize(ctx, items)
+	if err != nil {
+		return "", "", err
+	}
+	d.log("distill: brief synthesized (%d chars)", len(brief))
+	return items, brief, nil
+}
+
+// Run does the whole distillation: Gather → Synthesize. Distill() and `scout
+// distill` go through here, so the end-to-end result — including the Basis hash —
+// is byte-identical to before the two-phase split (Gather computes basisOf over
+// the same gathered chunks).
+func (d *Distiller) Run(ctx context.Context) (*Result, error) {
+	chunks, basis, err := d.Gather(ctx)
 	if err != nil {
 		return nil, err
 	}
-	d.log("distill: brief synthesized (%d chars)", len(brief))
-	return &Result{Brief: brief, Chunks: chunks, Items: items, Basis: basisOf(chunks)}, nil
+	items, brief, err := d.synthesizeWithItems(ctx, chunks)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{Brief: brief, Chunks: chunks, Items: items, Basis: basis}, nil
 }
 
 // basisOf builds the stable version key: BOTH distiller prompts plus each

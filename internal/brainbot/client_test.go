@@ -139,6 +139,9 @@ func TestDisabledClient(t *testing.T) {
 	if _, err := c.Recall(context.Background(), "x", 5); err == nil {
 		t.Fatal("disabled client Recall should error")
 	}
+	if _, err := c.Changes(context.Background(), "anything"); err == nil {
+		t.Fatal("disabled client Changes should error (not panic)")
+	}
 }
 
 func TestNewTrimsTrailingSlash(t *testing.T) {
@@ -238,4 +241,48 @@ func TestMap(t *testing.T) {
 	if got.Sources[1].ParentID == nil || *got.Sources[1].ParentID != "root1" {
 		t.Errorf("child parent = %v", got.Sources[1].ParentID)
 	}
+}
+
+func TestChanges(t *testing.T) {
+	// The stub mimics the brain: it echoes its current cursor and reports
+	// changed=true unless `since` already equals that cursor — exactly the
+	// documented contract (changed when since is absent/stale, false on a match).
+	const current = "cur-7"
+	_, c := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/changes" {
+			t.Errorf("path = %q, want /changes", r.URL.Path)
+		}
+		// `since` must be wired onto the query string, present even when empty.
+		if _, ok := r.URL.Query()["since"]; !ok {
+			t.Errorf("since param missing from %q", r.URL.RawQuery)
+		}
+		since := r.URL.Query().Get("since")
+		changed := since != current
+		w.Write([]byte(`{"cursor":"` + current + `","changed":` + boolJSON(changed) + `}`))
+	})
+
+	// Empty since → changed=true and the current cursor comes back.
+	got, err := c.Changes(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Changes(\"\"): %v", err)
+	}
+	if got.Cursor != current || !got.Changed {
+		t.Fatalf("empty since: got %+v, want {cursor:%q, changed:true}", got, current)
+	}
+
+	// Passing the returned cursor back → changed=false (a stable view).
+	got2, err := c.Changes(context.Background(), got.Cursor)
+	if err != nil {
+		t.Fatalf("Changes(cursor): %v", err)
+	}
+	if got2.Cursor != current || got2.Changed {
+		t.Fatalf("matched since: got %+v, want {cursor:%q, changed:false}", got2, current)
+	}
+}
+
+func boolJSON(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
