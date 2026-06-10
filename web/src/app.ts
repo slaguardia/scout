@@ -2773,10 +2773,15 @@ const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColo
 
 // One settings card: icon tile, name (optionally a clickable link), description,
 // a status line (dot + note) for brain-backed items, and a trailing action.
-function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: string; note?: string; actID: string; actIcon: string; actTitle: string; actLabel: string; }): string {
+// Both the name link and the action button carry data-act so renderCriteria can
+// wire them by action key — never by id, since the name and the button can share
+// an action (edit cards) and getElementById would only find one. actID is set
+// ONLY on the refresh buttons, which look themselves up by id to spin.
+function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: string; note?: string; act: string; actID?: string; actIcon: string; actTitle: string; actLabel: string; }): string {
   const status = (o.dot || o.note)
     ? `<div class="crit-status">${o.dot ? `<span class="pf-dot ${o.dot}"></span>` : ""}${o.note ? `<span class="crit-note-t">${escapeHTML(o.note)}</span>` : ""}</div>`
     : "";
+  const idAttr = o.actID ? ` id="${o.actID}"` : "";
   return `<div class="settings-item">
     <span class="settings-item-icon">${o.icon}</span>
     <div class="settings-item-main">
@@ -2784,7 +2789,7 @@ function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: strin
       <div class="settings-item-desc">${escapeHTML(o.desc)}</div>
       ${status}
     </div>
-    <button class="crit-edit" id="${o.actID}" title="${o.actTitle}" aria-label="${o.actLabel}">${o.actIcon}</button>
+    <button class="crit-edit"${idAttr} data-act="${o.act}" title="${o.actTitle}" aria-label="${o.actLabel}">${o.actIcon}</button>
   </div>`;
 }
 
@@ -2817,21 +2822,21 @@ function renderCriteria() {
     else if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
     else if (hasBody) { dot = "ok"; note = "fetched " + relTime(p.age_seconds); }
     const name = hasBody
-      ? '<span class="edit-link" id="view-profile" title="view the company-fit brief">company-fit brief</span>'
+      ? '<span class="edit-link" data-act="view-profile" title="view the company-fit brief">company-fit brief</span>'
       : 'company-fit brief';
     briefCard = critCard({
       icon: ICON_BRIEF, nameHTML: name, dot, note,
       desc: "The criteria scout feeds the verdict stage — distilled from the brain.",
-      actID: "refresh-profile", actIcon: REFRESH,
+      act: "refresh-profile", actID: "refresh-profile", actIcon: REFRESH,
       actTitle: "re-distill the company-fit brief from the brain", actLabel: "refresh company-fit brief",
     });
   } else {
     briefCard = critCard({
-      icon: ICON_BRIEF, nameHTML: '<span class="edit-link" id="edit-taste" title="edit taste.md">taste</span>',
+      icon: ICON_BRIEF, nameHTML: '<span class="edit-link" data-act="edit-taste" title="edit taste.md">taste</span>',
       note: (p && p.configured) ? "brain offline — local fallback" : "",
       dot: (p && p.configured) ? "warn" : "",
       desc: "Local fallback criteria used when the brain is unreachable.",
-      actID: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
+      act: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
     });
   }
   // Outreach knowledge mirrors the company-fit brief row: a status dot, a
@@ -2844,27 +2849,27 @@ function renderCriteria() {
   if (expN > 0) { kdot = "ok"; knote = `${expN} experience · ${voiceN} voice`; }
   else if (srcs.length > 0) { kdot = "warn"; knote = "no experience yet — refresh"; }
   const kname = srcs.length
-    ? '<span class="edit-link" id="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
+    ? '<span class="edit-link" data-act="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
     : 'outreach knowledge';
   const knowledgeCard = critCard({
     icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
     desc: "Your experience + voice, discovered from the brain to ground outreach.",
-    actID: "refresh-sources", actIcon: REFRESH,
+    act: "refresh-sources", actID: "refresh-sources", actIcon: REFRESH,
     actTitle: "re-discover experience + voice from the brain", actLabel: "refresh outreach knowledge",
   });
 
   // --- Group 2: scout configuration (authored locally, edited in place).
   const playbookCard = critCard({
     icon: ICON_PLAYBOOK,
-    nameHTML: '<span class="edit-link" id="edit-playbook" title="edit playbook.md">playbook</span>',
+    nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit playbook.md">playbook</span>',
     desc: "How scout judges — the reasoning rules behind every verdict.",
-    actID: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
+    act: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
   });
   const templateCard = critCard({
     icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" id="edit-template" title="edit the outreach email template">email template</span>',
+    nameHTML: '<span class="edit-link" data-act="edit-template" title="edit the outreach email template">email template</span>',
     desc: "The outreach email format — verbatim prose with fill-in holes.",
-    actID: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
+    act: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
   });
 
   el.innerHTML =
@@ -2877,20 +2882,23 @@ function renderCriteria() {
        ${playbookCard}${templateCard}
      </div>`;
 
-  const vp = document.getElementById("view-profile");
-  if (vp) vp.onclick = () => openProfileModal(state.profile);
-  const rp = document.getElementById("refresh-profile");
-  if (rp) rp.onclick = refreshProfile;
-  const et = document.getElementById("edit-taste");
-  if (et) et.onclick = () => openEditor("taste");
-  const ep = document.getElementById("edit-playbook");
-  if (ep) ep.onclick = () => openEditor("playbook");
-  const et2 = document.getElementById("edit-template");
-  if (et2) et2.onclick = () => openEditor("outreach-template");
-  const vsrc = document.getElementById("view-sources");
-  if (vsrc) vsrc.onclick = openSourcesModal;
-  const rsrc = document.getElementById("refresh-sources");
-  if (rsrc) rsrc.onclick = refreshSourcesInline;
+  // Wire every clickable (name links AND action buttons) by its data-act key.
+  // Keyed wiring — not getElementById — because a card's name and pencil share an
+  // action (edit cards), and binding by id would leave the second element dead
+  // (the bug that made the pencils unclickable).
+  const ACTIONS: Record<string, () => void> = {
+    "view-profile": () => openProfileModal(state.profile),
+    "refresh-profile": refreshProfile,
+    "edit-taste": () => openEditor("taste"),
+    "edit-playbook": () => openEditor("playbook"),
+    "edit-template": () => openEditor("outreach-template"),
+    "view-sources": openSourcesModal,
+    "refresh-sources": refreshSourcesInline,
+  };
+  el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
+    const a = n.dataset.act;
+    if (a && ACTIONS[a]) n.onclick = ACTIONS[a];
+  });
 }
 
 // loadSources fetches the discovered knowledge into state for the Criteria row.
