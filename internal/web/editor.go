@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/slaguardia/scout/internal/outreach"
+	"github.com/slaguardia/scout/internal/playbook"
 )
 
 // The taste / playbook editor reads and writes ONLY the local instruction
@@ -21,9 +22,56 @@ func (s *Server) handleTaste(w http.ResponseWriter, r *http.Request) {
 	s.handleEditorFile(w, r, s.TasteMDPath, "taste")
 }
 
-// handlePlaybook: GET returns playbook.md content; PUT writes it.
+// handlePlaybook edits the verdict playbook, stored in the DB (a singleton row)
+// like the outreach template — a dashboard save can't clobber it and git never
+// touches it. GET returns the saved playbook or the compiled-in default; PUT
+// saves and re-folds the taste version (a playbook edit changes the provenance
+// hash that stamps new verdicts, so we ReloadTaste before reporting it back).
 func (s *Server) handlePlaybook(w http.ResponseWriter, r *http.Request) {
-	s.handleEditorFile(w, r, s.PlaybookPath, "playbook")
+	switch r.Method {
+	case http.MethodGet:
+		content, err := s.DB.GetPlaybook()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if content == "" {
+			content = playbook.DefaultPlaybook
+		}
+		writeJSON(w, http.StatusOK, s.playbookPayload(content))
+
+	case http.MethodPut:
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.DB.PutPlaybook(body.Content); err != nil {
+			http.Error(w, "save playbook: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Recompute the folded taste version so new scores use the edited playbook
+		// immediately. Existing verdicts are untouched (no auto re-score).
+		s.ReloadTaste()
+		writeJSON(w, http.StatusOK, s.playbookPayload(body.Content))
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// playbookPayload reports the playbook content plus the *effective* (playbook-
+// folded) taste version the verdict stage would stamp new scores with, so the
+// editor can show it without a round-trip to /api/stats.
+func (s *Server) playbookPayload(content string) map[string]any {
+	out := map[string]any{"kind": "playbook", "content": content}
+	if tb := s.currentTaste(); tb != nil {
+		out["taste_version"] = tb.Version
+		out["taste_source"] = tb.Source
+	}
+	return out
 }
 
 // handleOutreachTemplate edits the email template, stored in the DB (a singleton

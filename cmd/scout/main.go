@@ -129,14 +129,14 @@ Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
   scout filter [--taste taste.toml] [--db scout.db]
   scout enrich [--workers 8] [--timeout 12s] [--force] [--company id,...] [--db scout.db]
-  scout verdict [--taste-md taste.md] [--playbook playbook.md] [--brainbot URL]
+  scout verdict [--taste-md taste.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout outreach sources [--refresh] [--brainbot URL] [--db scout.db]
   scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
-              [--playbook playbook.md] [--source crunchbase] [--brainbot URL] [--db scout.db]
+              [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
   scout backup [--db scout.db] [--out scout-YYYYMMDD-HHMMSS.db]
   scout restore <snapshot.db> [--db scout.db] [--force]
@@ -278,7 +278,6 @@ func cmdVerdict(args []string) error {
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
-	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (how to decide); optional")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); criteria come from here when healthy, else --taste-md. Empty disables.")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	model := fs.String("model", anthropic.DefaultModel, "Anthropic model for scoring")
@@ -334,18 +333,16 @@ func cmdVerdict(args []string) error {
 		return err
 	}
 
-	// Load the optional playbook (how-to-decide). Folding it into the taste
-	// version means a playbook edit re-scores everything, same as a taste edit.
-	pbText, err := playbook.Load(*playbookPath)
-	if err != nil {
-		return err
-	}
+	// Load the playbook (how-to-decide) from the DB, or the compiled-in default.
+	// Folding it into the taste version means a playbook edit re-scores
+	// everything, same as a taste edit.
+	pbText := playbook.ContentOrDefault(db)
 	if pbText != "" {
 		// Fold the playbook into the version (not the brief text): tb.Version is
 		// already the stable basis hash, so a playbook edit re-scores while
 		// cosmetic brief drift does not.
 		tb.Version = taste.Hash(pbText + "\n---taste---\n" + tb.Version)
-		tb.Source = tb.Source + " + " + *playbookPath
+		tb.Source = tb.Source + " + playbook"
 	}
 
 	fmt.Printf("taste source=%s version=%s\n", tb.Source, tb.Version)
@@ -448,7 +445,6 @@ func cmdServe(args []string) error {
 	addr := fs.String("addr", ":8765", "listen address")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (editable in the UI)")
 	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
-	playbookPath := fs.String("playbook", "playbook.md", "agent operating manual (editable in the UI)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
@@ -483,17 +479,17 @@ func cmdServe(args []string) error {
 	}
 
 	srv := &web.Server{
-		DB:                   db,
-		Brainbot:             bc,
-		Anthropic:            ac,
-		TasteMDPath:          *tasteMD,
-		TasteTOMLPath:        *tasteTOML,
-		PlaybookPath:         *playbookPath,
-		IngestSource:         *source,
-		Resolver:             resolver,
+		DB:            db,
+		Brainbot:      bc,
+		Anthropic:     ac,
+		TasteMDPath:   *tasteMD,
+		TasteTOMLPath: *tasteTOML,
+		IngestSource:  *source,
+		Resolver:      resolver,
 	}
-	// Load taste + playbook into the server (folds playbook into the version,
-	// matching `scout verdict`). Re-run after every editor PUT.
+	// Load taste + playbook into the server (folds the playbook into the version,
+	// matching `scout verdict`; the playbook now comes from the DB). Re-run after
+	// every editor PUT.
 	srv.ReloadTaste()
 
 	// Wire the outreach draft engine when the API key is configured; without a

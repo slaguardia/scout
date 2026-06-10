@@ -3,9 +3,8 @@
 > This is the agent's **operating manual**, not the user's taste. It's the *how*
 > of triage (procedure, tie-breaking, handling ambiguity), separate from the
 > *what* (taste.md / the brain) and from memory (brainbot). Edit this to change
-> the agent's behavior without touching preferences. Lives in the repo,
-> version-controlled. A change here re-scores everything on the next
-> `scout verdict` run, same as a taste change.
+> the agent's behavior without touching preferences. A change here re-scores
+> everything on the next `scout verdict` run, same as a taste change.
 
 ## Verdict rubric
 

@@ -63,7 +63,6 @@ type Server struct {
 	Anthropic     *anthropic.Client
 	TasteMDPath   string
 	TasteTOMLPath string
-	PlaybookPath  string
 	IngestSource  string
 
 	mu           sync.RWMutex
@@ -106,13 +105,13 @@ func (s *Server) ReloadTasteCtx(ctx context.Context) {
 			tb = t
 		}
 	}
-	pb, _ := playbook.Load(s.PlaybookPath)
+	pb := playbook.ContentOrDefault(s.DB)
 	if tb != nil && pb != "" {
 		// Fold the playbook into the version: it stamps each new verdict with the
 		// exact criteria (brief basis + playbook) it was scored under, recorded in
 		// the decision trail. It no longer gates re-scoring.
 		tb.Version = taste.Hash(pb + "\n---taste---\n" + tb.Version)
-		tb.Source = tb.Source + " + " + s.PlaybookPath
+		tb.Source = tb.Source + " + playbook"
 	}
 	s.mu.Lock()
 	s.taste = tb

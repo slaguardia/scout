@@ -2378,10 +2378,12 @@ async function cancelActiveJob() {
 
 // ---- control surface: editor ----
 let editorKind = null;
-// editorLabel names the artifact in the modal title / save toast. taste and
-// playbook are .md files; the outreach template is a DB row, so no extension.
+// editorLabel names the artifact in the modal title / save toast. The playbook
+// and outreach template are DB rows (no file extension); taste is still a file.
 function editorLabel(kind) {
-  return kind === "outreach-template" ? "outreach template" : kind + ".md";
+  if (kind === "outreach-template") return "outreach template";
+  if (kind === "playbook") return "playbook";
+  return kind + ".md";
 }
 
 async function openEditor(kind) {
@@ -2867,9 +2869,9 @@ function renderCriteria() {
   // --- Group 2: scout configuration (authored locally, edited in place).
   const playbookCard = critCard({
     icon: ICON_PLAYBOOK,
-    nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit playbook.md">playbook</span>',
+    nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit the verdict playbook">playbook</span>',
     desc: "How scout judges — the reasoning rules behind every verdict.",
-    act: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
+    act: "edit-playbook", actIcon: PENCIL, actTitle: "edit the verdict playbook", actLabel: "edit playbook",
   });
   const templateCard = critCard({
     icon: ICON_EMAIL,

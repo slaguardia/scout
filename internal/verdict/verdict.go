@@ -301,7 +301,7 @@ const hardContract = `You are Scout's verdict engine. Given a company, decide if
   {"verdict": "yes"|"maybe"|"no", "reason": "one-line, specific"}`
 
 // builtinRubric is the fallback "how to decide" guidance used only when no
-// playbook.md is supplied. The shipped playbook.md supersedes this.
+// playbook is supplied. The shipped default playbook supersedes this.
 const builtinRubric = `Verdict rubric:
   - "yes":   high-confidence fit. Worth the user actively investigating.
   - "maybe": adjacent or uncertain. Worth a skim, not a deep dive.
