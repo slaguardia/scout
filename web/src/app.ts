@@ -2795,7 +2795,11 @@ function renderCriteria() {
   const usingBrain = active.startsWith("brain:");
   const hasBody = p && typeof p.body === "string";
 
-  let html = "";
+  // --- Group 1: brain-derived (criteria brief + discovered outreach knowledge).
+  // These are pulled from the brain and refreshed, not authored in scout — except
+  // the taste.md offline fallback, which stands in for the brief when the brain is
+  // down and is the one editable member of this group.
+  let briefCard: string;
   if (usingBrain) {
     // Honest tri-state from the change-aware cascade (criteria_state), replacing
     // the old age>=TTL "stale" badge: 'current' is confirmed against the brain,
@@ -2814,14 +2818,14 @@ function renderCriteria() {
     const name = hasBody
       ? '<span class="edit-link" id="view-profile" title="view the company-fit brief">company-fit brief</span>'
       : 'company-fit brief';
-    html += critCard({
+    briefCard = critCard({
       icon: ICON_BRIEF, nameHTML: name, dot, note,
       desc: "The criteria scout feeds the verdict stage — distilled from the brain.",
       actID: "refresh-profile", actIcon: REFRESH,
       actTitle: "re-distill the company-fit brief from the brain", actLabel: "refresh company-fit brief",
     });
   } else {
-    html += critCard({
+    briefCard = critCard({
       icon: ICON_BRIEF, nameHTML: '<span class="edit-link" id="edit-taste" title="edit taste.md">taste</span>',
       note: (p && p.configured) ? "brain offline — local fallback" : "",
       dot: (p && p.configured) ? "warn" : "",
@@ -2829,18 +2833,6 @@ function renderCriteria() {
       actID: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
     });
   }
-  html += critCard({
-    icon: ICON_PLAYBOOK,
-    nameHTML: '<span class="edit-link" id="edit-playbook" title="edit playbook.md">playbook</span>',
-    desc: "How scout judges — the reasoning rules behind every verdict.",
-    actID: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
-  });
-  html += critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" id="edit-template" title="edit the outreach email template">email template</span>',
-    desc: "The outreach email format — verbatim prose with fill-in holes.",
-    actID: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
-  });
   // Outreach knowledge mirrors the company-fit brief row: a status dot, a
   // clickable name that opens the discovered sources, a refresh (re-discover),
   // and a freshness/count note.
@@ -2853,13 +2845,36 @@ function renderCriteria() {
   const kname = srcs.length
     ? '<span class="edit-link" id="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
     : 'outreach knowledge';
-  html += critCard({
+  const knowledgeCard = critCard({
     icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
     desc: "Your experience + voice, discovered from the brain to ground outreach.",
     actID: "refresh-sources", actIcon: REFRESH,
     actTitle: "re-discover experience + voice from the brain", actLabel: "refresh outreach knowledge",
   });
-  el.innerHTML = html;
+
+  // --- Group 2: scout configuration (authored locally, edited in place).
+  const playbookCard = critCard({
+    icon: ICON_PLAYBOOK,
+    nameHTML: '<span class="edit-link" id="edit-playbook" title="edit playbook.md">playbook</span>',
+    desc: "How scout judges — the reasoning rules behind every verdict.",
+    actID: "edit-playbook", actIcon: PENCIL, actTitle: "edit playbook.md", actLabel: "edit playbook",
+  });
+  const templateCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" id="edit-template" title="edit the outreach email template">email template</span>',
+    desc: "The outreach email format — verbatim prose with fill-in holes.",
+    actID: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
+  });
+
+  el.innerHTML =
+    `<div class="settings-section">
+       <div class="settings-group-h">From the brain</div>
+       ${briefCard}${knowledgeCard}
+     </div>
+     <div class="settings-section">
+       <div class="settings-group-h">Scout configuration</div>
+       ${playbookCard}${templateCard}
+     </div>`;
 
   const vp = document.getElementById("view-profile");
   if (vp) vp.onclick = () => openProfileModal(state.profile);

@@ -320,10 +320,7 @@ export const SCOUT_MARKUP = `
       </div>
     </div>
     <div class="modal-body">
-      <div class="settings-group">
-        <div class="settings-group-h">Criteria &amp; outreach</div>
-        <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-      </div>
+      <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="settings-close">Close</button>

@@ -1448,7 +1448,7 @@
   /* settings modal: the criteria rows get a little more room than the sidebar */
   .settings-group-h {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--fg-dim); margin: 2px 0 10px;
+    color: var(--fg-dim); margin: 0 0 9px;
   }
 
   /* settings modal chrome: icon + subtitle in the head, narrower body width */
@@ -1462,8 +1462,10 @@
   .modal-head-text { flex: 1; min-width: 0; }
   .modal-head-sub { margin-top: 2px; font-size: 12px; color: var(--fg-dim); line-height: 1.4; }
 
-  /* settings cards — one per editable surface (brief, playbook, template, knowledge) */
-  #criteria-stats { display: flex; flex-direction: column; gap: 8px; }
+  /* settings cards — one per editable surface (brief, playbook, template, knowledge),
+     split into two labelled sections (brain-derived vs. scout configuration) */
+  #criteria-stats { display: flex; flex-direction: column; gap: 20px; }
+  .settings-section { display: flex; flex-direction: column; gap: 8px; }
   .settings-item {
     display: flex; align-items: flex-start; gap: 12px;
     padding: 12px 13px;
@@ -1485,7 +1487,22 @@
   .settings-item-desc { margin-top: 2px; font-size: 12px; color: var(--fg-mute); line-height: 1.45; }
   .crit-status { display: flex; align-items: center; gap: 0; margin-top: 6px; }
   .crit-note-t { font-size: 11.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-  .settings-item .crit-edit { margin-top: 1px; }
+  /* the per-card action gets a real, tappable button surface (bigger than the
+     bare 3px-padded icon used in the sidebar crit-rows) */
+  .settings-item .crit-edit {
+    flex: none; align-self: center;
+    width: 34px; height: 34px; padding: 0;
+    justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--fg-mute); border-radius: var(--r-md);
+  }
+  .settings-item .crit-edit svg { width: 16px; height: 16px; }
+  .settings-item .crit-edit:hover {
+    color: var(--link); background: var(--link-bg); border-color: var(--link);
+  }
+  .settings-item .crit-edit:disabled:hover {
+    color: var(--fg-mute); background: var(--panel-2); border-color: var(--line);
+  }
 
   #settings-scrim .crit-row { padding: 5px 0; font-size: 14px; }
   .crit-row {
