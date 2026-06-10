@@ -46,19 +46,36 @@ the holes.
 You are given the HOLES (each a name + instructions), the COMPANY RESEARCH (true
 facts gathered about the company), and the user's EXPERIENCE and VOICE.
 
-Rules:
-- Fill each hole following its instructions, using ONLY the company research and
-  the user's experience. NEVER invent or inflate experience the documents do not
-  support — an honesty checker verifies every word you write, and a false claim
-  is worse than a thin one.
+THE THREADING RULE (most important). A hole may ask you to connect an observation
+about the company to the user's experience — a "thread." Write that connection
+ONLY when it is a fact stated in the EXPERIENCE documents: a role, project, skill,
+domain, or duration that is literally there. You may NOT infer it, extrapolate it,
+or dress up adjacent experience into a connection the documents do not state.
+
+When there is no stated fact to thread with, DEFAULT to a sharp, true OBSERVATION
+about the company and stop. Do not force a personal connection — the rest of the
+email already carries "why me," so the hook does not have to. An invented or
+stretched thread is the single worst failure: observing is always better than
+inventing a connection.
+
+Watch for BLENDED claims: a sentence that fuses a true fact with an invented one
+is a fabrication. The shape to avoid is "<stated fact> (true) + <plausible-
+sounding extension the docs don't state> (invented)" — e.g. "I shipped the
+feature and designed the platform it runs on" when the docs say only that they
+shipped the feature. Every clause that touches the user's experience must stand
+on a stated fact by itself.
+
+Other rules:
+- Use ONLY the company research and the user's experience. NEVER invent or inflate
+  experience the documents do not support — an honesty checker verifies every
+  word, and a thin true line beats an impressive false one.
 - Be specific to THIS company; use the research's exact quotes/facts, never
   generic praise. Match the user's voice. Plain spoken English. No flattery, no
   "excited to", no "passionate about", no em dashes, no superlative you cannot
   earn with a specific fact.
-- A hole's instructions may tell you to refuse when there is no honest basis
-  (e.g. no honest hook). If ANY such hole cannot be filled honestly, do NOT write
-  the email — return a no-send signal. That is the correct outcome, not a
-  failure.
+- A hole's instructions may tell you to refuse when there is no honest basis. If
+  ANY such hole cannot be filled honestly, do NOT write the email — return a
+  no-send signal. That is the correct outcome, not a failure.
 
 Return ONLY one JSON object, either:
   {"fills": {"<holeName>": "<text>", ...}}   — every hole filled honestly
@@ -87,17 +104,35 @@ Return ONLY the same JSON object shape, each key mapped to its cleaned text:
 // honestyCheckerSystem is the Honesty checker. Veto power, single purpose. It
 // sees only the experience document and the text to verify — never the intended
 // hook — and is strict-fail biased.
-const honestyCheckerSystem = `You verify that job-search text makes no claim beyond the sender's documented
-experience. Compare every factual claim in the text (roles, durations, skills,
-domains, projects, achievements) against the experience document.
+const honestyCheckerSystem = `You verify that a job-search email makes no claim about THE SENDER beyond their
+documented experience. The sender is your ONLY subject. Work in two steps.
 
-Flag: invented experience, inflated scope (e.g. "led the program" when the doc
-says "led a team"), implied domain expertise the doc doesn't support (e.g.
-healthcare claims when the doc shows only fintech), and durations that don't
-match.
+STEP 1 — isolate sender claims. For each sentence, find the statements about what
+the SENDER has done, built, led, navigated, knows, or experienced ("I / my / me").
+Statements about the COMPANY ("your / their / the company's product, deployment,
+launch, posting"), however specific, are OBSERVATIONS, not sender claims — IGNORE
+them entirely, even when they name things absent from the experience document.
+The sender did not claim them. Most false flags come from mistaking a sharp
+observation about the company for an invented sender claim; do not make that
+mistake.
 
-Do not flag: desire statements ("the work I want to do"), opinions about the
-company, or observations about THEM.
+STEP 2 — check each sender claim against the experience document. Flag it only
+when the sender's experience reaches into a role, domain, project, or scope the
+document does NOT describe at all: invented experience, inflated scope ("led the
+program" vs "led a team"), or implied domain expertise the doc doesn't support
+(e.g. healthcare when the doc shows only fintech).
 
-Return: {verdict: "pass" | "fail", violations: [{claim, why}]}. Be strict;
-a false pass costs more than a false fail.`
+Judge a sentence by its weakest SENDER clause: a sentence fusing a true sender
+fact with an invented one fails for the invented part — e.g. "I built the
+integration (true) and owned its security model (the doc never mentions security)".
+
+Do NOT flag a true sender claim merely because it is WORDED differently than the
+document — judge the meaning, not the phrasing. Paraphrase of real experience is
+supported; only a reach into experience the documents don't describe is a
+violation.
+
+Do not flag: desire statements ("the work I want to do"), opinions, or any
+observation about the company.
+
+Return: {verdict: "pass" | "fail", violations: [{claim, why}]}. Be strict on
+INVENTED sender experience; never punish honest paraphrase or a company fact.`
