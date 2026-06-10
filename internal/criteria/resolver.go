@@ -262,6 +262,48 @@ func (r *Resolver) Refresh(ctx context.Context) (*taste.Block, error) {
 	return r.fetchAndCache(ctx, r.Brain.BaseURL)
 }
 
+// ReconcileLoop periodically invokes reconcile until ctx is cancelled, so the
+// cached company-fit brief converges to the brain's truth on its own — no manual
+// Refresh. The brain's Tier 0 cursor is coarse (every brain re-sync, including
+// no-op background Notion syncs, advances it), so between point-of-use resolves
+// the criteria panel would otherwise read "changed" until a user acts. reconcile
+// re-runs the cost cascade and adopts the result (typically web.Server's
+// ReloadTaste → Resolve): one cheap /changes probe, occasionally a no-LLM recall
+// to absorb a no-op move (Tier 1), and a re-distill only on a real change (Tier
+// 2). It fires once after a short startup delay, then every interval. A
+// non-positive interval or nil reconcile disables the loop. It lives here, beside
+// the cascade it drives, but takes a callback so the criteria package stays free
+// of any web/server dependency.
+//
+// Each pass gets reconcilePassTimeout — generous enough for a full cold distill
+// or Tier 2 re-distill (two LLM calls), unlike the synchronous 15s cap. Passes
+// never overlap: reconcile blocks before the next interval is scheduled, so a
+// per-pass deadline above the interval is safe (the loop simply ticks less
+// often). The pass ctx derives from the loop ctx, so shutdown cancels an
+// in-flight distill.
+func ReconcileLoop(ctx context.Context, interval time.Duration, reconcile func(context.Context)) {
+	if interval <= 0 || reconcile == nil {
+		return
+	}
+	const (
+		startupDelay         = 15 * time.Second // let the server finish coming up
+		reconcilePassTimeout = 2 * time.Minute  // headroom for a full re-distill
+	)
+	timer := time.NewTimer(startupDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			pctx, cancel := context.WithTimeout(ctx, reconcilePassTimeout)
+			reconcile(pctx)
+			cancel()
+			timer.Reset(interval)
+		}
+	}
+}
+
 // Cached returns the cached profile row for the configured brain, or nil.
 func (r *Resolver) Cached() (*store.BrainProfile, error) {
 	if !r.brainEnabled() {

@@ -67,6 +67,16 @@ const defaultOutreachModel = "claude-sonnet-4-6"
 // from re-hitting the brain (and the LLM) without serving badly stale criteria.
 const defaultBrainCacheTTL = 6 * time.Hour
 
+// defaultReconcileInterval is how often `scout serve` reconciles the cached
+// brief against the brain in the background. The brain's Tier 0 cursor is coarse
+// — every brain re-sync (including no-op background Notion syncs) advances it —
+// so the cached brief would otherwise read "changed" between point-of-use
+// resolves until a manual Refresh. This loop absorbs those no-op moves cheaply
+// (one /changes probe, occasionally a no-LLM recall) and re-distills only on a
+// real change, so the criteria panel converges to the brain's truth on its own.
+// A couple of minutes is well under any sync cadence and Tier 0 is cheap.
+const defaultReconcileInterval = 2 * time.Minute
+
 func main() {
 	loadDotenv(".env") // project-local config (e.g. ANTHROPIC_API_KEY); real env wins
 	if len(os.Args) < 2 {
@@ -443,6 +453,7 @@ func cmdServe(args []string) error {
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
+	reconcileInterval := fs.Duration("reconcile-interval", defaultReconcileInterval, "background interval to reconcile the cached criteria brief against the brain (keeps it consistent with no manual Refresh); 0 disables")
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
 	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
 	if err := fs.Parse(args); err != nil {
@@ -559,6 +570,17 @@ func cmdServe(args []string) error {
 		defer sc()
 		_ = server.Shutdown(shutCtx)
 	}()
+
+	// Background criteria reconciler: keeps the cached company-fit brief (and the
+	// server's adopted criteria block) consistent with the brain without a manual
+	// Refresh — absorbs the coarse Tier 0 cursor's no-op moves, re-distills only
+	// on a real change. ReloadTaste re-runs the cascade and adopts the result, so
+	// active_source/criteria_state both converge. Gated on a configured brain and
+	// a positive interval; stops on shutdown via ctx.
+	if *reconcileInterval > 0 && *brainbotURL != "" {
+		fmt.Fprintf(os.Stderr, "criteria: background reconcile every %s\n", *reconcileInterval)
+		go criteria.ReconcileLoop(ctx, *reconcileInterval, srv.ReloadTasteCtx)
+	}
 
 	fmt.Printf("scout triage UI at http://localhost%s\n", *addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

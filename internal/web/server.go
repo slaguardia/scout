@@ -74,17 +74,33 @@ type Server struct {
 	chat chatHub // per-thread in-flight chat turns (kick + subscribe)
 }
 
+// reloadTasteTimeout bounds a synchronous ReloadTaste — long enough for the warm
+// Tier 0 path (one /changes probe) but short enough not to hang startup / an
+// editor PUT behind a slow brain. The cascade falls back to the cached brief or
+// taste.md when it elapses. The BACKGROUND reconciler needs longer (a real
+// Tier 2 re-distill is two LLM calls), so it calls ReloadTasteCtx directly with
+// its own generous deadline rather than going through here.
+const reloadTasteTimeout = 15 * time.Second
+
 // ReloadTaste resolves the criteria block (cached brain profile → taste.md, via
 // the Resolver) and folds the playbook into the version (matching `scout
 // verdict`). Safe to call concurrently with reads. When no source yields
 // criteria, taste is left nil. Called at startup, after every editor PUT, and
-// after a manual profile refresh.
+// after a manual profile refresh — all warm-path, so the 15s cap suffices.
 func (s *Server) ReloadTaste() {
+	ctx, cancel := context.WithTimeout(context.Background(), reloadTasteTimeout)
+	defer cancel()
+	s.ReloadTasteCtx(ctx)
+}
+
+// ReloadTasteCtx is ReloadTaste with a caller-supplied deadline, so the
+// background reconciler can allow a full re-distill (~30–40s) where the
+// synchronous callers cap at reloadTasteTimeout. The ctx bounds only the brain
+// resolve; the playbook fold and block swap are local and always run.
+func (s *Server) ReloadTasteCtx(ctx context.Context) {
 	var tb *taste.Block
 	if s.Resolver != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		tb, _ = s.Resolver.Resolve(ctx) // resolver already falls back to taste.md
-		cancel()
 	}
 	if tb == nil { // no resolver (e.g. tests) → load taste.md directly
 		if t, err := taste.LoadFile(s.TasteMDPath); err == nil {
