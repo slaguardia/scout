@@ -14,7 +14,10 @@ procs:
     # Go control surface + local SQLite, serves /api on :8765.
     # Needs ANTHROPIC_API_KEY (shell env or a .env in the repo root) for
     # verdict/capture/outreach; runs read-only without it.
-    shell: "go run ./cmd/scout serve"
+    # --outreach-template points at the gitignored local/ copy (your real,
+    # localized credentials); the tracked outreach-template.md stays a
+    # sanitized example. See .gitignore (/local/).
+    shell: "go run ./cmd/scout serve --outreach-template local/outreach-template.md"
 
   web:
     # Vite dev server on :5173, proxies /api/* to the Go server on :8765.

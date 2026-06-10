@@ -23,6 +23,11 @@
 .env.local
 .env.*.local
 
+# Personal, local-only config (real localized outreach template, scratch files).
+# The tracked outreach-template.md stays a sanitized example; the real one with
+# your credentials lives in local/ and is loaded via --outreach-template.
+/local/
+
 # SQLite WAL sidecars
 *.db-wal
 *.db-shm
