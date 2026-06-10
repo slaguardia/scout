@@ -17,9 +17,12 @@ type LintFinding struct {
 // pass is meant to remove them, but LLM cleanup reintroduces patterns, so this
 // deterministic backstop catches what slips through.
 var bannedPhrases = []string{
-	"excited to", "passionate about", "thrilled", "super excited",
+	"excited to", "excited about", "passionate about", "thrilled", "super excited",
 	"pick your brain", "huge fan", "resonate", "deeply aligned",
 	"hope you're doing well",
+	// stating your own interest/preference — the email already is the interest signal
+	"caught my attention", "drew my attention", "want to be doing",
+	"interested in joining", "enjoy most", "what i love", "love doing",
 }
 
 // VoiceFindings flags deterministic voice violations (em dashes, banned phrases)
