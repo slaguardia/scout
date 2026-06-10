@@ -763,13 +763,14 @@ Return the JSON verdict now.</pre>
       <div id="outreach-section"></div>
     </section>
 
+    ${e.applied_at?"":`
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h7l3 3V13a.5.5 0 01-.5.5h-9A.5.5 0 013 13z"/><path d="M6 7h4M6 9.5h4M6 12h2.5"/></svg>
         Application
       </h3>
       <div id="answers-section"></div>
-    </section>
+    </section>`}
   `,zt();const s=document.getElementById("pursuit-company-link");s&&s.addEventListener("click",()=>ee(e.company_id)),A(document.getElementById("pursuit-title-input"),a=>rt(e,"title",a)),A(document.getElementById("pursuit-url-input"),a=>Vt(e,a)),A(document.getElementById("pursuit-notes-input"),a=>Ft(a),{multiline:!0}),document.querySelectorAll("#role-body [data-k]").forEach(a=>A(a,o=>rt(e,a.dataset.k,o),{multiline:a.tagName==="TEXTAREA"})),ge(),X()}function Jt(e){return`
     <div class="role-url ie-field">
       <div class="role-url-head">
