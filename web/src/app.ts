@@ -20,6 +20,7 @@ const state = {
   rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
   view: "companies",                       // "companies" | "jobs"
   jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
+  openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
@@ -561,6 +562,9 @@ async function savePostingField(j, key, val) {
     department: fresh.department, comp_range: fresh.comp_range, description: fresh.description,
   });
   renderJobs();   // the table shows the role title — keep it current
+  syncCompanyPosting(j.posting_id, {   // the company pane beneath shows these too
+    title: fresh.title, location: fresh.location, summary: fresh.summary,
+  });
 }
 
 // savePostingURL changes the posting's link via its own validated endpoint (the
@@ -576,6 +580,7 @@ async function savePostingURL(j, val) {
   j.url = fresh.url;
   const open = document.querySelector("#role-body .role-url-open");
   if (open) open.setAttribute("href", safeHref(j.url));
+  syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
 // saveCompanyField mirrors savePostingField for the company pane. Name is
@@ -811,6 +816,7 @@ async function toggleNextUp(j, refreshPanel) {
   const fresh = await resp.json();
   j.next_up = fresh.next_up;
   renderJobs();
+  syncCompanyPosting(j.posting_id, { next_up: fresh.next_up });
   if (refreshPanel) renderPursuit();
   toast(j.next_up ? "queued next up" : "removed from the queue");
 }
@@ -849,6 +855,11 @@ async function savePostingTracking(j, patch) {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     contacts: fresh.contacts, notes: fresh.notes, next_up: fresh.next_up,
+  });
+  syncCompanyPosting(j.posting_id, {   // the company pane card shows the lifecycle too
+    applied_at: fresh.applied_at, response: fresh.response,
+    outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
+    next_up: fresh.next_up,
   });
   return fresh;
 }
@@ -1259,7 +1270,11 @@ async function markDraftSent(id) {
   }
   toast("marked sent");
   await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
-  loadJobs();           // the posting's outreach_count/last_outreach moved server-side
+  await loadJobs();     // the posting's outreach_count/last_outreach moved server-side
+  const row = state.jobs.find(j => j.posting_id === pursuit.postingId);
+  if (row) syncCompanyPosting(row.posting_id, {   // reflect the bump in the pane beneath
+    outreach_count: row.outreach_count, last_outreach_at: row.last_outreach_at, next_up: row.next_up,
+  });
 }
 
 // ---- application answers ----
@@ -1566,12 +1581,14 @@ async function openDetail(id) {
 
 function closeDetail() {
   state.openId = null;
+  state.openDetail = null;
   document.getElementById("pane").classList.remove("open");
   document.getElementById("scrim").classList.remove("open");
   document.getElementById("pane").setAttribute("aria-hidden", "true");
 }
 
 function renderDetail(d) {
+  state.openDetail = d;   // stash for cross-panel sync (pursuit edits patch this)
   document.getElementById("pane-title").innerHTML =
     `<input class="ie ie-title" id="pane-title-input" placeholder="company name" value="${escapeHTML(d.name || "")}">`;
   document.getElementById("pane-pills").innerHTML = `
@@ -1912,6 +1929,21 @@ function postingsListHTML(d) {
       <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">open →</span></div>
     </div>`;
   }).join("");
+}
+
+// syncCompanyPosting reflects a pursuit-panel edit back into the company pane
+// stacked underneath, when it's open and owns this posting. The pane keeps its
+// own d.postings cache (it renders read-only summaries); without this, editing a
+// posting's title/tracking from the pursuit leaves the card beneath it stale.
+// patch carries the changed fields (jobs-row vocabulary maps to posting fields).
+function syncCompanyPosting(postingId, patch) {
+  const d = state.openDetail;
+  if (!d || !state.openId) return;
+  const p = (d.postings || []).find(x => String(x.id) === String(postingId));
+  if (!p) return; // pane open on a different company
+  Object.assign(p, patch);
+  const list = document.getElementById("postings-list");
+  if (list) { list.innerHTML = postingsListHTML(d); wirePostingCards(); }
 }
 
 // wirePostingCards makes each card open its pursuit panel. The panel stacks

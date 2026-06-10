@@ -208,19 +208,61 @@ func TestResolveLever(t *testing.T) {
 	}
 }
 
+func TestResolveRippling(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/platform/api/ats/v1/board/plenful/jobs/"+ashbyJobID {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"uuid":%q,"name":"Product Engineer","companyName":"Plenful",
+		  "url":"https://ats.rippling.com/plenful/jobs/%s",
+		  "createdOn":"2026-06-04T10:56:08.683000-07:00",
+		  "description":{"company":"<p>About Plenful.</p>","role":"<p>Build things.</p><ul><li>Go</li><li>SQL</li></ul>"},
+		  "workLocations":["San Francisco, CA","Hybrid (Seattle, Washington, US)"],
+		  "department":{"name":"Engineering"},
+		  "employmentType":{"label":"SALARIED_FT","id":"Salaried, full-time"},
+		  "payRangeDetails":[{"location":"US","currency":"USD","frequency":"YEAR","rangeStart":200000,"rangeEnd":215000},
+		    {"location":"NY","currency":"USD","frequency":"YEAR","rangeStart":220000,"rangeEnd":235000}]}`, ashbyJobID, ashbyJobID)
+	}))
+	t.Cleanup(srv.Close)
+	job, err := resolveRippling(context.Background(), srv.Client(), srv.URL, "plenful", ashbyJobID)
+	if err != nil {
+		t.Fatalf("resolveRippling: %v", err)
+	}
+	if job.CompanyName != "Plenful" { // API-stated, not slug-derived
+		t.Errorf("company = %q", job.CompanyName)
+	}
+	if job.Title != "Product Engineer" || job.Department != "Engineering" ||
+		job.EmploymentType != "Salaried, full-time" || job.PostedAt != "2026-06-04" {
+		t.Errorf("fields: %+v", job)
+	}
+	if job.Location != "San Francisco, CA; Hybrid (Seattle, Washington, US)" {
+		t.Errorf("location = %q", job.Location)
+	}
+	if job.CompRange != "$200K – $215K / year +" { // first geo tier + the "more tiers" mark
+		t.Errorf("comp = %q", job.CompRange)
+	}
+	if want := "About Plenful.\n\nBuild things.\n\n- Go\n- SQL"; job.Description != want {
+		t.Errorf("description = %q, want %q", job.Description, want)
+	}
+}
+
 // TestResolveATSRecognition covers the URL gate: which links enter the ATS
 // path at all. Unrecognized shapes must return nil before any network call
 // (httpc is nil — a fetch would panic).
 func TestResolveATSRecognition(t *testing.T) {
 	for _, url := range []string{
-		"https://jobs.ashbyhq.com/foresight-health",     // board index, no job id
-		"https://jobs.ashbyhq.com/org/not-a-uuid",       // slug where the uuid goes
-		"https://jobs.lever.co/acme",                    // board index
-		"https://boards.greenhouse.io/acme",             // board index
-		"https://boards.greenhouse.io/acme/jobs/notnum", // non-numeric id
-		"https://acme.com/careers/123",                  // company-hosted
-		"https://www.linkedin.com/jobs/view/123",        // aggregator
-		"https://greenhouse.io.evil.com/acme/jobs/123",  // host suffix spoof
+		"https://jobs.ashbyhq.com/foresight-health",      // board index, no job id
+		"https://jobs.ashbyhq.com/org/not-a-uuid",        // slug where the uuid goes
+		"https://ats.rippling.com/plenful",               // board index
+		"https://ats.rippling.com/plenful/jobs/not-uuid", // non-uuid id
+		"https://ats.rippling.com/plenful/" + ashbyJobID, // missing /jobs/ segment
+		"https://jobs.lever.co/acme",                     // board index
+		"https://boards.greenhouse.io/acme",              // board index
+		"https://boards.greenhouse.io/acme/jobs/notnum",  // non-numeric id
+		"https://acme.com/careers/123",                   // company-hosted
+		"https://www.linkedin.com/jobs/view/123",         // aggregator
+		"https://greenhouse.io.evil.com/acme/jobs/123",   // host suffix spoof
 		"https://jobs-ashbyhq-com.evil.com/org/" + ashbyJobID,
 	} {
 		if job := resolveATS(context.Background(), nil, url); job != nil {
@@ -303,6 +345,8 @@ func TestATSTargetFor(t *testing.T) {
 	}{
 		{"https://jobs.ashbyhq.com/foresight-health/" + ashbyJobID,
 			"ashby", ashbyAPIBase, "foresight-health", ashbyJobID},
+		{"https://ats.rippling.com/plenful/jobs/" + ashbyJobID,
+			"rippling", ripplingAPIBase, "plenful", ashbyJobID},
 		{"https://jobs.lever.co/acme/" + ashbyJobID,
 			"lever", leverAPIBase, "acme", ashbyJobID},
 		{"https://jobs.eu.lever.co/acme/" + ashbyJobID,

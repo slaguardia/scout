@@ -31,6 +31,7 @@ var (
 	greenhouseEUAPIBase = "https://boards-api.eu.greenhouse.io"
 	leverAPIBase        = "https://api.lever.co"
 	leverEUAPIBase      = "https://api.eu.lever.co"
+	ripplingAPIBase     = "https://api.rippling.com"
 )
 
 const (
@@ -45,7 +46,7 @@ const (
 // board's name when the API provides one (Greenhouse) and a slug-derived
 // fallback otherwise — user-typed input still wins over both.
 type atsJob struct {
-	ATS            string // "ashby" | "greenhouse" | "lever"
+	ATS            string // "ashby" | "greenhouse" | "lever" | "rippling"
 	URL            string // canonical posting URL
 	CompanyName    string
 	Title          string
@@ -63,7 +64,7 @@ var reUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 // atsTarget is a recognized ATS posting URL, routed: which platform, which
 // regional API base, and the org/job identifiers the resolver needs.
 type atsTarget struct {
-	ats     string // "ashby" | "greenhouse" | "lever"
+	ats     string // "ashby" | "greenhouse" | "lever" | "rippling"
 	base    string // regional API base
 	org, id string
 }
@@ -83,6 +84,11 @@ func atsTargetFor(rawURL string) *atsTarget {
 	case "jobs.ashbyhq.com":
 		if len(segs) >= 2 && reUUID.MatchString(segs[1]) {
 			return &atsTarget{ats: "ashby", base: ashbyAPIBase, org: segs[0], id: segs[1]}
+		}
+	case "ats.rippling.com":
+		// ats.rippling.com/{org}/jobs/{uuid}
+		if len(segs) >= 3 && segs[1] == "jobs" && reUUID.MatchString(segs[2]) {
+			return &atsTarget{ats: "rippling", base: ripplingAPIBase, org: segs[0], id: segs[2]}
 		}
 	case "jobs.lever.co", "jobs.eu.lever.co":
 		if len(segs) >= 2 && reUUID.MatchString(segs[1]) {
@@ -132,6 +138,8 @@ func resolveATS(ctx context.Context, httpc *http.Client, rawURL string) *atsJob 
 		job, err = resolveGreenhouse(ctx, httpc, t.base, t.org, t.id)
 	case "lever":
 		job, err = resolveLever(ctx, httpc, t.base, t.org, t.id)
+	case "rippling":
+		job, err = resolveRippling(ctx, httpc, t.base, t.org, t.id)
 	}
 	if err != nil {
 		return nil // resolve failed — the generic capture path still applies
@@ -363,6 +371,75 @@ func resolveLever(ctx context.Context, httpc *http.Client, apiBase, org, jobID s
 		WorkplaceType:  workplace,
 		CompRange:      moneyRange(j.SalaryRange.Min, j.SalaryRange.Max, j.SalaryRange.Currency, j.SalaryRange.Interval),
 		PostedAt:       posted,
+		Description:    strings.TrimSpace(desc),
+	}, nil
+}
+
+// --- Rippling ----------------------------------------------------------------
+
+// resolveRippling reads a single posting off Rippling's public board API. Unlike
+// Ashby, Rippling serves each job at its own endpoint, so this is a direct GET —
+// no whole-board scan. The description arrives split into a company blurb and a
+// role section (both HTML); stitch and flatten them.
+func resolveRippling(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) (*atsJob, error) {
+	var j struct {
+		Name        string `json:"name"`
+		CompanyName string `json:"companyName"`
+		URL         string `json:"url"`
+		CreatedOn   string `json:"createdOn"`
+		Description struct {
+			Company string `json:"company"`
+			Role    string `json:"role"`
+		} `json:"description"`
+		WorkLocations []string `json:"workLocations"`
+		Department    struct {
+			Name string `json:"name"`
+		} `json:"department"`
+		EmploymentType struct {
+			ID string `json:"id"` // human label, e.g. "Salaried, full-time"
+		} `json:"employmentType"`
+		PayRangeDetails []struct {
+			Currency   string  `json:"currency"`
+			Frequency  string  `json:"frequency"` // "YEAR" | "MONTH" | "HOUR"
+			RangeStart float64 `json:"rangeStart"`
+			RangeEnd   float64 `json:"rangeEnd"`
+		} `json:"payRangeDetails"`
+	}
+	url := apiBase + "/platform/api/ats/v1/board/" + neturl.PathEscape(org) + "/jobs/" + neturl.PathEscape(jobID)
+	if err := fetchATSJSON(ctx, httpc, url, &j); err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(j.CompanyName)
+	if name == "" {
+		name = slugName(org)
+	}
+	desc := stripHTML(j.Description.Company)
+	if role := stripHTML(j.Description.Role); role != "" {
+		if desc != "" {
+			desc += "\n\n" + role
+		} else {
+			desc = role
+		}
+	}
+	comp := ""
+	if len(j.PayRangeDetails) > 0 {
+		p := j.PayRangeDetails[0]
+		comp = moneyRange(p.RangeStart, p.RangeEnd, p.Currency, p.Frequency)
+		if len(j.PayRangeDetails) > 1 {
+			comp += " +" // geo tiers beyond the first
+		}
+	}
+	return &atsJob{
+		ATS:            "rippling",
+		URL:            j.URL,
+		CompanyName:    name,
+		Title:          j.Name,
+		Location:       strings.Join(j.WorkLocations, "; "),
+		Department:     strings.TrimSpace(j.Department.Name),
+		EmploymentType: strings.TrimSpace(j.EmploymentType.ID),
+		CompRange:      comp,
+		PostedAt:       isoDate(j.CreatedOn),
 		Description:    strings.TrimSpace(desc),
 	}, nil
 }
