@@ -1,0 +1,18 @@
+{
+  "id": "US-004",
+  "featureId": "FEAT-20260609_204543-5a0c",
+  "title": "Resolver cost cascade: Tier 0 (cursor) -> Tier 1 (basis) -> Tier 2 (synthesize)",
+  "userStory": "As scout, I want criteria resolution driven by what actually changed in the brain rather than by a clock, so I serve the cached brief verbatim when nothing moved, re-distill only when the company-fit-relevant content moved, and never wobble the brief on a no-op.",
+  "acceptanceCriteria": [
+    "Resolve() (internal/criteria/resolver.go) implements the cascade when a non-empty cached brief WITH a stored cursor exists: call Brain.Changes(ctx, storedCursor). (a) brain unreachable/error -> existing fallback path (serve the cached brief; taste.md only if no cache); (b) changed=false -> TouchBrainProfile(url, newCursor) and return the cached brief VERBATIM via blockFromCache — no recall, no LLM (Tier 0 hit); (c) changed=true -> Gather to get the fresh basis; if basis == cached content_hash -> TouchBrainProfile(url, newCursor) and return the cached brief verbatim, skipping synthesis (Tier 1 absorb of a coarse cursor / irrelevant edit); else Synthesize -> PutBrainProfile(url, brief, basis, newCursor) and return the new block with the bumped Version (Tier 2)",
+    "Cold path (no cached brief, or cached brief without a cursor from a pre-0037 row): full distill as today, then store the brief WITH the current cursor (obtain it from the same Changes call or a Changes(ctx, \"\") read). Result is a populated cursor so subsequent resolves take the cheap path",
+    "TTL is demoted: it is NO LONGER the trigger for re-distilling. It survives only as (i) the ceiling on serving a cached brief when the brain is unreachable, and (ii) an input to the 'unverified' display state (US-005). Update the package doc-comment's 'Source priority' list to describe the cascade, not the old TTL-fresh-vs-stale model",
+    "Refresh() (manual button / Criteria panel) stays an UNCONDITIONAL full distill + store, and now also stores the current cursor so the next Resolve sees a matching cursor and takes the Tier 0 cheap path",
+    "Every branch logs one line via r.log (Tier 0 hit / Tier 1 basis-unchanged skip / Tier 2 re-distill / unreachable-fallback) so the cascade is observable in serve logs",
+    "Version semantics preserved: Version is still keyed off the basis (content_hash), so a Tier 1 skip and a Tier 0 hit keep the same Version (no spurious re-score); only a real basis change at Tier 2 bumps it (consistent with internal/verdict/verdict.go:253)",
+    "[Verification] go test ./internal/criteria/... passes with a table-driven test using a fake BriefSource (counting Gather/Synthesize calls) and a fake brain Changes: assert (b) changed=false -> 0 Gather, 0 Synthesize, cached body returned; (c1) changed=true + unchanged basis -> 1 Gather, 0 Synthesize, cached body returned, Version unchanged; (c2) changed=true + new basis -> 1 Gather, 1 Synthesize, new body, Version bumped; (a) unreachable -> cached body, no error. Plus an end-to-end smoke against the live brain on a throwaway --db proving a second resolve with no brain edit performs zero synthesis (observe the log line)."
+  ],
+  "dependencies": ["US-001", "US-002", "US-003"],
+  "status": "todo",
+  "createdAt": "2026-06-09T20:45:43Z"
+}

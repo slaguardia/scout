@@ -1,0 +1,17 @@
+{
+  "id": "US-005",
+  "featureId": "FEAT-20260609_204543-5a0c",
+  "title": "Profile endpoint + PWA: replace 'stale' bool with Current/Unverified/Changed tri-state",
+  "userStory": "As the user looking at the Criteria panel, I want the badge to tell me whether my criteria are actually current — confirmed against the brain — rather than just 'old', so I trust it instead of distrusting an unchanged brief.",
+  "acceptanceCriteria": [
+    "profilePayload (internal/web/profile.go) DROPS the `stale = age>=TTL` boolean and emits a `criteria_state` string with exactly three values: 'current' (verified against the brain and the cursor matched — verified_at present and recent / within TTL ceiling), 'unverified' (cannot confirm against the brain right now AND the cache is older than the TTL ceiling — brain unreachable or never verified), 'changed' (the last check saw changed=true and a re-distill is pending/needed). Also expose verified_at and verified_age_seconds. Document the derivation in the function comment so it is auditable",
+    "The state derivation is pure/display-only and reuses fields already on the cached row (verified_age_seconds, cursor presence) + reachability + TTL — it does NOT itself call the brain or trigger a distill (handleProfile stays a cheap read)",
+    "The Criteria panel in the web PWA (web/ Vite TS; find the component rendering the current 'stale' pill) renders the tri-state: a calm 'Current' state, an amber 'Unverified' state, and a 'Changed — re-distill' state that surfaces the existing Refresh action. Remove the age-based 'stale' wording entirely",
+    "docs/ updated where the old TTL/'stale' behavior is described (e.g. the criteria/brain-profile section of north-star.md or operations.md) to reference the cascade + tri-state and point at brainbot/docs/change-propagation.md as canonical",
+    "PWA rebuilt: web build emitted to internal/web/dist and committed so the go:embed binary serves the new panel (per the worktree memory: restore the node_modules symlink and rebuild dist before building the Go binary)",
+    "[Verification] Boot `scout serve --addr :48xx --db /tmp/cp-US005.db` against the live brain. GET /api/profile shows criteria_state (not stale) and verified_at. Drive the three states and screenshot/observe each: 'current' after a resolve with no brain edit; 'changed' after editing a brain source then hitting the panel; 'unverified' with the brain stopped and the cache aged past the ceiling. Confirm the Refresh button still forces a re-distill and returns the panel to 'current'."
+  ],
+  "dependencies": ["US-001", "US-004"],
+  "status": "todo",
+  "createdAt": "2026-06-09T20:45:43Z"
+}
