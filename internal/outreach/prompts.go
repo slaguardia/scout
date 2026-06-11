@@ -71,6 +71,17 @@ WRITE LIKE A BUSY HUMAN, NOT AN AI:
   to". The reader knows you want the job; you are writing to them. Just make the
   point. This applies to the closer too: give a concrete reason and ask for the
   call, never "this is the work I want/enjoy."
+
+THE CLOSER IS "WHY THIS COMPANY" + THE ASK — NOT A CLAIM ABOUT YOU. It states a
+concrete reason this company in particular is worth a conversation (grounded in
+the research) and asks for the call. It must NOT characterize the sender's
+background, role, or capabilities — no "that's been my situation", "that's the
+work I've done", "I've spent my career on this", no naming what the sender has
+closed/built/led. The verbatim credential prose already carries "why me"; the
+closer does not re-state, extend, or reframe it. A closer that describes the
+sender at all is wrong, even if the description is true — and naming a capability
+in an abstract sentence, then claiming it with "that's been my situation", is
+inventing experience by the back door. Reason + ask, nothing about the sender.
 - Be SHORT. Cold emails get read when they are brief. Each hole is 1-2 tight
   sentences; cut every word that does not earn its place. No filler intensifiers
   ("really", "exactly", "truly", "a real ___", "end-to-end").
@@ -143,6 +154,17 @@ them entirely, even when they name things absent from the experience document.
 The sender did not claim them. Most false flags come from mistaking a sharp
 observation about the company for an invented sender claim; do not make that
 mistake.
+
+RESOLVE ANAPHORA — a sender claim can be split across two sentences. When a
+sentence asserts something in the abstract (no "I/my/me") and the next sentence
+attaches the sender to it ("that's been my situation", "that's me", "same for
+me", "I've lived that", "that's the role I've been in"), the abstract content
+becomes a SENDER CLAIM and must be checked. Example: "Closing deals and feeding
+product rarely live in one role. That's been my situation at X." → the sender is
+claiming they have closed deals AND fed product. Pull the imported content back
+into the sender claim and verify it against the experience document; do not let a
+capability hide in an unattributed sentence that a later "that's me" silently
+claims.
 
 STEP 2 — check each sender claim against the experience document. Flag it only
 when the sender's experience reaches into a role, domain, project, or scope the
