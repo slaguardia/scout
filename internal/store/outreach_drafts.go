@@ -5,14 +5,18 @@ import (
 	"fmt"
 )
 
-// Outreach draft statuses. Terminal: sent, failed. Active (at most one per
-// posting): researching, awaiting_review, no_hook.
+// Outreach draft statuses. Terminal: sent, failed, superseded. Active (at most
+// one per posting): researching, awaiting_review, no_hook.
 const (
 	DraftResearching    = "researching"
 	DraftAwaitingReview = "awaiting_review"
 	DraftNoHook         = "no_hook"
 	DraftSent           = "sent"
 	DraftFailed         = "failed"
+	// DraftSuperseded is an awaiting_review/no_hook draft retired by a
+	// regenerate: kept in history (the user can still read it) but no longer
+	// active, so a fresh draft can take its place.
+	DraftSuperseded = "superseded"
 )
 
 // OutreachDraft is one pipeline run against a posting. Draft is what the
@@ -76,6 +80,57 @@ WHERE posting_id = ? AND status IN (?, ?, ?)`,
 		return nil, fmt.Errorf("posting %s already has an active draft", postingID)
 	}
 
+	d, err := insertDraftTx(tx, postingID)
+	if err != nil {
+		return nil, err
+	}
+	return d, tx.Commit()
+}
+
+// RegenerateOutreachDraft retires the posting's current awaiting_review/no_hook
+// draft (→ superseded, kept in history) and starts a fresh one — the way to
+// re-draft after backfilling experience/template/company info. It refuses while
+// a draft is still researching (that run is pipeline-owned and in flight).
+func (db *DB) RegenerateOutreachDraft(postingID string) (*OutreachDraft, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM job_postings WHERE id = ?`, postingID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if exists == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	var researching int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM outreach_drafts
+WHERE posting_id = ? AND status = ?`, postingID, DraftResearching).Scan(&researching); err != nil {
+		return nil, err
+	}
+	if researching > 0 {
+		return nil, fmt.Errorf("posting %s already has an active draft", postingID)
+	}
+
+	if _, err := tx.Exec(`UPDATE outreach_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
+WHERE posting_id = ? AND status IN (?, ?)`,
+		DraftSuperseded, postingID, DraftAwaitingReview, DraftNoHook); err != nil {
+		return nil, err
+	}
+
+	d, err := insertDraftTx(tx, postingID)
+	if err != nil {
+		return nil, err
+	}
+	return d, tx.Commit()
+}
+
+// insertDraftTx inserts a fresh researching draft and returns it, within the
+// caller's transaction.
+func insertDraftTx(tx *sql.Tx, postingID string) (*OutreachDraft, error) {
 	res, err := tx.Exec(`INSERT INTO outreach_drafts (posting_id) VALUES (?)`, postingID)
 	if err != nil {
 		return nil, err
@@ -84,11 +139,7 @@ WHERE posting_id = ? AND status IN (?, ?, ?)`,
 	if err != nil {
 		return nil, err
 	}
-	d, err := scanDraft(tx.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id))
-	if err != nil {
-		return nil, err
-	}
-	return d, tx.Commit()
+	return scanDraft(tx.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id))
 }
 
 // GetOutreachDraft returns one draft, or (nil, nil) when absent.

@@ -338,3 +338,71 @@ func TestOutreachEndToEnd(t *testing.T) {
 		t.Fatalf("row badge status = %q", rows[0].OutreachDraftStatus)
 	}
 }
+
+// TestOutreachRegenerate covers ?regenerate=1: it retires the current
+// awaiting_review draft (kept in history) and starts a fresh researching one,
+// where a plain re-POST would 409.
+func TestOutreachRegenerate(t *testing.T) {
+	s, cid := newTestServer(t)
+	runner := &fakeOutreachRunner{}
+	s.Outreach = runner
+	h := s.Handler()
+	pid := seedOutreachReady(t, s, cid)
+
+	// First draft, drive it to awaiting_review.
+	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start: want 202, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var first struct {
+		Draft store.OutreachDraft `json:"draft"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.SetOutreachDraftResult(first.Draft.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Plain re-POST conflicts; regenerate succeeds with a new researching draft.
+	if rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("plain re-post: want 409, got %d", rec.Code)
+	}
+	rec = do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach?regenerate=1", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("regenerate: want 202, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var regen struct {
+		Draft store.OutreachDraft `json:"draft"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &regen); err != nil {
+		t.Fatal(err)
+	}
+	if regen.Draft.ID == first.Draft.ID || regen.Draft.Status != store.DraftResearching {
+		t.Fatalf("regenerate draft = %+v, want a new researching draft", regen.Draft)
+	}
+	if len(runner.started) != 2 || runner.started[1] != regen.Draft.ID {
+		t.Fatalf("runner not fired for regenerated draft: %+v", runner.started)
+	}
+
+	// History: the original is superseded, the new one is researching.
+	rec = do(t, h, http.MethodGet, "/api/postings/"+pid+"/outreach", "")
+	var list struct {
+		Drafts []store.OutreachDraft `json:"drafts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Drafts) != 2 {
+		t.Fatalf("want 2 drafts, got %d", len(list.Drafts))
+	}
+	if list.Drafts[0].ID != regen.Draft.ID || list.Drafts[0].Status != store.DraftResearching {
+		t.Errorf("newest draft = %+v, want new researching", list.Drafts[0])
+	}
+	if list.Drafts[1].ID != first.Draft.ID || list.Drafts[1].Status != store.DraftSuperseded {
+		t.Errorf("oldest draft = %+v, want superseded original", list.Drafts[1])
+	}
+	if list.Drafts[1].Draft != "draft text" {
+		t.Errorf("superseded draft lost its body: %q", list.Drafts[1].Draft)
+	}
+}

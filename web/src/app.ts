@@ -1024,6 +1024,16 @@ function draftCardHTML(d, readonly) {
     </div>`;
   }
 
+  if (d.status === "superseded") {
+    // A draft retired by a regenerate — read-only, history only.
+    return `<div class="draft-card dc-sent" data-did="${d.id}">
+      ${head("pill pill-info", "replaced")}
+      <div class="draft-note">Replaced by a newer draft.</div>
+      <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+      ${renderTrace(d)}
+    </div>`;
+  }
+
   if (d.status === "sent") {
     return `<div class="draft-card dc-sent" data-did="${d.id}">
       ${head("pill pill-yes", "sent")}
@@ -1067,7 +1077,10 @@ function draftCardHTML(d, readonly) {
     <div class="draft-actions">
       <button class="btn draft-save-btn">Save</button>
       <button class="btn btn-primary draft-sent-btn">Mark sent</button>
-    </div>` : ""}
+      <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">Regenerate</button>
+    </div>` : `<div class="draft-actions">
+      <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">Regenerate</button>
+    </div>`}
     ${renderTrace(d)}
   </div>`;
 }
@@ -1168,9 +1181,13 @@ function wireOutreach() {
   });
 
   const start = host.querySelector("#draft-start-btn");
-  if (start) start.addEventListener("click", startDraft);
+  if (start) start.addEventListener("click", () => startDraft());
 
-  host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", startDraft));
+  host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", () => startDraft()));
+
+  // Regenerate retires the current reviewable draft (it drops to history) and
+  // re-runs the pipeline — picks up backfilled experience/template/company info.
+  host.querySelectorAll(".draft-regen-btn").forEach(b => b.addEventListener("click", () => startDraft(true)));
 
   host.querySelectorAll(".draft-card[data-did]").forEach(card => {
     const id = card.dataset.did;
@@ -1187,14 +1204,17 @@ function wireOutreach() {
 
 // startDraft POSTs the draft pipeline. 202 -> show researching + poll;
 // 412 -> the missing-blocks gate with a Sync button; 503 -> quiet dev notice;
-// 409 -> reload (the active draft already exists, surface it).
-async function startDraft() {
+// 409 -> reload (the active draft already exists, surface it). With
+// regenerate=true it retires the current awaiting_review/no_hook draft (kept in
+// history) and re-runs — the way to re-draft after backfilling info.
+async function startDraft(regenerate = false) {
   const host = document.getElementById("outreach-section");
-  const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn"));
+  const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn") || host.querySelector(".draft-regen-btn"));
   if (btn) btn.disabled = true;
   let resp;
   try {
-    resp = await fetch(`/api/postings/${pursuit.postingId}/outreach`, { method: "POST" });
+    const qs = regenerate ? "?regenerate=1" : "";
+    resp = await fetch(`/api/postings/${pursuit.postingId}/outreach${qs}`, { method: "POST" });
   } catch (e) {
     toast(`draft failed: ${e.message}`);
     if (btn) btn.disabled = false;

@@ -533,3 +533,62 @@ func TestPostingNotes(t *testing.T) {
 		t.Errorf("clear notes: notes=%q err=%v", got.Notes, err)
 	}
 }
+
+func TestRegenerateOutreachDraft(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	// First draft → awaiting_review.
+	d1, err := db.CreateOutreachDraft(p.ID)
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if err := db.SetOutreachDraftResult(d1.ID, DraftAwaitingReview, "", "", "first body", "[]", "", ""); err != nil {
+		t.Fatalf("set result: %v", err)
+	}
+
+	// A plain create now conflicts — one active (reviewable) draft per posting.
+	if _, err := db.CreateOutreachDraft(p.ID); err == nil {
+		t.Fatal("CreateOutreachDraft over an awaiting_review draft should conflict")
+	}
+
+	// Regenerate retires the old draft and returns a fresh researching one.
+	d2, err := db.RegenerateOutreachDraft(p.ID)
+	if err != nil {
+		t.Fatalf("regenerate: %v", err)
+	}
+	if d2.ID == d1.ID || d2.Status != DraftResearching {
+		t.Fatalf("regenerate returned %+v, want a new researching draft", d2)
+	}
+
+	drafts, err := db.ListOutreachDrafts(p.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(drafts) != 2 {
+		t.Fatalf("want 2 drafts (superseded + new), got %d", len(drafts))
+	}
+	// Newest first: the new researching draft, then the superseded original.
+	if drafts[0].ID != d2.ID || drafts[0].Status != DraftResearching {
+		t.Errorf("drafts[0] = %+v, want new researching", drafts[0])
+	}
+	if drafts[1].ID != d1.ID || drafts[1].Status != DraftSuperseded {
+		t.Errorf("drafts[1] = %+v, want superseded original", drafts[1])
+	}
+	// The old body is preserved in history.
+	if drafts[1].Draft != "first body" {
+		t.Errorf("superseded draft lost its body: %q", drafts[1].Draft)
+	}
+
+	// Regenerating while a draft is still researching is refused (in-flight).
+	if _, err := db.RegenerateOutreachDraft(p.ID); err == nil {
+		t.Fatal("RegenerateOutreachDraft during researching should conflict")
+	}
+}

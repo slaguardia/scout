@@ -64,7 +64,14 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 		if v, _ := s.DB.OutreachKnowledge("voice"); strings.TrimSpace(v) == "" {
 			degraded = append(degraded, "voice")
 		}
-		d, err := s.DB.CreateOutreachDraft(postingID)
+		// ?regenerate=1 retires the current awaiting_review/no_hook draft and
+		// starts a fresh run (re-draft after backfilling info); the default POST
+		// creates only when no draft is active (409 otherwise).
+		create := s.DB.CreateOutreachDraft
+		if r.URL.Query().Get("regenerate") == "1" {
+			create = s.DB.RegenerateOutreachDraft
+		}
+		d, err := create(postingID)
 		if err != nil {
 			switch {
 			case errors.Is(err, sql.ErrNoRows):
