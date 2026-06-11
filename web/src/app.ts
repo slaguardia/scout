@@ -48,16 +48,54 @@ async function loadJobs() {
   } catch { return; }
   state.jobs = data.rows || [];
   renderJobs();
-  // The pursuit panel holds a reference into the old array; re-bind it to the
-  // fresh row so its header/pipeline reflect server-side moves (e.g. a sent
-  // draft bumping outreach_count). It re-renders on its own actions.
-  if (pursuit.postingId) {
-    const fresh = state.jobs.find(j => j.posting_id === pursuit.postingId);
-    if (fresh) {
-      pursuit.row = fresh;
-      if (document.getElementById("pursuit-pane").classList.contains("open")) renderPursuit();
-    }
+  rebindPursuitRow();
+  syncJobsDraftPoll();
+}
+
+// rebindPursuitRow re-points the open pursuit panel at the freshly-fetched row
+// object (the panel holds a reference into the old array) so its header/pipeline
+// reflect server-side moves (e.g. a sent draft bumping outreach_count).
+function rebindPursuitRow() {
+  if (!pursuit.postingId) return;
+  const fresh = state.jobs.find(j => j.posting_id === pursuit.postingId);
+  if (!fresh) return;
+  pursuit.row = fresh;
+  if (document.getElementById("pursuit-pane").classList.contains("open")) renderPursuit();
+}
+
+// Drafting is fire-and-forget: a draft researches server-side after the POST and
+// the row's "draft ready" badge only appears once that finishes. While ANY job
+// row is still researching, poll the jobs list so the badge surfaces on its own —
+// independent of whether the pursuit panel is open (the pursuit poll dies when
+// the panel closes). Re-render only on an actual status change, so a stable
+// researching window doesn't churn the table or clobber an inline edit elsewhere.
+let jobsDraftPoll = null;
+function syncJobsDraftPoll() {
+  const drafting = state.jobs.some(j => j.outreach_draft_status === "researching");
+  if (drafting && !jobsDraftPoll) {
+    jobsDraftPoll = setInterval(pollJobsDraftStatus, 4000);
+  } else if (!drafting && jobsDraftPoll) {
+    clearInterval(jobsDraftPoll);
+    jobsDraftPoll = null;
   }
+}
+async function pollJobsDraftStatus() {
+  let data;
+  try {
+    const r = await fetch("/api/postings");
+    if (!r.ok) return;
+    data = await r.json();
+  } catch { return; }
+  const rows = data.rows || [];
+  const prev = new Map(state.jobs.map(j => [j.posting_id, j.outreach_draft_status]));
+  const changed = rows.some(j => prev.get(j.posting_id) !== j.outreach_draft_status)
+    || rows.length !== state.jobs.length;
+  state.jobs = rows;
+  if (changed) {
+    renderJobs();
+    rebindPursuitRow();
+  }
+  syncJobsDraftPoll(); // stop once nothing is researching
 }
 
 // ---- view tabs ----
@@ -1171,7 +1209,8 @@ async function startDraft() {
     if (Array.isArray(body.degraded) && body.degraded.length) {
       toast(`drafting without ${body.degraded.join(", ")} — quality degrades, integrity unaffected`);
     }
-    await loadDrafts();        // the new researching row + poll
+    await loadDrafts();        // the new researching row + panel poll
+    loadJobs();                // reflect researching in the table + start the badge poll
     return;
   }
   if (resp.status === 409) {   // an active draft already exists — just show it
