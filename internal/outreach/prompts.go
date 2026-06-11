@@ -77,6 +77,11 @@ WRITE LIKE A BUSY HUMAN, NOT AN AI:
 - Do NOT recite the company's own facts back to them — they know their launch,
   funding, and JD. Use an observation to make YOUR point in a few words; never
   summarize their news.
+- Do NOT describe the role back to them either. The recipient wrote the JD; never
+  restate the role's scope, responsibilities, or "the loop" it describes ("the FDE
+  scope here covers owning the deployment and routing it back to roadmap"). Skip
+  straight to what YOU have done that fits — let the overlap be obvious from your
+  own experience, not from you paraphrasing their posting.
 - Say things plainly; do not narrate your own analysis ("X tells me Y", "the JD
   makes clear that…"). State the point, not the reasoning behind it.
 
@@ -109,7 +114,8 @@ Fix:
 - self-interest statements ("caught my attention", "excited to", "interested in",
   "the work I want to be doing") — cut them; the email already shows interest.
 - filler intensifiers ("really", "exactly", "truly", "a real ___", "end-to-end").
-- reciting the company's own facts back to them — keep only the point being made.
+- reciting the company's own facts OR the role's scope back to them ("the FDE
+  scope here covers…") — keep only the point being made.
 - analysis-narration ("X tells me Y", "the JD makes clear…") — state the point
   directly instead.
 - "passionate about", "thrilled", "pick your brain", "resonate", hollow

@@ -32,7 +32,7 @@ Hi [Recipient],
 
 [Replace this paragraph with your standing credentials: the two or three sentences about your background you want in every cold email, in your exact words. This text is sent verbatim — the LLM never edits it.]
 
-{{closer: A short, specific reason this company in particular is worth a conversation (concrete — never "I'm interested" or "the work I want/enjoy"), then a brief, natural ask for a quick call about the {{role}} role. One casual line; vary the ask.}}
+{{closer: A short, specific reason this company in particular is worth a conversation (concrete — never "I'm interested" or "the work I want/enjoy"), then a brief, natural ask for a quick call about the {{role}} role. Do NOT restate the role's scope or responsibilities back to them — they wrote the JD. One casual line; vary the ask.}}
 
 Thanks,
 Your Name`
