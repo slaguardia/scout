@@ -89,3 +89,25 @@ func containsSub(s, sub string) bool {
 	}
 	return false
 }
+
+func TestRenderDewrapsHardWrappedProse(t *testing.T) {
+	// A credential paragraph the user pasted hard-wrapped, plus a signature whose
+	// short lines must keep their breaks.
+	tmpl := "Hi there,\n\n{{hook: observe}}\n\n" +
+		"I've spent the past 5 years at Lockheed Martin across a number of roles to help\n" +
+		"drive customer success. Most recently, I've been embedded with customer teams,\n" +
+		"leading enterprise deployments and bringing real feedback back to engineering.\n\n" +
+		"Thanks,\nYour Name"
+	parsed, err := ParseTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := parsed.Render(nil, map[string]string{"hook": "Nice work on the launch."})
+
+	want := "Hi there,\n\nNice work on the launch.\n\n" +
+		"I've spent the past 5 years at Lockheed Martin across a number of roles to help drive customer success. Most recently, I've been embedded with customer teams, leading enterprise deployments and bringing real feedback back to engineering.\n\n" +
+		"Thanks,\nYour Name"
+	if got != want {
+		t.Errorf("dewrap mismatch:\n got: %q\nwant: %q", got, want)
+	}
+}

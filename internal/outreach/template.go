@@ -171,7 +171,42 @@ func (t *Template) Render(vars, filled map[string]string) string {
 			}
 		}
 	}
-	return strings.TrimSpace(b.String())
+	return dewrap(strings.TrimSpace(b.String()))
+}
+
+// dewrapJoinMin is the line length at/above which a mid-paragraph newline is
+// treated as an accidental soft-wrap and collapsed to a space. Wrapped prose
+// fills lines to ~60-80 chars; short structural lines (a greeting, a "Thanks,"
+// sign-off, a name) fall well under this and keep their break.
+const dewrapJoinMin = 45
+
+// dewrap un-hard-wraps prose: it joins a line into the next with a single space
+// when the line is long enough to look soft-wrapped, while preserving blank-line
+// paragraph breaks and short intentional lines (the signature, a greeting). The
+// verbatim template prose is sent exactly as the user typed it word-for-word —
+// this only fixes the line *layout* so a paragraph the user happened to paste
+// hard-wrapped renders as one flowing paragraph in the email.
+func dewrap(s string) string {
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		b.WriteString(line)
+		if i == len(lines)-1 {
+			break
+		}
+		next := lines[i+1]
+		// A blank line on either side is a paragraph break — never collapse it.
+		if strings.TrimSpace(line) == "" || strings.TrimSpace(next) == "" {
+			b.WriteString("\n")
+			continue
+		}
+		if len(strings.TrimRight(line, " \t")) >= dewrapJoinMin {
+			b.WriteString(" ")
+		} else {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // substVars replaces {{var}} tokens in s from vars; unknown vars are left as-is.
