@@ -1039,6 +1039,7 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-yes", "sent")}
       ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
       <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+      ${readonly ? "" : `<div class="draft-actions"><button class="btn draft-copy-btn" title="copy the email to the clipboard">Copy</button></div>`}
       ${renderTrace(d)}
     </div>`;
   }
@@ -1075,6 +1076,7 @@ function draftCardHTML(d, readonly) {
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
     <div class="draft-actions">
+      <button class="btn draft-copy-btn" title="copy the email to the clipboard">Copy</button>
       <button class="btn draft-save-btn">Save</button>
       <button class="btn btn-primary draft-sent-btn">Mark sent</button>
       <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">Regenerate</button>
@@ -1195,6 +1197,15 @@ function wireOutreach() {
     if (save) save.addEventListener("click", () => saveDraftEdit(id));
     const sent = card.querySelector(".draft-sent-btn");
     if (sent) sent.addEventListener("click", () => markDraftSent(id));
+    // Copy the email — the live textarea value (unsaved edits included) when the
+    // card is editable, else the rendered body.
+    const copy = card.querySelector(".draft-copy-btn");
+    if (copy) copy.addEventListener("click", () => {
+      const ta = card.querySelector(".draft-textarea");
+      const body = card.querySelector(".draft-sentbody");
+      const text = ta ? ta.value : (body ? body.textContent : "");
+      copyToClipboard(text, "email copied");
+    });
   });
 
   // Keep the history open-state sticky across polls.
@@ -2119,6 +2130,30 @@ function toast(msg) {
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+// copyToClipboard writes text to the clipboard and toasts the outcome. Uses the
+// async Clipboard API (available on localhost/https) with an execCommand
+// fallback for the rare insecure context.
+async function copyToClipboard(text, okMsg = "copied") {
+  if (!text) { toast("nothing to copy"); return; }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    toast(okMsg);
+  } catch (e) {
+    toast(`copy failed: ${e.message}`);
+  }
 }
 
 // ---- control surface: capabilities ----
