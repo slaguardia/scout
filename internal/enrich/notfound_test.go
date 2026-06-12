@@ -139,3 +139,54 @@ func TestFetchOneAllSoftFofour(t *testing.T) {
 		t.Errorf("FetchStatus = %q, want soft_404", rec.FetchStatus)
 	}
 }
+
+// TestFetchOneSkipsLowContent proves a thin JS-shell candidate (200, almost no
+// text) doesn't end the walk: the homepage's real content must win. This is the
+// peregrine.io case — an SPA serving "undefined | Peregrine" on /about while /
+// carries the actual site.
+func TestFetchOneSkipsLowContent(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/about", "/about-us", "/company":
+			_, _ = w.Write([]byte("<html><head><title>undefined | Acme</title></head><body></body></html>"))
+		default:
+			_, _ = w.Write([]byte("<html><body>" + realContent + "</body></html>"))
+		}
+	}))
+	defer srv.Close()
+
+	e, domain := newEnricher(srv)
+	rec := e.fetchOne(context.Background(), store.EnrichmentTarget{CompanyID: "c1", Domain: domain})
+
+	if rec.FetchStatus != "ok" {
+		t.Fatalf("FetchStatus = %q, want ok (should fall through JS shells to /)", rec.FetchStatus)
+	}
+	if want := srv.URL + "/"; rec.WebsiteURL.String != want {
+		t.Errorf("WebsiteURL = %q, want %q", rec.WebsiteURL.String, want)
+	}
+}
+
+// TestFetchOneAllLowContent proves that when every candidate is a thin shell we
+// still record low_content and cache the residual text for inspection, exactly
+// as before the fall-through behavior.
+func TestFetchOneAllLowContent(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><head><title>undefined | Acme</title></head><body></body></html>"))
+	}))
+	defer srv.Close()
+
+	e, domain := newEnricher(srv)
+	rec := e.fetchOne(context.Background(), store.EnrichmentTarget{CompanyID: "c1", Domain: domain})
+
+	if rec.FetchStatus != "low_content" {
+		t.Fatalf("FetchStatus = %q, want low_content", rec.FetchStatus)
+	}
+	if !rec.WebsiteURL.Valid {
+		t.Error("WebsiteURL is NULL, want the shell URL cached for inspection")
+	}
+	if rec.WebsiteSummary.String == "" {
+		t.Error("WebsiteSummary is empty, want the residual shell text cached")
+	}
+}

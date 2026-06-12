@@ -226,6 +226,11 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 
 	var lastErr string
 	var lastStatus string
+	// Best low_content candidate seen so far. A JS-SPA often serves a thin
+	// shell on /about while the homepage carries real server-rendered text, so
+	// a short page must not end the walk — keep it only as a fallback in case
+	// every candidate is thin.
+	var lowFallback *store.Enrichment
 	for _, path := range candidatePaths {
 		url := "https://" + t.Domain + path
 		body, code, finalURL, err := get(ctx, e.Client, url)
@@ -255,12 +260,17 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 				rec.FetchStatus = "challenge"
 				return rec
 			}
-			// Suspiciously short stripped text suggests a JS-SPA shell.
-			// We still cache the text so it can be inspected, but flag it
-			// so the verdict stage skips this row.
+			// Suspiciously short stripped text suggests a JS-SPA shell. Keep
+			// the longest one we've seen (cached so it can be inspected, and
+			// the verdict stage skips it) but try the remaining candidates.
 			if runeCount(text) < minContentRunes {
-				rec.FetchStatus = "low_content"
-				return rec
+				if lowFallback == nil || runeCount(text) > runeCount(lowFallback.WebsiteSummary.String) {
+					low := rec
+					low.FetchStatus = "low_content"
+					lowFallback = &low
+				}
+				lastStatus = "low_content"
+				continue
 			}
 			rec.FetchStatus = "ok"
 			return rec
@@ -268,6 +278,9 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 		lastStatus = fmt.Sprintf("http_%d", code)
 	}
 
+	if lowFallback != nil {
+		return *lowFallback
+	}
 	rec.FetchStatus = lastStatus
 	if lastStatus == "" {
 		rec.FetchStatus = "error"
