@@ -251,14 +251,20 @@ The classify + synthesize prompts are shown verbatim in
 
 ## Resolved: the `filter` stage
 
-`taste.toml` **stays, as a purely mechanical pre-filter** — cheap hard gates
-(location, headcount, funding stage, has-domain) that cull rows before the
-expensive verdict step. It is **not** taste/judgment: nuanced fit ("is this
-really right for the user") happens only at verdict time, grounded in the brain.
-The name is historical; treat it as the mechanical layer. Any vertical
-*judgment* currently in `taste.toml` (`verticals.allowed`/`excluded`) should be
-thinned to coarse cheap culls at most, with the real exclusion logic living in
-the brain (the user's notes), surfaced via recall and the distilled brief.
+The pre-filter **stays, as a purely mechanical gate** — cheap hard gates
+(location, headcount, funding stage, has-domain) that decide which companies the
+expensive verdict step bothers to score. It is **not** taste/judgment: nuanced
+fit ("is this really right for the user") happens only at verdict time, grounded
+in the brain. The name is historical; treat it as the mechanical layer.
+
+It is a **scoring gate, not a data gate**: it never deletes a company, hides one
+from the list, or gates ingest/enrich — an excluded company is stored and shown
+like any other, just without a verdict until you score it. The rules are the
+`taste_filter` DB singleton (edited in the dashboard, with a master on/off
+switch); there is no longer a `taste.toml` file. Any vertical *judgment* in the
+rules (`verticals.allowed`/`excluded`) should be thinned to coarse cheap gates at
+most, with the real exclusion logic living in the brain (the user's notes),
+surfaced via recall and the distilled brief.
 
 ## Web delivery is moving to the app platform
 

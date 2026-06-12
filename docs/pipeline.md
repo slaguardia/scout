@@ -95,12 +95,22 @@ unpinned `kind=other` pages write nothing too.
 | **Idempotent** | Read-only — no state changes. |
 | **Flags** | `--db scout.db`. |
 
-The pre-filter is a **purely mechanical gate** — cheap hard gates that cull
-rows before the expensive verdict step. It is *not* judgment; nuanced fit
-happens at verdict time, grounded in the brain. The rules live in the DB as a
-singleton (raw TOML), **edited from the dashboard** (Criteria → "pre-filter");
-the compiled-in default is [`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml).
-A targeted per-company verdict re-score **bypasses** the pre-filter entirely.
+The pre-filter is a **purely mechanical gate** — cheap hard gates that decide
+which companies the expensive verdict step bothers to score. It is *not*
+judgment; nuanced fit happens at verdict time, grounded in the brain.
+
+**It is a scoring gate, not a data gate.** It never deletes a company, never
+hides one from the companies list, and does not run at ingest or gate enrich —
+this command is read-only and only *previews* who a bulk verdict run would
+score. Every company you import is stored and shown in the list regardless; one
+the filter excludes simply sits there with no verdict yet (`—`), and you can
+open it or [targeted-rescore](#scout-verdict) it (which bypasses the filter).
+
+The rules live in the DB as a singleton (raw TOML), **edited from the dashboard**
+(Criteria → "pre-filter") and with a **master on/off switch** — turn it off and
+a bulk run scores everything. The compiled-in default is
+[`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml). A
+targeted per-company verdict re-score **bypasses** the pre-filter entirely.
 
 **Behavior:**
 - Loads the rules from the DB (falling back to the compiled-in default), pulls
