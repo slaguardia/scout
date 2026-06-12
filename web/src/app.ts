@@ -446,10 +446,13 @@ function renderJobs() {
 }
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
-// (awaiting_review / no_hook) — the fire-and-forget "draft ready" signal.
+// (awaiting_review / needs_work / no_hook) — the fire-and-forget "draft ready"
+// signal; needs_work is finished but rated below the depth bar.
 function draftBadgeHTML(status) {
   if (status === "awaiting_review")
     return '<span class="draft-badge" title="an outreach draft is ready to review">draft ready</span>';
+  if (status === "needs_work")
+    return '<span class="draft-badge db-needswork" title="the draft finished below the depth bar — review, fix or regenerate">draft needs work</span>';
   if (status === "no_hook")
     return '<span class="draft-badge db-nohook" title="no honest hook — scout recommends not emailing">no hook</span>';
   return "";
@@ -993,7 +996,7 @@ function renderOutreachSection() {
 }
 
 function isActiveStatus(st) {
-  return st === "researching" || st === "awaiting_review" || st === "no_hook";
+  return st === "researching" || st === "awaiting_review" || st === "needs_work" || st === "no_hook";
 }
 
 // draftCardHTML renders one draft by status. `readonly` collapses history items
@@ -1019,6 +1022,7 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-no", "failed")}
       ${d.fail_reason ? `<div class="draft-note">${escapeHTML(d.fail_reason)}</div>` : ""}
       ${vio}
+      ${renderCritique(d.critique)}
       ${renderTrace(d)}
       ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">Retry</button></div>`}
     </div>`;
@@ -1044,12 +1048,17 @@ function draftCardHTML(d, readonly) {
     </div>`;
   }
 
-  // awaiting_review or no_hook — both editable; no_hook is NEUTRAL, not an error.
+  // awaiting_review, needs_work, or no_hook — all editable; no_hook is NEUTRAL,
+  // not an error, and needs_work is a finished draft the quality judge rated
+  // below the depth bar — flagged, with the critique saying why.
   const text = draftText(d);
   const noHook = d.status === "no_hook";
+  const needsWork = d.status === "needs_work";
   const label = noHook
     ? `<span class="pill pill-info">no honest hook</span>`
-    : `<span class="pill pill-maybe">awaiting review</span>`;
+    : needsWork
+      ? `<span class="pill pill-maybe">needs work — below the depth bar</span>`
+      : `<span class="pill pill-maybe">awaiting review</span>`;
   // no_hook means there is nothing true to say (yet) — scout recommends NOT
   // emailing. No template fallback; writing anyway is a manual override.
   let noHookReason = "";
@@ -1059,11 +1068,13 @@ function draftCardHTML(d, readonly) {
   const note = noHook
     ? `<div class="draft-note">No honest hook found — nothing true to say yet; scout recommends not emailing.${noHookReason ? " " + escapeHTML(noHookReason) : ""}</div>`
     : "";
+  const critique = renderCritique(d.critique);
 
   if (readonly) {
     return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
       <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
       ${note}
+      ${critique}
       <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
       ${renderTrace(d)}
     </div>`;
@@ -1073,6 +1084,7 @@ function draftCardHTML(d, readonly) {
   return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
     <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
     ${note}
+    ${critique}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
     <div class="draft-actions">
@@ -1148,6 +1160,35 @@ function renderLintChips(lintJSON) {
   ).join("") + `</div>`;
 }
 
+// renderCritique shows the quality judge's read on a finished draft: depth +
+// proof-tier chips, the weaknesses, and — the signal that matters most — what
+// experience was missing when the fill came up thin. Present on
+// awaiting_review, needs_work, and failed drafts; empty/unparseable → "".
+function renderCritique(critiqueJSON) {
+  let c = null;
+  try { c = JSON.parse(critiqueJSON || "null"); } catch { return ""; }
+  if (!c || typeof c !== "object") return "";
+  const depthCls = c.depth === "deep" ? "pill-yes" : c.depth === "medium" ? "pill-maybe" : "pill-no";
+  const proofCls = { direct: "pill-yes", adjacent: "pill-info", standing: "pill-maybe" }[c.proof_tier] || "pill-no";
+  const proofLabel = c.proof_tier === "standing" ? "standing creds" : c.proof_tier;
+  const chips = [
+    c.depth ? `<span class="pill ${depthCls}">depth: ${escapeHTML(c.depth)}</span>` : "",
+    c.proof_tier ? `<span class="pill ${proofCls}">proof: ${escapeHTML(proofLabel)}</span>` : "",
+  ].filter(Boolean).join("");
+  const weak = (Array.isArray(c.weaknesses) && c.weaknesses.length)
+    ? `<ul class="critique-list">` + c.weaknesses.map(w => `<li>${escapeHTML(String(w))}</li>`).join("") + `</ul>`
+    : "";
+  const gaps = String(c.experience_gaps || "").trim();
+  const gap = gaps
+    ? `<div class="critique-gap"><span class="cg-label">experience gap:</span> ${escapeHTML(gaps)}</div>`
+    : "";
+  if (!chips && !weak && !gap) return "";
+  return `<div class="draft-critique">
+    ${chips ? `<div class="critique-chips">${chips}</div>` : ""}
+    ${weak}${gap}
+  </div>`;
+}
+
 function renderViolations(vioJSON) {
   let vios = [];
   try { vios = JSON.parse(vioJSON || "[]") || []; } catch { vios = []; }
@@ -1216,8 +1257,8 @@ function wireOutreach() {
 // startDraft POSTs the draft pipeline. 202 -> show researching + poll;
 // 412 -> the missing-blocks gate with a Sync button; 503 -> quiet dev notice;
 // 409 -> reload (the active draft already exists, surface it). With
-// regenerate=true it retires the current awaiting_review/no_hook draft (kept in
-// history) and re-runs — the way to re-draft after backfilling info.
+// regenerate=true it retires the current awaiting_review/needs_work/no_hook
+// draft (kept in history) and re-runs — the way to re-draft after backfilling.
 async function startDraft(regenerate = false) {
   const host = document.getElementById("outreach-section");
   const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn") || host.querySelector(".draft-regen-btn"));
@@ -2476,6 +2517,7 @@ let editorKind = null;
 // and outreach template are DB rows (no file extension); taste is still a file.
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
+  if (kind === "outreach-doctrine") return "outreach doctrine";
   if (kind === "playbook") return "playbook";
   return kind + ".md";
 }
@@ -2871,6 +2913,7 @@ const REFRESH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stro
 const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></svg>';
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
+const ICON_DOCTRINE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
@@ -2973,6 +3016,12 @@ function renderCriteria() {
     desc: "The outreach email format — verbatim prose with fill-in holes.",
     act: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
   });
+  const doctrineCard = critCard({
+    icon: ICON_DOCTRINE,
+    nameHTML: '<span class="edit-link" data-act="edit-doctrine" title="edit the outreach doctrine">outreach doctrine</span>',
+    desc: "How cold emails get written — the depth bar, show-don't-tell, the kill list.",
+    act: "edit-doctrine", actIcon: PENCIL, actTitle: "edit the outreach doctrine", actLabel: "edit outreach doctrine",
+  });
 
   el.innerHTML =
     `<div class="settings-section">
@@ -2981,7 +3030,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Scout configuration</div>
-       ${playbookCard}${templateCard}
+       ${playbookCard}${templateCard}${doctrineCard}
      </div>`;
 
   // Wire every clickable (name links AND action buttons) by its data-act key.
@@ -2994,6 +3043,7 @@ function renderCriteria() {
     "edit-taste": () => openEditor("taste"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
+    "edit-doctrine": () => openEditor("outreach-doctrine"),
     "view-sources": openSourcesModal,
     "refresh-sources": refreshSourcesInline,
   };

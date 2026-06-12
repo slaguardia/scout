@@ -23,6 +23,10 @@ var bannedPhrases = []string{
 	// stating your own interest/preference — the email already is the interest signal
 	"caught my attention", "drew my attention", "want to be doing",
 	"interested in joining", "enjoy most", "what i love", "love doing",
+	// the doctrine's kill list — openings and frames that mark a template email
+	"hope this email finds you well", "finds you well",
+	"my name is", "i'm writing to", "i am writing to", "i just applied",
+	"a leader in", "leader in the",
 }
 
 // VoiceFindings flags deterministic voice violations (em dashes, banned phrases)
@@ -40,4 +44,30 @@ func VoiceFindings(text string) []LintFinding {
 		}
 	}
 	return out
+}
+
+// lengthFlagAt is the word count above which the rendered email body is flagged
+// — a little headroom over the doctrine's ~120-word target so a few words never
+// nag.
+const lengthFlagAt = 130
+
+// LengthFindings flags an over-long email BODY: everything after the first line
+// starting with "Subject:" (the subject line itself is not counted; an email
+// with no subject line is counted whole). Like VoiceFindings it is a
+// non-blocking flag, run on the RENDERED email — verbatim prose included, since
+// the reader scrolls the whole thing.
+func LengthFindings(email string) []LintFinding {
+	lines := strings.Split(email, "\n")
+	body := lines
+	for i, l := range lines {
+		if strings.HasPrefix(l, "Subject:") {
+			body = lines[i+1:]
+			break
+		}
+	}
+	n := len(strings.Fields(strings.Join(body, "\n")))
+	if n <= lengthFlagAt {
+		return nil
+	}
+	return []LintFinding{{Code: "too_long", Message: fmt.Sprintf("email body is %d words (doctrine target ≤120)", n)}}
 }

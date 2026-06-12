@@ -21,18 +21,21 @@ import (
 // git never touches it. Parsing fails loud on a malformed template rather than
 // silently mis-filling an email.
 
-// DefaultTemplate is the compiled-in starting template, used until the user saves
-// their own. Observation-led hook + a credentials placeholder the user replaces
-// with their own verbatim paragraph.
+// DefaultTemplate is the compiled-in starting template, used until the user
+// saves their own. The doctrine structure: an interpretation-led hook (the bet
+// and what it implies), a proof hole written at the strongest honest tier of
+// the proof gradient, and a reason+ask closer. "Your Name" stays a placeholder
+// the user localizes. (The subject line's em dash is intentional — see
+// voice.go's note about never linting the subject.)
 const DefaultTemplate = `Subject: [Recipient] | Your Name — intro re {{role}}
 
 Hi [Recipient],
 
-{{hook: One or two tight sentences — a specific, true observation about {{company}} that shows you understand their world and makes a point. Don't recite their news back to them. Plain and short, no flattery, no stating interest. If there's no honest observation worth making, don't send.}}
+{{hook: One or two tight sentences: a specific, true observation about {{company}} — the bet they're making and what it implies — hedged as your own read ("seems to be betting"). State a consequence, not a reaction. Zero words about the sender. If there is no Deep observation to make, don't send.}}
 
-[Replace this paragraph with your standing credentials: the two or three sentences about your background you want in every cold email, in your exact words. This text is sent verbatim — the LLM never edits it.]
+{{proof: One or two sentences tying my background to the problem above, at the strongest HONEST tier: direct lived experience of this gap; or adjacent experience framed openly as adjacent; or my standing credentials stated plainly with no manufactured thread. One mapping, not a résumé.}}
 
-{{closer: A short, specific reason this company in particular is worth a conversation (concrete — never "I'm interested" or "the work I want/enjoy"), then a brief, natural ask for a quick call about the {{role}} role. Do NOT restate the role's scope or responsibilities back to them — they wrote the JD. One casual line; vary the ask.}}
+{{closer: A short, concrete reason this company in particular is worth a conversation, folded into one low-friction ask (e.g. 15 minutes to hear where things are stretched thin, or simply "worth a conversation?"). Nothing about the sender. Vary the ask.}}
 
 Thanks,
 Your Name`

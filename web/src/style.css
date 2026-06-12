@@ -862,6 +862,21 @@
   .violation-list li { color: var(--no); font-size: 12.5px; margin-bottom: 4px; }
   .violation-list li .vl-why { color: var(--fg-mute); }
 
+  /* critique — the quality judge's read on a finished draft (depth/proof chips,
+     weaknesses, the experience-gap callout); warn register, never failure-red */
+  .draft-critique { margin: 0 0 10px; }
+  .critique-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .critique-list { margin: 8px 0 0; padding-left: 18px; }
+  .critique-list li { color: var(--maybe); font-size: 12.5px; margin-bottom: 4px; }
+  .critique-gap {
+    margin-top: 8px; padding: 6px 10px;
+    border-left: 2px solid var(--maybe);
+    background: var(--maybe-bg);
+    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    font-size: 12.5px; line-height: 1.5; color: var(--fg);
+  }
+  .critique-gap .cg-label { color: var(--maybe); font-weight: 600; }
+
   /* pipeline trace — collapsible research/hook stage outputs on a draft */
   details.draft-trace { margin-top: 6px; }
   details.draft-trace summary {
@@ -899,6 +914,9 @@
     text-transform: uppercase; letter-spacing: 0.04em;
   }
   .draft-badge.db-nohook { background: var(--link-bg); color: var(--link); }
+  /* needs_work — same warn family as "draft ready" but outlined, so the two
+     read differently at a glance */
+  .draft-badge.db-needswork { box-shadow: inset 0 0 0 1px var(--maybe); }
   /* the "next up for outreach" queue mark — accent, distinct from draft states */
   .draft-badge.db-next { background: rgba(139,109,255,0.14); color: var(--accent); }
   .pt-chip.pt-nextup.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }

@@ -156,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/postings/", s.handlePosting)                  // PUT {id}: application-lifecycle update
 	mux.HandleFunc("/api/capture", s.handleCapture)                    // POST: link-capture agent pass
 	mux.HandleFunc("/api/outreach-template", s.handleOutreachTemplate) // GET/PUT the scout-local email template (see editor.go)
+	mux.HandleFunc("/api/outreach-doctrine", s.handleOutreachDoctrine) // GET/PUT the scout-local writing doctrine (see editor.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)                 // sources / refresh / drafts (see outreach.go)
 	mux.HandleFunc("/api/answers/", s.handleAnswer)                    // PUT {id}: edit / regenerate one answer (see answers.go)
 	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)           // GET open-or-create a (scope,scope_id) thread

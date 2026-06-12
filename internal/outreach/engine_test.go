@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -16,11 +17,13 @@ import (
 )
 
 // fakeAnthropic serves scripted responses from a FIFO queue: each /v1/messages
-// call pops the next text. This drives the whole pipeline deterministically.
+// call pops the next text and records the raw request body (so tests can
+// assert on prompts). This drives the whole pipeline deterministically.
 type fakeAnthropic struct {
 	mu      sync.Mutex
 	replies []string
 	calls   int
+	reqs    []string // raw request body per call, in order
 }
 
 func (f *fakeAnthropic) server(t *testing.T) *httptest.Server {
@@ -28,6 +31,8 @@ func (f *fakeAnthropic) server(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		body, _ := io.ReadAll(r.Body)
+		f.reqs = append(f.reqs, string(body))
 		if f.calls >= len(f.replies) {
 			t.Errorf("unexpected anthropic call #%d (only %d scripted)", f.calls+1, len(f.replies))
 			http.Error(w, "no scripted reply", http.StatusInternalServerError)
@@ -130,12 +135,17 @@ const (
 	noSendReply = `{"no_send": true, "reason": "nothing specific connects to my work"}`
 	honestyPass = `{"verdict":"pass","violations":[]}`
 	honestyFail = `{"verdict":"fail","violations":[{"claim":"led the program","why":"doc says led a team"}]}`
+
+	judgeDeep    = `{"depth":"deep","proof_tier":"direct","weaknesses":[],"experience_gaps":"","feedback":""}`
+	judgeMedium  = `{"depth":"medium","proof_tier":"adjacent","weaknesses":["hook interprets one signal"],"experience_gaps":"Quota-carrying AE work would have let the proof go direct.","feedback":"Engage the bet: state what their wager makes obsolete."}`
+	judgeShallow = `{"depth":"shallow","proof_tier":"none","weaknesses":["hook restates the headline"],"experience_gaps":"","feedback":"Make an interpretation, not a restatement."}`
 )
 
-// (a) Happy path: research → fill → honesty pass → awaiting_review, with the
-// filled holes + the verbatim prose present and the subject/greeting assembled.
+// (a) Happy path: research → fill → honesty pass → judge deep → awaiting_review,
+// with the filled holes + the verbatim prose present, the subject/greeting
+// assembled, and the judge's critique stored.
 func TestRunHappyPath(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass}}
+	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeDeep}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
@@ -155,8 +165,16 @@ func TestRunHappyPath(t *testing.T) {
 			t.Errorf("assembled email missing %q:\n%s", want, d.Draft)
 		}
 	}
-	if fake.calls != 4 {
-		t.Errorf("anthropic calls = %d, want 4 (research, fill, humanize, honesty)", fake.calls)
+	for _, want := range []string{`"depth":"deep"`, `"proof_tier":"direct"`, `"attempts":1`} {
+		if !strings.Contains(d.Critique, want) {
+			t.Errorf("critique missing %s: %q", want, d.Critique)
+		}
+	}
+	if strings.Contains(d.Critique, `"feedback"`) {
+		t.Errorf("stored critique should omit the retry feedback: %q", d.Critique)
+	}
+	if fake.calls != 5 {
+		t.Errorf("anthropic calls = %d, want 5 (research, fill, humanize, honesty, judge)", fake.calls)
 	}
 }
 
@@ -182,11 +200,11 @@ func TestRunNoSendMeansNoEmail(t *testing.T) {
 	}
 }
 
-// (c) Honesty fail → fill retry → pass.
+// (c) Honesty fail → fill retry (with the violations in the feedback) → pass.
 func TestRunHonestyRetryPasses(t *testing.T) {
 	fake := &fakeAnthropic{replies: []string{
-		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
-		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass,
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail, judgeDeep,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeDeep,
 	}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
@@ -199,16 +217,21 @@ func TestRunHonestyRetryPasses(t *testing.T) {
 	if d.Status != store.DraftAwaitingReview {
 		t.Fatalf("status = %q, want awaiting_review", d.Status)
 	}
-	if fake.calls != 7 {
-		t.Errorf("calls = %d, want 7 (research, fill, humanize, honesty ×2 attempts)", fake.calls)
+	if fake.calls != 9 {
+		t.Errorf("calls = %d, want 9 (research, then fill, humanize, honesty, judge ×2 attempts)", fake.calls)
+	}
+	// The retry fill saw the honesty violations, labeled.
+	retryFill := fake.reqs[5]
+	if !strings.Contains(retryFill, "A reviewer flagged these claims") || !strings.Contains(retryFill, "led the program") {
+		t.Errorf("retry fill input missing the labeled honesty violations:\n%s", retryFill)
 	}
 }
 
-// (d) Honesty fail twice → failed, violations saved.
+// (d) Honesty fail twice → failed, violations + critique saved.
 func TestRunHonestyTwiceFails(t *testing.T) {
 	fake := &fakeAnthropic{replies: []string{
-		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
-		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail,
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail, judgeDeep,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyFail, judgeDeep,
 	}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
@@ -221,8 +244,156 @@ func TestRunHonestyTwiceFails(t *testing.T) {
 	if d.Status != store.DraftFailed {
 		t.Fatalf("status = %q, want failed", d.Status)
 	}
+	if d.FailReason != "honesty check failed twice" {
+		t.Errorf("fail_reason = %q", d.FailReason)
+	}
 	if !strings.Contains(d.Violations, "led the program") {
 		t.Errorf("violations not saved: %q", d.Violations)
+	}
+	if !strings.Contains(d.Critique, `"attempts":2`) {
+		t.Errorf("critique not saved on the honesty-failed draft: %q", d.Critique)
+	}
+}
+
+// Judge medium twice (honesty clean) → needs_work: the draft IS stored and
+// reviewable, with the judge's critique on the row.
+func TestRunMediumTwiceNeedsWork(t *testing.T) {
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeMedium,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeMedium,
+	}}
+	eng, db := newEngine(t, fake)
+	seedExperience(t, db)
+	id := seedPostingDraft(t, db)
+
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftNeedsWork {
+		t.Fatalf("status = %q, want needs_work (fail=%q)", d.Status, d.FailReason)
+	}
+	if d.FailReason != "" {
+		t.Errorf("needs_work is reviewable, not failed; fail_reason = %q", d.FailReason)
+	}
+	if !strings.Contains(d.Draft, hookText) {
+		t.Errorf("needs_work draft body not stored:\n%s", d.Draft)
+	}
+	if d.Lint == "" {
+		t.Errorf("needs_work draft lint not stored")
+	}
+	for _, want := range []string{`"depth":"medium"`, `"proof_tier":"adjacent"`, "hook interprets one signal", "Quota-carrying AE work", `"attempts":2`} {
+		if !strings.Contains(d.Critique, want) {
+			t.Errorf("critique missing %s: %q", want, d.Critique)
+		}
+	}
+	// The retry fill saw the judge's rewrite instructions, labeled.
+	retryFill := fake.reqs[5]
+	if !strings.Contains(retryFill, "A quality reviewer wants these changes") ||
+		!strings.Contains(retryFill, "Engage the bet: state what their wager makes obsolete.") {
+		t.Errorf("retry fill input missing the labeled judge feedback:\n%s", retryFill)
+	}
+}
+
+// Judge shallow twice → failed with the depth-bar fail reason (a shallow email
+// is not worth the user's review time).
+func TestRunShallowTwiceFails(t *testing.T) {
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeShallow,
+		fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeShallow,
+	}}
+	eng, db := newEngine(t, fake)
+	seedExperience(t, db)
+	id := seedPostingDraft(t, db)
+
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftFailed {
+		t.Fatalf("status = %q, want failed", d.Status)
+	}
+	if d.FailReason != "below the depth bar — judged shallow twice" {
+		t.Errorf("fail_reason = %q", d.FailReason)
+	}
+	if !strings.Contains(d.Critique, `"depth":"shallow"`) {
+		t.Errorf("critique not saved: %q", d.Critique)
+	}
+}
+
+// A judge verdict outside the schema is a pipeline error: Run fails and the
+// catch-all flips the draft to failed (never stranded in researching).
+func TestRunJudgeBadVerdict(t *testing.T) {
+	bad := `{"depth":"profound","proof_tier":"direct","weaknesses":[],"experience_gaps":"","feedback":""}`
+	fake := &fakeAnthropic{replies: []string{
+		researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, bad,
+	}}
+	eng, db := newEngine(t, fake)
+	seedExperience(t, db)
+	id := seedPostingDraft(t, db)
+
+	err := eng.Run(context.Background(), id)
+	if err == nil || !strings.Contains(err.Error(), `unknown depth "profound"`) {
+		t.Fatalf("Run err = %v, want unknown-depth judge error", err)
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftFailed {
+		t.Fatalf("status = %q, want failed (the catch-all must not strand the row)", d.Status)
+	}
+}
+
+// The fill and judge prompts carry the DB-saved doctrine (the editable method
+// reaches the model without a restart).
+func TestRunUsesSavedDoctrine(t *testing.T) {
+	const marker = "DOCTRINE-MARKER-XYZZY: only ship deep observations."
+	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeDeep}}
+	eng, db := newEngine(t, fake)
+	seedExperience(t, db)
+	id := seedPostingDraft(t, db)
+	if err := db.PutOutreachDoctrine(marker); err != nil {
+		t.Fatalf("save doctrine: %v", err)
+	}
+
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(fake.reqs[1], marker) {
+		t.Errorf("fill request (system prompt) missing the saved doctrine:\n%s", fake.reqs[1])
+	}
+	if !strings.Contains(fake.reqs[4], marker) {
+		t.Errorf("judge request missing the saved doctrine:\n%s", fake.reqs[4])
+	}
+}
+
+// A fully-static template (no holes) short-circuits fill/honesty/judge: the
+// prose is the user's own, true by construction — one research call only.
+func TestRunNoHolesShortCircuit(t *testing.T) {
+	fake := &fakeAnthropic{replies: []string{researchJSON}}
+	eng, db := newEngine(t, fake)
+	if err := db.PutOutreachTemplate("Hi [Name],\n\n" + verbatimLine + "\n\nThanks,\nAlex"); err != nil {
+		t.Fatalf("seed template: %v", err)
+	}
+	seedExperience(t, db)
+	id := seedPostingDraft(t, db)
+
+	if err := eng.Run(context.Background(), id); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	d, _ := db.GetOutreachDraft(id)
+	if d.Status != store.DraftAwaitingReview {
+		t.Fatalf("status = %q, want awaiting_review (fail=%q)", d.Status, d.FailReason)
+	}
+	if !strings.Contains(d.Draft, verbatimLine) {
+		t.Errorf("rendered email missing the verbatim prose:\n%s", d.Draft)
+	}
+	if d.Critique != "" {
+		t.Errorf("no judge ran; critique = %q", d.Critique)
+	}
+	if d.Lint != "[]" {
+		t.Errorf("lint = %q, want [] (short body, nothing flagged)", d.Lint)
+	}
+	if fake.calls != 1 {
+		t.Errorf("calls = %d, want 1 (research only)", fake.calls)
 	}
 }
 
@@ -247,7 +418,7 @@ func TestRunFailsWithoutExperience(t *testing.T) {
 
 // (g) A stored description is used for the JD (no network fetch).
 func TestRunUsesStoredDescription(t *testing.T) {
-	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass}}
+	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeDeep}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)

@@ -64,9 +64,9 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 		if v, _ := s.DB.OutreachKnowledge("voice"); strings.TrimSpace(v) == "" {
 			degraded = append(degraded, "voice")
 		}
-		// ?regenerate=1 retires the current awaiting_review/no_hook draft and
-		// starts a fresh run (re-draft after backfilling info); the default POST
-		// creates only when no draft is active (409 otherwise).
+		// ?regenerate=1 retires the current awaiting_review/needs_work/no_hook
+		// draft and starts a fresh run (re-draft after backfilling info); the
+		// default POST creates only when no draft is active (409 otherwise).
 		create := s.DB.CreateOutreachDraft
 		if r.URL.Query().Get("regenerate") == "1" {
 			create = s.DB.RegenerateOutreachDraft
@@ -244,15 +244,18 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, rest string
 			return
 		}
 		// Edits are only meaningful pre-send: a sent draft is the record of what
-		// was actually emailed, and a researching one is pipeline-owned.
+		// was actually emailed, and a researching one is pipeline-owned. A
+		// needs_work draft is finished and reviewable — just flagged by the judge.
 		if cur, err := s.DB.GetOutreachDraft(id); err == nil && cur != nil &&
-			cur.Status != store.DraftAwaitingReview && cur.Status != store.DraftNoHook {
-			http.Error(w, "draft is "+cur.Status+" — only awaiting_review/no_hook drafts are editable", http.StatusConflict)
+			cur.Status != store.DraftAwaitingReview && cur.Status != store.DraftNeedsWork && cur.Status != store.DraftNoHook {
+			http.Error(w, "draft is "+cur.Status+" — only awaiting_review/needs_work/no_hook drafts are editable", http.StatusConflict)
 			return
 		}
 		// Re-run the deterministic voice flag on the edit (body only — the subject
-		// line's em dash is intentional). Non-blocking: it just refreshes the chips.
+		// line's em dash is intentional), plus the word-count check. Non-blocking:
+		// it just refreshes the chips.
 		findings := outreach.VoiceFindings(lintBody(body.Edited))
+		findings = append(findings, outreach.LengthFindings(body.Edited)...)
 		if findings == nil {
 			findings = []outreach.LintFinding{}
 		}

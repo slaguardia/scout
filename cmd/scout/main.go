@@ -450,7 +450,7 @@ func cmdServe(args []string) error {
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
 	reconcileInterval := fs.Duration("reconcile-interval", defaultReconcileInterval, "background interval to reconcile the cached criteria brief against the brain (keeps it consistent with no manual Refresh); 0 disables")
 	distillModel := fs.String("distill-model", defaultDistillModel, "Anthropic model for the once-per-run distiller (classify+synthesize)")
-	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
+	outreachModel := fs.String("outreach-model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty + judge)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -845,7 +845,7 @@ func cmdOutreachDraft(args []string) error {
 	fs := flag.NewFlagSet("outreach draft", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	posting := fs.String("posting", "", "job_postings.id to draft outreach for")
-	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty)")
+	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty + judge)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -904,6 +904,11 @@ func cmdOutreachDraft(args []string) error {
 	}
 	if out.Violations != "" && out.Violations != "null" {
 		fmt.Printf("violations: %s\n", out.Violations)
+	}
+	// The doctrine judge's verdict — present on every judged draft
+	// (awaiting_review, needs_work, and depth-failed alike).
+	if out.Critique != "" {
+		fmt.Printf("critique: %s\n", out.Critique)
 	}
 	if out.Lint != "" && out.Lint != "[]" {
 		fmt.Printf("lint: %s\n", out.Lint)

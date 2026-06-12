@@ -110,6 +110,42 @@ func (s *Server) handleOutreachTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// handleOutreachDoctrine edits the outreach writing doctrine, stored in the DB
+// (a singleton row) — a dashboard save can't clobber it and git never touches
+// it. GET returns the saved doctrine or the compiled-in default; the engine
+// re-reads at draft time, so there is no reload and no taste_version.
+func (s *Server) handleOutreachDoctrine(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		content, err := s.DB.GetOutreachDoctrine()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if content == "" {
+			content = outreach.DefaultDoctrine
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-doctrine", "content": content})
+
+	case http.MethodPut:
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.DB.PutOutreachDoctrine(body.Content); err != nil {
+			http.Error(w, "save outreach doctrine: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-doctrine", "content": body.Content})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleEditorFile(w http.ResponseWriter, r *http.Request, path, kind string) {
 	if path == "" {
 		http.Error(w, kind+" path not configured", http.StatusServiceUnavailable)

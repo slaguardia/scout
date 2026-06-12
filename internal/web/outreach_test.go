@@ -103,7 +103,7 @@ func TestOutreachDraftQueue(t *testing.T) {
 	}
 
 	// Pipeline finishes -> user edits (no lint in the template model).
-	if err := s.DB.SetOutreachDraftResult(d.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", ""); err != nil {
+	if err := s.DB.SetOutreachDraftResult(d.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	idStr := strconv.FormatInt(d.ID, 10)
@@ -271,10 +271,11 @@ func TestOutreachEndToEnd(t *testing.T) {
 	pid := seedOutreachReady(t, s, cid)
 
 	llm := fakeLLM(t, []string{
-		`{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80","role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x","source_url":"https://a.invalid","context":"c"}],"disambiguation":"","confidence":"high"}`,
+		`{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80","role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x","source_url":"https://a.invalid","context":"c"}],"thesis":"t","implication":"i","signals_read":["s"],"disambiguation":"","confidence":"high"}`,
 		`{"fills":{"hook":"You ship into customer environments, like my forward-deployed work."}}`,
 		`{"hook":"You ship into customer environments, like my forward-deployed work."}`,
 		`{"verdict":"pass","violations":[]}`,
+		`{"depth":"deep","proof_tier":"direct","weaknesses":[],"experience_gaps":"","feedback":""}`,
 	})
 	defer llm.Close()
 
@@ -322,6 +323,10 @@ func TestOutreachEndToEnd(t *testing.T) {
 			t.Fatalf("assembled draft missing %q:\n%s", want, d.Draft)
 		}
 	}
+	// The judge's critique rides the row to the panel.
+	if !strings.Contains(d.Critique, `"depth":"deep"`) {
+		t.Fatalf("critique not surfaced on the draft row: %q", d.Critique)
+	}
 
 	// Edit, then send.
 	idStr := strconv.FormatInt(d.ID, 10)
@@ -336,6 +341,85 @@ func TestOutreachEndToEnd(t *testing.T) {
 	rows, _ := s.DB.ListJobRows()
 	if rows[0].OutreachDraftStatus != store.DraftSent {
 		t.Fatalf("row badge status = %q", rows[0].OutreachDraftStatus)
+	}
+}
+
+// A needs_work draft is finished and reviewable: editable like awaiting_review
+// (just flagged by the judge), while a sent one stays locked.
+func TestOutreachNeedsWorkEditable(t *testing.T) {
+	s, cid := newTestServer(t)
+	s.Outreach = &fakeOutreachRunner{}
+	h := s.Handler()
+	pid := seedOutreachReady(t, s, cid)
+
+	rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start: want 202, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var started struct {
+		Draft store.OutreachDraft `json:"draft"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	critique := `{"depth":"medium","proof_tier":"adjacent","weaknesses":["thin hook"],"experience_gaps":"","attempts":2}`
+	if err := s.DB.SetOutreachDraftResult(started.Draft.ID, store.DraftNeedsWork, "{}", "", "flagged draft", "[]", "", critique, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	idStr := strconv.FormatInt(started.Draft.ID, 10)
+	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"my sharper rewrite"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("edit needs_work: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var d store.OutreachDraft
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Edited != "my sharper rewrite" || d.Critique != critique {
+		t.Fatalf("edited needs_work draft: %+v", d)
+	}
+	// And it is sendable, like any reviewable draft.
+	if rec := do(t, h, http.MethodPost, "/api/outreach/drafts/"+idStr+"/sent", ""); rec.Code != http.StatusOK {
+		t.Fatalf("send needs_work: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	// Sent now — locked.
+	if rec := do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"too late"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("edit sent: want 409, got %d", rec.Code)
+	}
+}
+
+// The doctrine editor endpoint: GET falls back to the compiled-in default, PUT
+// saves the singleton row, GET returns the save.
+func TestOutreachDoctrineEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+
+	rec := do(t, h, http.MethodGet, "/api/outreach-doctrine", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get: want 200, got %d", rec.Code)
+	}
+	var body struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Kind != "outreach-doctrine" || body.Content != outreach.DefaultDoctrine {
+		t.Fatalf("default get: kind=%q content len=%d", body.Kind, len(body.Content))
+	}
+
+	rec = do(t, h, http.MethodPut, "/api/outreach-doctrine", `{"content":"my doctrine"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	rec = do(t, h, http.MethodGet, "/api/outreach-doctrine", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Content != "my doctrine" {
+		t.Fatalf("get after put: %q", body.Content)
 	}
 }
 
@@ -360,7 +444,7 @@ func TestOutreachRegenerate(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DB.SetOutreachDraftResult(first.Draft.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", ""); err != nil {
+	if err := s.DB.SetOutreachDraftResult(first.Draft.ID, store.DraftAwaitingReview, "{}", "", "draft text", "[]", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 

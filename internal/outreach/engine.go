@@ -19,14 +19,16 @@ import (
 // row must never be left stuck in `researching`.
 //
 // The pipeline is: research the company (web) → fill the user's email template's
-// holes in one LLM call (using the cached brain knowledge bundle) → honesty-check
-// the filled holes against the user's experience → review queue. The engine reads
-// the local cache (template file + outreach_sources) at draft time, never the
-// brain (discovery/refresh is the only brain access, off the draft path).
+// holes in one LLM call (per the writing doctrine, using the cached brain
+// knowledge bundle) → honesty-check the filled holes against the user's
+// experience → judge the draft against the doctrine's depth bar → review queue.
+// The engine reads the local cache (template + doctrine + outreach_sources) at
+// draft time, never the brain (discovery/refresh is the only brain access, off
+// the draft path).
 type Engine struct {
 	DB     *store.DB
 	Client *anthropic.Client
-	Model  string // research + fill + honesty; empty → anthropic.DefaultModel
+	Model  string // research + fill + honesty + judge; empty → anthropic.DefaultModel
 	Log    func(string)
 
 	// HTTP is the client for the deterministic JD pre-fetch. Optional; a nil
@@ -41,12 +43,14 @@ type Engine struct {
 
 const (
 	// draftTimeout bounds one full pipeline run (research + fill + honesty +
-	// possible retry). Generous: the hosted web_search researcher can take a few
-	// minutes on its own.
+	// judge + possible retry). Generous: the hosted web_search researcher can
+	// take a few minutes on its own.
 	draftTimeout = 12 * time.Minute
-	// researcherMaxTokens covers the structured-facts JSON (hooks + quotes).
+	// researcherMaxTokens covers the structured-facts JSON (hooks + quotes +
+	// the thesis/implication/signals read).
 	researcherMaxTokens = 4000
-	// stageMaxTokens covers the smaller per-stage JSON outputs (fill, honesty).
+	// stageMaxTokens covers the smaller per-stage JSON outputs (fill, honesty,
+	// judge).
 	stageMaxTokens = 2000
 	// maxContinuations bounds pause_turn resumes of the hosted web_search
 	// server-side loop (per stage call); past it the partial output is used.
@@ -115,7 +119,7 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		}
 		if d, gErr := e.DB.GetOutreachDraft(draftID); gErr == nil && d != nil && d.Status == store.DraftResearching {
 			_ = e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
-				d.Research, d.Hook, d.Draft, d.Lint, d.Violations, err.Error())
+				d.Research, d.Hook, d.Draft, d.Lint, d.Violations, d.Critique, err.Error())
 		}
 	}()
 
@@ -151,6 +155,9 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		return err
 	}
 	voice := e.knowledge("voice") // soft
+	// The writing doctrine, loaded once and threaded to the fill (the method)
+	// and the judge (the rubric).
+	doctrine := DoctrineOrDefault(e.DB)
 
 	// The job description (no model). The capture pass stores the full
 	// description for ATS-resolved postings — using it keeps drafts working after
@@ -168,30 +175,36 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		return fmt.Errorf("researcher: %w", err)
 	}
 	if err := e.DB.SetOutreachDraftResult(draftID, store.DraftResearching,
-		research, "", "", "", "", ""); err != nil {
+		research, "", "", "", "", "", ""); err != nil {
 		return fmt.Errorf("save research: %w", err)
 	}
 
-	// 2-4. Fill the template's holes → honesty-check the filled spans → queue.
-	return e.fillRoute(ctx, draftID, research, tmpl, company, role, exp, voice)
+	// 2-5. Fill the template's holes → honesty-check the filled spans → judge
+	// against the doctrine → queue.
+	return e.fillRoute(ctx, draftID, research, tmpl, company, role, exp, voice, doctrine)
 }
 
 // fillRoute fills the template's holes in one call, honesty-checks the filled
-// spans against the experience bundle, and retries the fill once with the
-// violations fed back. A no-send signal from the fill (no honest hook) is the
-// refusal success path: no draft. A fully-static template (no holes) skips the
-// fill+honesty (its prose is the user's own, true by construction).
-func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, tmpl *Template, company, role, exp, voice string) error {
+// spans against the experience bundle, judges the assembled email against the
+// doctrine's depth bar, and retries the fill once with the combined feedback
+// fed back. A no-send signal from the fill (no honest hook) is the refusal
+// success path: no draft. A fully-static template (no holes) skips the
+// fill+honesty+judge (its prose is the user's own, true by construction).
+//
+// Final dispositions: honest + deep → awaiting_review; honest + medium →
+// needs_work (reviewable, flagged); honest + shallow → failed (below the depth
+// bar); dishonest twice → failed (honesty check failed twice).
+func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, tmpl *Template, company, role, exp, voice, doctrine string) error {
 	vars := map[string]string{"role": role, "company": company}
 	holes := tmpl.Holes(vars)
 	if len(holes) == 0 {
 		email := tmpl.Render(vars, nil)
-		return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, "[]", "", "")
+		return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, combinedLintJSON("", email), "", "", "")
 	}
 
-	var violationNote string
+	var feedback string
 	for attempt := 0; attempt < 2; attempt++ {
-		filled, noSend, err := e.fill(ctx, holes, research, exp, voice, violationNote)
+		filled, noSend, err := e.fill(ctx, holes, research, exp, voice, doctrine, feedback)
 		if err != nil {
 			return fmt.Errorf("fill: %w", err)
 		}
@@ -199,39 +212,72 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 			// "If you can't write even one true sentence for a company, don't
 			// email them." No draft, no fallback — a success path.
 			e.log("outreach: draft %d no_send — nothing honest to say, recommend not emailing", draftID)
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook, research, "", "", "", "", "")
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftNoHook, research, "", "", "", "", "", "")
 		}
 
 		// De-AI cleanup over the model-written holes (verbatim prose untouched),
-		// then a deterministic voice flag on whatever the humanizer leaves behind
-		// (LLM cleanup reintroduces patterns — the flag is the backstop).
+		// then the deterministic flags: voice on whatever the humanizer leaves
+		// behind (LLM cleanup reintroduces patterns — the flag is the backstop),
+		// word count on the rendered email.
 		filled = e.humanize(ctx, holes, filled, voice)
 		email := tmpl.Render(vars, filled)
 		holesText := concatFilled(holes, filled)
-		lint := voiceLintJSON(holesText)
+		lint := combinedLintJSON(holesText, email)
 
-		// Honesty check the FILLED HOLES (the LLM-authored spans). The verbatim
-		// template prose is the user's own words — true by construction — so it
-		// is not re-verified.
+		// Honesty check the FILLED HOLES (the LLM-authored spans — the verbatim
+		// template prose is the user's own words, true by construction), then
+		// judge the whole email against the doctrine. Integrity and quality are
+		// separate verdicts; both feed the one retry.
 		verdict, violations, err := e.honestyCheckText(ctx, exp, holesText)
 		if err != nil {
 			return fmt.Errorf("honesty checker: %w", err)
 		}
-		if verdict == "pass" {
-			e.log("outreach: draft %d honesty pass on attempt %d", draftID, attempt+1)
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, lint, "", "")
-		}
+		honest := verdict == "pass"
 
-		violJSON, _ := json.Marshal(violations)
-		e.log("outreach: draft %d honesty fail on attempt %d: %s", draftID, attempt+1, string(violJSON))
+		jv, err := e.judgeDraft(ctx, doctrine, research, exp, email, holes, filled)
+		if err != nil {
+			return fmt.Errorf("doctrine judge: %w", err)
+		}
+		critique := jv.critiqueJSON(attempt + 1)
+		e.log("outreach: draft %d attempt %d — honesty %s, depth %s, proof %s",
+			draftID, attempt+1, verdict, jv.Depth, jv.ProofTier)
+
+		if honest && jv.Depth == "deep" {
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, lint, "", critique, "")
+		}
 		if attempt == 0 {
-			violationNote = formatViolations(violations)
+			feedback = retryFeedback(violations, jv)
 			continue
 		}
+
+		// Second attempt still short — route by which gate failed.
+		if !honest {
+			violJSON, _ := json.Marshal(violations)
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
+				research, "", email, lint, string(violJSON), critique, "honesty check failed twice")
+		}
+		if jv.Depth == "medium" {
+			// Honest and decent but below the doctrine's bar: keep it reviewable,
+			// flagged — the user can still edit and send it.
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftNeedsWork, research, "", email, lint, "", critique, "")
+		}
 		return e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
-			research, "", email, lint, string(violJSON), "honesty check failed twice")
+			research, "", email, lint, "", critique, "below the depth bar — judged shallow twice")
 	}
 	return nil
+}
+
+// retryFeedback combines the honesty violations and the judge's rewrite
+// instructions into the one labeled feedback block the retry fill sees.
+func retryFeedback(violations []honestyViolation, jv judgeVerdict) string {
+	var parts []string
+	if len(violations) > 0 {
+		parts = append(parts, "A reviewer flagged these claims in your last fill — fix them without inventing anything:\n"+formatViolations(violations))
+	}
+	if jv.Depth != "deep" && strings.TrimSpace(jv.Feedback) != "" {
+		parts = append(parts, "A quality reviewer wants these changes:\n"+strings.TrimSpace(jv.Feedback))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // --- research ------------------------------------------------------------
@@ -262,25 +308,26 @@ func (e *Engine) research(ctx context.Context, company, jobURL string, jd JDResu
 // --- fill ----------------------------------------------------------------
 
 // fill writes every template hole in one call, using the research + experience +
-// voice. It returns the per-hole text, or noSend=true when a hole's instructions
-// say to refuse and there is no honest basis. violationNote, when set, is the
-// honesty-retry feedback.
-func (e *Engine) fill(ctx context.Context, holes []Hole, research, exp, voice, violationNote string) (map[string]string, bool, error) {
+// voice, with the writing doctrine spliced into its system prompt. It returns
+// the per-hole text, or noSend=true when a hole's instructions say to refuse
+// and there is no honest basis. feedback, when set, is the pre-labeled retry
+// feedback (honesty violations and/or the judge's rewrite instructions).
+func (e *Engine) fill(ctx context.Context, holes []Hole, research, exp, voice, doctrine, feedback string) (map[string]string, bool, error) {
 	var b strings.Builder
 	b.WriteString("HOLES to fill (name: instructions):\n")
 	for _, h := range holes {
 		fmt.Fprintf(&b, "- %s: %s\n", h.Name, h.Instr)
 	}
-	fmt.Fprintf(&b, "\nCOMPANY RESEARCH (JSON, true facts about the company):\n%s\n", research)
+	fmt.Fprintf(&b, "\nCOMPANY RESEARCH (JSON, true facts about the company plus the researcher's read):\n%s\n", research)
 	fmt.Fprintf(&b, "\nMY EXPERIENCE (the ONLY facts you may claim about me):\n%s\n", exp)
 	if voice != "" {
 		fmt.Fprintf(&b, "\nMY VOICE (write the holes like this):\n%s\n", voice)
 	}
-	if violationNote != "" {
-		fmt.Fprintf(&b, "\nA reviewer flagged these claims in your last fill — fix them without inventing anything:\n%s\n", violationNote)
+	if feedback != "" {
+		fmt.Fprintf(&b, "\nFEEDBACK on your last fill — address every point without inventing anything:\n%s\n", feedback)
 	}
 
-	raw, err := e.callJSON(ctx, fillSystem, b.String(), stageMaxTokens, nil)
+	raw, err := e.callJSON(ctx, buildFillSystem(doctrine), b.String(), stageMaxTokens, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -390,10 +437,12 @@ func (e *Engine) humanizeOnce(ctx context.Context, holes []Hole, filled map[stri
 	return result
 }
 
-// voiceLintJSON runs the deterministic voice flag over text and returns the
+// combinedLintJSON runs the deterministic flags — voice over the model-written
+// holes text, word count over the rendered email — and returns the combined
 // findings as a JSON array (never null, so the panel renders [] cleanly).
-func voiceLintJSON(text string) string {
-	f := VoiceFindings(text)
+func combinedLintJSON(holesText, email string) string {
+	f := VoiceFindings(holesText)
+	f = append(f, LengthFindings(email)...)
 	if f == nil {
 		f = []LintFinding{}
 	}
@@ -441,6 +490,77 @@ func formatViolations(vs []honestyViolation) string {
 		fmt.Fprintf(&b, "- %s (%s)\n", v.Claim, v.Why)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// --- judge ---------------------------------------------------------------
+
+// judgeVerdict is the doctrine judge's parsed output: the quality grade
+// (depth/proof tier), the per-span weaknesses, what missing experience would
+// have helped, and the rewrite instructions for a retry.
+type judgeVerdict struct {
+	Depth          string   `json:"depth"`
+	ProofTier      string   `json:"proof_tier"`
+	Weaknesses     []string `json:"weaknesses"`
+	ExperienceGaps string   `json:"experience_gaps"`
+	Feedback       string   `json:"feedback"`
+}
+
+// critiqueJSON marshals the verdict for the draft row's critique column —
+// everything the review card shows, plus how many attempts the draft took.
+// Feedback is deliberately omitted: it is retry steering, not review material.
+func (jv judgeVerdict) critiqueJSON(attempts int) string {
+	w := jv.Weaknesses
+	if w == nil {
+		w = []string{}
+	}
+	b, _ := json.Marshal(struct {
+		Depth          string   `json:"depth"`
+		ProofTier      string   `json:"proof_tier"`
+		Weaknesses     []string `json:"weaknesses"`
+		ExperienceGaps string   `json:"experience_gaps"`
+		Attempts       int      `json:"attempts"`
+	}{jv.Depth, jv.ProofTier, w, jv.ExperienceGaps, attempts})
+	return string(b)
+}
+
+// judgeDraft grades the assembled email against the doctrine's quality bar. It
+// is NOT the honesty checker (integrity is a separate gate): the judge answers
+// "is this email deep enough to send?" — depth, proof tier, the doctrine's
+// per-span tests. Unknown grades are an error, like a bad honesty verdict.
+func (e *Engine) judgeDraft(ctx context.Context, doctrine, research, exp, email string, holes []Hole, filled map[string]string) (judgeVerdict, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "WRITING DOCTRINE (the rubric):\n%s\n", doctrine)
+	fmt.Fprintf(&b, "\nCOMPANY RESEARCH (JSON):\n%s\n", research)
+	fmt.Fprintf(&b, "\nSENDER EXPERIENCE (the documented ground truth):\n%s\n", exp)
+	fmt.Fprintf(&b, "\nEMAIL (assembled, as it would be sent):\n%s\n", email)
+	b.WriteString("\nLLM-WRITTEN SPANS (apply the doctrine's tests to these only):\n")
+	for _, h := range holes {
+		fmt.Fprintf(&b, "- %s: %s\n", h.Name, filled[h.Name])
+	}
+
+	var jv judgeVerdict
+	raw, err := e.callJSON(ctx, judgeSystem, b.String(), stageMaxTokens, nil)
+	if err != nil {
+		return jv, err
+	}
+	cleaned, perr := extractJSONObject(raw)
+	if perr != nil {
+		return jv, fmt.Errorf("parse judge JSON: %w (raw=%q)", perr, trunc(raw, 200))
+	}
+	if err := json.Unmarshal([]byte(cleaned), &jv); err != nil {
+		return jv, fmt.Errorf("decode judge JSON: %w", err)
+	}
+	switch jv.Depth {
+	case "deep", "medium", "shallow":
+	default:
+		return jv, fmt.Errorf("judge returned unknown depth %q", jv.Depth)
+	}
+	switch jv.ProofTier {
+	case "direct", "adjacent", "standing", "none":
+	default:
+		return jv, fmt.Errorf("judge returned unknown proof_tier %q", jv.ProofTier)
+	}
+	return jv, nil
 }
 
 // --- shared LLM call with one JSON retry ---------------------------------

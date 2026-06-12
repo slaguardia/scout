@@ -288,7 +288,7 @@ func TestListJobRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
 	}
-	if err := db.SetOutreachDraftResult(d1.ID, DraftNoHook, "", "", "tpl", "[]", "", ""); err != nil {
+	if err := db.SetOutreachDraftResult(d1.ID, DraftNoHook, "", "", "tpl", "[]", "", "", ""); err != nil {
 		t.Fatalf("set draft result: %v", err)
 	}
 	rows, err = db.ListJobRows()
@@ -550,7 +550,7 @@ func TestRegenerateOutreachDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
 	}
-	if err := db.SetOutreachDraftResult(d1.ID, DraftAwaitingReview, "", "", "first body", "[]", "", ""); err != nil {
+	if err := db.SetOutreachDraftResult(d1.ID, DraftAwaitingReview, "", "", "first body", "[]", "", "", ""); err != nil {
 		t.Fatalf("set result: %v", err)
 	}
 
@@ -590,5 +590,48 @@ func TestRegenerateOutreachDraft(t *testing.T) {
 	// Regenerating while a draft is still researching is refused (in-flight).
 	if _, err := db.RegenerateOutreachDraft(p.ID); err == nil {
 		t.Fatal("RegenerateOutreachDraft during researching should conflict")
+	}
+}
+
+// needs_work is an ACTIVE status: it blocks a plain create (one reviewable
+// draft per posting) and is retired to superseded by a regenerate.
+func TestNeedsWorkIsActive(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+
+	d1, err := db.CreateOutreachDraft(p.ID)
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	critique := `{"depth":"medium","proof_tier":"adjacent","weaknesses":[],"experience_gaps":"","attempts":2}`
+	if err := db.SetOutreachDraftResult(d1.ID, DraftNeedsWork, "{}", "", "flagged body", "[]", "", critique, ""); err != nil {
+		t.Fatalf("set result: %v", err)
+	}
+	got, err := db.GetOutreachDraft(d1.ID)
+	if err != nil || got.Critique != critique {
+		t.Fatalf("critique round-trip: %q err=%v", got.Critique, err)
+	}
+
+	if _, err := db.CreateOutreachDraft(p.ID); err == nil {
+		t.Fatal("CreateOutreachDraft over a needs_work draft should conflict")
+	}
+
+	d2, err := db.RegenerateOutreachDraft(p.ID)
+	if err != nil {
+		t.Fatalf("regenerate: %v", err)
+	}
+	if d2.ID == d1.ID || d2.Status != DraftResearching {
+		t.Fatalf("regenerate returned %+v, want a new researching draft", d2)
+	}
+	old, err := db.GetOutreachDraft(d1.ID)
+	if err != nil || old.Status != DraftSuperseded {
+		t.Fatalf("needs_work draft after regenerate = %+v err=%v, want superseded", old, err)
 	}
 }

@@ -6,22 +6,27 @@ import (
 )
 
 // Outreach draft statuses. Terminal: sent, failed, superseded. Active (at most
-// one per posting): researching, awaiting_review, no_hook.
+// one per posting): researching, awaiting_review, needs_work, no_hook.
 const (
 	DraftResearching    = "researching"
 	DraftAwaitingReview = "awaiting_review"
-	DraftNoHook         = "no_hook"
-	DraftSent           = "sent"
-	DraftFailed         = "failed"
-	// DraftSuperseded is an awaiting_review/no_hook draft retired by a
-	// regenerate: kept in history (the user can still read it) but no longer
+	// DraftNeedsWork is a finished draft the doctrine judge rated below the
+	// depth bar — reviewable/editable/sendable like awaiting_review, but
+	// flagged so the user knows the judge wanted more.
+	DraftNeedsWork = "needs_work"
+	DraftNoHook    = "no_hook"
+	DraftSent      = "sent"
+	DraftFailed    = "failed"
+	// DraftSuperseded is an awaiting_review/needs_work/no_hook draft retired by
+	// a regenerate: kept in history (the user can still read it) but no longer
 	// active, so a fresh draft can take its place.
 	DraftSuperseded = "superseded"
 )
 
 // OutreachDraft is one pipeline run against a posting. Draft is what the
 // pipeline assembled; Edited (when non-empty) is the user's revision and wins.
-// Research/Hook/Lint/Violations carry stage outputs as JSON for the panel.
+// Research/Hook/Lint/Violations/Critique carry stage outputs as JSON for the
+// panel (Critique is the doctrine judge's verdict).
 type OutreachDraft struct {
 	ID         int64  `json:"id"`
 	PostingID  string `json:"posting_id"`
@@ -32,6 +37,7 @@ type OutreachDraft struct {
 	Edited     string `json:"edited"`
 	Lint       string `json:"lint"`
 	Violations string `json:"violations"`
+	Critique   string `json:"critique"`
 	FailReason string `json:"fail_reason"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
@@ -39,12 +45,12 @@ type OutreachDraft struct {
 }
 
 const draftCols = `id, posting_id, status, research, hook, draft, edited, lint,
-violations, fail_reason, created_at, updated_at, COALESCE(sent_at, '')`
+violations, critique, fail_reason, created_at, updated_at, COALESCE(sent_at, '')`
 
 func scanDraft(row interface{ Scan(...any) error }) (*OutreachDraft, error) {
 	var d OutreachDraft
 	err := row.Scan(&d.ID, &d.PostingID, &d.Status, &d.Research, &d.Hook, &d.Draft,
-		&d.Edited, &d.Lint, &d.Violations, &d.FailReason, &d.CreatedAt, &d.UpdatedAt, &d.SentAt)
+		&d.Edited, &d.Lint, &d.Violations, &d.Critique, &d.FailReason, &d.CreatedAt, &d.UpdatedAt, &d.SentAt)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +77,8 @@ func (db *DB) CreateOutreachDraft(postingID string) (*OutreachDraft, error) {
 
 	var active int
 	err = tx.QueryRow(`SELECT COUNT(1) FROM outreach_drafts
-WHERE posting_id = ? AND status IN (?, ?, ?)`,
-		postingID, DraftResearching, DraftAwaitingReview, DraftNoHook).Scan(&active)
+WHERE posting_id = ? AND status IN (?, ?, ?, ?)`,
+		postingID, DraftResearching, DraftAwaitingReview, DraftNeedsWork, DraftNoHook).Scan(&active)
 	if err != nil {
 		return nil, err
 	}
@@ -87,10 +93,11 @@ WHERE posting_id = ? AND status IN (?, ?, ?)`,
 	return d, tx.Commit()
 }
 
-// RegenerateOutreachDraft retires the posting's current awaiting_review/no_hook
-// draft (→ superseded, kept in history) and starts a fresh one — the way to
-// re-draft after backfilling experience/template/company info. It refuses while
-// a draft is still researching (that run is pipeline-owned and in flight).
+// RegenerateOutreachDraft retires the posting's current awaiting_review/
+// needs_work/no_hook draft (→ superseded, kept in history) and starts a fresh
+// one — the way to re-draft after backfilling experience/template/company info.
+// It refuses while a draft is still researching (that run is pipeline-owned and
+// in flight).
 func (db *DB) RegenerateOutreachDraft(postingID string) (*OutreachDraft, error) {
 	tx, err := db.Begin()
 	if err != nil {
@@ -116,8 +123,8 @@ WHERE posting_id = ? AND status = ?`, postingID, DraftResearching).Scan(&researc
 	}
 
 	if _, err := tx.Exec(`UPDATE outreach_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
-WHERE posting_id = ? AND status IN (?, ?)`,
-		DraftSuperseded, postingID, DraftAwaitingReview, DraftNoHook); err != nil {
+WHERE posting_id = ? AND status IN (?, ?, ?)`,
+		DraftSuperseded, postingID, DraftAwaitingReview, DraftNeedsWork, DraftNoHook); err != nil {
 		return nil, err
 	}
 
@@ -172,11 +179,11 @@ WHERE posting_id = ? ORDER BY id DESC`, postingID)
 
 // SetOutreachDraftResult records a pipeline outcome: the new status plus any
 // stage outputs. Empty strings overwrite (stages own their fields).
-func (db *DB) SetOutreachDraftResult(id int64, status, research, hook, draft, lint, violations, failReason string) error {
+func (db *DB) SetOutreachDraftResult(id int64, status, research, hook, draft, lint, violations, critique, failReason string) error {
 	res, err := db.Exec(`UPDATE outreach_drafts SET
 status = ?, research = ?, hook = ?, draft = ?, lint = ?, violations = ?,
-fail_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		status, research, hook, draft, lint, violations, failReason, id)
+critique = ?, fail_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		status, research, hook, draft, lint, violations, critique, failReason, id)
 	if err != nil {
 		return err
 	}

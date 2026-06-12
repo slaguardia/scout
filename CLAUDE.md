@@ -94,27 +94,39 @@ canonical port defeats that safety net — don't.
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
-- **Outreach pipeline, redesigned (template model, 2026-06-08):**
-  `docs/outreach-agent.md` is the spec. The old opinionated block taxonomy
-  (`P2_LOCKED`/`HOOK_RULES`/`EXPERIENCE_CARD`/… + manual pins + the 5-agent
-  chain) is **gone**. Three inputs now: a scout-local **email template**
-  (`outreach-template.md`, committed sanitized example, edited like
-  taste/playbook — the email *format*: verbatim prose + `{{var}}` substitutions +
-  `{{name: instructions}}` holes); **brain knowledge** (experience + voice),
-  *discovered* not pinned; and **company research** (web). **Discovery**
+- **Outreach pipeline, redesigned (template model 2026-06-08; doctrine
+  amendment 2026-06-11):** `docs/outreach-agent.md` is the spec;
+  `docs/cold-outreach-doctrine.md` is the method's source document. The old
+  opinionated block taxonomy (`P2_LOCKED`/`HOOK_RULES`/`EXPERIENCE_CARD`/… +
+  manual pins + the 5-agent chain) is **gone**. Four inputs now: a scout-local
+  **email template** (DB singleton, compiled-in default, edited in the UI — the
+  email *format*: verbatim prose + `{{var}}` substitutions + `{{name:
+  instructions}}` holes; default = hook/proof/closer, the doctrine's
+  3-paragraph shape); a scout-local **outreach doctrine** (DB singleton, default
+  embedded from `internal/outreach/doctrine_default.md`, `GET/PUT
+  /api/outreach-doctrine` — the writing *method*: depth ladder,
+  show-don't-tell, kill list; spliced into the fill + judge prompts);
+  **brain knowledge** (experience + voice), *discovered* not pinned; and
+  **company research** (web). **Discovery**
   (`internal/outreach/discover.go`): Haiku over the brain `/map` selects pages
   per fixed knowledge-need (experience HARD, voice soft), whole-fetched via
   `/doc` and cached in `outreach_sources` (M35); fail-loud `ErrNoExperience`
   when experience comes back empty; UI shows the picks with Refresh + remove.
   The **engine** (`internal/outreach`, Sonnet): JD pre-fetch → researcher
-  (`web_search`) → **one fill call** (writes the holes against research +
-  experience + voice; a no-send signal = refusal, a success path) → **honesty
-  check on the filled holes** against the complete experience bundle (one retry).
-  Verbatim template prose is true by construction. The jobs panel is the review
-  queue (edit, mark-sent bumps tracking); fire-and-forget. CLI: `scout outreach
-  sources [--refresh] | draft`. Engine wires into serve when
-  `ANTHROPIC_API_KEY` is set. Go-live gate: ingest the guidance pages into the
-  brain, then Refresh sources + localize the template.
+  (`web_search`; facts **plus interpretation** — thesis/implication/
+  signals_read) → **one fill call** (writes the holes against research +
+  experience + voice, doctrine-guided; the **proof gradient** — direct /
+  openly-adjacent / standing-creds, strongest honest tier; a no-send signal =
+  refusal, a success path) → humanize → **honesty check on the filled holes**
+  against the complete experience bundle → **doctrine judge** (depth gate:
+  deep ships; medium after the shared retry → `needs_work`, flagged but
+  editable; shallow → failed "below the depth bar"; critique JSON — depth,
+  proof tier, weaknesses, experience gaps — stored on every finished draft and
+  rendered on the card). Verbatim template prose is true by construction. The
+  jobs panel is the review queue (edit, mark-sent bumps tracking);
+  fire-and-forget. CLI: `scout outreach sources [--refresh] | draft`. Engine
+  wires into serve when `ANTHROPIC_API_KEY` is set. Go-live gate: ingest the
+  guidance pages into the brain, then Refresh sources + localize the template.
 - **Application answers, built:** `docs/application-answers.md` is the spec; it
   reuses the outreach engine. **Detection** runs at capture time
   (`internal/capture/questions.go`) via per-platform resolvers — Greenhouse
@@ -142,8 +154,9 @@ canonical port defeats that safety net — don't.
 **Outreach go-live:** ingest the experience + voice pages into the brain, then
 **Refresh sources** (Criteria → outreach knowledge; or `scout outreach sources
 --refresh`) so discovery caches the experience bundle, and **localize the
-template** (`outreach-template.md` — your real name, sign-off, and the verbatim
-credential paragraph). Then run the first real draft via `scout outreach draft
+template** (Criteria → email template editor — your real name, sign-off, and
+any verbatim prose you want in every email; it's a DB row, never committed).
+Then run the first real draft via `scout outreach draft
 --posting <id>`. The same experience bundle also unblocks
 **application-answer generation** (shared gate). Also still pending: a
 real **Crunchbase CSV run** end-to-end
