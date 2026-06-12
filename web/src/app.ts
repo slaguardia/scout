@@ -240,15 +240,10 @@ function renderColToggles() {
   });
 }
 
-function renderList() {
-  const tbody = document.querySelector("#t tbody");
-  tbody.innerHTML = "";
-  const rows = sortRows(filtered());
-  document.getElementById("empty").style.display = rows.length ? "none" : "block";
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    tr.dataset.id = r.company_id;
-    tr.innerHTML = `
+// companyRowCells is the single source of truth for a company row's innards,
+// shared by the full render and the in-place targeted patch.
+function companyRowCells(r) {
+  return `
       <td class="td-flag" data-col="flag"><button class="flag-btn${r.flagged ? " is-on" : ""}" data-id="${r.company_id}" title="${r.flagged ? "unflag" : "flag"}">${FLAG_SVG}</button></td>
       <td data-col="verdict"><span class="${pillClass(r.verdict)}">${escapeHTML(r.verdict || "—")}</span></td>
       <td><span class="row-name" data-id="${r.company_id}">${escapeHTML(r.name)}</span></td>
@@ -260,21 +255,62 @@ function renderList() {
       <td data-col="reviewed" class="muted" title="${escapeHTML(r.reviewed_at || "never reviewed")}">${r.reviewed_at ? escapeHTML(r.reviewed_at.slice(0, 10)) : "—"}</td>
       <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
     `;
-    tbody.appendChild(tr);
-  }
-  applyColumnVisibility();
-  // The whole row opens the detail pane; clicks on the "about ↗" link or the
-  // flag button do their own thing instead (closest() guards them). Rows are
-  // recreated each render, so these listeners don't stack.
-  tbody.querySelectorAll("tr").forEach(tr => {
+}
+
+// bindCompanyRow wires the flag button. The row-open click lives on the <tr>
+// itself (set once at create), so it survives an innerHTML swap and is NOT
+// re-added here — only the flag button, which is a replaced child.
+function bindCompanyRow(tr) {
+  const b = tr.querySelector(".flag-btn");
+  if (b) b.addEventListener("click", () => onToggleFlag(b.dataset.id));
+}
+
+function renderList() {
+  const tbody = document.querySelector("#t tbody");
+  tbody.innerHTML = "";
+  const rows = sortRows(filtered());
+  document.getElementById("empty").style.display = rows.length ? "none" : "block";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = r.company_id;
+    tr.innerHTML = companyRowCells(r);
+    // The whole row opens the detail pane; clicks on the "about ↗" link or the
+    // flag button do their own thing instead (closest() guards them).
     tr.addEventListener("click", e => {
       if (e.target.closest("a, .flag-btn")) return;
       openDetail(tr.dataset.id);
     });
-  });
-  tbody.querySelectorAll(".flag-btn").forEach(b => {
-    b.addEventListener("click", () => onToggleFlag(b.dataset.id));
-  });
+    tbody.appendChild(tr);
+    bindCompanyRow(tr);
+  }
+  applyColumnVisibility();
+}
+
+// updateCompanyRows refetches the list and patches only the given rows in
+// place — no tbody wipe, so the table doesn't flash on a targeted re-score with
+// the side panel open. Falls back to a full renderList if the visible set or
+// order would change (e.g. a new verdict re-sorts the table, or a company drops
+// out of the active filter), so we never leave a stale or missing row.
+async function updateCompanyRows(ids) {
+  const r = await fetch("/api/companies");
+  const data = await r.json();
+  state.rows = data.rows || [];
+
+  const tbody = document.querySelector("#t tbody");
+  const want = sortRows(filtered()).map(x => x.company_id);
+  const have = [...tbody.querySelectorAll("tr")].map(tr => tr.dataset.id);
+  if (want.length !== have.length || want.some((id, i) => id !== have[i])) {
+    renderList();
+    return;
+  }
+  for (const id of ids) {
+    const fresh = state.rows.find(x => x.company_id === id);
+    const tr = tbody.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+    if (!fresh || !tr) { renderList(); return; }
+    tr.innerHTML = companyRowCells(fresh);
+    bindCompanyRow(tr);
+  }
+  applyColumnVisibility();
 }
 
 // ---- jobs view ----
@@ -2253,7 +2289,7 @@ async function startRun(stage, opts) {
   if (resp.status === 412) { const t = await resp.text(); toast(t.trim()); return; }
   if (!resp.ok) { toast(`run failed: HTTP ${resp.status}`); return; }
   const { job_id } = await resp.json();
-  streamJob(stage, job_id);
+  streamJob(stage, job_id, opts);
 }
 
 async function uploadCSV(file) {
@@ -2463,7 +2499,7 @@ async function submitAdd() {
   }
 }
 
-function streamJob(stage, jobId) {
+function streamJob(stage, jobId, opts) {
   activeJob = jobId;
   const drawer = document.getElementById("drawer");
   const log = document.getElementById("drawer-log");
@@ -2495,8 +2531,18 @@ function streamJob(stage, jobId) {
     document.getElementById("drawer-cancel").style.display = "none";
     document.getElementById("drawer-close").style.display = "";
     toast(`${stage} ${e.data}`);
-    // Refresh everything the run could have changed.
-    loadList(); loadStats(); loadRuns(); loadJobs();
+    // Refresh what the run could have changed. A targeted run (the open pane's
+    // "↻ re-score" / "re-enrich", which pass company_ids) patches just those
+    // rows in place — a full loadList() wipes and rebuilds the whole table,
+    // which flashes the screen behind the open side panel. A bulk run can touch
+    // any row, so it still does the full refresh.
+    const targeted = opts && Array.isArray(opts.company_ids) && opts.company_ids.length > 0;
+    if (targeted) {
+      updateCompanyRows(opts.company_ids);
+    } else {
+      loadList();
+    }
+    loadStats(); loadRuns(); loadJobs();
     if (state.openId) openDetail(state.openId); // open pane: show fresh enrichment/verdict
   });
   es.onerror = () => { es.close(); }; // server closed or network; 'end' usually fired first

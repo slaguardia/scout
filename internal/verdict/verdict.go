@@ -40,9 +40,11 @@ type Scorer struct {
 	// CompanyIDs limits the run to exactly these companies and always
 	// re-scores them — a targeted run is an explicit ask, so up-to-date and
 	// even manual verdicts are overwritten. Overrides Force and OnlyBlanks.
-	// Filter and enrichment eligibility still apply: a company that doesn't
-	// survive the static filter or lacks an 'ok' enrichment row is reported,
-	// not scored.
+	// The explicit ask also bypasses the static taste filter: a company you
+	// point at by id is scored even if it wouldn't survive the bulk pre-filter
+	// (e.g. an excluded-vertical substring false-positive). Only enrichment
+	// eligibility still applies — a company lacking an 'ok' row is reported,
+	// not scored, since there's no fetched text to reason over.
 	CompanyIDs []string
 
 	// Playbook is the agent's operating manual (how to decide) — distinct from
@@ -156,33 +158,48 @@ func (s *Scorer) Run(ctx context.Context) (*Result, error) {
 	return res, nil
 }
 
-// candidates: companies that survive the static SQL filter AND have an 'ok' enrichment row.
+// candidates returns the companies to score, each paired with its 'ok'
+// enrichment summary. A bulk run scores everything that survives the static
+// taste filter; a targeted run scores exactly the requested companies and
+// bypasses the filter entirely — an explicit re-score is a deliberate ask, and
+// taste.toml is only a cheap bulk pre-filter to save LLM cost, not a veto on a
+// company you've pointed at by id. Enrichment eligibility ('ok' row) still
+// applies in both cases: with no fetched text there's nothing to reason over.
 func (s *Scorer) candidates() ([]store.VerdictCandidate, error) {
-	fres, err := s.Filter.Apply(s.DB)
-	if err != nil {
-		return nil, err
-	}
-	if len(fres.Survivors) == 0 {
-		return nil, nil
-	}
-	// Targeted run: keep only the requested IDs, and say why anything asked
-	// for is missing — a silent zero-company run reads as a bug.
 	wanted := make(map[string]bool, len(s.CompanyIDs))
 	for _, id := range s.CompanyIDs {
 		wanted[id] = true
 	}
 
-	ids := make([]string, 0, len(fres.Survivors))
-	byID := make(map[string]filter.Survivor, len(fres.Survivors))
-	for _, sv := range fres.Survivors {
-		if len(wanted) > 0 && !wanted[sv.ID] {
-			continue
+	var ids []string
+	var byID map[string]filter.Survivor
+
+	if len(wanted) > 0 {
+		// Targeted: load the requested companies straight from the table,
+		// skipping the static filter. Say why anything asked for is missing — a
+		// silent zero-company run reads as a bug.
+		svs, err := s.requestedCompanies(s.CompanyIDs)
+		if err != nil {
+			return nil, err
 		}
-		ids = append(ids, sv.ID)
-		byID[sv.ID] = sv
-	}
-	if len(wanted) > 0 && len(ids) < len(wanted) {
-		s.emit(fmt.Sprintf("targeted: %d of %d requested companies survive the static filter", len(ids), len(wanted)))
+		byID = make(map[string]filter.Survivor, len(svs))
+		for _, sv := range svs {
+			ids = append(ids, sv.ID)
+			byID[sv.ID] = sv
+		}
+		if len(ids) < len(wanted) {
+			s.emit(fmt.Sprintf("targeted: %d of %d requested companies exist", len(ids), len(wanted)))
+		}
+	} else {
+		fres, err := s.Filter.Apply(s.DB)
+		if err != nil {
+			return nil, err
+		}
+		byID = make(map[string]filter.Survivor, len(fres.Survivors))
+		for _, sv := range fres.Survivors {
+			ids = append(ids, sv.ID)
+			byID[sv.ID] = sv
+		}
 	}
 	if len(ids) == 0 {
 		return nil, nil
@@ -220,6 +237,33 @@ WHERE fetch_status = 'ok' AND company_id IN `, ids)
 	}
 	if len(wanted) > 0 && len(out) < len(ids) {
 		s.emit(fmt.Sprintf("targeted: %d of %d requested companies have an ok enrichment row", len(out), len(ids)))
+	}
+	return out, rows.Err()
+}
+
+// requestedCompanies loads the given companies as filter.Survivor projections,
+// bypassing the static taste filter — used only by targeted runs, where the
+// explicit ask overrides the bulk pre-filter. The SELECT mirrors
+// filter.Taste.Apply so the user prompt is built from identical fields. IDs
+// with no matching row are simply absent (the caller reports the shortfall).
+func (s *Scorer) requestedCompanies(idList []string) ([]filter.Survivor, error) {
+	q, args := buildInQuery(`
+SELECT id, name, COALESCE(domain,''), COALESCE(location,''), COALESCE(vertical,''),
+       COALESCE(headcount, 0), COALESCE(funding_stage,'')
+FROM companies WHERE id IN `, idList)
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []filter.Survivor
+	for rows.Next() {
+		var sv filter.Survivor
+		if err := rows.Scan(&sv.ID, &sv.Name, &sv.Domain, &sv.Location, &sv.Vertical, &sv.Headcount, &sv.Stage); err != nil {
+			return nil, err
+		}
+		out = append(out, sv)
 	}
 	return out, rows.Err()
 }
