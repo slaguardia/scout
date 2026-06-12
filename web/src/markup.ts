@@ -318,12 +318,97 @@ export const SCOUT_MARKUP = `
         <h2>Settings</h2>
         <div class="modal-head-sub">What scout uses to judge companies and write your outreach.</div>
       </div>
+      <button class="help-btn" id="help-settings" title="how do these pieces fit together?" aria-label="how it fits together">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.9.5-.9 1.1v.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>
+      </button>
     </div>
     <div class="modal-body">
       <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="settings-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- system map — the "how do these fit together" diagram, opened from the ? in
+     the Settings head. Two lanes (judging companies | writing outreach), both fed
+     by the brain at the top; the amber chips on the arrows are the scout-local
+     config the user edits in the Settings cards. -->
+<div class="modal-scrim" id="sysmap-scrim">
+  <div class="modal modal-sysmap">
+    <div class="modal-head">
+      <div class="modal-head-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="1.6" width="5.6" height="3.4" rx="1"/><rect x="1.4" y="11" width="5.6" height="3.4" rx="1"/><rect x="9" y="11" width="5.6" height="3.4" rx="1"/><path d="M8 5v2.2M8 7.2H4.2V11M8 7.2h3.6V11"/></svg>
+      </div>
+      <div class="modal-head-text">
+        <h2>How it fits together</h2>
+        <div class="modal-head-sub">The brain owns your knowledge; scout brings the intelligence. Every card in Settings is one piece of this picture.</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="sysmap">
+        <div class="sm-node sm-brain sm-span">
+          <div class="sm-name">the brain</div>
+          <div class="sm-desc">Who you are, what you want, what you've done — your knowledge, kept in a separate service. scout reads it over HTTP and never writes back.</div>
+        </div>
+        <div class="sm-lane-h">judging companies</div>
+        <div class="sm-lane-h">writing outreach</div>
+        <div class="sm-arrow"><span class="sm-label">recall — fit-relevant excerpts</span></div>
+        <div class="sm-arrow"><span class="sm-label">map + doc — whole pages</span></div>
+        <div class="sm-node sm-llm">
+          <div class="sm-name">distill</div>
+          <div class="sm-desc">An LLM condenses the excerpts into one brief — company signal only; role and career noise is quarantined.</div>
+        </div>
+        <div class="sm-node sm-llm">
+          <div class="sm-name">discover</div>
+          <div class="sm-desc">An LLM picks your experience and voice pages off the brain's map; they're fetched whole and cached.</div>
+        </div>
+        <div class="sm-arrow"></div>
+        <div class="sm-arrow"></div>
+        <div class="sm-node sm-brainy">
+          <div class="sm-name">company-fit brief</div>
+          <div class="sm-desc">The criteria the verdict stage reads — cached locally. If the brain is unreachable, taste.md stands in.</div>
+        </div>
+        <div class="sm-node sm-brainy">
+          <div class="sm-name">outreach knowledge</div>
+          <div class="sm-desc">Your experience + voice — the ground truth every draft is honesty-checked against.</div>
+        </div>
+        <div class="sm-arrow"><span class="sm-label sm-cfg">+ playbook — how to judge</span></div>
+        <div class="sm-arrow"><span class="sm-label sm-cfg">+ email template · outreach doctrine</span></div>
+        <div class="sm-node sm-llm">
+          <div class="sm-name">verdict engine</div>
+          <div class="sm-desc">One LLM call per company: the brief + playbook against the company's data and fetched site text.</div>
+        </div>
+        <div class="sm-node sm-llm">
+          <div class="sm-name">outreach engine</div>
+          <div class="sm-desc">Company research, then fill the template's holes, honesty-check, doctrine judge. The same knowledge also drafts application answers.</div>
+        </div>
+        <div class="sm-arrow"></div>
+        <div class="sm-arrow"></div>
+        <div class="sm-node sm-out">
+          <div class="sm-name">verdicts — yes / maybe / no</div>
+          <div class="sm-desc">In the companies table, each with its one-line reason. Re-scoring is always explicit.</div>
+        </div>
+        <div class="sm-node sm-out">
+          <div class="sm-name">drafts — emails + answers</div>
+          <div class="sm-desc">Land in the jobs panel for review. Always editable; nothing sends itself.</div>
+        </div>
+      </div>
+      <div class="sm-legend">
+        <span><i class="sm-dot dot-brain"></i>from the brain — read-only</span>
+        <span><i class="sm-dot dot-llm"></i>scout's LLM stages</span>
+        <span><i class="sm-dot dot-cfg"></i>scout config — edit it here</span>
+        <span><i class="sm-dot dot-out"></i>what you get</span>
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>The flow is one-way: scout reads the brain, reasons locally, and keeps every result in its own database. Nothing on this map ever writes to the brain.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="sysmap-docs">Open the full docs</button>
+      <button class="btn btn-primary" id="sysmap-close">Close</button>
     </div>
   </div>
 </div>
@@ -627,7 +712,7 @@ JSON must have exactly two fields:
 <span class="c">   ← the full text of playbook.md (or a built-in rubric)</span>
 
 <span class="c">--- TASTE (what the user wants) ---</span>
-<span class="c">   ← your criteria: the brain's profile, or taste.md offline</span></pre>
+<span class="c">   ← your criteria: the company-fit brief, or taste.md offline</span></pre>
 
           <h4>The user prompt (one per company)</h4>
           <p>The company's own data is sent as the user message — only the fields that exist are included:</p>
@@ -641,7 +726,7 @@ Return the JSON verdict now.</pre>
 
           <h4>Where the brain comes in</h4>
           <ul>
-            <li><strong>Your criteria</strong> come from the brain's profile — structured facts carrying a polarity (positive/negative) and strength (hard/soft), rendered into a grouped criteria block: hard facts are gates (requirements/dealbreakers), soft facts are weights, and neutral facts are context. If the brain is down or empty, scout falls back to <code>taste.md</code>.</li>
+            <li><strong>Your criteria</strong> are the <strong>company-fit brief</strong> — an LLM distills the brain's fit-relevant pages into one prose brief (hard dealbreakers / strong preferences / context), cached locally and re-distilled on demand from the Settings panel. If the brain is unreachable and the cache is gone, scout falls back to <code>taste.md</code>.</li>
             <li><strong>No per-company lookup.</strong> Scout reads the brain once for your criteria — it never queries the brain per company. A brain miss is logged and ignored; the verdict still runs on the local fallback.</li>
           </ul>
 

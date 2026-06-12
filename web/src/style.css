@@ -1575,6 +1575,16 @@
   }
   aside.sidebar h3 .help-btn:hover { color: var(--link); background: var(--panel); }
   aside.sidebar h3 .help-btn svg { width: 13px; height: 13px; opacity: 1; }
+  /* the same "?" in a modal head (Settings → system map) gets a touch more size */
+  .modal-head .help-btn {
+    flex: none; align-self: flex-start;
+    background: none; border: none; cursor: pointer; padding: 3px;
+    color: var(--fg-dim); display: inline-flex; align-items: center;
+    border-radius: var(--r-sm);
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .modal-head .help-btn:hover { color: var(--link); background: var(--panel); }
+  .modal-head .help-btn svg { width: 16px; height: 16px; }
   /* help modal: a short list of what each section's buttons do, with doc links */
   .help-intro { margin: 0 0 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
   .help-item { padding: 12px 0; border-top: 1px solid var(--line); }
@@ -1586,6 +1596,71 @@
     display: inline-flex; align-items: center; gap: 4px;
   }
   .help-link:hover { text-decoration: underline; }
+
+  /* ---------------------------------------------------------------------------
+     System map ("how it fits together") — a two-lane flow diagram opened from
+     the ? in the Settings head. Pure CSS grid: nodes are cards, arrows are a
+     vertical line + arrowhead drawn with pseudo-elements; a label chip sits on
+     the line and masks it. Node tints say ownership and mirror the Settings
+     groups: purple = from the brain, blue = scout's LLM stages, amber = the
+     editable scout config, green = outputs.
+  --------------------------------------------------------------------------- */
+  .modal-sysmap { width: 800px; }
+  .sysmap { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .sm-span { grid-column: 1 / -1; }
+  .sm-node {
+    padding: 10px 13px; border-radius: var(--r-md);
+    background: var(--bg); border: 1px solid var(--line-2);
+  }
+  .sm-node .sm-name { font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .sm-node .sm-desc { margin-top: 3px; font-size: 11.5px; color: var(--fg-mute); line-height: 1.5; }
+  .sm-brain, .sm-brainy { border-color: rgba(139, 109, 255, 0.45); background: rgba(139, 109, 255, 0.07); }
+  .sm-brain .sm-name, .sm-brainy .sm-name { color: var(--accent); }
+  .sm-brain { text-align: center; }
+  .sm-llm { border-color: rgba(122, 169, 255, 0.4); background: rgba(122, 169, 255, 0.06); }
+  .sm-llm .sm-name { color: var(--link); }
+  .sm-out { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.06); }
+  .sm-out .sm-name { color: var(--yes); }
+  .sm-lane-h {
+    margin-top: 12px; text-align: center;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--fg-dim);
+  }
+  /* an arrow cell: full-height center line, arrowhead at the bottom, and an
+     optional label chip riding the line */
+  .sm-arrow {
+    position: relative; min-height: 26px;
+    display: flex; align-items: center; justify-content: center; padding: 5px 0;
+  }
+  .sm-arrow::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 1.5px; margin-left: -0.75px; background: var(--line-2);
+  }
+  .sm-arrow::after {
+    content: ""; position: absolute; bottom: -1px; left: 50%;
+    transform: translateX(-50%);
+    border: 4.5px solid transparent; border-bottom: none;
+    border-top: 6px solid var(--line-2);
+  }
+  .sm-label {
+    position: relative; z-index: 1;
+    padding: 2.5px 9px; border-radius: 999px;
+    font-size: 11px; color: var(--fg-dim);
+    background: var(--bg-2); border: 1px solid var(--line);
+    text-align: center; line-height: 1.4;
+  }
+  .sm-label.sm-cfg { color: var(--maybe); background: var(--bg-2); border-color: rgba(245, 185, 66, 0.5); }
+  .sm-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 16px;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+    font-size: 11.5px; color: var(--fg-mute);
+  }
+  .sm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sm-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .sm-dot.dot-brain { background: var(--accent); }
+  .sm-dot.dot-llm { background: var(--link); }
+  .sm-dot.dot-cfg { background: var(--maybe); }
+  .sm-dot.dot-out { background: var(--yes); }
 
   /* ---------------------------------------------------------------------------
      Chat — one slide-in pane shared by the global tracking chat and the

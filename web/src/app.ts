@@ -2713,6 +2713,7 @@ document.addEventListener("keydown", e => {
   // Chat sits on top of whatever opened it (a pane or the global view) — peel it first.
   if (document.getElementById("chat-pane").classList.contains("open")) { closeChat(); return; }
   if (docsOpen()) { closeDocs(); return; }
+  if (document.getElementById("sysmap-scrim").classList.contains("open")) { closeSysmap(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
@@ -3161,6 +3162,19 @@ document.getElementById("open-settings").onclick = openSettings;
 document.getElementById("settings-close").onclick = closeSettings;
 document.getElementById("settings-scrim").onclick = e => {
   if (e.target.id === "settings-scrim") closeSettings();
+};
+
+// ---- system map ("how it fits together", the ? in the Settings head) ----
+// Stacks above Settings (default modal-scrim z) so closing it lands back on the
+// cards. "Open the full docs" swaps it for the docs overlay; Settings stays
+// open underneath, same as the profile viewer.
+function openSysmap() { document.getElementById("sysmap-scrim").classList.add("open"); }
+function closeSysmap() { document.getElementById("sysmap-scrim").classList.remove("open"); }
+document.getElementById("help-settings").onclick = openSysmap;
+document.getElementById("sysmap-close").onclick = closeSysmap;
+document.getElementById("sysmap-docs").onclick = () => { closeSysmap(); openDocs(); };
+document.getElementById("sysmap-scrim").onclick = e => {
+  if (e.target.id === "sysmap-scrim") closeSysmap();
 };
 document.querySelectorAll("#docs-nav a").forEach(a => {
   a.onclick = () => {
