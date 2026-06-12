@@ -1698,17 +1698,30 @@ function appendAnswersNote(text) {
 }
 
 // ---- detail pane ----
+// openDetail both opens the pane (first time) and refreshes it in place (e.g.
+// after a verdict/enrich run that targets the open company). When the same
+// company is already open, we skip the blank→spinner→content cycle and just
+// swap the fresh content in one paint, preserving scroll — otherwise the pane
+// flashed on every run completion. The spinner stays for a genuine open (a
+// different company, or the pane was closed) where there's nothing to show yet.
 async function openDetail(id) {
-  state.openId = id;
   const pane = document.getElementById("pane");
   const scrim = document.getElementById("scrim");
+  const refreshing = state.openId === id && pane.classList.contains("open");
+  const prevScroll = refreshing ? (document.getElementById("pane-body")?.scrollTop ?? 0) : 0;
+  // Keep the old decision-trail visible across a refresh; loadTrace swaps in the
+  // fresh one when it returns, so that section doesn't blink a spinner either.
+  const prevTrace = refreshing ? document.getElementById("trace-body")?.innerHTML : null;
+  state.openId = id;
   pane.classList.add("open"); scrim.classList.add("open");
   pane.setAttribute("aria-hidden", "false");
   raisePane("company");
-  document.getElementById("pane-title").textContent = "loading…";
-  document.getElementById("pane-pills").innerHTML = "";
-  document.getElementById("pane-body").innerHTML =
-    '<div class="loading-row"><span class="spinner"></span><span>loading…</span></div>';
+  if (!refreshing) {
+    document.getElementById("pane-title").textContent = "loading…";
+    document.getElementById("pane-pills").innerHTML = "";
+    document.getElementById("pane-body").innerHTML =
+      '<div class="loading-row"><span class="spinner"></span><span>loading…</span></div>';
+  }
 
   let d;
   try {
@@ -1716,11 +1729,17 @@ async function openDetail(id) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     d = await r.json();
   } catch (e) {
-    document.getElementById("pane-body").innerHTML =
+    // On a refresh, keep the stale-but-valid content rather than blanking it.
+    if (!refreshing) document.getElementById("pane-body").innerHTML =
       `<div class="muted">Failed to load detail: ${escapeHTML(e.message)}</div>`;
     return;
   }
+  if (state.openId !== id) return; // user switched/closed the pane during the fetch
   renderDetail(d);
+  if (refreshing) {
+    if (prevTrace != null) { const t = document.getElementById("trace-body"); if (t) t.innerHTML = prevTrace; }
+    const b = document.getElementById("pane-body"); if (b) b.scrollTop = prevScroll;
+  }
   loadTrace(id);
 }
 
