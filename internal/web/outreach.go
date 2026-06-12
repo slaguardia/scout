@@ -123,8 +123,10 @@ func (s *Server) handleOutreachSources(w http.ResponseWriter, r *http.Request, a
 			http.Error(w, "brain not configured", http.StatusPreconditionFailed)
 			return
 		}
-		if s.Anthropic == nil || s.Anthropic.APIKey == "" {
-			http.Error(w, "discovery needs ANTHROPIC_API_KEY", http.StatusPreconditionFailed)
+		// Resolve + re-key the shared client so a dashboard-stored key works here
+		// with no restart.
+		if s.ensureAnthropicKey() == "" {
+			http.Error(w, "discovery needs an Anthropic API key (set one in Settings, or ANTHROPIC_API_KEY in the server environment)", http.StatusPreconditionFailed)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)

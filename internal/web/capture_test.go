@@ -52,7 +52,11 @@ func TestCaptureEndToEnd(t *testing.T) {
 	t.Cleanup(llm.Close)
 
 	s, cid := newTestServer(t) // seeds Acme (acme.com) — capture must attach to it
-	s.Anthropic = &anthropic.Client{APIKey: "test-key", Endpoint: llm.URL, HTTP: llm.Client()}
+	// The key now resolves through activeAnthropicKey (DB-over-env), and the gate
+	// re-keys the shared client from it; supply it via the env so the resolver sees
+	// it (a hand-set client key would be clobbered by the re-key).
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	s.Anthropic = &anthropic.Client{Endpoint: llm.URL, HTTP: llm.Client()}
 	h := s.Handler()
 
 	// Bad URL → 400.
@@ -193,7 +197,8 @@ func TestCaptureFetchFailureIs422(t *testing.T) {
 	t.Cleanup(deadPage.Close)
 
 	s, _ := newTestServer(t)
-	s.Anthropic = &anthropic.Client{APIKey: "test-key"} // never reached: fetch fails first
+	t.Setenv("ANTHROPIC_API_KEY", "test-key") // resolver supplies the key; gate passes, fetch fails first
+	s.Anthropic = &anthropic.Client{}
 	rec := postCapture(t, s.Handler(), `{"url":"`+deadPage.URL+`/jobs/1"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("want 422, got %d (%s)", rec.Code, rec.Body.String())

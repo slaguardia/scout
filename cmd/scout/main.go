@@ -259,7 +259,7 @@ func cmdEnrich(args []string) error {
 	e := &enrich.Enricher{DB: db, Workers: *workers, Timeout: *timeout, OnlyBlanks: *onlyBlanks, CompanyIDs: splitIDs(*companies)}
 	// Fact extraction is best-effort: with a key, blank company columns are
 	// filled from the fetched page; without one, enrichment is fetch-only.
-	if ac := anthropic.New(""); ac.APIKey != "" {
+	if ac := anthropic.New(""); ac.HasKey() {
 		e.LLM = ac
 	}
 	res, err := e.Run(ctx, *force)
@@ -489,10 +489,16 @@ func cmdServe(args []string) error {
 	// every editor PUT.
 	srv.ReloadTaste()
 
+	// Seed the shared client's key from the DB-over-env resolver so a key the owner
+	// saved from the dashboard on a prior run is in effect at boot — this is what
+	// lights up the startup-wired engines below when scout was deployed with no
+	// ANTHROPIC_API_KEY. (Call-time-gated features re-resolve per request.)
+	srv.EnsureAnthropicKey()
+
 	// Wire the outreach draft engine when the API key is configured; without a
 	// key, draft starts return 503 (the panel surfaces that). The engine reads
 	// only the local block cache at draft time — never the brain.
-	if ac.APIKey != "" {
+	if ac.HasKey() {
 		// Reap drafts/answers orphaned in their in-flight status by a previous
 		// process — they block re-runs and the panel polls them forever.
 		if n, err := db.ReapStuckOutreachDrafts(0); err != nil {

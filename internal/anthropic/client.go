@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,11 +27,37 @@ const (
 )
 
 // Client talks to the Anthropic Messages API.
+//
+// APIKey is a construction-time seed (set by New or a struct literal before the
+// client is shared). At runtime — when the dashboard can re-key the one shared
+// client live while Send/Stream are in flight — the field is read and written
+// only through key()/HasKey()/SetAPIKey under mu, so a UI key change races no one.
 type Client struct {
+	mu       sync.RWMutex
 	APIKey   string
 	Endpoint string
 	HTTP     *http.Client
 }
+
+// SetAPIKey swaps the key the next Send/Stream will use. Safe to call while
+// requests are in flight — it's how a dashboard key save takes effect with no
+// restart (see internal/web activeAnthropicKey).
+func (c *Client) SetAPIKey(k string) {
+	c.mu.Lock()
+	c.APIKey = k
+	c.mu.Unlock()
+}
+
+// key returns the current key under the read lock — the only runtime read path.
+func (c *Client) key() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.APIKey
+}
+
+// HasKey reports whether a key is currently set. The exported gate for callers
+// that previously checked `c.APIKey != ""`; routes through the lock.
+func (c *Client) HasKey() bool { return c.key() != "" }
 
 // New returns a client with key from ANTHROPIC_API_KEY if not given.
 func New(apiKey string) *Client {
@@ -255,7 +282,8 @@ func (r *Response) RawContent() json.RawMessage {
 
 // Send posts a single Messages API request.
 func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
-	if c.APIKey == "" {
+	apiKey := c.key()
+	if apiKey == "" {
 		return nil, fmt.Errorf("anthropic: no API key (set ANTHROPIC_API_KEY)")
 	}
 	if c.Endpoint == "" {
@@ -308,7 +336,7 @@ func (c *Client) Send(ctx context.Context, req Request) (*Response, error) {
 				return nil, 0, nil, rErr
 			}
 			httpReq.Header.Set("Content-Type", "application/json")
-			httpReq.Header.Set("x-api-key", c.APIKey)
+			httpReq.Header.Set("x-api-key", apiKey)
 			httpReq.Header.Set("anthropic-version", apiVersion)
 			resp, dErr := c.HTTP.Do(httpReq)
 			if dErr != nil {
@@ -386,4 +414,29 @@ func parseRetryAfter(h string) time.Duration {
 		return time.Duration(secs) * time.Second
 	}
 	return 0
+}
+
+// Verify checks an API key with one cheap auth-only call (GET /v1/models?limit=1).
+// Returns nil if accepted, an error if rejected (401) or unreachable. Used by the
+// dashboard connect flow to validate a key before storing it (no tokens spent).
+func Verify(ctx context.Context, apiKey string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.anthropic.com/v1/models?limit=1", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", apiVersion)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("anthropic rejected the key")
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("anthropic verify failed: %d", resp.StatusCode)
+	}
+	return nil
 }

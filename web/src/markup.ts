@@ -291,6 +291,32 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<!-- Anthropic API key (dashboard-configurable; stored in scout, never echoed back) -->
+<div class="modal-scrim" id="key-scrim">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Anthropic API key</h2>
+    </div>
+    <div class="modal-body">
+      <div class="key-status small muted" id="key-status"></div>
+      <input type="password" id="key-input" class="key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+      <div class="modal-note" id="key-restart-hint" style="display:none">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Verdict and capture are live now. Restart scout to enable outreach, chat &amp; application answers.</span>
+      </div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>The key is verified against the API, then stored in scout's local database — it overrides the <code>ANTHROPIC_API_KEY</code> environment variable. It's write-only: scout never shows it again. Remove it to fall back to the environment.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="key-remove" style="display:none">Remove key</button>
+      <button class="btn" id="key-cancel">Cancel</button>
+      <button class="btn btn-primary" id="key-save">Save key</button>
+    </div>
+  </div>
+</div>
+
 <!-- outreach knowledge sources (brain-discovered) -->
 <div class="modal-scrim" id="sources-scrim">
   <div class="modal">

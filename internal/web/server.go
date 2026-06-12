@@ -64,6 +64,10 @@ type Server struct {
 	TasteMDPath  string
 	IngestSource string
 
+	// KeyVerifier validates an Anthropic key before the dashboard stores it; nil
+	// uses anthropic.Verify (one live auth-only call). Tests inject a stub.
+	KeyVerifier func(ctx context.Context, key string) error
+
 	mu           sync.RWMutex
 	taste        *taste.Block // current; recomputed by ReloadTaste
 	playbookText string       // current playbook text
@@ -178,6 +182,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/taste", s.handleTaste)              // taste.md narrative fallback (file)
 	mux.HandleFunc("/api/taste-filter", s.handleTasteFilter) // structured pre-filter rules (DB singleton)
 	mux.HandleFunc("/api/playbook", s.handlePlaybook)
+
+	// integrations (dashboard-configurable secrets, stored in scout's SQLite)
+	mux.HandleFunc("/api/integrations/anthropic", s.handleAnthropicKey) // GET/PUT/DELETE the Anthropic key (see integrations.go)
 
 	return mux
 }

@@ -21,6 +21,7 @@ const state = {
   view: "companies",                       // "companies" | "jobs"
   jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
+  anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
@@ -2771,6 +2772,7 @@ document.addEventListener("keydown", e => {
     if (companyOpen) { closeDetail(); return; }
     closePursuit(); return;
   }
+  if (document.getElementById("key-scrim").classList.contains("open")) { closeKeyModal(); return; }
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
   if (document.getElementById("settings-scrim").classList.contains("open")) { closeSettings(); return; }
@@ -2930,6 +2932,16 @@ document.getElementById("sources-scrim").onclick = e => {
 };
 document.getElementById("sources-refresh-btn").onclick = refreshSources;
 
+document.getElementById("key-cancel").onclick = closeKeyModal;
+document.getElementById("key-save").onclick = saveKey;
+document.getElementById("key-remove").onclick = removeKey;
+document.getElementById("key-scrim").onclick = e => {
+  if (e.target.id === "key-scrim") closeKeyModal();
+};
+document.getElementById("key-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); saveKey(); }
+});
+
 // ---- company-fit brief + criteria block ----
 function relTime(sec) {
   if (sec == null) return "—";
@@ -2960,6 +2972,7 @@ const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strok
 const REFRESH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8"/><path d="M13.6 2.6V5.2H11"/></svg>';
 
 // Per-item glyphs for the settings cards.
+const ICON_KEY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="11" r="2.6"/><path d="M6.9 9.1 13 3M11 5l1.6 1.6M9.3 6.7l1.6 1.6"/></svg>';
 const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></svg>';
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
@@ -3082,6 +3095,21 @@ function renderCriteria() {
     act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
   });
 
+  // --- Group 3: integrations (dashboard-configurable secrets). The Anthropic key
+  // powers verdict, capture, enrichment, outreach, chat & answers; stored in
+  // scout's SQLite, it overrides the ANTHROPIC_API_KEY env when set.
+  const ak = state.anthropicKey;
+  let kdot2 = "off", knote2 = "not set — verdict, capture & outreach disabled";
+  if (ak && ak.key_source === "db") { kdot2 = "ok"; knote2 = "set here · active"; }
+  else if (ak && ak.key_source === "env") { kdot2 = "ok"; knote2 = "from the environment"; }
+  const keyCard = critCard({
+    icon: ICON_KEY,
+    nameHTML: '<span class="edit-link" data-act="edit-anthropic-key" title="set the Anthropic API key">Anthropic API key</span>',
+    dot: kdot2, note: knote2,
+    desc: "Powers scoring, capture & outreach. Set here to run scout without the env var.",
+    act: "edit-anthropic-key", actIcon: PENCIL, actTitle: "set the Anthropic API key", actLabel: "set Anthropic API key",
+  });
+
   el.innerHTML =
     `<div class="settings-section">
        <div class="settings-group-h">From the brain</div>
@@ -3090,6 +3118,10 @@ function renderCriteria() {
      <div class="settings-section">
        <div class="settings-group-h">Scout configuration</div>
        ${playbookCard}${prefilterCard}${templateCard}${doctrineCard}
+     </div>
+     <div class="settings-section">
+       <div class="settings-group-h">Integrations</div>
+       ${keyCard}
      </div>`;
 
   // Wire every clickable (name links AND action buttons) by its data-act key.
@@ -3106,6 +3138,7 @@ function renderCriteria() {
     "edit-doctrine": () => openEditor("outreach-doctrine"),
     "view-sources": openSourcesModal,
     "refresh-sources": refreshSourcesInline,
+    "edit-anthropic-key": openKeyModal,
   };
   el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
     const a = n.dataset.act;
@@ -3139,6 +3172,86 @@ async function refreshSourcesInline() {
   const data = await resp.json();
   if (data.warning) toast(data.warning); else toast("outreach knowledge refreshed");
   state.sources = { sources: data.sources || [], needs: (state.sources && state.sources.needs) || [] };
+  renderCriteria();
+}
+
+// ---- Anthropic API key (Integrations card + modal) ----
+//
+// The key is write-only from the browser: we GET/store {has_key, key_source} and
+// never the bytes. A key set here is stored in scout's SQLite and overrides the
+// ANTHROPIC_API_KEY env; removing it falls back to the env.
+async function loadKeyState() {
+  try {
+    state.anthropicKey = await (await fetch("/api/integrations/anthropic")).json();
+  } catch { state.anthropicKey = null; }
+  renderCriteria();
+}
+async function openKeyModal() {
+  document.getElementById("key-scrim").classList.add("open");
+  document.getElementById("key-input").value = "";
+  await loadKeyState();
+  renderKeyModal();
+  const inp = document.getElementById("key-input");
+  if (inp) inp.focus();
+}
+function renderKeyModal() {
+  const ak = state.anthropicKey || {};
+  const statusEl = document.getElementById("key-status");
+  if (statusEl) {
+    statusEl.textContent = ak.key_source === "db"
+      ? "A key is set here (stored in scout)."
+      : ak.key_source === "env"
+        ? "Using the ANTHROPIC_API_KEY environment variable. Saving a key here overrides it."
+        : "No key set. Scoring, capture, and outreach are disabled until you add one.";
+  }
+  const removeBtn = document.getElementById("key-remove");
+  if (removeBtn) removeBtn.style.display = ak.key_source === "db" ? "" : "none"; // only removable when set here
+  // Option A: a saved key lights verdict/capture/enrich immediately, but the
+  // startup-wired engines (outreach, chat, answers) need one restart.
+  const hint = document.getElementById("key-restart-hint");
+  if (hint) {
+    const needsRestart = ak.has_key && state.meta && (state.meta.outreach === false || state.meta.chat === false);
+    hint.style.display = needsRestart ? "" : "none";
+  }
+}
+function closeKeyModal() {
+  document.getElementById("key-scrim").classList.remove("open");
+}
+async function saveKey() {
+  const key = (document.getElementById("key-input").value || "").trim();
+  if (!key) { toast("paste a key first"); return; }
+  const btn = document.getElementById("key-save");
+  if (btn) { btn.disabled = true; btn.textContent = "Verifying…"; }
+  const restore = () => { if (btn) { btn.disabled = false; btn.textContent = "Save key"; } };
+  let resp;
+  try {
+    resp = await fetch("/api/integrations/anthropic", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); restore(); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); restore(); return; }
+  state.anthropicKey = await resp.json();
+  document.getElementById("key-input").value = "";
+  restore();
+  toast("Anthropic key saved");
+  await loadMeta(); // feature buttons (verdict/capture) may light up
+  renderKeyModal();
+  renderCriteria();
+}
+async function removeKey() {
+  const btn = document.getElementById("key-remove");
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch("/api/integrations/anthropic", { method: "DELETE" });
+  } catch (e) { toast(`remove failed: ${e.message}`); if (btn) btn.disabled = false; return; }
+  if (btn) btn.disabled = false;
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  state.anthropicKey = await resp.json();
+  toast(state.anthropicKey.has_key ? "removed — using the environment key" : "Anthropic key removed");
+  await loadMeta();
+  renderKeyModal();
   renderCriteria();
 }
 
@@ -3438,4 +3551,5 @@ loadMeta();
 loadRuns();
 loadProfile();
 loadSources();
+loadKeyState();
 }

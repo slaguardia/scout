@@ -66,8 +66,10 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	case "enrich":
 		fn = s.enrichJob(opts)
 	case "verdict":
-		if s.Anthropic == nil || s.Anthropic.APIKey == "" {
-			http.Error(w, "verdict needs ANTHROPIC_API_KEY in the server environment", http.StatusPreconditionFailed)
+		// Resolve + re-key the shared client so a dashboard-stored key takes effect
+		// here with no restart; only then gate on a present key.
+		if s.ensureAnthropicKey() == "" {
+			http.Error(w, "verdict needs an Anthropic API key (set one in Settings, or ANTHROPIC_API_KEY in the server environment)", http.StatusPreconditionFailed)
 			return
 		}
 		fn = s.verdictJob(opts)
@@ -93,8 +95,9 @@ func (s *Server) enrichJob(opts runOptions) jobs.Func {
 	return func(ctx context.Context, _ string, emit func(string)) (map[string]any, error) {
 		e := &enrich.Enricher{DB: s.DB, Progress: emit, OnlyBlanks: opts.OnlyBlanks, CompanyIDs: opts.CompanyIDs, Workers: workersOr(opts.Workers, 8)}
 		// Fact extraction needs the API key; without it enrichment still runs,
-		// just purely mechanical (fetch + summary only).
-		if s.Anthropic != nil && s.Anthropic.APIKey != "" {
+		// just purely mechanical (fetch + summary only). Resolve + re-key first so a
+		// dashboard-stored key is picked up with no restart.
+		if s.ensureAnthropicKey() != "" {
 			e.LLM = s.Anthropic
 		}
 		res, err := e.Run(ctx, opts.Force)
@@ -229,14 +232,22 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	hasKey := s.Anthropic != nil && s.Anthropic.APIKey != ""
+	// Resolve from the DB-over-env resolver so a dashboard-stored key flips the
+	// capability flags without a restart. verdict/capture/enrich are call-time
+	// gated, so they go live the moment a key exists; chat/outreach/answers are
+	// startup-wired and stay false until a restart lights them up (Option A).
+	_, keySource := s.activeAnthropicKey()
+	hasKey := keySource != ""
 	writeJSON(w, http.StatusOK, map[string]any{
-		"control": s.Runner != nil,
-		"brain":   s.brainHealthy(r.Context()),
-		"verdict": hasKey,
-		"capture": hasKey, // the link-capture agent pass needs the same key
-		"chat":    s.Chat != nil,
-		"source":  s.IngestSource,
+		"control":    s.Runner != nil,
+		"brain":      s.brainHealthy(r.Context()),
+		"verdict":    hasKey,
+		"capture":    hasKey, // the link-capture agent pass needs the same key
+		"chat":       s.Chat != nil,
+		"outreach":   s.Outreach != nil,
+		"answers":    s.Answers != nil,
+		"key_source": nullable(keySource),
+		"source":     s.IngestSource,
 	})
 }
 

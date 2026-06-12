@@ -55,8 +55,10 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 	// keyless. If its resolve fails at runtime, the fall-through to the LLM
 	// path reports the missing key honestly instead.
 	atsNoLLM := body.Kind != capture.KindCompany && capture.IsATSPosting(body.URL)
-	if !atsNoLLM && (s.Anthropic == nil || s.Anthropic.APIKey == "") {
-		http.Error(w, "capture needs ANTHROPIC_API_KEY in the server environment", http.StatusPreconditionFailed)
+	// Resolve + re-key the shared client so a dashboard-stored key works here with
+	// no restart; the gate only bites the LLM path (ATS posting links capture keyless).
+	if s.ensureAnthropicKey() == "" && !atsNoLLM {
+		http.Error(w, "capture needs an Anthropic API key (set one in Settings, or ANTHROPIC_API_KEY in the server environment)", http.StatusPreconditionFailed)
 		return
 	}
 

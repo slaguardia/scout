@@ -93,7 +93,7 @@ func (c *Capturer) ResolveQuestions(ctx context.Context, rawURL string) Question
 	}
 	// Non-ATS host. The HTML+LLM fallback needs the model; without a key the
 	// honest answer stays "unsupported" (apply on the site).
-	if c.Client == nil || c.Client.APIKey == "" {
+	if c.Client == nil || !c.Client.HasKey() {
 		return scan
 	}
 	return c.detectQuestionsLLM(ctx, httpc, rawURL)

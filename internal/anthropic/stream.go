@@ -27,7 +27,8 @@ import (
 // first byte); once bytes flow, a mid-stream failure returns an error and the
 // caller's turn fails cleanly (the engine caps iterations).
 func (c *Client) Stream(ctx context.Context, req Request, onText func(string)) (*Response, error) {
-	if c.APIKey == "" {
+	apiKey := c.key()
+	if apiKey == "" {
 		return nil, fmt.Errorf("anthropic: no API key (set ANTHROPIC_API_KEY)")
 	}
 	if c.Endpoint == "" {
@@ -62,7 +63,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText func(string)) (
 			return nil, err
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("x-api-key", c.APIKey)
+		httpReq.Header.Set("x-api-key", apiKey)
 		httpReq.Header.Set("anthropic-version", apiVersion)
 		httpReq.Header.Set("Accept", "text/event-stream")
 
