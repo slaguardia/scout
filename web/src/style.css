@@ -1591,16 +1591,6 @@
   }
   aside.sidebar h3 .help-btn:hover { color: var(--link); background: var(--panel); }
   aside.sidebar h3 .help-btn svg { width: 13px; height: 13px; opacity: 1; }
-  /* the same "?" in a modal head (Settings → system map) gets a touch more size */
-  .modal-head .help-btn {
-    flex: none; align-self: flex-start;
-    background: none; border: none; cursor: pointer; padding: 3px;
-    color: var(--fg-dim); display: inline-flex; align-items: center;
-    border-radius: var(--r-sm);
-    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
-  }
-  .modal-head .help-btn:hover { color: var(--link); background: var(--panel); }
-  .modal-head .help-btn svg { width: 16px; height: 16px; }
   /* help modal: a short list of what each section's buttons do, with doc links */
   .help-intro { margin: 0 0 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
   .help-item { padding: 12px 0; border-top: 1px solid var(--line); }
@@ -1614,18 +1604,15 @@
   .help-link:hover { text-decoration: underline; }
 
   /* ---------------------------------------------------------------------------
-     System map ("how it fits together") — a two-lane flow diagram opened from
-     the ? in the Settings head. Pure CSS grid: nodes are cards, arrows are a
-     vertical line + arrowhead drawn with pseudo-elements; a label chip sits on
-     the line and masks it. Node tints say ownership and mirror the Settings
+     System map — the two-lane "how it all fits together" flow diagram in the
+     docs overlay's Overview section. Pure CSS grid: nodes are cards, arrows are
+     a vertical line + arrowhead drawn with pseudo-elements; a label chip sits
+     on the line and masks it. Node tints say ownership and mirror the Settings
      groups: purple = from the brain, blue = scout's LLM stages, amber = the
-     editable scout config, green = outputs.
+     editable scout config, green = outputs. The legend is a left rail that
+     sticks while the docs body scrolls past the diagram.
   --------------------------------------------------------------------------- */
-  .modal-sysmap { width: 980px; }
-  .modal-sysmap .modal-body { padding: 20px 24px; }
-  /* legend rail on the left, diagram on the right; the rail sticks while the
-     diagram scrolls */
-  .sysmap-wrap { display: flex; align-items: flex-start; gap: 30px; }
+  .sysmap-wrap { display: flex; align-items: flex-start; gap: 30px; margin: 4px 0 8px; }
   .sysmap { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
   .sm-span { grid-column: 1 / -1; }
   .sm-node {
