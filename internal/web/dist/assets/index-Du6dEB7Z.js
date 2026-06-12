@@ -341,6 +341,14 @@
       </div>
     </div>
     <div class="modal-body">
+      <div class="sysmap-wrap">
+      <div class="sm-legend">
+        <div class="sm-legend-h">legend</div>
+        <span><i class="sm-dot dot-brain"></i>from the brain — read-only</span>
+        <span><i class="sm-dot dot-llm"></i>scout's LLM stages</span>
+        <span><i class="sm-dot dot-cfg"></i>scout config — edit it here</span>
+        <span><i class="sm-dot dot-out"></i>what you get</span>
+      </div>
       <div class="sysmap">
         <div class="sm-node sm-brain sm-span">
           <div class="sm-name">the brain</div>
@@ -389,11 +397,6 @@
           <div class="sm-desc">Land in the jobs panel for review. Always editable; nothing sends itself.</div>
         </div>
       </div>
-      <div class="sm-legend">
-        <span><i class="sm-dot dot-brain"></i>from the brain — read-only</span>
-        <span><i class="sm-dot dot-llm"></i>scout's LLM stages</span>
-        <span><i class="sm-dot dot-cfg"></i>scout config — edit it here</span>
-        <span><i class="sm-dot dot-out"></i>what you get</span>
       </div>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
