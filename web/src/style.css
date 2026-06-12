@@ -1606,14 +1606,15 @@
      editable scout config, green = outputs.
   --------------------------------------------------------------------------- */
   .modal-sysmap { width: 800px; }
-  .sysmap { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .modal-sysmap .modal-body { padding: 20px 24px; }
+  .sysmap { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
   .sm-span { grid-column: 1 / -1; }
   .sm-node {
-    padding: 10px 13px; border-radius: var(--r-md);
+    padding: 13px 16px; border-radius: var(--r-md);
     background: var(--bg); border: 1px solid var(--line-2);
   }
   .sm-node .sm-name { font-size: 12.5px; font-weight: 600; color: var(--fg); }
-  .sm-node .sm-desc { margin-top: 3px; font-size: 11.5px; color: var(--fg-mute); line-height: 1.5; }
+  .sm-node .sm-desc { margin-top: 5px; font-size: 11.5px; color: var(--fg-mute); line-height: 1.55; }
   .sm-brain, .sm-brainy { border-color: rgba(139, 109, 255, 0.45); background: rgba(139, 109, 255, 0.07); }
   .sm-brain .sm-name, .sm-brainy .sm-name { color: var(--accent); }
   .sm-brain { text-align: center; }
@@ -1622,15 +1623,15 @@
   .sm-out { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.06); }
   .sm-out .sm-name { color: var(--yes); }
   .sm-lane-h {
-    margin-top: 12px; text-align: center;
+    margin: 20px 0 2px; text-align: center;
     font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--fg-dim);
   }
   /* an arrow cell: full-height center line, arrowhead at the bottom, and an
      optional label chip riding the line */
   .sm-arrow {
-    position: relative; min-height: 26px;
-    display: flex; align-items: center; justify-content: center; padding: 5px 0;
+    position: relative; min-height: 42px;
+    display: flex; align-items: center; justify-content: center; padding: 8px 0;
   }
   .sm-arrow::before {
     content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
@@ -1652,7 +1653,7 @@
   .sm-label.sm-cfg { color: var(--maybe); background: var(--bg-2); border-color: rgba(245, 185, 66, 0.5); }
   .sm-legend {
     display: flex; flex-wrap: wrap; gap: 6px 16px;
-    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+    margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line);
     font-size: 11.5px; color: var(--fg-mute);
   }
   .sm-legend span { display: inline-flex; align-items: center; gap: 6px; }
