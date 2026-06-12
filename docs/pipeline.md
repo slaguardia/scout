@@ -90,17 +90,21 @@ unpinned `kind=other` pages write nothing too.
 
 | | |
 |---|---|
-| **Input** | `taste.toml` (mechanical pre-filter), `companies` table. |
+| **Input** | the pre-filter rules (the `taste_filter` DB singleton), `companies` table. |
 | **Output** | Survivor table + total/survivor counts + drop-reason histogram. |
 | **Idempotent** | Read-only — no state changes. |
-| **Flags** | `--db scout.db`, `--taste taste.toml`. |
+| **Flags** | `--db scout.db`. |
 
-`taste.toml` is a **purely mechanical pre-filter** — cheap hard gates that cull
+The pre-filter is a **purely mechanical gate** — cheap hard gates that cull
 rows before the expensive verdict step. It is *not* judgment; nuanced fit
-happens at verdict time, grounded in the brain.
+happens at verdict time, grounded in the brain. The rules live in the DB as a
+singleton (raw TOML), **edited from the dashboard** (Criteria → "pre-filter");
+the compiled-in default is [`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml).
+A targeted per-company verdict re-score **bypasses** the pre-filter entirely.
 
 **Behavior:**
-- Loads `taste.toml`, pulls all company rows into Go, evaluates per row.
+- Loads the rules from the DB (falling back to the compiled-in default), pulls
+  all company rows into Go, evaluates per row.
 - Eval order, first failing check is the recorded drop reason:
   `location → headcount_min/max → vertical_excluded → vertical_not_allowed → funding_stage`.
 - Eval is in Go (not SQL) for per-reason drop counts and substring matching;

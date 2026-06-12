@@ -127,8 +127,8 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
 | **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — kept current by the change-propagation cascade (`/changes` cursor → distill basis → re-synthesize), served verbatim until the brain actually changes; stale-fallback (within `--brain-cache-ttl`) when the brain is down. See [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md) | yes — a disposable cache; the brain is the source of truth |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
-| **playbook.md** (scout-local) | how scout reasons — procedure only | versioned in the repo |
-| **taste.toml** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, stage, has-domain). NOT taste/judgment. | versioned in the repo |
+| **playbook** (scout-local) | how scout reasons — procedure only | DB singleton, edited in the dashboard (Criteria); compiled-in default |
+| **pre-filter rules** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, vertical, stage). NOT taste/judgment. | DB singleton (`taste_filter`), edited in the dashboard (Criteria → "pre-filter"); compiled-in default ([`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml)) |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
 scout-local), reading it via `recall` only.
@@ -137,8 +137,13 @@ scout-local), reading it via `recall` only.
 
 ```
 ingest    CSV → companies                              (no brain — pure data)
-filter    mechanical pre-filter (taste.toml: location, (no brain — cheap hard gates,
-          headcount, stage, has-domain)                 NOT judgment)
+filter    mechanical PRE-FILTER, runs BEFORE the LLM:   (no brain, no LLM —
+          a cheap free gate on location, headcount,      cheap hard gates,
+          vertical, stage. A company that fails here     NOT judgment)
+          never reaches enrich/verdict on a bulk run.
+          Rules = the `taste_filter` DB singleton,
+          editable in the dashboard (Criteria →
+          "pre-filter"). A targeted re-score BYPASSES it.
 enrich    fetch company site → text                    (no brain — company data)
 verdict   reads  the user's criteria  ← brain: recall → distilled brief
                                          (cached locally; kept current by the
@@ -147,6 +152,16 @@ verdict   reads  the user's criteria  ← brain: recall → distilled brief
           writes verdict              → scout SQLite (not the brain)
 triage    browse / promote                             (no brain)
 ```
+
+**On the pre-filter:** it exists only to avoid spending a paid LLM call on
+obviously-out companies — it is brain-free and judgment-free by design. The
+unambiguous gates (location, headcount, has-domain) are cheap facts worth
+filtering on; the **vertical** include/exclude is the blunt one (case-
+insensitive substring, e.g. "law" matches "Law Enforcement"), and as the
+brain-derived brief matures it's the rule most reasonably moved out of the gate
+and left to the LLM. Because it's now a DB singleton you can edit or empty it
+live from the dashboard — no redeploy, no file. A targeted per-company re-score
+skips it entirely (the explicit ask overrides the bulk cost gate).
 
 The brain is touched in exactly one place — distilling the user's criteria
 (`recall` + a synthesis call) before `verdict`, cached locally. The synthesis

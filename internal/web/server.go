@@ -60,10 +60,9 @@ type Server struct {
 	Chat     *chat.Engine       // optional; nil disables chat (412 on message POST)
 
 	// Stage construction inputs (used by the run handlers).
-	Anthropic     *anthropic.Client
-	TasteMDPath   string
-	TasteTOMLPath string
-	IngestSource  string
+	Anthropic    *anthropic.Client
+	TasteMDPath  string
+	IngestSource string
 
 	mu           sync.RWMutex
 	taste        *taste.Block // current; recomputed by ReloadTaste
@@ -175,8 +174,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/profile", s.handleProfile)                // GET cached profile
 	mux.HandleFunc("/api/profile/refresh", s.handleProfileRefresh) // POST refetch
 
-	// editor (local files only — never the brain)
-	mux.HandleFunc("/api/taste", s.handleTaste)
+	// editor (local file + DB singletons — never the brain)
+	mux.HandleFunc("/api/taste", s.handleTaste)              // taste.md narrative fallback (file)
+	mux.HandleFunc("/api/taste-filter", s.handleTasteFilter) // structured pre-filter rules (DB singleton)
 	mux.HandleFunc("/api/playbook", s.handlePlaybook)
 
 	return mux

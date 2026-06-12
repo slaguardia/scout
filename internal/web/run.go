@@ -114,7 +114,7 @@ func (s *Server) verdictJob(opts runOptions) jobs.Func {
 		// refreshes the cached brain profile; otherwise a long-lived server
 		// scores against criteria frozen at startup once the cache TTL lapses.
 		s.ReloadTaste()
-		ft, err := filter.LoadTaste(s.TasteTOMLPath)
+		ft, err := filter.TasteFromDB(s.DB)
 		if err != nil {
 			return nil, err
 		}

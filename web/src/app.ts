@@ -2555,11 +2555,13 @@ async function cancelActiveJob() {
 
 // ---- control surface: editor ----
 let editorKind = null;
-// editorLabel names the artifact in the modal title / save toast. The playbook
-// and outreach template are DB rows (no file extension); taste is still a file.
+// editorLabel names the artifact in the modal title / save toast. The playbook,
+// outreach template/doctrine, and pre-filter rules are DB rows (no file
+// extension); taste (the narrative fallback) is still a file.
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
   if (kind === "outreach-doctrine") return "outreach doctrine";
+  if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
   return kind + ".md";
 }
@@ -2957,6 +2959,7 @@ const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
 const ICON_DOCTRINE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
+const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
 // a status line (dot + note) for brain-backed items, and a trailing action.
@@ -3064,6 +3067,12 @@ function renderCriteria() {
     desc: "How cold emails get written — the depth bar, show-don't-tell, the kill list.",
     act: "edit-doctrine", actIcon: PENCIL, actTitle: "edit the outreach doctrine", actLabel: "edit outreach doctrine",
   });
+  const prefilterCard = critCard({
+    icon: ICON_FILTER,
+    nameHTML: '<span class="edit-link" data-act="edit-taste-filter" title="edit the pre-filter rules">pre-filter</span>',
+    desc: "Cheap mechanical gate before the LLM verdict — location, headcount, vertical, stage.",
+    act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
+  });
 
   el.innerHTML =
     `<div class="settings-section">
@@ -3072,7 +3081,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Scout configuration</div>
-       ${playbookCard}${templateCard}${doctrineCard}
+       ${playbookCard}${prefilterCard}${templateCard}${doctrineCard}
      </div>`;
 
   // Wire every clickable (name links AND action buttons) by its data-act key.
@@ -3083,6 +3092,7 @@ function renderCriteria() {
     "view-profile": () => openProfileModal(state.profile),
     "refresh-profile": refreshProfile,
     "edit-taste": () => openEditor("taste"),
+    "edit-taste-filter": () => openEditor("taste-filter"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
     "edit-doctrine": () => openEditor("outreach-doctrine"),

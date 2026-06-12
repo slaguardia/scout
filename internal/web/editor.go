@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/outreach"
 	"github.com/slaguardia/scout/internal/playbook"
 )
@@ -140,6 +141,50 @@ func (s *Server) handleOutreachDoctrine(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-doctrine", "content": body.Content})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleTasteFilter edits the structured pre-filter rules (the old taste.toml),
+// stored in the DB (a singleton row) — a dashboard save can't clobber it and
+// git never touches it. The value is raw TOML. GET returns the saved rules or
+// the compiled-in default; PUT validates the TOML parses before saving (a
+// broken filter would silently drop every company from verdict runs) and
+// rejects it 400 otherwise. The verdict job re-reads at run time, so there is
+// no reload and no taste_version — the pre-filter is a mechanical gate, not a
+// criterion the verdict provenance hash tracks.
+func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		content, err := s.DB.GetTasteFilter()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if content == "" {
+			content = filter.DefaultTasteTOML
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content})
+
+	case http.MethodPut:
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := filter.ParseTaste(body.Content); err != nil {
+			http.Error(w, "invalid pre-filter TOML: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.DB.PutTasteFilter(body.Content); err != nil {
+			http.Error(w, "save pre-filter: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": body.Content})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

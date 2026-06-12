@@ -11,7 +11,12 @@ rules); **scout** brings the intelligence (its own LLM + a `playbook.md` for
 *how* to judge). Scout reads the user's criteria from the brain (read-only) and
 reasons over them; verdicts stay scout-local and are never written back to the
 brain. There is **no scout-local "taste"** — `taste.md` is an offline fallback
-only; `taste.toml` is a purely mechanical pre-filter.
+only; the **pre-filter** is a purely mechanical gate (location, headcount,
+vertical, stage) that runs before the LLM verdict on a bulk run. Its rules live
+in the DB as a singleton (`taste_filter`), edited from the dashboard (Criteria →
+"pre-filter"), with a compiled-in default in `internal/filter/taste_default.toml`
+— there is no longer a `taste.toml` file. A targeted per-company re-score
+bypasses the pre-filter entirely.
 
 Then [`docs/`](./docs/) for stage references (pipeline, verdict, enrichment,
 data-model, operations, limitations).

@@ -1,9 +1,13 @@
-# scout taste — structured filter rules for M1/M2.
-# Narrative taste context (for the LLM verdict at M3) will live in taste.md.
+# scout pre-filter — structured rules for the cheap mechanical gate that runs
+# before the (paid) LLM verdict. Edited from the dashboard (Criteria →
+# "pre-filter"); this file is only the compiled-in default used until you save
+# your own. Narrative taste context for the LLM lives in taste.md; the real
+# judgment lives in the brain-derived company-fit brief.
 #
-# These rules drive the SQL pre-filter. Anything that survives this gets
-# enriched and then handed to the agent. Be aggressive here — the LLM is
-# expensive, this filter is free.
+# Be conservative here — this gate is brain-free and judgment-free. Location,
+# headcount, and has-domain are unambiguous facts worth gating on cheaply.
+# Vertical include/exclude is a taste call the brain-informed LLM is better at;
+# substring matching here is blunt (e.g. "law" matches "Law Enforcement").
 
 [location]
 # Lowercased substrings. A company's `location` field matches if it contains any.

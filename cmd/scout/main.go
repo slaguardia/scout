@@ -3,7 +3,7 @@
 // Subcommands:
 //
 //	scout ingest <csv>        Load a CSV dump into the local DB.
-//	scout filter              Apply taste.toml rules; print survivors.
+//	scout filter              Apply the pre-filter rules (from the DB); print survivors.
 //	scout enrich              Fetch about-pages for survivors (parallel).
 //	scout verdict             Score enriched survivors with Haiku.
 //	scout distill             Print the company-fit brief (recall + synthesis); debug.
@@ -127,7 +127,7 @@ secondary automation/debug surface. The brain is primary by default
 
 Usage:
   scout ingest <csv> [--source crunchbase] [--db scout.db]
-  scout filter [--taste taste.toml] [--db scout.db]
+  scout filter [--db scout.db]
   scout enrich [--workers 8] [--timeout 12s] [--force] [--company id,...] [--db scout.db]
   scout verdict [--taste-md taste.md] [--brainbot URL]
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
@@ -135,7 +135,7 @@ Usage:
   scout outreach sources [--refresh] [--brainbot URL] [--db scout.db]
   scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
-  scout serve [--addr :8765] [--taste-md taste.md] [--taste taste.toml]
+  scout serve [--addr :8765] [--taste-md taste.md]
               [--source crunchbase] [--brainbot URL] [--db scout.db]
   scout stats [--db scout.db]
   scout backup [--db scout.db] [--out scout-YYYYMMDD-HHMMSS.db]
@@ -190,20 +190,20 @@ func cmdIngest(args []string) error {
 func cmdFilter(args []string) error {
 	fs := flag.NewFlagSet("filter", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
-	tastePath := fs.String("taste", "taste.toml", "taste rules")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	t, err := filter.LoadTaste(*tastePath)
-	if err != nil {
-		return err
-	}
 	db, err := store.Open(*dbPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+
+	t, err := filter.TasteFromDB(db)
+	if err != nil {
+		return err
+	}
 
 	res, err := t.Apply(db)
 	if err != nil {
@@ -276,7 +276,6 @@ func cmdEnrich(args []string) error {
 func cmdVerdict(args []string) error {
 	fs := flag.NewFlagSet("verdict", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
-	tastePath := fs.String("taste", "taste.toml", "structured taste rules (for SQL pre-filter)")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (for the LLM)")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); criteria come from here when healthy, else --taste-md. Empty disables.")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
@@ -296,7 +295,7 @@ func cmdVerdict(args []string) error {
 	}
 	defer db.Close()
 
-	ft, err := filter.LoadTaste(*tastePath)
+	ft, err := filter.TasteFromDB(db)
 	if err != nil {
 		return err
 	}
@@ -444,7 +443,6 @@ func cmdServe(args []string) error {
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	addr := fs.String("addr", ":8765", "listen address")
 	tasteMD := fs.String("taste-md", "taste.md", "narrative taste block (editable in the UI)")
-	tasteTOML := fs.String("taste", "taste.toml", "structured pre-filter rules (used by UI verdict runs)")
 	source := fs.String("source", "crunchbase", "source tag for UI CSV uploads")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); primary criteria source. Empty disables (taste.md fallback).")
 	cacheTTL := fs.Duration("brain-cache-ttl", defaultBrainCacheTTL, "reuse a cached brain profile for this long before refetching")
@@ -479,13 +477,12 @@ func cmdServe(args []string) error {
 	}
 
 	srv := &web.Server{
-		DB:            db,
-		Brainbot:      bc,
-		Anthropic:     ac,
-		TasteMDPath:   *tasteMD,
-		TasteTOMLPath: *tasteTOML,
-		IngestSource:  *source,
-		Resolver:      resolver,
+		DB:           db,
+		Brainbot:     bc,
+		Anthropic:    ac,
+		TasteMDPath:  *tasteMD,
+		IngestSource: *source,
+		Resolver:     resolver,
 	}
 	// Load taste + playbook into the server (folds the playbook into the version,
 	// matching `scout verdict`; the playbook now comes from the DB). Re-run after

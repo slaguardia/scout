@@ -1,7 +1,11 @@
-// Package filter applies the taste rules against the companies table.
+// Package filter applies the pre-filter rules against the companies table. The
+// rules live in the DB as a singleton (edited from the dashboard); this package
+// parses the raw TOML and evaluates it. The compiled-in default is used until
+// the user saves their own.
 package filter
 
 import (
+	_ "embed"
 	"fmt"
 	"strings"
 
@@ -9,7 +13,14 @@ import (
 	"github.com/slaguardia/scout/internal/store"
 )
 
-// Taste is the structured rule set loaded from taste.toml.
+// DefaultTasteTOML is the compiled-in starting pre-filter, used until the user
+// saves their own from the dashboard. Kept as a reviewable TOML file and
+// embedded so the default is a single source of truth.
+//
+//go:embed taste_default.toml
+var DefaultTasteTOML string
+
+// Taste is the structured pre-filter rule set (parsed from the singleton's TOML).
 type Taste struct {
 	Location struct {
 		Allowed  []string `toml:"allowed"`
@@ -28,13 +39,29 @@ type Taste struct {
 	} `toml:"funding_stage"`
 }
 
-// LoadTaste reads a taste.toml from path.
-func LoadTaste(path string) (*Taste, error) {
+// ParseTaste parses pre-filter rules from raw TOML text. A blank string yields
+// a zero Taste (everything passes the verticals/stage rules; headcount bounds
+// at 0 mean "no bound") — callers wanting the default should pass DefaultTasteTOML.
+func ParseTaste(content string) (*Taste, error) {
 	var t Taste
-	if _, err := toml.DecodeFile(path, &t); err != nil {
-		return nil, fmt.Errorf("load taste: %w", err)
+	if _, err := toml.Decode(content, &t); err != nil {
+		return nil, fmt.Errorf("parse taste: %w", err)
 	}
 	return &t, nil
+}
+
+// TasteFromDB loads the saved pre-filter rules from the singleton row, falling
+// back to the compiled-in default when none is saved (or on a read error — a
+// run shouldn't break because the rules row is missing). This is the canonical
+// way to obtain the active filter; there is no longer a file on disk.
+func TasteFromDB(db *store.DB) (*Taste, error) {
+	content := DefaultTasteTOML
+	if db != nil {
+		if c, err := db.GetTasteFilter(); err == nil && strings.TrimSpace(c) != "" {
+			content = c
+		}
+	}
+	return ParseTaste(content)
 }
 
 // Survivor is the projection returned for triage.

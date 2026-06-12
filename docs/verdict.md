@@ -246,8 +246,9 @@ JSON, switch to a real bracket-matching parser.
 ## Model choice
 
 Default: `claude-haiku-4-5` (`anthropic.DefaultModel`). Override with
-`scout verdict --model <id>`. The mechanical pre-filter (`taste.toml`) already
-culls obvious mismatches, so survivors are plausible candidates and the model is
+`scout verdict --model <id>`. The mechanical pre-filter (the `taste_filter` DB
+singleton, edited in the dashboard) already culls obvious mismatches on a bulk
+run, so survivors are plausible candidates and the model is
 making fine-grained yes/maybe/no calls — a job Haiku is fast, cheap, and good
 enough at. Switch `--model` to Sonnet only when real data shows quality is bad.
 

@@ -192,7 +192,11 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 
 | Flag | Default | What |
 |---|---|---|
-| `--taste` | `taste.toml` | Path to the mechanical pre-filter rules. |
+| `--db` | `scout.db` | SQLite path. |
+
+The pre-filter rules come from the `taste_filter` DB singleton (edited in the
+dashboard, Criteria → "pre-filter"), falling back to the compiled-in default —
+there is no longer a `--taste` file flag.
 
 ### `scout enrich`
 
@@ -206,7 +210,6 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 
 | Flag | Default | What |
 |---|---|---|
-| `--taste` | `taste.toml` | Mechanical pre-filter rules (the SQL gate inside this stage). |
 | `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`recall`, distilled into a brief). **Empty disables** → `taste.md` fallback. |
@@ -222,7 +225,6 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 |---|---|---|
 | `--addr` | `:8765` | Listen address. |
 | `--taste-md` | `taste.md` | Offline criteria fallback; editable in the UI (writes the **local file only**, never the brain). |
-| `--taste` | `taste.toml` | Mechanical pre-filter rules used by UI verdict runs. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
 | `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`recall` → distilled brief), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
@@ -260,8 +262,9 @@ aliases live in `internal/ingest/csv.go`. If your CSV uses an exotic
 header, either rename it or add an alias.
 
 **Filter says `total=0 survivors=0` but the CSV ingested fine**
-Sanity-check `taste.toml`. Common gotchas:
+Sanity-check the pre-filter rules (dashboard → Criteria → "pre-filter"). Common gotchas:
 - `verticals.allowed` is non-empty AND your CSV uses different vertical names → nothing matches.
+- `verticals.excluded` substring is too broad — e.g. `"law"` also matches "Law Enforcement" (substring, case-insensitive).
 - `location.allowed` doesn't include "remote" but `remote_ok = false` → everyone with a remote location is dropped.
 
 **Enrichment shows `failed=N` but no useful detail**

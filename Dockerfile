@@ -15,9 +15,10 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /out/scout /usr/local/bin/scout
-# Criteria fallback + pre-filter rules (the live DB is on /data; the playbook
-# is compiled in via go:embed and stored in the DB, so it's not copied here).
-COPY taste.md taste.toml ./
+# Criteria narrative fallback only (the live DB is on /data; the playbook and
+# the pre-filter rules are compiled in via go:embed and stored in the DB, so
+# they're not copied here).
+COPY taste.md ./
 RUN mkdir -p /data
 EXPOSE 8765
 # Serve on :8765; reach the brain at http://brain:8100 on brainnet; DB on the volume.
