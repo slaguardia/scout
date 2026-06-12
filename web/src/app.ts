@@ -719,9 +719,19 @@ async function saveCompanyNotes(d, val) {
 // renderPursuit lays out the whole panel: role header, pipeline, outreach,
 // footer. The outreach queue is re-rendered on its own (renderOutreachSection)
 // so polling doesn't rebuild the pipeline controls under the user's cursor.
+// Tracks which posting the pursuit body currently shows, so a re-render of the
+// same posting (the run-end / poll refresh path) can keep the user's scroll
+// instead of jumping to the top — the pursuit-pane equivalent of openDetail's
+// in-place refresh. A genuine open (different posting) resets to the top.
+let pursuitRenderedId: string | null = null;
+
 function renderPursuit() {
   const j = pursuit.row;
   if (!j) return;
+  const pbody = document.getElementById("pursuit-body");
+  const samePosting = !!pbody && pursuitRenderedId === j.posting_id
+    && document.getElementById("pursuit-pane").classList.contains("open");
+  const prevScroll = samePosting && pbody ? pbody.scrollTop : 0;
   document.getElementById("pursuit-title").innerHTML =
     `<input class="ie ie-title" id="pursuit-title-input" placeholder="role name" value="${escapeHTML(j.title || "")}">`;
   const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
@@ -814,6 +824,10 @@ function renderPursuit() {
       { multiline: el.tagName === "TEXTAREA" }));
   renderOutreachSection();
   renderAnswersSection();
+  // Restore scroll on a same-posting refresh (0 on a fresh open), so a run/poll
+  // finishing doesn't yank the panel to the top.
+  if (pbody) pbody.scrollTop = prevScroll;
+  pursuitRenderedId = j.posting_id;
 }
 
 // roleEditHTML is the always-editable role body: the URL (inline-editable — it's
