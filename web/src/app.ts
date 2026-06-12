@@ -999,6 +999,12 @@ function isActiveStatus(st) {
   return st === "researching" || st === "awaiting_review" || st === "needs_work" || st === "no_hook";
 }
 
+// Inline icons for the draft action buttons — same 16×16 stroke idiom as the
+// pane section headers.
+const ICON_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M2.5 10.5v-7a1 1 0 011-1h7"/></svg>';
+const ICON_SAVE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 13.5h-9a1 1 0 01-1-1v-9a1 1 0 011-1h7l3 3v7a1 1 0 01-1 1z"/><path d="M10.5 13.5V9.5h-5v4M5.5 2.5v3h4"/></svg>';
+const ICON_SEND = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2L7.3 8.7"/><path d="M14 2L9.7 14l-2.4-5.3L2 6.3z"/></svg>';
+
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
 function draftCardHTML(d, readonly) {
@@ -1024,7 +1030,7 @@ function draftCardHTML(d, readonly) {
       ${vio}
       ${renderCritique(d.critique)}
       ${renderTrace(d)}
-      ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">Retry</button></div>`}
+      ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">${REFRESH}Retry</button></div>`}
     </div>`;
   }
 
@@ -1043,7 +1049,7 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-yes", "sent")}
       ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
       <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
-      ${readonly ? "" : `<div class="draft-actions"><button class="btn draft-copy-btn" title="copy the email to the clipboard">Copy</button></div>`}
+      ${readonly ? "" : `<div class="draft-actions"><button class="btn draft-copy-btn" title="copy the email to the clipboard">${ICON_COPY}Copy</button></div>`}
       ${renderTrace(d)}
     </div>`;
   }
@@ -1088,12 +1094,12 @@ function draftCardHTML(d, readonly) {
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
     <div class="draft-actions">
-      <button class="btn draft-copy-btn" title="copy the email to the clipboard">Copy</button>
-      <button class="btn draft-save-btn">Save</button>
-      <button class="btn btn-primary draft-sent-btn">Mark sent</button>
-      <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">Regenerate</button>
+      <button class="btn draft-copy-btn" title="copy the email to the clipboard">${ICON_COPY}Copy</button>
+      <button class="btn draft-save-btn" title="save your edits">${ICON_SAVE}Save</button>
+      <button class="btn btn-primary draft-sent-btn" title="mark this email sent — bumps the outreach count">${ICON_SEND}Mark sent</button>
+      <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">${REFRESH}Regenerate</button>
     </div>` : `<div class="draft-actions">
-      <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">Regenerate</button>
+      <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">${REFRESH}Regenerate</button>
     </div>`}
     ${renderTrace(d)}
   </div>`;

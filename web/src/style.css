@@ -797,7 +797,23 @@
     font: 13px/1.6 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-word;
   }
-  .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .draft-actions .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 14px; font-size: 12.5px;
+  }
+  .draft-actions .btn svg { width: 13px; height: 13px; flex: none; opacity: 0.8; }
+  .draft-actions .btn:hover svg, .draft-actions .btn-primary svg { opacity: 1; }
+  /* Regenerate discards the current draft — a quiet ghost parked at the far
+     edge, away from the ship-path actions (Copy / Save / Mark sent). When it's
+     the only action (no_hook card) it stays left and keeps its border. */
+  .draft-actions .btn + .draft-regen-btn {
+    margin-left: auto;
+    background: transparent; border-color: transparent; color: var(--fg-mute);
+  }
+  .draft-actions .btn + .draft-regen-btn:hover {
+    background: var(--panel-2); border-color: var(--line-2); color: var(--fg);
+  }
 
   /* application answers — detected essay questions + drafted answers */
   .answers-meta { color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px; }
