@@ -1002,17 +1002,19 @@ function isActiveStatus(st) {
 // Inline icons for the draft action buttons — same 16×16 stroke idiom as the
 // pane section headers.
 const ICON_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M2.5 10.5v-7a1 1 0 011-1h7"/></svg>';
-const ICON_SAVE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 13.5h-9a1 1 0 01-1-1v-9a1 1 0 011-1h7l3 3v7a1 1 0 01-1 1z"/><path d="M10.5 13.5V9.5h-5v4M5.5 2.5v3h4"/></svg>';
 const ICON_SEND = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2L7.3 8.7"/><path d="M14 2L9.7 14l-2.4-5.3L2 6.3z"/></svg>';
+
+// The copy button lives in the card head, top right next to the timestamp.
+const COPY_BTN = `<button class="dh-copy draft-copy-btn" title="copy the email to the clipboard" aria-label="copy email">${ICON_COPY}</button>`;
 
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
 function draftCardHTML(d, readonly) {
   const when = (d.updated_at || d.created_at || "").replace("T", " ").slice(0, 16);
-  const head = (cls, label) => `
+  const head = (cls, label, extra = "") => `
     <div class="draft-head">
       <span class="${cls}">${label}</span>
-      <span class="dh-time">${escapeHTML(when)}</span>
+      <span class="dh-time">${escapeHTML(when)}</span>${extra}
     </div>`;
 
   if (d.status === "researching") {
@@ -1046,10 +1048,9 @@ function draftCardHTML(d, readonly) {
 
   if (d.status === "sent") {
     return `<div class="draft-card dc-sent" data-did="${d.id}">
-      ${head("pill pill-yes", "sent")}
+      ${head("pill pill-yes", "sent", readonly ? "" : COPY_BTN)}
       ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
       <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
-      ${readonly ? "" : `<div class="draft-actions"><button class="btn draft-copy-btn" title="copy the email to the clipboard">${ICON_COPY}Copy</button></div>`}
       ${renderTrace(d)}
     </div>`;
   }
@@ -1088,14 +1089,12 @@ function draftCardHTML(d, readonly) {
 
   const editable = text || noHook; // show the editor unless there's truly nothing
   return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
-    <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
+    <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span>${text ? COPY_BTN : ""}</div>
     ${note}
     ${critique}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
     <div class="draft-actions">
-      <button class="btn draft-copy-btn" title="copy the email to the clipboard">${ICON_COPY}Copy</button>
-      <button class="btn draft-save-btn" title="save your edits">${ICON_SAVE}Save</button>
       <button class="btn btn-primary draft-sent-btn" title="mark this email sent — bumps the outreach count">${ICON_SEND}Mark sent</button>
       <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">${REFRESH}Regenerate</button>
     </div>` : `<div class="draft-actions">
@@ -1240,8 +1239,9 @@ function wireOutreach() {
 
   host.querySelectorAll(".draft-card[data-did]").forEach(card => {
     const id = card.dataset.did;
-    const save = card.querySelector(".draft-save-btn");
-    if (save) save.addEventListener("click", () => saveDraftEdit(id));
+    // The body auto-saves Linear-style: commit on blur/Cmd+Enter, Esc reverts.
+    const ta = card.querySelector(".draft-textarea");
+    if (ta) wireInlineField(ta, (v) => saveDraftEdit(id, v), { multiline: true });
     const sent = card.querySelector(".draft-sent-btn");
     if (sent) sent.addEventListener("click", () => markDraftSent(id));
     // Copy the email — the live textarea value (unsaved edits included) when the
@@ -1343,35 +1343,27 @@ function renderInputGate(need, error) {
   if (retry) retry.addEventListener("click", startDraft);
 }
 
-// saveDraftEdit PUTs the edited body; the server re-lints and returns fresh
-// lint findings, which we splice back in without rebuilding the textarea.
-async function saveDraftEdit(id) {
-  const ta = document.getElementById(`draft-edit-${id}`);
-  if (!ta) return;
-  let resp;
-  try {
-    resp = await fetch(`/api/outreach/drafts/${id}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ edited: ta.value }),
-    });
-  } catch (e) { toast(`save failed: ${e.message}`); return; }
-  if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`save failed: ${txt || "HTTP " + resp.status}`);
-    return;
-  }
+// saveDraftEdit PUTs the edited body — called by the textarea's inline
+// auto-save on blur; the server re-lints and returns fresh lint findings,
+// which we splice back in without rebuilding the textarea. Throws so
+// wireInlineField rolls back and flashes the error.
+async function saveDraftEdit(id, val) {
+  const resp = await fetch(`/api/outreach/drafts/${id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ edited: val }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
   const fresh = await resp.json();
   const i = pursuit.drafts.findIndex(d => String(d.id) === String(id));
   if (i >= 0) pursuit.drafts[i] = fresh;
-  // Replace just the lint chips so the user keeps their cursor/scroll.
-  const card = ta.closest(".draft-card");
+  const ta = document.getElementById(`draft-edit-${id}`);
+  const card = ta && ta.closest(".draft-card");
   if (card) {
     const chips = card.querySelector(".lint-chips");
     const fresh_chips = renderLintChips(fresh.lint);
     if (chips) chips.outerHTML = fresh_chips || "";
     else if (fresh_chips) ta.insertAdjacentHTML("afterend", fresh_chips);
   }
-  toast("saved");
 }
 
 // markDraftSent flips the draft to sent and bumps the posting's outreach count

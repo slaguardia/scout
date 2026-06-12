@@ -167,7 +167,8 @@
   /* keyboard focus ring on buttons — mirrors the input treatment above so
      tabbing through the controls is visible and consistent. */
   .run-btn:focus-visible, .btn:focus-visible, .doc-btn:focus-visible,
-  .close-btn:focus-visible, .drawer-head button:focus-visible {
+  .close-btn:focus-visible, .drawer-head button:focus-visible,
+  .dh-copy:focus-visible {
     outline: none;
     border-color: var(--link);
     box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
@@ -775,6 +776,16 @@
     margin-bottom: 10px;
   }
   .draft-head .dh-time { margin-left: auto; color: var(--fg-dim); font-size: 11.5px; }
+  /* the copy affordance, top right of the card next to the timestamp */
+  .dh-copy {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; flex: none;
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+    color: var(--fg-mute); cursor: pointer;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .dh-copy:hover { color: var(--fg); background: var(--panel-2); border-color: var(--line-2); }
+  .dh-copy svg { width: 14px; height: 14px; }
   .draft-note {
     color: var(--fg-mute); font-size: 12.5px; line-height: 1.5;
     margin-bottom: 10px;
@@ -789,6 +800,11 @@
     scrollbar-width: thin; scrollbar-color: var(--line-2) transparent;
   }
   .draft-textarea:focus { outline: none; border-color: var(--line-2); }
+  /* inline auto-save feedback (wireInlineField) — mirrors the .ie states */
+  .draft-textarea { transition: border-color var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease); }
+  .draft-textarea.is-saving { opacity: 0.55; }
+  .draft-textarea.is-saved { border-color: var(--yes); }
+  .draft-textarea.is-error { border-color: var(--no); }
   .draft-sentbody {
     width: 100%;
     background: var(--bg); color: var(--fg-mute);
