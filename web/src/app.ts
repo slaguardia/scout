@@ -1010,11 +1010,9 @@ const COPY_BTN = `<button class="dh-copy draft-copy-btn" title="copy the email t
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
 function draftCardHTML(d, readonly) {
-  const when = (d.updated_at || d.created_at || "").replace("T", " ").slice(0, 16);
   const head = (cls, label, extra = "") => `
     <div class="draft-head">
-      <span class="${cls}">${label}</span>
-      <span class="dh-time">${escapeHTML(when)}</span>${extra}
+      <span class="${cls}">${label}</span>${extra}
     </div>`;
 
   if (d.status === "researching") {
@@ -1079,7 +1077,7 @@ function draftCardHTML(d, readonly) {
 
   if (readonly) {
     return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
-      <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span></div>
+      <div class="draft-head">${label}</div>
       ${note}
       ${critique}
       <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
@@ -1089,7 +1087,7 @@ function draftCardHTML(d, readonly) {
 
   const editable = text || noHook; // show the editor unless there's truly nothing
   return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
-    <div class="draft-head">${label}<span class="dh-time">${escapeHTML(when)}</span>${text ? COPY_BTN : ""}</div>
+    <div class="draft-head">${label}${text ? COPY_BTN : ""}</div>
     ${note}
     ${critique}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>

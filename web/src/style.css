@@ -775,11 +775,10 @@
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     margin-bottom: 10px;
   }
-  .draft-head .dh-time { margin-left: auto; color: var(--fg-dim); font-size: 11.5px; }
-  /* the copy affordance, top right of the card next to the timestamp */
+  /* the copy affordance, top right of the card */
   .dh-copy {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; padding: 0; flex: none;
+    width: 26px; height: 26px; padding: 0; flex: none; margin-left: auto;
     background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
     color: var(--fg-mute); cursor: pointer;
     transition: all var(--dur-fast) var(--ease);
@@ -791,7 +790,7 @@
     margin-bottom: 10px;
   }
   .draft-textarea {
-    width: 100%; min-height: 200px; resize: vertical;
+    width: 100%; min-height: 300px; resize: vertical;
     background: var(--bg); color: var(--fg);
     border: 1px solid var(--line); border-radius: var(--r-md);
     padding: 12px 14px;
