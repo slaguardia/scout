@@ -14,10 +14,9 @@ procs:
     # Go control surface + local SQLite, serves /api on :8765.
     # Needs ANTHROPIC_API_KEY (shell env or a .env in the repo root) for
     # verdict/capture/outreach; runs read-only without it.
-    # --outreach-template points at the gitignored local/ copy (your real,
-    # localized credentials); the tracked outreach-template.md stays a
-    # sanitized example. See .gitignore (/local/).
-    shell: "go run ./cmd/scout serve --outreach-template local/outreach-template.md"
+    # The email template and outreach doctrine live in the DB (singleton
+    # rows, edited from the Criteria panel) — no file flags.
+    shell: "go run ./cmd/scout serve"
 
   web:
     # Vite dev server on :5173, proxies /api/* to the Go server on :8765.
