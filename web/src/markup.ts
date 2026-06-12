@@ -274,6 +274,10 @@ export const SCOUT_MARKUP = `
       <span class="ver" id="editor-ver"></span>
     </div>
     <div class="modal-body">
+      <label class="editor-toggle" id="editor-toggle-row" style="display:none">
+        <input type="checkbox" id="editor-enabled" />
+        <span>Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)</span>
+      </label>
       <textarea id="editor-text" spellcheck="false"></textarea>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>

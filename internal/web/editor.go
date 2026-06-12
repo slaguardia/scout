@@ -154,11 +154,13 @@ func (s *Server) handleOutreachDoctrine(w http.ResponseWriter, r *http.Request) 
 // broken filter would silently drop every company from verdict runs) and
 // rejects it 400 otherwise. The verdict job re-reads at run time, so there is
 // no reload and no taste_version — the pre-filter is a mechanical gate, not a
-// criterion the verdict provenance hash tracks.
+// criterion the verdict provenance hash tracks. The `enabled` flag is the
+// master on/off switch (disabled → a bulk run scores everything); the rules are
+// preserved while it's off.
 func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		content, err := s.DB.GetTasteFilter()
+		content, enabled, err := s.DB.GetTasteFilter()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -166,11 +168,12 @@ func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 		if content == "" {
 			content = filter.DefaultTasteTOML
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content})
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content, "enabled": enabled})
 
 	case http.MethodPut:
 		var body struct {
 			Content string `json:"content"`
+			Enabled *bool  `json:"enabled"` // pointer: omitted means "preserve current"
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -180,11 +183,19 @@ func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid pre-filter TOML: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := s.DB.PutTasteFilter(body.Content); err != nil {
+		// Preserve the current enabled state when the client doesn't send one.
+		enabled := true
+		if _, cur, err := s.DB.GetTasteFilter(); err == nil {
+			enabled = cur
+		}
+		if body.Enabled != nil {
+			enabled = *body.Enabled
+		}
+		if err := s.DB.PutTasteFilter(body.Content, enabled); err != nil {
 			http.Error(w, "save pre-filter: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": body.Content})
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": body.Content, "enabled": enabled})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

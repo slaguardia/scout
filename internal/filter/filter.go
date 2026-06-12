@@ -37,31 +37,48 @@ type Taste struct {
 	FundingStage struct {
 		Allowed []string `toml:"allowed"`
 	} `toml:"funding_stage"`
+
+	// Enabled is the master on/off switch, set from the DB (not the TOML) — a
+	// disabled filter passes every company. Defaults to true so a directly
+	// parsed rule set behaves like an active filter.
+	Enabled bool `toml:"-"`
 }
 
 // ParseTaste parses pre-filter rules from raw TOML text. A blank string yields
 // a zero Taste (everything passes the verticals/stage rules; headcount bounds
 // at 0 mean "no bound") — callers wanting the default should pass DefaultTasteTOML.
+// The returned filter is Enabled; callers gate that separately (see TasteFromDB).
 func ParseTaste(content string) (*Taste, error) {
 	var t Taste
 	if _, err := toml.Decode(content, &t); err != nil {
 		return nil, fmt.Errorf("parse taste: %w", err)
 	}
+	t.Enabled = true
 	return &t, nil
 }
 
 // TasteFromDB loads the saved pre-filter rules from the singleton row, falling
 // back to the compiled-in default when none is saved (or on a read error — a
-// run shouldn't break because the rules row is missing). This is the canonical
-// way to obtain the active filter; there is no longer a file on disk.
+// run shouldn't break because the rules row is missing). It also carries the
+// enabled flag: a disabled filter still parses, but Apply passes everything.
+// This is the canonical way to obtain the active filter; there is no longer a
+// file on disk.
 func TasteFromDB(db *store.DB) (*Taste, error) {
-	content := DefaultTasteTOML
+	content, enabled := DefaultTasteTOML, true
 	if db != nil {
-		if c, err := db.GetTasteFilter(); err == nil && strings.TrimSpace(c) != "" {
-			content = c
+		if c, en, err := db.GetTasteFilter(); err == nil {
+			enabled = en
+			if strings.TrimSpace(c) != "" {
+				content = c
+			}
 		}
 	}
-	return ParseTaste(content)
+	t, err := ParseTaste(content)
+	if err != nil {
+		return nil, err
+	}
+	t.Enabled = enabled
+	return t, nil
 }
 
 // Survivor is the projection returned for triage.
@@ -116,6 +133,12 @@ FROM companies`)
 
 // evaluate returns "" if the row passes, or the reason it was dropped.
 func (t *Taste) evaluate(s Survivor) string {
+	// Master switch: a disabled pre-filter passes everything, so a bulk verdict
+	// run scores every company.
+	if !t.Enabled {
+		return ""
+	}
+
 	loc := strings.ToLower(s.Location)
 	vert := strings.ToLower(s.Vertical)
 

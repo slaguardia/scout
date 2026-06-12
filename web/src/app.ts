@@ -2572,6 +2572,8 @@ async function openEditor(kind) {
   document.getElementById("editor-title").textContent = "edit " + editorLabel(kind);
   document.getElementById("editor-text").value = "loading…";
   document.getElementById("editor-ver").textContent = "";
+  // The enabled toggle is pre-filter-only; hide it for every other editor.
+  document.getElementById("editor-toggle-row").style.display = kind === "taste-filter" ? "" : "none";
   scrim.classList.add("open");
   try {
     const r = await fetch(`/api/${kind}`);
@@ -2584,6 +2586,7 @@ async function openEditor(kind) {
     }
     const d = await r.json();
     document.getElementById("editor-text").value = d.content || "";
+    if (kind === "taste-filter") (document.getElementById("editor-enabled") as HTMLInputElement).checked = d.enabled !== false;
     if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
   } catch (e) {
     document.getElementById("editor-text").value = "failed to load: " + e.message;
@@ -2666,12 +2669,15 @@ async function removeSource(need, pageId) {
 async function saveEditor() {
   if (!editorKind) return;
   const content = document.getElementById("editor-text").value;
+  const body: { content: string; enabled?: boolean } = { content };
+  // The pre-filter editor also carries the master on/off switch.
+  if (editorKind === "taste-filter") body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
   let resp;
   try {
     resp = await fetch(`/api/${editorKind}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
     });
   } catch (e) { toast(`save failed: ${e.message}`); return; }
   if (!resp.ok) { toast(`save failed: HTTP ${resp.status}`); return; }
@@ -3067,10 +3073,12 @@ function renderCriteria() {
     desc: "How cold emails get written — the depth bar, show-don't-tell, the kill list.",
     act: "edit-doctrine", actIcon: PENCIL, actTitle: "edit the outreach doctrine", actLabel: "edit outreach doctrine",
   });
+  const pfOn = !state.stats || state.stats.taste_filter_enabled !== false;
   const prefilterCard = critCard({
     icon: ICON_FILTER,
     nameHTML: '<span class="edit-link" data-act="edit-taste-filter" title="edit the pre-filter rules">pre-filter</span>',
-    desc: "Cheap mechanical gate before the LLM verdict — location, headcount, vertical, stage.",
+    desc: "Cheap mechanical gate before the LLM verdict — location, headcount, vertical, stage. Toggle it off in the editor to score every company.",
+    dot: pfOn ? "ok" : "off", note: pfOn ? "active" : "disabled — scoring everything",
     act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
   });
 

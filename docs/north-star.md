@@ -137,13 +137,16 @@ scout-local), reading it via `recall` only.
 
 ```
 ingest    CSV → companies                              (no brain — pure data)
-filter    mechanical PRE-FILTER, runs BEFORE the LLM:   (no brain, no LLM —
+filter    mechanical PRE-FILTER for the bulk verdict:    (no brain, no LLM —
           a cheap free gate on location, headcount,      cheap hard gates,
-          vertical, stage. A company that fails here     NOT judgment)
-          never reaches enrich/verdict on a bulk run.
-          Rules = the `taste_filter` DB singleton,
-          editable in the dashboard (Criteria →
-          "pre-filter"). A targeted re-score BYPASSES it.
+          vertical, stage. It gates ONLY which companies  NOT judgment)
+          a bulk verdict run spends an LLM call on — it
+          never deletes data, hides rows from the list,
+          or gates ingest/enrich. Rules = the
+          `taste_filter` DB singleton, editable in the
+          dashboard (Criteria → "pre-filter") and with a
+          master on/off switch. A targeted re-score
+          BYPASSES it.
 enrich    fetch company site → text                    (no brain — company data)
 verdict   reads  the user's criteria  ← brain: recall → distilled brief
                                          (cached locally; kept current by the
@@ -159,9 +162,12 @@ unambiguous gates (location, headcount, has-domain) are cheap facts worth
 filtering on; the **vertical** include/exclude is the blunt one (case-
 insensitive substring, e.g. "law" matches "Law Enforcement"), and as the
 brain-derived brief matures it's the rule most reasonably moved out of the gate
-and left to the LLM. Because it's now a DB singleton you can edit or empty it
-live from the dashboard — no redeploy, no file. A targeted per-company re-score
-skips it entirely (the explicit ask overrides the bulk cost gate).
+and left to the LLM. It is **not** a data gate: every imported company is stored
+and shown in the list regardless (a filtered-out company simply has no verdict
+yet). Because it's now a DB singleton you can edit it, flip its **master on/off
+switch**, or empty it live from the dashboard — no redeploy, no file. Disabled →
+a bulk run scores everything. A targeted per-company re-score skips it entirely
+either way (the explicit ask overrides the bulk cost gate).
 
 The brain is touched in exactly one place — distilling the user's criteria
 (`recall` + a synthesis call) before `verdict`, cached locally. The synthesis

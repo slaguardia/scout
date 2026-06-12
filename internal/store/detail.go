@@ -146,8 +146,9 @@ type Stats struct {
 	Unscored          int            `json:"unscored"`
 	ByVerdict         map[string]int `json:"by_verdict"`
 	FetchStatus       map[string]int `json:"fetch_status"`
-	CurrentTaste      string         `json:"current_taste"`       // version hash, e.g. "b4cd783174d6"
-	TasteSource       string         `json:"taste_source"`        // "file:taste.md" or "brainbot:<url>" or "" if unknown
+	CurrentTaste       string         `json:"current_taste"`        // version hash, e.g. "b4cd783174d6"
+	TasteSource        string         `json:"taste_source"`         // "file:taste.md" or "brainbot:<url>" or "" if unknown
+	TasteFilterEnabled bool           `json:"taste_filter_enabled"` // pre-filter master switch (on by default)
 }
 
 // GetStats computes the sidebar payload. currentTasteVersion is recorded as the
@@ -155,10 +156,14 @@ type Stats struct {
 // re-scoring — a verdict, once scored, persists until an explicit re-score.
 func (db *DB) GetStats(currentTasteVersion, currentTasteSource string) (*Stats, error) {
 	s := &Stats{
-		ByVerdict:    map[string]int{},
-		FetchStatus:  map[string]int{},
-		CurrentTaste: currentTasteVersion,
-		TasteSource:  currentTasteSource,
+		ByVerdict:          map[string]int{},
+		FetchStatus:        map[string]int{},
+		CurrentTaste:       currentTasteVersion,
+		TasteSource:        currentTasteSource,
+		TasteFilterEnabled: true,
+	}
+	if _, enabled, err := db.GetTasteFilter(); err == nil {
+		s.TasteFilterEnabled = enabled
 	}
 
 	if err := db.QueryRow(`SELECT COUNT(1) FROM companies`).Scan(&s.TotalCompanies); err != nil {
