@@ -44,16 +44,7 @@ Gather:
    team size and role breadth; hiring pattern → what's getting heavy;
    customer logos/integrations → who they serve and compete with. Name the
    signal in each line ("Series B + three AE openings → ...").
-8. CONTACTS — who a candidate would report to or work with, ONLY where the
-   posting or your search names them. Look in the JD for "reporting to",
-   "you'll work with", "partnering with", "the hiring manager", a named team
-   lead; and for the relevant team's leadership on the company site or
-   LinkedIn. Prefer a real NAME when one is stated; otherwise give the
-   ROLE/title alone. For each: name (or "" when only a role is known),
-   role/title, relation ("report to" | "work with" | "hiring manager" |
-   "team"), and basis ("jd" with a short quote, or "web" with the source URL).
-   Return [] when nothing is named — NEVER guess or invent a name.
-9. Disambiguation: if the company name could be multiple entities, say which one
+8. Disambiguation: if the company name could be multiple entities, say which one
    you chose and why.
 
 Rules for the FACTS (items 1-4): quote exactly, never paraphrase into marketing
@@ -67,7 +58,6 @@ Output schema (return ONLY this JSON object, no prose, no markdown fences):
 {"company": "...", "what_they_do": "...", "customer": "...", "stage": "...",
  "headcount_est": "...", "role": {"title": "...", "jd_quotes": ["..."]},
  "hooks": [{"type": "...", "summary": "...", "source_url": "...", "why": "..."}],
- "contacts": [{"name": "...", "role": "...", "relation": "...", "basis": "...", "evidence": "..."}],
  "thesis": "...", "implication": "...", "signals_read": ["..."],
  "disambiguation": "...", "confidence": "..."}`
 

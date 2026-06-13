@@ -210,16 +210,6 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		}
 	}
 
-	// Seed the posting's suggested-contacts field from the researcher's read of
-	// who you'd report to / work with. Best-effort and off the critical path: it
-	// only fills an empty field (never clobbers an override) and a failure is
-	// logged, not fatal.
-	if sc := suggestedContactsFromResearch(research); sc != "" {
-		if err := e.DB.SeedSuggestedContacts(posting.ID, sc); err != nil {
-			e.log("outreach: draft %d seed suggested contacts: %v", draftID, err)
-		}
-	}
-
 	// 2-5. Fill the template's holes → honesty-check the filled spans → judge
 	// against the depth bar → queue. Each stage reads its (editable) system
 	// prompt from e.stagePrompt at call time.
@@ -338,43 +328,6 @@ func (e *Engine) research(ctx context.Context, company, jobURL string, jd JDResu
 		return "", fmt.Errorf("parse research JSON: %w (raw=%q)", perr, trunc(raw, 200))
 	}
 	return cleaned, nil
-}
-
-// suggestedContactsFromResearch pulls the researcher's `contacts` array out of
-// the research JSON and renders it to the one free-form line the posting's
-// suggested-contacts field holds (e.g. "report to: Jane Doe (VP Eng); work
-// with: founding eng team"). Returns "" when the array is absent or empty —
-// the researcher returns [] when the JD/web names no one, and we never guess.
-func suggestedContactsFromResearch(research string) string {
-	var r struct {
-		Contacts []struct {
-			Name     string `json:"name"`
-			Role     string `json:"role"`
-			Relation string `json:"relation"`
-		} `json:"contacts"`
-	}
-	if err := json.Unmarshal([]byte(research), &r); err != nil {
-		return ""
-	}
-	var parts []string
-	for _, c := range r.Contacts {
-		who := strings.TrimSpace(c.Name)
-		if role := strings.TrimSpace(c.Role); role != "" {
-			if who == "" {
-				who = role
-			} else {
-				who = who + " (" + role + ")"
-			}
-		}
-		if who == "" {
-			continue
-		}
-		if rel := strings.TrimSpace(c.Relation); rel != "" {
-			who = rel + ": " + who
-		}
-		parts = append(parts, who)
-	}
-	return strings.Join(parts, "; ")
 }
 
 // --- fill ----------------------------------------------------------------

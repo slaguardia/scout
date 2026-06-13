@@ -793,15 +793,25 @@
   }
   .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
   .outreach-contacts { margin-bottom: 14px; }
-  .outreach-contacts .input { width: 100%; }
-  .outreach-contacts .oc-rendered {
-    margin-top: 6px; font-size: 12.5px; color: var(--fg-mute);
-  }
-  .suggested-contacts .sc-label {
-    display: block; margin-bottom: 4px;
+  .outreach-contacts .cc-label {
+    display: block; margin-bottom: 6px;
     font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
     color: var(--fg-mute);
   }
+  /* contacts editor — position + email per row, with a remove × */
+  .cc-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .cc-row .cc-pos { flex: 0 0 38%; }
+  .cc-row .cc-email { flex: 1 1 auto; }
+  .cc-row .cc-pos, .cc-row .cc-email { min-width: 0; }
+  .cc-del {
+    flex: 0 0 22px; width: 22px; height: 22px; line-height: 1;
+    border: none; background: none; cursor: pointer; padding: 0;
+    color: var(--fg-mute); font-size: 17px; border-radius: var(--r-sm);
+  }
+  .cc-del:hover { color: var(--fg); background: var(--line); }
+  .cc-add { margin-top: 2px; font-size: 12.5px; }
 
   /* draft card — one pipeline run, by status */
   .draft-card {

@@ -379,17 +379,74 @@ function filteredJobs() {
   });
 }
 
-// contactsHTML renders a free-form contacts string ("Jane <jane@a.com>, cto@b.io")
-// as comma-separated entries with email-shaped tokens turned into mailto links.
 const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
-function contactsHTML(s) {
-  const parts = String(s || "").split(",").map(t => t.trim()).filter(Boolean);
-  if (!parts.length) return '<span class="dim">—</span>';
-  return parts.map(part => {
+
+// parseContacts turns the stored contacts value into [{position, email}] entries.
+// The current format is a JSON array; legacy free-form strings ("VP Eng
+// <jane@a.com>, cto@b.io") still parse — each comma-part's email-shaped token
+// becomes the email and the remainder (minus brackets/separators) the position.
+function parseContacts(s) {
+  s = String(s || "").trim();
+  if (!s) return [];
+  if (s[0] === "[") {
+    try {
+      const a = JSON.parse(s);
+      if (Array.isArray(a)) {
+        return a
+          .map(c => ({ position: String(c?.position || "").trim(), email: String(c?.email || "").trim() }))
+          .filter(c => c.position || c.email);
+      }
+    } catch { /* fall through to legacy parse */ }
+  }
+  return s.split(",").map(t => t.trim()).filter(Boolean).map(part => {
     const m = part.match(RE_EMAIL);
-    if (!m) return escapeHTML(part);
-    return `<a href="mailto:${escapeHTML(m[0])}" title="${escapeHTML(part)}">${escapeHTML(part)}</a>`;
+    const email = m ? m[0] : "";
+    let position = email ? part.replace(email, "") : part;
+    position = position.replace(/[<>()]/g, "").replace(/[\s:–—-]+$/, "").trim();
+    return { position, email };
+  });
+}
+
+// serializeContacts stores the entries as a JSON array, dropping empty rows;
+// an all-empty list serializes to "" so the column clears cleanly.
+function serializeContacts(entries) {
+  const kept = (entries || [])
+    .map(c => ({ position: (c.position || "").trim(), email: (c.email || "").trim() }))
+    .filter(c => c.position || c.email);
+  return kept.length ? JSON.stringify(kept) : "";
+}
+
+// contactsHTML renders the stored contacts as comma-separated entries — each is
+// the position (or the email when none), linked as a mailto when an email exists.
+function contactsHTML(s) {
+  const cs = parseContacts(s);
+  if (!cs.length) return '<span class="dim">—</span>';
+  return cs.map(c => {
+    const label = escapeHTML(c.position || c.email);
+    if (!c.email) return label;
+    const tip = escapeHTML(c.position ? `${c.position} — ${c.email}` : c.email);
+    return `<a href="mailto:${escapeHTML(c.email)}" title="${tip}">${label}</a>`;
   }).join('<span class="dim">, </span>');
+}
+
+// contactsEditorHTML renders one row per saved contact — a position field, an
+// email field, and a remove × — under an "+ add contact" button. Rows are wired
+// (and added) in wireOutreach; saves go through a contacts-only path that leaves
+// the panel un-re-rendered so caret/focus survive multi-field entry.
+function contactRowHTML(c) {
+  return `<div class="cc-row">
+      <input class="input cc-pos" value="${escapeHTML(c.position || "")}" placeholder="position" spellcheck="false">
+      <input class="input cc-email" type="email" value="${escapeHTML(c.email || "")}" placeholder="email" spellcheck="false">
+      <button class="cc-del" type="button" title="remove contact" aria-label="remove contact">×</button>
+    </div>`;
+}
+function contactsEditorHTML(stored) {
+  const rowsHTML = parseContacts(stored).map(contactRowHTML).join("");
+  return `<div class="outreach-contacts" id="contacts-editor">
+      <label class="cc-label">contacts</label>
+      <div class="cc-list">${rowsHTML}</div>
+      <button class="btn cc-add" type="button">+ add contact</button>
+    </div>`;
 }
 
 // Response display: pill class + label. Triage-ordered for sorting (an offer
@@ -964,7 +1021,6 @@ async function savePostingTracking(j, patch) {
     last_outreach_at: j.last_outreach_at || "",
     contacts: j.contacts || "",
     notes: j.notes || "",
-    suggested_contacts: j.suggested_contacts || "",
     ...patch,
   };
   let resp;
@@ -987,7 +1043,7 @@ async function savePostingTracking(j, patch) {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     contacts: fresh.contacts, notes: fresh.notes,
-    suggested_contacts: fresh.suggested_contacts, next_up: fresh.next_up,
+    next_up: fresh.next_up,
   });
   syncCompanyPosting(j.posting_id, {   // the company pane card shows the lifecycle too
     applied_at: fresh.applied_at, response: fresh.response,
@@ -1007,7 +1063,6 @@ async function savePursuitNotes(v) {
     applied_at: j.applied_at || "", response: j.response || "",
     outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
     contacts: j.contacts || "", notes: v,
-    suggested_contacts: j.suggested_contacts || "",
   };
   const resp = await fetch(`/api/postings/${j.posting_id}`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
@@ -1027,6 +1082,16 @@ async function savePursuitTracking(patch) {
   renderJobs();
   renderPursuit();
   toast("tracking saved");
+}
+
+// saveContacts persists the contacts list (already serialized) without
+// re-rendering the pursuit panel — the editor manages its own rows, and a full
+// re-render mid-entry would steal focus/caret. The table still reflects the
+// change. savePostingTracking folds the fresh value back into pursuit.row.
+async function saveContacts(contacts) {
+  const fresh = await savePostingTracking(pursuit.row, { contacts });
+  if (!fresh) return;
+  renderJobs();
 }
 
 // saveRowTracking saves a change made from an inline jobs-row control. The
@@ -1059,18 +1124,7 @@ function renderOutreachSection() {
         <button class="btn pt-outreach" title="log one outreach sent outside scout — today">+1 outreach</button>
       </span>
     </div>
-    <div class="outreach-contacts">
-      <input class="input oc-input" value="${escapeHTML(j.contacts || "")}"
-             placeholder="add contacts, comma-separated (emails become links)" spellcheck="false"
-             title="outreach contacts for this role — saved on Enter or click-away">
-      <div class="oc-rendered">${contactsHTML(j.contacts)}</div>
-    </div>
-    <div class="outreach-contacts suggested-contacts">
-      <label class="sc-label">who to reach out to</label>
-      <input class="input sc-input" value="${escapeHTML(j.suggested_contacts || "")}"
-             placeholder="auto-filled from the posting when you draft — edit freely" spellcheck="false"
-             title="who you'd report to / work with, read off the posting; replace with the real person when you find them">
-    </div>`;
+    ${contactsEditorHTML(j.contacts)}`;
 
   // The outer start button: hidden while a draft is active (it's shown in the
   // card) and while the current draft is failed (its in-card Retry covers it).
@@ -1297,18 +1351,35 @@ function wireOutreach() {
   const host = document.getElementById("outreach-section");
   if (!host) return;
 
-  // contacts — save on change (blur w/ a new value); Enter blurs to commit.
-  const oc = host.querySelector(".oc-input");
-  if (oc) {
-    oc.addEventListener("change", e => savePursuitTracking({ contacts: e.target.value.trim() }));
-    oc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
-  }
-
-  // suggested contact — the researcher's seed, overridable; same save idiom.
-  const sc = host.querySelector(".sc-input");
-  if (sc) {
-    sc.addEventListener("change", e => savePursuitTracking({ suggested_contacts: e.target.value.trim() }));
-    sc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+  // contacts — a list of {position, email} rows under an "+ add contact" button.
+  // A field's change (blur with a new value) serializes every non-empty row and
+  // saves; "+ add contact" appends a blank row in place; × removes a row and
+  // saves. Saves go through saveContacts (no panel re-render) so focus/caret
+  // survive while filling a row. Enter blurs to commit.
+  const editor = host.querySelector("#contacts-editor");
+  if (editor) {
+    const list = editor.querySelector(".cc-list");
+    const collect = () => serializeContacts(
+      Array.from(list.querySelectorAll(".cc-row")).map(row => ({
+        position: row.querySelector(".cc-pos").value,
+        email: row.querySelector(".cc-email").value,
+      })));
+    const wireRow = row => {
+      row.querySelectorAll(".cc-pos, .cc-email").forEach(inp => {
+        inp.addEventListener("change", () => saveContacts(collect()));
+        inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+      });
+      row.querySelector(".cc-del").addEventListener("click", () => { row.remove(); saveContacts(collect()); });
+    };
+    list.querySelectorAll(".cc-row").forEach(wireRow);
+    editor.querySelector(".cc-add").addEventListener("click", () => {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = contactRowHTML({ position: "", email: "" });
+      const row = tmp.firstElementChild;
+      list.appendChild(row);
+      wireRow(row);
+      row.querySelector(".cc-pos").focus();
+    });
   }
 
   // Manual outreach logger — for messages sent outside scout. The − undoes a

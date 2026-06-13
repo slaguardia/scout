@@ -49,15 +49,10 @@ type Posting struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
-	// Contacts (M24): free-form outreach contacts for this role —
-	// comma-separated emails, names allowed ("Jane <jane@acme.com>, cto@…").
+	// Contacts (M24): hand-curated outreach contacts for this role, stored as a
+	// JSON array of {position, email} entries (legacy free-form strings still
+	// parse). Opaque to the backend — the UI owns the shape.
 	Contacts string `json:"contacts"`
-
-	// SuggestedContacts (M45): who a candidate would report to / work with, as
-	// read off the JD or the web by the outreach researcher ("report to: VP of
-	// Engineering; work with: founding eng team"). A draft run auto-seeds this
-	// when empty; the user overrides it freely (e.g. the real person's name).
-	SuggestedContacts string `json:"suggested_contacts"`
 
 	// Notes: free-form, human-only scratchpad on this posting. Never written by
 	// capture/ATS/outreach — only the tracking PUT touches it.
@@ -81,7 +76,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
-       COALESCE(contacts, ''), COALESCE(notes, ''), COALESCE(suggested_contacts, ''), next_up_at,
+       COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')`
 
 func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
@@ -92,7 +87,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
-		&p.Contacts, &p.Notes, &p.SuggestedContacts, &nextUpAt,
+		&p.Contacts, &p.Notes, &nextUpAt,
 		&p.QuestionsStatus, &p.QuestionsAt)
 	p.NextUp = nextUpAt.Valid
 	return p, err
@@ -266,11 +261,8 @@ type PostingTracking struct {
 	Response       string `json:"response"`         // ""|"screening"|"interview"|"offer"|"rejected"
 	OutreachCount  int    `json:"outreach_count"`   // >= 0
 	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
-	Contacts       string `json:"contacts"`         // free-form; trimmed, no validation
+	Contacts       string `json:"contacts"`         // JSON [{position,email}]; trimmed, opaque
 	Notes          string `json:"notes"`            // free-form, human-only; trimmed
-	// SuggestedContacts is full-state like the rest: the UI sends it on every
-	// tracking PUT, so it is the user's override path for the researcher's seed.
-	SuggestedContacts string `json:"suggested_contacts"` // free-form; trimmed
 }
 
 // validTrackingDate accepts "" (unset) or a bare ISO date. Validation errors
@@ -313,12 +305,10 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	// (SET expressions see the old row, so the CASE compares old vs new.)
 	const q = `UPDATE job_postings SET
 	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
-	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?, notes = ?,
-	    suggested_contacts = ?
+	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?, notes = ?
 	 WHERE id = ?`
 	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
-		NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)),
-		NullString(strings.TrimSpace(t.SuggestedContacts)), id)
+		NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
 	}
@@ -326,25 +316,6 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 		return Posting{}, sql.ErrNoRows
 	}
 	return db.readPosting(id)
-}
-
-// SeedSuggestedContacts fills a posting's suggested_contacts (the outreach
-// researcher's read of who you'd report to / work with) but ONLY when the
-// field is currently empty — a hand-entered override always wins and is never
-// clobbered by a later draft run. An empty seed is a no-op; an unknown posting
-// silently affects no rows (the seed is best-effort, off the draft's critical
-// path). To refresh stale suggestions, clear the field and draft again.
-func (db *DB) SeedSuggestedContacts(id, text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	const q = `UPDATE job_postings SET suggested_contacts = ?
-	           WHERE id = ? AND (suggested_contacts IS NULL OR suggested_contacts = '')`
-	if _, err := db.Exec(q, text, id); err != nil {
-		return fmt.Errorf("seed suggested contacts %s: %w", id, err)
-	}
-	return nil
 }
 
 // PostingEdit is the hand-editable content of a posting — the fields a user
@@ -499,7 +470,6 @@ type JobRow struct {
 	LastOutreachAt    string `json:"last_outreach_at"`
 	Contacts          string `json:"contacts"`           // outreach contacts (M24)
 	Notes             string `json:"notes"`              // free-form, human-only posting notes
-	SuggestedContacts string `json:"suggested_contacts"` // researcher's read, overridable (M45)
 	NextUp            bool   `json:"next_up"`            // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
@@ -528,7 +498,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
-       COALESCE(p.contacts, ''), COALESCE(p.notes, ''), COALESCE(p.suggested_contacts, ''),
+       COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
                  WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), ''),
        COALESCE(p.questions_status, '')
@@ -553,7 +523,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
-			&r.Contacts, &r.Notes, &r.SuggestedContacts, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
+			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
 			return nil, err
 		}
 		r.Reviewed = reviewedAt.Valid
