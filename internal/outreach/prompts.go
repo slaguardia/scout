@@ -100,16 +100,13 @@ INTEGRITY (compiled rules — these hold no matter what the doctrine says):
 SENDER PRESENCE — experience and capability claims live ONLY in a hole whose
 instructions ask for the sender's background (the proof). Other holes carry at
 most a light human presence, never a background/capability claim:
-- The hook is mainly an observation about THEM. It MAY open with ONE short,
-  light clause that grounds the observation so it doesn't drop from nowhere —
-  keep it to a glance ("I saw {company} raised its seed round and looked at the
-  role"); do NOT name the publication you read it in, and do NOT narrate your
-  research ("I read about X in TechCrunch and looked into the role" is too
-  procedural — it sounds like proving you did homework). Flow straight from the
-  glance into the point. It MAY end with at most ONE present-tense note of the
-  KIND of work the sender is drawn to, written as a COMPLETE sentence ("That's
-  the kind of problem I like being in the middle of") — never a dangling
-  fragment ("The kind of problem I like…"), which reads as bolted on. It must
+- The hook is mainly an observation about THEM. It MAY open by grounding the
+  observation in a specific, real thing from the research (an article, a post, a
+  launch, a founder quote) so it doesn't drop from nowhere — reference the actual
+  thing, NEVER a generic "you raised money", and don't name the publication or
+  narrate your research ("I read about X in TechCrunch and looked into the role"
+  sounds like proving you did homework). Any note of the sender's own interest is
+  optional and must be a complete sentence, never a dangling fragment. It must
   NOT state any experience, capability, or what the sender has done/built/led
   (that is the proof's job), and it must NOT make an aspirational claim on THIS
   role ("the problem I'd want to be working on", "the work I want to do") —
@@ -211,6 +208,9 @@ Fix:
   of the kind of work the sender likes ("the kind of problem I like being in the
   middle of"); cut any beyond that.
 - filler intensifiers ("really", "exactly", "truly", "a real ___", "end-to-end").
+- AI-tell vocabulary ("bespoke", "leverage", "delve", "robust", "seamless",
+  "landscape", "navigate", "underscore", "spearhead", "testament") — swap for a
+  plain word a person would actually say.
 - reciting the company's own facts OR the role's scope back to them ("the FDE
   scope here covers…") — keep only the point being made.
 - analysis-narration ("X tells me Y", "the JD makes clear…") — state the point
@@ -296,7 +296,9 @@ LLM-written spans only.
 
 Tasks:
 1. DEPTH — classify the email's company-facing observation/implication content
-   per the doctrine's ladder: "deep" | "medium" | "shallow". Be strict: a true
+   on this ladder — shallow restates a headline; medium interprets one signal;
+   deep engages their bet, trajectory, or problem with a stated consequence or a
+   non-obvious inference: "deep" | "medium" | "shallow". Be strict: a true
    observation that merely interprets ONE signal is medium, not deep. Deep
    requires engaging the company's bet, trajectory, or problem WITH a stated
    consequence or a non-obvious inference — interpretation that could not have
@@ -311,9 +313,10 @@ Tasks:
    experience, openly framed as adjacent), "standing" (credentials stated
    plainly, no thread to the company), or "none" (no sender-background span
    exists). Report the tier the text actually earns, not the one it claims.
-3. WEAKNESSES — apply the doctrine's tests to the LLM-written spans: the
-   recitation test, reaction words, consequence present, grading the founder's
-   choices, warm-up openings, length (~120-word body). Also flag READABILITY:
+3. WEAKNESSES — apply these tests to the LLM-written spans: the recitation test
+   (a sentence that teaches the reader nothing except that you visited their
+   site), reaction words, consequence present, grading the founder's choices,
+   warm-up openings, length (~120-word body). Also flag READABILITY:
    a sentence that stacks abstractions with no concrete anchor, an opener locked
    to the "X seems to be betting that…" formula, a qualifier list that buries
    the verb, or any sentence a busy reader must decode twice. Confusing-but-deep
