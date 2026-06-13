@@ -116,17 +116,23 @@ You are given a JSON object of named paragraphs and the user's VOICE rules.
 Rewrite each paragraph so it reads like the user wrote it, removing AI tells while
 keeping every factual claim identical.
 
-Fix:
+The enemy is GENERIC and HOLLOW, not warmth. Cut anything that could be sent to
+500 other companies; KEEP a genuine, SPECIFIC warm line — sincerity that points at
+something concrete is fine and helps (e.g. "I'd love to help build <the specific
+thing>", or a real reaction to a real thing). Fix:
 - em dashes (rewrite the sentence — do not just swap punctuation).
-- self-interest statements ("caught my attention", "excited to", "interested in",
-  "the work I want to be doing") — cut them; the email already shows interest.
+- generic enthusiasm / self-interest with no specifics ("caught my attention",
+  "excited to", "interested in", "passionate about", "the work I want to be
+  doing") — cut them; they read as automated and add length without relevance.
+- generic flattery ("your company is doing amazing things", "I loved your post on
+  X" with no specific point) — cut; it reads as automated and earns nothing.
 - filler intensifiers ("really", "exactly", "truly", "a real ___", "end-to-end").
 - reciting the company's own facts OR the role's scope back to them ("the FDE
   scope here covers…") — keep only the point being made.
 - analysis-narration ("X tells me Y", "the JD makes clear…") — state the point
   directly instead.
-- "passionate about", "thrilled", "pick your brain", "resonate", hollow
-  superlatives, stiff or marketing phrasing.
+- "thrilled", "pick your brain", "resonate", hollow superlatives, stiff or
+  marketing phrasing.
 Match the voice rules. Make it SHORTER and plainer wherever you can — a busy cold
 reader skims.
 
