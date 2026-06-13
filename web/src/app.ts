@@ -967,6 +967,7 @@ async function savePostingTracking(j, patch) {
     last_outreach_at: j.last_outreach_at || "",
     contacts: j.contacts || "",
     notes: j.notes || "",
+    suggested_contacts: j.suggested_contacts || "",
     ...patch,
   };
   let resp;
@@ -988,7 +989,8 @@ async function savePostingTracking(j, patch) {
   Object.assign(j, {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
-    contacts: fresh.contacts, notes: fresh.notes, next_up: fresh.next_up,
+    contacts: fresh.contacts, notes: fresh.notes,
+    suggested_contacts: fresh.suggested_contacts, next_up: fresh.next_up,
   });
   syncCompanyPosting(j.posting_id, {   // the company pane card shows the lifecycle too
     applied_at: fresh.applied_at, response: fresh.response,
@@ -1008,6 +1010,7 @@ async function savePursuitNotes(v) {
     applied_at: j.applied_at || "", response: j.response || "",
     outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
     contacts: j.contacts || "", notes: v,
+    suggested_contacts: j.suggested_contacts || "",
   };
   const resp = await fetch(`/api/postings/${j.posting_id}`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
@@ -1064,6 +1067,12 @@ function renderOutreachSection() {
              placeholder="add contacts, comma-separated (emails become links)" spellcheck="false"
              title="outreach contacts for this role — saved on Enter or click-away">
       <div class="oc-rendered">${contactsHTML(j.contacts)}</div>
+    </div>
+    <div class="outreach-contacts suggested-contacts">
+      <label class="sc-label">who to reach out to</label>
+      <input class="input sc-input" value="${escapeHTML(j.suggested_contacts || "")}"
+             placeholder="auto-filled from the posting when you draft — edit freely" spellcheck="false"
+             title="who you'd report to / work with, read off the posting; replace with the real person when you find them">
     </div>`;
 
   // The outer start button: hidden while a draft is active (it's shown in the
@@ -1334,6 +1343,13 @@ function wireOutreach() {
   if (oc) {
     oc.addEventListener("change", e => savePursuitTracking({ contacts: e.target.value.trim() }));
     oc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+  }
+
+  // suggested contact — the researcher's seed, overridable; same save idiom.
+  const sc = host.querySelector(".sc-input");
+  if (sc) {
+    sc.addEventListener("change", e => savePursuitTracking({ suggested_contacts: e.target.value.trim() }));
+    sc.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
   }
 
   // Manual outreach logger — for messages sent outside scout. The − undoes a
