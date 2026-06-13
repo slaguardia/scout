@@ -266,6 +266,43 @@ function bindCompanyRow(tr) {
   if (b) b.addEventListener("click", () => onToggleFlag(b.dataset.id));
 }
 
+// ---- skeleton loading ----
+// Column maps mirror the real row cells (data-col attr + a representative bar
+// width per column) so the shimmer placeholders line up with the table and
+// honor column-visibility toggles. `null` col = always-visible column (name).
+const COMPANY_SKEL_COLS = [
+  ["flag", "14px"], ["verdict", "46px"], [null, "62%"], ["reason", "85%"],
+  ["vertical", "70%"], ["location", "60%"], ["hc", "26px"], ["stage", "55%"],
+  ["reviewed", "44px"], ["site", "38px"],
+];
+const JOBS_SKEL_COLS = [
+  [null, "72%"], ["applied", "58px"], ["response", "54px"], ["outreach", "22px"],
+  ["last_outreach", "58px"], ["contacts", "55%"], ["link", "32px"],
+];
+
+// renderSkeleton paints shimmer placeholder rows into a table body while its
+// first fetch is in flight. renderList/renderJobs wipe the tbody when real data
+// lands, so this is purely the loading frame — it never needs explicit removal.
+// Flexible (%) columns get a per-row jitter so the bars don't form a rigid grid.
+function renderSkeleton(tbodySel, cols, n = 7) {
+  const tbody = document.querySelector(tbodySel);
+  if (!tbody) return;
+  const jitter = [1, 0.82, 0.7, 0.95, 0.76, 0.9, 0.85];
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const cells = cols.map(([col, w]) => {
+      const width = w.endsWith("%")
+        ? Math.round(parseFloat(w) * jitter[i % jitter.length]) + "%"
+        : w;
+      const attr = col ? ` data-col="${col}"` : "";
+      return `<td${attr}><span class="skel" style="width:${width}"></span></td>`;
+    }).join("");
+    html += `<tr class="skel-row" aria-hidden="true">${cells}</tr>`;
+  }
+  tbody.innerHTML = html;
+  applyColumnVisibility();
+}
+
 function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
@@ -3576,6 +3613,11 @@ document.getElementById("chat-input").addEventListener("input", chatAutogrow);
 document.getElementById("chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
+
+// Paint the loading frame before the first fetches resolve so neither table
+// flashes blank (or its empty state) on a cold load.
+renderSkeleton("#t tbody", COMPANY_SKEL_COLS);
+renderSkeleton("#jt tbody", JOBS_SKEL_COLS);
 
 loadList();
 loadJobs();
