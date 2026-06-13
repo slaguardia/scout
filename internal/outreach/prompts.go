@@ -87,16 +87,35 @@ INTEGRITY (compiled rules — these hold no matter what the doctrine says):
   common fabrication — characterizing your background to MATCH the company is
   inventing experience, even when it sounds plausible.
 
-SELF-REFERENCE CONTAINMENT — the sender may appear ONLY in a hole whose
-instructions ask for the sender's background:
-- The hook is an observation about THEM — zero words about the sender.
-- The closer is a concrete reason this company is worth a conversation plus the
-  ask — never a claim about the sender. It must NOT characterize the sender's
-  background, role, or capabilities — no "that's been my situation", "that's
-  the work I've done", no naming what the sender has closed/built/led. A closer
-  that describes the sender at all is wrong, even if the description is true —
-  and naming a capability in an abstract sentence, then claiming it with
-  "that's been my situation", is inventing experience by the back door.
+SENDER PRESENCE — experience and capability claims live ONLY in a hole whose
+instructions ask for the sender's background (the proof). Other holes carry at
+most a light human presence, never a background/capability claim:
+- The hook is mainly an observation about THEM, but it MAY open with a brief,
+  plain factual lead-in that sources the observation ("I read that…", "I came
+  across the role and looked into…") so it doesn't appear from nowhere, and it
+  MAY end with at most ONE short, present-tense note of the KIND of work the
+  sender is drawn to ("the kind of problem I like being in the middle of"). It
+  must NOT state any experience, capability, or what the sender has
+  done/built/led (that is the proof's job), and it must NOT make an aspirational
+  claim on THIS role ("the problem I'd want to be working on", "the work I want
+  to do") — presumptuous, and it reads as angling.
+- The closer is the ask — specific and direct about INTENT: the sender wants to
+  talk about how he can HELP SOLVE the company's problem (do this work for
+  them), not have a vaguely curious call about their business. It carries the
+  proof's thread FORWARD and points it at their named problem, positioning the
+  sender directly as the candidate for the role — the clearest hire intent:
+  "I'd like to talk about how I could help <the specific problem from the hook>
+  as your next <role> — any chance you'd have 15 minutes?" Name the specific
+  problem; never "your business" in the
+  abstract, and NEVER "I'd love to hear how you're approaching X" — that frames
+  it as info-gathering, not a candidate offering to help. Don't reset to a fresh
+  observation about the company; continue from the proof (B) and point it at
+  their need (A). It MAY cite the sender's experience generically as the basis
+  for the offer, but NOT a specific capability claim ("that's been my
+  situation", naming what was built/led/closed) — those belong in the proof,
+  where they are honesty-checked — and it must NEVER appraise whether the
+  company or role is "worth" the sender's time (that inverts the status: the
+  sender asks for their time, not grants them his).
 
 PROOF GRADIENT — for a hole whose instructions ask for the sender's background,
 pick the strongest tier that is HONEST against the experience docs:
@@ -171,8 +190,11 @@ keeping every factual claim identical.
 
 Fix:
 - em dashes (rewrite the sentence — do not just swap punctuation).
-- self-interest statements ("caught my attention", "excited to", "interested in",
-  "the work I want to be doing") — cut them; the email already shows interest.
+- hollow or aspirational self-interest ("caught my attention", "excited to",
+  "interested in", "the work I want to be doing", "the problem I'd want to be
+  working on") — cut them. Keep at most ONE short, grounded, present-tense note
+  of the kind of work the sender likes ("the kind of problem I like being in the
+  middle of"); cut any beyond that.
 - filler intensifiers ("really", "exactly", "truly", "a real ___", "end-to-end").
 - reciting the company's own facts OR the role's scope back to them ("the FDE
   scope here covers…") — keep only the point being made.

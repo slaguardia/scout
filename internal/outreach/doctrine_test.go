@@ -50,10 +50,10 @@ func TestBuildFillSystemSplicesDoctrine(t *testing.T) {
 	for _, want := range []string{
 		"WRITING DOCTRINE (the user's editable method",
 		doctrine,
-		"NEVER invent",               // integrity stays compiled
-		"SELF-REFERENCE CONTAINMENT", // containment stays compiled
-		"PROOF GRADIENT",             // the tiers stay compiled
-		`{"no_send": true`,           // the JSON contract stays compiled
+		"NEVER invent",     // integrity stays compiled
+		"SENDER PRESENCE",  // hook/closer containment stays compiled
+		"PROOF GRADIENT",   // the tiers stay compiled
+		`{"no_send": true`, // the JSON contract stays compiled
 	} {
 		if !strings.Contains(sys, want) {
 			t.Errorf("fill system prompt missing %q", want)

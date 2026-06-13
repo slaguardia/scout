@@ -41,6 +41,13 @@ understood the stakes.
 "Interesting", "exciting", "stuck with me", "resonated", "I love that" — cut
 them and write the implication of the thing instead.
 
+Interest declarations are the same failure pointed at yourself. "The problem I'd
+want to be working on", "the work I want to do" — presumptuous (they assume the
+job) and hollow (the email already shows interest by existing). One short,
+present-tense note of the KIND of work you're drawn to is human and fine ("the
+kind of problem I like being in the middle of"); an aspirational claim on this
+role is not.
+
 This governs your REACTIONS, not your facts. "Show, don't tell" means cut the
 words that announce how you feel — it never means be terse or allusive about
 what you actually did. State your experience plainly and fully enough that a
@@ -55,6 +62,16 @@ disrupted) leaves the proof nothing to answer — a clever opening stapled to an
 unrelated résumé line, and the reader feels the seam. Aim the implication at
 the operational reality the role lives in: what is unbuilt, unproven, or about
 to break. That is the implication a background can speak to.
+
+## The email is one through-line
+
+Three paragraphs, one arc that never resets: the problem they have (hook) → the
+relevant thing you've done (proof) → an offer to help solve THAT problem as
+their next hire (closer). Each paragraph hands off to the next. The closer
+especially must carry the proof's thread forward and point it at their problem;
+it must not jump back to a fresh observation about the company. If the last
+paragraph could be pasted onto a different company's email, it isn't closing
+this one.
 
 ## Don't explain them to themselves
 
@@ -101,16 +118,23 @@ failed, however sharp its insight.
 - Grade their choices ("bold thing to be building") — presumptuous from a
   stranger, and it shifts focus onto your appraisal of them.
 - Congratulate without an interpretation attached.
-- Warm up. The company-true observation lands in the first sentence or two;
-  readers disengage by the second sentence if you're still clearing your
-  throat.
+- Warm up with empty pleasantries ("hope this finds you well", "I've long
+  admired…"). A brief FACTUAL lead-in that sources the observation ("I read
+  that…") is fine and human — it keeps the opening from dropping out of nowhere;
+  an empty throat-clear is not. Either way the real observation lands by the
+  second sentence.
 
 ## The ask
 
-Match friction to temperature: cold plus busy reader means a small ask. "15
-minutes to hear where things are stretched thin", or cheaper: "worth a
-conversation?" Thirty minutes on a stranger's calendar is too much. Fold the
-ask into the final paragraph; never a lonely tacked-on line.
+The ask is specific and direct about intent: you want to talk about how you can
+help solve the problem the hook named — as their next hire for this role — not
+have a vaguely curious call about their business. Name the problem and the role:
+"I'd like to talk about how I could help <that problem> as your next <role> —
+any chance you'd have 15 minutes?" Keep the friction low (15 minutes, not 30),
+but never soften it into info-gathering ("I'd love to hear how you're
+approaching X"), and never appraise whether they are "worth a conversation" —
+you are asking for their time, not granting them yours. Fold the ask into the
+final paragraph; never a lonely tacked-on line.
 
 ## Plain and concrete
 

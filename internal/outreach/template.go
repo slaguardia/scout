@@ -22,20 +22,21 @@ import (
 // silently mis-filling an email.
 
 // DefaultTemplate is the compiled-in starting template, used until the user
-// saves their own. The doctrine structure: an interpretation-led hook that names
-// where the work gets hard, a proof hole that answers that exact difficulty at
-// the strongest honest tier of the proof gradient, and a reason+ask closer.
-// "Your Name" stays a placeholder the user localizes. (The subject line's em
-// dash is intentional — see voice.go's note about never linting the subject.)
+// saves their own. The doctrine structure: a hook that opens with a human
+// factual lead-in then names where the work gets hard, a proof hole that answers
+// that exact difficulty in plain concrete words at the strongest honest tier,
+// and a direct, specific ask that positions the sender as the candidate for the
+// role. "Your Name" stays a placeholder the user localizes. (The subject line's
+// em dash is intentional — see voice.go's note about never linting the subject.)
 const DefaultTemplate = `Subject: [Recipient] | Your Name — intro re {{role}}
 
 Hi [Recipient],
 
-{{hook: One or two tight, plain sentences: a specific, true observation about {{company}} — the bet they're making and where that makes the WORK hard to execute (the operational problem this role exists to close), not an industry-level consequence — hedged as your own read. This is the problem the proof answers, so make it one a person's background can speak to. State a consequence, not a reaction. Name a concrete thing rather than stacking abstractions, and don't lock the opener to "seems to be betting" — vary it. Zero words about the sender. If there is no Deep observation to make, don't send.}}
+{{hook: Two or three plain sentences. Open with a brief factual lead-in that sources the observation ("I read that {{company}}…", "I came across the role and looked into…") so it doesn't appear from nowhere. Then the observation: a specific, true read on {{company}} and where their bet makes the WORK hard to execute (the operational problem this role exists to close), not an industry-level consequence, hedged as your own read. You MAY end with ONE short, present-tense note of the kind of work you like ("the kind of problem I like being in the middle of") — but no experience or capability claims (those are the proof's job) and no aspirational claim on this role ("the problem I'd want to be working on"). State a consequence, not a reaction; name a concrete thing rather than stacking abstractions; vary the opening, never "seems to be betting" every time. If there is no Deep observation to make, don't send.}}
 
-{{proof: One or two plain sentences answering the exact difficulty the hook named, at the strongest HONEST tier: direct lived experience of this problem; or adjacent experience framed openly as adjacent (say "not X, but Y" — never disguise the distance); or my standing credentials stated plainly with no manufactured thread. One mapping, not a résumé.}}
+{{proof: One or two plain sentences answering the exact difficulty the hook named, at the strongest HONEST tier: direct lived experience of this problem; or adjacent experience framed openly as adjacent ("not X, but Y" — never disguise the distance); or my standing credentials stated plainly with no manufactured thread. State the actual substance in plain words a stranger follows — what the system did, what the constraint really was — NEVER a vague category like "an infrastructure integration under compliance constraints" and never an insider name-drop the reader can't decode. Draw the connection to {{company}} in one plain sentence; don't just assert "same problem". One mapping, not a résumé.}}
 
-{{closer: A short, concrete reason this company in particular is worth a conversation, folded into one low-friction ask (e.g. 15 minutes to hear where things are stretched thin, or simply "worth a conversation?"). Nothing about the sender. Vary the ask.}}
+{{closer: One or two sentences, a specific and direct ask: that you want to talk about how you could help solve the exact problem the hook named, positioning yourself as their next {{role}}, folded into a request for their time ("I'd like to talk about how I could help <that problem> as your next {{role}} — any chance you'd have 15 minutes?"). Name the specific problem; ask for THEIR time. NEVER make it a curious call about their business ("I'd love to hear how you're approaching X"), and NEVER appraise whether the company or role is "worth a conversation". No specific capability claim here (that's the proof's job). Vary the ask.}}
 
 Thanks,
 Your Name`
