@@ -204,6 +204,21 @@ func buildFillSystem(doctrine string) string {
 	return fmt.Sprintf(fillSystemFmt, doctrine)
 }
 
+// fillWritingMethodDefault is the default "writing method" spliced into the fill
+// frame — formerly the separate outreach doctrine, now folded into the Writer
+// stage. fillSystemDefault is the full default Writer (fill) system prompt and
+// is the compiled-in default the editable "fill" stage resets to.
+const fillWritingMethodDefault = `WRITING METHOD — how the email should sound:
+- Plain, direct, spoken English. Short sentences. No em dashes. No AI tells ("bespoke", "leverage", "delve", "robust", "seamless", "passionate").
+- One through-line: their problem -> the relevant shape of your experience -> a direct ask to do that work as their next hire. Each paragraph hands to the next.
+- Show the consequence; never announce a reaction ("interesting", "excited").
+- Legible to a stranger: no insider jargon, no name-dropped projects. State your experience at the right altitude (the shape of the work, not a case study).
+- Hedge your read of them ("seems like", "the way I read it"); never lecture them on their own business, and never grade their choices.
+- Honest beats impressive: claim an adjacent fit openly rather than inflate it.
+- Under ~120 words, three short paragraphs, readable on a phone.`
+
+var fillSystemDefault = buildFillSystem(fillWritingMethodDefault)
+
 // humanizeSystem is the de-AI cleanup pass over the model-written holes. It
 // removes the LLM's tells and matches the user's voice WITHOUT changing any
 // fact — the honesty checker runs after it, so wording is all that may move.
@@ -300,11 +315,10 @@ INVENTED sender experience; never punish honest paraphrase or a company fact.`
 // span actually earns). It is NOT the honesty checker: integrity is a separate,
 // unchanged gate; the judge answers "is this email worth sending?".
 const judgeSystem = `You are the quality judge for one cold job-search email. You are given the
-sender's WRITING DOCTRINE (the rubric), the COMPANY RESEARCH JSON, the sender's
-EXPERIENCE bundle, the full assembled EMAIL, and the list of which spans were
-LLM-WRITTEN (the filled holes, by name, with their text). The rest of the email
-is the sender's own verbatim prose — never grade it; apply every test to the
-LLM-written spans only.
+COMPANY RESEARCH JSON, the sender's EXPERIENCE bundle, the full assembled EMAIL,
+and the list of which spans were LLM-WRITTEN (the filled holes, by name, with
+their text). The rest of the email is the sender's own verbatim prose — never
+grade it; apply every test to the LLM-written spans only. Your rubric is below.
 
 Tasks:
 1. DEPTH — classify the email's company-facing observation/implication content

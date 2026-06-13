@@ -276,7 +276,7 @@ export const SCOUT_MARKUP = `
     <div class="modal-body">
       <label class="editor-toggle" id="editor-toggle-row" style="display:none">
         <input type="checkbox" id="editor-enabled" />
-        <span>Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)</span>
+        <span id="editor-toggle-label">Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)</span>
       </label>
       <textarea id="editor-text" spellcheck="false"></textarea>
       <div class="modal-note">
@@ -285,6 +285,7 @@ export const SCOUT_MARKUP = `
       </div>
     </div>
     <div class="modal-foot">
+      <button class="btn" id="editor-reset" style="display:none" title="discard your edits and restore the built-in default">Reset to default</button>
       <button class="btn" id="editor-cancel">Cancel</button>
       <button class="btn btn-primary" id="editor-save">Save</button>
     </div>

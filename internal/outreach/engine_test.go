@@ -342,26 +342,30 @@ func TestRunJudgeBadVerdict(t *testing.T) {
 	}
 }
 
-// The fill and judge prompts carry the DB-saved doctrine (the editable method
-// reaches the model without a restart).
-func TestRunUsesSavedDoctrine(t *testing.T) {
-	const marker = "DOCTRINE-MARKER-XYZZY: only ship deep observations."
+// Each pipeline stage carries its DB-saved prompt override (an edited stage
+// prompt reaches the model without a restart).
+func TestRunUsesSavedStagePrompts(t *testing.T) {
+	const fillMarker = "FILL-MARKER-XYZZY: only ship deep observations."
+	const judgeMarker = "JUDGE-MARKER-XYZZY: grade strictly."
 	fake := &fakeAnthropic{replies: []string{researchJSON, fillReply(hookText, closerText), humanizeReply(hookText, closerText), honestyPass, judgeDeep}}
 	eng, db := newEngine(t, fake)
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
-	if err := db.PutOutreachDoctrine(marker); err != nil {
-		t.Fatalf("save doctrine: %v", err)
+	if err := db.PutPromptOverride("fill", fillMarker); err != nil {
+		t.Fatalf("save fill override: %v", err)
+	}
+	if err := db.PutPromptOverride("judge", judgeMarker); err != nil {
+		t.Fatalf("save judge override: %v", err)
 	}
 
 	if err := eng.Run(context.Background(), id); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(fake.reqs[1], marker) {
-		t.Errorf("fill request (system prompt) missing the saved doctrine:\n%s", fake.reqs[1])
+	if !strings.Contains(fake.reqs[1], fillMarker) {
+		t.Errorf("fill request (system prompt) missing the saved fill override:\n%s", fake.reqs[1])
 	}
-	if !strings.Contains(fake.reqs[4], marker) {
-		t.Errorf("judge request missing the saved doctrine:\n%s", fake.reqs[4])
+	if !strings.Contains(fake.reqs[4], judgeMarker) {
+		t.Errorf("judge request missing the saved judge override:\n%s", fake.reqs[4])
 	}
 }
 

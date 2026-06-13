@@ -2680,11 +2680,17 @@ let editorKind = null;
 // editorLabel names the artifact in the modal title / save toast. The playbook,
 // outreach template/doctrine, and pre-filter rules are DB rows (no file
 // extension); taste (the narrative fallback) is still a file.
+const STAGE_LABELS: Record<string, string> = {
+  researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check", judge: "judge",
+};
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
-  if (kind === "outreach-doctrine") return "outreach doctrine";
   if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
+  if (kind && kind.startsWith("outreach-prompts/")) {
+    const stage = kind.slice("outreach-prompts/".length);
+    return (STAGE_LABELS[stage] || stage) + " prompt";
+  }
   return kind + ".md";
 }
 
@@ -2694,8 +2700,16 @@ async function openEditor(kind) {
   document.getElementById("editor-title").textContent = "edit " + editorLabel(kind);
   document.getElementById("editor-text").value = "loading…";
   document.getElementById("editor-ver").textContent = "";
-  // The enabled toggle is pre-filter-only; hide it for every other editor.
-  document.getElementById("editor-toggle-row").style.display = kind === "taste-filter" ? "" : "none";
+  // The enable toggle shows for the pre-filter and for skippable pipeline stages
+  // (every stage but the Writer/fill). The reset button shows for pipeline stages.
+  const isPipeline = !!kind && kind.startsWith("outreach-prompts/");
+  const pipelineStage = isPipeline ? kind.slice("outreach-prompts/".length) : "";
+  const showToggle = kind === "taste-filter" || (isPipeline && pipelineStage !== "fill");
+  document.getElementById("editor-toggle-row").style.display = showToggle ? "" : "none";
+  document.getElementById("editor-reset").style.display = isPipeline ? "" : "none";
+  if (showToggle) document.getElementById("editor-toggle-label").textContent = kind === "taste-filter"
+    ? "Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)"
+    : "Run this stage (off → it is skipped in the pipeline)";
   scrim.classList.add("open");
   try {
     const r = await fetch(`/api/${kind}`);
@@ -2708,7 +2722,7 @@ async function openEditor(kind) {
     }
     const d = await r.json();
     document.getElementById("editor-text").value = d.content || "";
-    if (kind === "taste-filter") (document.getElementById("editor-enabled") as HTMLInputElement).checked = d.enabled !== false;
+    if (showToggle) (document.getElementById("editor-enabled") as HTMLInputElement).checked = d.enabled !== false;
     if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
   } catch (e) {
     document.getElementById("editor-text").value = "failed to load: " + e.message;
@@ -2792,8 +2806,10 @@ async function saveEditor() {
   if (!editorKind) return;
   const content = document.getElementById("editor-text").value;
   const body: { content: string; enabled?: boolean } = { content };
-  // The pre-filter editor also carries the master on/off switch.
-  if (editorKind === "taste-filter") body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
+  // The pre-filter editor and the skippable pipeline stages carry an on/off
+  // switch alongside the text.
+  const isPipelineStage = editorKind.startsWith("outreach-prompts/") && editorKind !== "outreach-prompts/fill";
+  if (editorKind === "taste-filter" || isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
   let resp;
   try {
     resp = await fetch(`/api/${editorKind}`, {
@@ -2808,6 +2824,23 @@ async function saveEditor() {
   toast(`${editorLabel(editorKind)} saved`);
   closeEditor();
   loadStats(); // refresh the criteria version shown in the sidebar
+}
+
+// resetEditor reverts a pipeline stage's prompt to the compiled-in default
+// (PUT {reset:true}) and reloads the editor so the default text shows.
+async function resetEditor() {
+  if (!editorKind || !editorKind.startsWith("outreach-prompts/")) return;
+  let resp;
+  try {
+    resp = await fetch(`/api/${editorKind}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reset: true }),
+    });
+  } catch (e) { toast(`reset failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`reset failed: HTTP ${resp.status}`); return; }
+  const d = await resp.json();
+  document.getElementById("editor-text").value = d.content || "";
+  toast(`${editorLabel(editorKind)} reset to default`);
 }
 
 // ---- wiring ----
@@ -3044,6 +3077,7 @@ document.getElementById("drawer-close").onclick = () => document.getElementById(
 // the Criteria block re-renders them dynamically)
 document.getElementById("editor-cancel").onclick = closeEditor;
 document.getElementById("editor-save").onclick = saveEditor;
+document.getElementById("editor-reset").onclick = resetEditor;
 document.getElementById("editor-scrim").onclick = e => {
   if (e.target.id === "editor-scrim") closeEditor();
 };
@@ -3203,12 +3237,21 @@ function renderCriteria() {
     desc: "The outreach email format — verbatim prose with fill-in holes.",
     act: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
   });
-  const doctrineCard = critCard({
+  // The outreach pipeline: each stage is an editable LLM prompt (open to edit,
+  // toggle on/off, or reset to default). The Writer can't be turned off.
+  const PIPELINE_STAGES: [string, string, string][] = [
+    ["researcher", "1 · Researcher", "Searches the web for true company facts and the best hooks to open with."],
+    ["fill", "2 · Writer", "Writes the email's blanks from the research, your experience, and your voice."],
+    ["humanizer", "3 · Humanizer", "Strips AI tells and matches your voice — never changes a fact."],
+    ["honesty", "4 · Honesty check", "Vetoes any claim about you beyond your documented experience."],
+    ["judge", "5 · Judge", "Grades depth and proof; gates whether a draft is good enough to ship."],
+  ];
+  const pipelineCards = PIPELINE_STAGES.map(([key, title, desc]) => critCard({
     icon: ICON_DOCTRINE,
-    nameHTML: '<span class="edit-link" data-act="edit-doctrine" title="edit the outreach doctrine">outreach doctrine</span>',
-    desc: "How cold emails get written — the depth bar, show-don't-tell, the kill list.",
-    act: "edit-doctrine", actIcon: PENCIL, actTitle: "edit the outreach doctrine", actLabel: "edit outreach doctrine",
-  });
+    nameHTML: `<span class="edit-link" data-act="edit-prompt-${key}" title="edit the ${title.replace(/^\d+ · /, "")} prompt">${title}</span>`,
+    desc,
+    act: `edit-prompt-${key}`, actIcon: PENCIL, actTitle: `edit the ${title} prompt`, actLabel: `edit ${title} prompt`,
+  })).join("");
   const pfOn = !state.stats || state.stats.taste_filter_enabled !== false;
   const prefilterCard = critCard({
     icon: ICON_FILTER,
@@ -3244,7 +3287,11 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${knowledgeCard}${templateCard}${doctrineCard}
+       ${knowledgeCard}${templateCard}
+     </div>
+     <div class="settings-section">
+       <div class="settings-group-h">Outreach pipeline</div>
+       ${pipelineCards}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Integrations</div>
@@ -3262,11 +3309,11 @@ function renderCriteria() {
     "edit-taste-filter": () => openEditor("taste-filter"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
-    "edit-doctrine": () => openEditor("outreach-doctrine"),
     "view-sources": openSourcesModal,
     "refresh-sources": refreshSourcesInline,
     "edit-anthropic-key": openKeyModal,
   };
+  for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
   el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
     const a = n.dataset.act;
     if (a && ACTIONS[a]) n.onclick = ACTIONS[a];

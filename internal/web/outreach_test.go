@@ -389,37 +389,89 @@ func TestOutreachNeedsWorkEditable(t *testing.T) {
 	}
 }
 
-// The doctrine editor endpoint: GET falls back to the compiled-in default, PUT
-// saves the singleton row, GET returns the save.
-func TestOutreachDoctrineEndpoint(t *testing.T) {
+// The pipeline-prompts endpoints: the list, a per-stage GET that falls back to
+// the compiled default, a PUT that saves an override + toggles the stage, a
+// reset that reverts content, and the fill stage being non-skippable.
+func TestOutreachPromptsEndpoint(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := s.Handler()
 
-	rec := do(t, h, http.MethodGet, "/api/outreach-doctrine", "")
+	// List: every stage present, all enabled by default, fill not skippable.
+	rec := do(t, h, http.MethodGet, "/api/outreach-prompts", "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("get: want 200, got %d", rec.Code)
+		t.Fatalf("list: want 200, got %d", rec.Code)
 	}
+	var list struct {
+		Prompts []struct {
+			Stage     string `json:"stage"`
+			Enabled   bool   `json:"enabled"`
+			Skippable bool   `json:"skippable"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Prompts) != len(outreach.Stages()) {
+		t.Fatalf("list: got %d stages, want %d", len(list.Prompts), len(outreach.Stages()))
+	}
+	for _, p := range list.Prompts {
+		if !p.Enabled {
+			t.Errorf("stage %q should default enabled", p.Stage)
+		}
+		if (p.Stage == "fill") == p.Skippable {
+			t.Errorf("stage %q skippable=%v (fill must be non-skippable, others skippable)", p.Stage, p.Skippable)
+		}
+	}
+
+	// Per-stage GET falls back to the compiled default.
 	var body struct {
-		Kind    string `json:"kind"`
-		Content string `json:"content"`
+		Kind         string `json:"kind"`
+		Content      string `json:"content"`
+		Enabled      bool   `json:"enabled"`
+		IsOverridden bool   `json:"is_overridden"`
 	}
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Kind != "outreach-doctrine" || body.Content != outreach.DefaultDoctrine {
-		t.Fatalf("default get: kind=%q content len=%d", body.Kind, len(body.Content))
+	def, _ := outreach.StageByKey("judge")
+	if body.Kind != "outreach-prompts/judge" || body.Content != def.Default || body.IsOverridden {
+		t.Fatalf("default get: kind=%q overridden=%v len=%d", body.Kind, body.IsOverridden, len(body.Content))
 	}
 
-	rec = do(t, h, http.MethodPut, "/api/outreach-doctrine", `{"content":"my doctrine"}`)
+	// PUT an override and disable the stage.
+	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/judge", `{"content":"my judge","enabled":false}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	rec = do(t, h, http.MethodGet, "/api/outreach-doctrine", "")
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.Content != "my judge" || body.Enabled || !body.IsOverridden {
+		t.Fatalf("after put: content=%q enabled=%v overridden=%v", body.Content, body.Enabled, body.IsOverridden)
 	}
-	if body.Content != "my doctrine" {
-		t.Fatalf("get after put: %q", body.Content)
+
+	// Reset reverts content to the default but leaves the stage disabled.
+	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/judge", `{"reset":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset: want 200, got %d", rec.Code)
+	}
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.Content != def.Default || body.IsOverridden || body.Enabled {
+		t.Fatalf("after reset: overridden=%v enabled=%v", body.IsOverridden, body.Enabled)
+	}
+
+	// The fill stage ignores a disable toggle.
+	do(t, h, http.MethodPut, "/api/outreach-prompts/fill", `{"content":"x","enabled":false}`)
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/fill", "")
+	json.Unmarshal(rec.Body.Bytes(), &body)
+	if !body.Enabled {
+		t.Fatalf("fill must stay enabled even when toggled off")
+	}
+
+	// Unknown stage → 404.
+	if rec = do(t, h, http.MethodGet, "/api/outreach-prompts/nope", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown stage: want 404, got %d", rec.Code)
 	}
 }
 

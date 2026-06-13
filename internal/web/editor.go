@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/slaguardia/scout/internal/filter"
 	"github.com/slaguardia/scout/internal/outreach"
@@ -111,36 +112,92 @@ func (s *Server) handleOutreachTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handleOutreachDoctrine edits the outreach writing doctrine, stored in the DB
-// (a singleton row) — a dashboard save can't clobber it and git never touches
-// it. GET returns the saved doctrine or the compiled-in default; the engine
-// re-reads at draft time, so there is no reload and no taste_version.
-func (s *Server) handleOutreachDoctrine(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		content, err := s.DB.GetOutreachDoctrine()
+// handleOutreachPromptsList lists the editable outreach pipeline stages (titles,
+// one-line descriptions, on/off + override status) for the dashboard's Pipeline
+// view. Content is fetched per-stage via handleOutreachPrompt.
+func (s *Server) handleOutreachPromptsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	type item struct {
+		Stage        string `json:"stage"`
+		Title        string `json:"title"`
+		Description  string `json:"description"`
+		Enabled      bool   `json:"enabled"`
+		Skippable    bool   `json:"skippable"`
+		IsOverridden bool   `json:"is_overridden"`
+	}
+	out := []item{}
+	for _, st := range outreach.Stages() {
+		content, enabled, _ := s.DB.GetStage(st.Key)
+		out = append(out, item{
+			Stage: st.Key, Title: st.Title, Description: st.Desc,
+			Enabled: enabled, Skippable: st.Key != "fill",
+			IsOverridden: strings.TrimSpace(content) != "",
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prompts": out})
+}
+
+// handleOutreachPrompt is GET/PUT for one pipeline stage's editable system
+// prompt, stored in the DB (a dashboard save can't clobber it; the engine
+// re-reads at draft time). GET returns the effective prompt + flags; PUT
+// {content} saves an override, PUT {enabled} toggles the stage on/off, PUT
+// {reset:true} reverts to the compiled default. The Writer (fill) can't be
+// disabled.
+func (s *Server) handleOutreachPrompt(w http.ResponseWriter, r *http.Request) {
+	stage := strings.TrimPrefix(r.URL.Path, "/api/outreach-prompts/")
+	st, ok := outreach.StageByKey(stage)
+	if !ok {
+		http.Error(w, "unknown stage: "+stage, http.StatusNotFound)
+		return
+	}
+	respond := func() {
+		content, enabled, err := s.DB.GetStage(stage)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if content == "" {
-			content = outreach.DefaultDoctrine
+		overridden := strings.TrimSpace(content) != ""
+		if !overridden {
+			content = st.Default
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-doctrine", "content": content})
-
+		writeJSON(w, http.StatusOK, map[string]any{
+			"kind": "outreach-prompts/" + stage, "content": content,
+			"enabled": enabled, "skippable": stage != "fill", "is_overridden": overridden,
+		})
+	}
+	switch r.Method {
+	case http.MethodGet:
+		respond()
 	case http.MethodPut:
 		var body struct {
 			Content string `json:"content"`
+			Enabled *bool  `json:"enabled"`
+			Reset   bool   `json:"reset"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := s.DB.PutOutreachDoctrine(body.Content); err != nil {
-			http.Error(w, "save outreach doctrine: "+err.Error(), http.StatusInternalServerError)
+		if body.Reset {
+			if err := s.DB.ResetStageContent(stage); err != nil {
+				http.Error(w, "reset prompt: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else if err := s.DB.PutPromptOverride(stage, body.Content); err != nil {
+			http.Error(w, "save prompt: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "outreach-doctrine", "content": body.Content})
+		// The Writer (fill) is never skippable; ignore an enable toggle for it.
+		if body.Enabled != nil && stage != "fill" {
+			if err := s.DB.SetStageEnabled(stage, *body.Enabled); err != nil {
+				http.Error(w, "toggle stage: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		respond()
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
