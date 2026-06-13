@@ -25,23 +25,13 @@ Gather:
 2. Stage, funding, rough headcount.
 3. The posted role: exact title, and 2-3 distinctive lines from the job
    description (quote exactly — skip boilerplate like "fast-paced environment").
-4. HOOKS — 3-5 specific, recent things worth opening a cold email with, RANKED
-   strongest first. Hunt hardest for substance a thoughtful person would actually
-   reference, in roughly this order of value:
-   - an engineering or technical blog post, essay, or changelog entry — capture
-     what it actually SAYS, not just that it exists
-   - a founder/exec thesis from a podcast, interview, or essay — the actual claim
-     they made
-   - a substantive product launch — what it does and why it matters
-   - a distinctive, non-boilerplate line in the job posting itself
-   - a distinctive positioning phrase from their site (weak — only if nothing
-     better)
-   Do NOT lead with a generic funding announcement or a marketing tagline; those
-   are the weakest possible hooks. Run targeted searches for "<company> blog",
-   "<company> engineering", "<company> founder podcast/interview", "<company>
-   launch/changelog" — not just the company name. For each hook: the exact quote
-   or a concrete one-line summary of the substance, the source URL, the date if
-   known, and one sentence on why it is worth referencing.
+4. HOOKS — 3-5 specific things worth opening a cold email with, ranked strongest
+   first. Prefer substance worth referencing — a technical/blog post or changelog,
+   a founder thesis from a podcast or essay, a real product launch, or a
+   distinctive line in the job posting — over a marketing tagline, and do NOT lead
+   with a bare funding announcement. For each: a one-line summary of the substance
+   (or an exact quote), the source URL, and one sentence on why it's worth
+   referencing.
 5. THESIS — in ONE sentence, the BET the company is making: what they're
    wagering will be true about the world, not what they do. "They're betting
    that X" — the wager, not the product description.
@@ -78,7 +68,7 @@ like") — never dressed up as a quoted fact.
 Output schema (return ONLY this JSON object, no prose, no markdown fences):
 {"company": "...", "what_they_do": "...", "customer": "...", "stage": "...",
  "headcount_est": "...", "role": {"title": "...", "jd_quotes": ["..."]},
- "hooks": [{"type": "...", "summary": "...", "quote": "...", "source_url": "...", "date": "...", "why": "..."}],
+ "hooks": [{"type": "...", "summary": "...", "source_url": "...", "why": "..."}],
  "contacts": [{"name": "...", "role": "...", "relation": "...", "basis": "...", "evidence": "..."}],
  "thesis": "...", "implication": "...", "signals_read": ["..."],
  "disambiguation": "...", "confidence": "..."}`

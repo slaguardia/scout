@@ -46,19 +46,20 @@ const (
 	// judge + possible retry). Generous: the hosted web_search researcher can
 	// take a few minutes on its own.
 	draftTimeout = 12 * time.Minute
-	// researcherMaxTokens covers the structured-facts JSON (hooks + quotes +
-	// the thesis/implication/signals read).
-	researcherMaxTokens = 4000
+	// researcherMaxTokens covers the structured-facts JSON (hooks + the
+	// thesis/implication/signals read). Headroom so the final JSON isn't
+	// truncated after a multi-search transcript (a truncated object fails to parse).
+	researcherMaxTokens = 5000
 	// stageMaxTokens covers the smaller per-stage JSON outputs (fill, honesty,
 	// judge).
 	stageMaxTokens = 2000
 	// maxContinuations bounds pause_turn resumes of the hosted web_search
 	// server-side loop (per stage call); past it the partial output is used.
 	maxContinuations = 4
-	// webSearchMaxUses caps the researcher's hosted searches per run. Enough for
-	// the targeted queries (blog, engineering, founder podcast, launch/changelog)
-	// the hook hunt now runs beyond the basic company lookup.
-	webSearchMaxUses = 8
+	// webSearchMaxUses caps the researcher's hosted searches per run. Kept modest:
+	// more searches bloat the transcript, slow the run, and crowd out the final
+	// JSON (which then fails to parse). A handful is enough for good hooks.
+	webSearchMaxUses = 5
 )
 
 func (e *Engine) log(format string, args ...any) {
