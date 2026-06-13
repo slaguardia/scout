@@ -4,13 +4,15 @@ A working specification for writing — and building tooling around — high-sig
 outreach to startups. Written to be used two ways: as a human reference, and as a
 context document you can hand to Claude Code when evolving a cold-outreach tool.
 
-> **How scout uses this document.** This is the *source* doctrine. Its operative
-> writing rules (§2, §4, §5, §6, §9) are distilled into the editable doctrine doc
-> the engine actually splices into its prompts (compiled-in default:
-> `internal/outreach/doctrine_default.md`, edited from the Criteria panel). §3 and
-> §6's specifics live in the email template's hole instructions. §8 is implemented
-> by the engine itself — see [pipeline.md](./pipeline.md) (`scout outreach`). The worked
-> example below uses a fictionalized company ("Acme").
+> **How scout uses this document.** This is the *method* — the writing
+> philosophy. scout embodies it in **editable prompts**, not a separate doctrine:
+> the operative rules (§2–§6, §9) live in the **Writer** stage's default prompt
+> and the **Judge** stage, both editable per-stage from the dashboard (Settings →
+> *Outreach pipeline*); §3/§6 specifics also live in the **email template**'s hole
+> instructions; §8 is the engine itself — see [pipeline.md](./pipeline.md)
+> (`scout outreach`). There is no longer a standalone "doctrine" file — it was
+> removed and folded into the Writer prompt. The worked example uses a
+> fictionalized company ("Acme").
 
 ---
 
@@ -53,7 +55,8 @@ classify a draft into one of these and refuse to ship anything below "Deep."
 ### The three Deep angles
 
 1. **Thesis angle** — Engage the *bet* the company is making. State their worldview
-   back to them in one sentence, then state what it *implies*.
+   back in one sentence, then where that bet makes the *work* hard to execute — the
+   operational problem the role exists to close, not an abstract industry consequence.
 2. **Connect-the-dots angle** — Infer their current internal reality from external
    signals (funding stage, hiring pattern, customer logos, integrations).
 3. **Product-use angle** — A specific reaction from actually using the product.
@@ -66,16 +69,25 @@ pairing. Product-use is a bonus when you can get it, not a requirement.
 
 ## 3. The structure
 
-Three short paragraphs. Under ~120 words total. On a phone it should be readable
-without scrolling.
+Three short paragraphs, **one through-line**. Under ~120 words total. Readable on
+a phone without scrolling. The whole email is one arc that never resets: *their
+problem → the relevant thing you've done → an offer to do that work.*
 
-1. **The idea** — An observation about *them*: their bet and its implication. No
-   sentence about yourself yet.
-2. **The lived proof** — One specific thing from your background, tied directly to the
-   problem in paragraph 1. The only place you talk about yourself.
-3. **The ask** — A low-friction invitation. Optional out built in. Small time cost.
+1. **The hook** — an observation about *them*. It may open with one short, factual
+   lead-in that grounds the observation in something real (an article, a post, a
+   launch, a founder quote) so it doesn't drop out of nowhere — but no capability
+   claim about yourself yet. Name where the *work* gets hard (the operational
+   problem the role exists to close), not an abstract industry consequence.
+2. **The proof** — the relevant *shape* of your experience, answering the exact
+   difficulty the hook named, at the strongest honest tier. Plain words a stranger
+   can follow; the shape of the work, **not** a specific-project case study. Frame
+   an adjacent fit openly as adjacent.
+3. **The ask** — direct and specific (§6): you want to talk about how you can help
+   solve *that* problem as their next hire. Carry the proof's thread forward; do
+   not reset to a fresh observation about the company.
 
-The reader should meet an *idea about their company* before they meet *you*.
+The reader should meet an *idea about their company* before they meet *you* — but
+a brief factual lead-in ("I read that…") is human, not warm-up.
 
 ---
 
@@ -123,6 +135,25 @@ hiring a backend engineer to work on your API" is reading the job post aloud.
 I visited their website?* If so, it's recitation — cut it, or add the layer that makes
 it yours.
 
+### Written for a stranger (legibility)
+
+"Show, don't tell" governs your *reactions*, not your *facts*. It never licenses being
+terse or allusive about your own experience. The reader has zero context on you — they
+don't know your employer's internal projects, the vendors you integrated, or your
+acronyms:
+
+- Never name an internal project or vendor as if the reader knows it ("the Chainguard
+  integration I led"). Say what it was in plain words, or cut it.
+- State your experience; don't allude to it. "A decent proxy" or "the same shape of
+  work" gesture at a claim instead of making it.
+- Depth is not density: a hard idea still has to be a plain sentence. An email a
+  stranger can't follow has failed, however sharp its insight.
+
+And the self-pointed version of the reaction-word problem: **interest declarations**
+("the problem I'd want to be working on", "the work I want to do") are presumptuous
+(they assume the job) and hollow (the email already shows interest by existing). Cut
+them — at most one grounded, present-tense note of the *kind* of work you like.
+
 ---
 
 ## 5. The kill list (phrases a tool should flag or strip)
@@ -139,22 +170,36 @@ read as automated:
 - Reaction words used as a substitute for an actual point (§4)
 - Evaluative grading of the founder's choices ("bold thing to be building") — reads as
   presumptuous from a stranger; it shifts focus onto your appraisal of them
+- AI-tell vocabulary: "bespoke", "leverage", "delve", "robust", "seamless",
+  "landscape", "navigate", "spearhead" — swap for a plain word a person would say
+- Insider shorthand a stranger can't decode (an internal project, vendor, or acronym
+  named as if known) — see §4 legibility
+- Interest declarations ("the problem I'd want to be working on") — presumptuous (§4)
+- "Worth a conversation?" and other curiosity-call asks that don't ask to do the work (§6)
+- A dangling sentence fragment bolted onto the hook
 
 **First-five-words rule:** the specific, company-true observation should arrive almost
-immediately. Readers disengage by the second sentence if you're still warming up.
+immediately. A brief factual lead-in ("I read that…") is fine, but the real observation
+lands by the second sentence — readers disengage if you're still warming up.
 
 ---
 
-## 6. The ask — calibration
+## 6. The ask — direct and specific
 
-- Match friction to relationship temperature. Cold + busy founder = **low** ask.
-- "Do you have 30 minutes Tuesday?" is too much from a stranger.
-- Good: *"If you're open to it, I'd love 15 minutes to hear where things are stretched
-  thin and whether someone like me could help."*
-- Lower friction: *"Worth a conversation?"* (a cheap yes/no)
-- No-meeting variant: *"Either way, would love to know if you're hiring for anything
-  like this."*
-- Fold the ask into the final paragraph so it doesn't tack on as a lonely line.
+The ask is **specific and direct about intent**: you want to talk about how you can
+help solve the problem the hook named — as their next hire for the role — not have a
+vaguely curious call about their business.
+
+- Name the problem and the role: *"I'd like to talk about how I could help <that
+  problem> as your next <role> — any chance you'd have 15 minutes?"*
+- Keep the friction low: 15 minutes, not 30.
+- **Never** soften it into info-gathering (*"I'd love to hear how you're approaching
+  X"*) — that reads as a networking chat, not a candidate offering to help.
+- **Never** appraise whether the company or role is "worth a conversation" — you're
+  asking for *their* time, not granting them yours; the inverted status reads wrong
+  from a stranger.
+- Fold the ask into the final paragraph; never a lonely tacked-on line, and carry the
+  proof's thread forward rather than resetting to a fresh company observation.
 
 ---
 
@@ -183,57 +228,69 @@ immediately. Readers disengage by the second sentence if you're still warming up
 > wrong side of it.
 >
 > A seed team building something this broad probably has more to do than people to do
-> it right now. If you're open to it, I'd love 15 minutes to hear where things are
-> stretched thin and whether someone like me could help.
+> it right now. I'd like to talk about how I could help close that verification gap as
+> your next infra hire — any chance you'd have 15 minutes?
 >
 > [You]
 
-Note how paragraph 1 contains zero words about the sender, ends on a consequence (not a
-reaction), and never grades the founder.
+Note how paragraph 1 leads with a category-lens observation, ends on a consequence (not
+a reaction), and never grades the founder; the proof is openly adjacent ("I've lived on
+the wrong side of it"); and the ask is a direct offer to do the work, not a curious
+call. (An equally valid hook could open with a one-clause factual lead-in — "I read
+Acme's launch post, and…" — before the observation.)
 
 ---
 
 ## 8. Spec for a cold-outreach tool
 
-If a tool is generating these, this is the pipeline it should implement.
+scout implements this as **five editable LLM stages** (each prompt tunable from the
+dashboard — see [pipeline.md](./pipeline.md)): **researcher → writer → humanizer →
+honesty check → judge**.
 
 ### Inputs required
-- **Target company URL** (and ideally: blog/launch post, recent funding, jobs page,
-  customer logos, integration list).
-- **Candidate background** — concrete experiences, owned problems, employers. Without
-  this, the tool can only produce the §7 first paragraph and must leave paragraph 2 as
-  an explicit `[bracketed]` slot rather than inventing it.
+- **Company research** — gathered by the *researcher* stage over the web: true facts
+  plus *ranked, referenceable* hooks (eng/blog posts, founder theses, real launches —
+  never funding announcements or marketing taglines), and an interpretation (the bet,
+  what it makes hard to execute, signals read).
+- **Candidate background** — concrete experiences, owned problems, employers. Deep and
+  specific about *them*; **high-altitude about you** (the shape of the work, not a
+  case study). Without it, the writer must leave the proof as an explicit slot rather
+  than invent it — the *honesty check* stage rejects any sender claim beyond the docs.
 
 ### Generation steps
-1. **Extract the thesis.** From the company's own framing, state in one sentence the
-   *bet* they're making — not what they do, what they're wagering will be true.
-2. **Derive the implication.** What does that bet make obsolete / urgent / true? This
-   becomes the consequence line (§4).
-3. **Read the signals.** Funding stage → team size & role breadth. Hiring pattern →
-   what's getting heavy. Logos/integrations → who they serve and compete with.
-4. **Map background to the problem.** Find the single experience that puts the candidate
-   "on the wrong side" of the gap the company is closing. One mapping, not a résumé.
-5. **Assemble** in the §3 structure, calibrate the ask (§6).
+1. **Research** the company; surface the strongest *referenceable* thing to open with
+   and read where the bet makes the *work* hard to execute (the operational problem the
+   role exists to close — not an industry consequence).
+2. **Write** the §3 structure: a hook that may ground itself in a real lead-in then
+   names that problem; a proof at the strongest *honest* tier answering it; a direct
+   ask (§6). One mapping, not a résumé; adjacency framed openly.
+3. **Humanize** — strip AI tells (§5) without changing a fact.
+4. **Honesty-check** every sender claim against the experience docs; a false claim to a
+   recruiter is worse than a thin one.
+5. **Judge** depth (§2) and gate: only Deep ships.
 
 ### Validation gates (reject / rewrite if any fail)
-- [ ] Paragraph 1 contains **no** first-person reaction words (§4, §5).
-- [ ] The first company-specific observation lands within the first sentence or two.
-- [ ] The email states at least one **consequence/implication**, not just facts.
-- [ ] Self-reference appears **only** in paragraph 2, tied to the stated problem.
-- [ ] No phrase from the kill list (§5) is present.
-- [ ] Total length under ~120 words; three paragraphs.
-- [ ] An ask exists, calibrated to low friction (§6).
+- [ ] The hook states at least one **consequence/implication**, not just facts, and no
+      first-person reaction or interest declaration (§4, §5).
+- [ ] The hook and the proof argue the **same problem** (one through-line); the closer
+      carries that thread forward rather than resetting.
+- [ ] The proof is **legible to a stranger** — plain words, no insider jargon, the
+      *shape* of the experience rather than a specific-project case study (§4).
+- [ ] Every claim about *you* is supported by the experience docs; an adjacent fit is
+      framed openly as adjacent, never inflated.
+- [ ] The ask is **direct and specific** — to help solve the named problem as their
+      next hire — not a curious call or a "worth a conversation" (§6).
+- [ ] No phrase from the kill list (§5); total length under ~120 words; three paragraphs.
 - [ ] Depth classified as **Deep** (§2) — not Shallow/Medium.
-- [ ] No sentence merely recites public facts or role duties back to them; every claim
-      about the company is hedged as the sender's read **and** carries an added layer —
-      a consequence, tension, or inference about their interior (§4, recitation test).
-- [ ] Nothing in paragraph 2 is fabricated; unknown background stays `[bracketed]`.
+- [ ] No sentence merely recites public facts or role duties back to them (§4 recitation
+      test); the company read is hedged as the sender's.
 
 ### Anti-goals
 - Don't optimize for volume. One Deep email beats fifty Medium ones.
-- Don't fabricate the candidate's experience to fill the template.
+- Don't fabricate or inflate the candidate's experience to tighten the fit.
 - Don't let the model grade the founder's strategy or gush.
-- Don't mistake *information* (facts) for *interpretation* (the actual edge).
+- Don't mistake *information* (facts) for *interpretation* (the actual edge), and don't
+  mistake *interpretation* for a license to be abstract or illegible.
 
 ---
 

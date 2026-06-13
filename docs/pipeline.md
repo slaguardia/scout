@@ -248,25 +248,38 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 
 | | |
 |---|---|
-| **Input** | a `job_postings` row, the brain (experience + voice, *discovered*), the web (company research), and two scout-local DB singletons: the **email template** and the **outreach doctrine** (both edited in the UI). |
-| **Output** | a drafted cold email on the posting, with a stored doctrine critique (depth, proof tier, weaknesses, gaps). Scout never sends — the jobs panel is the review queue; mark-sent bumps tracking. |
+| **Input** | a `job_postings` row, the brain (experience + voice, *discovered*), the web (company research), the scout-local **email template** (the email *format*), and the **five pipeline-stage prompts** — each an editable system prompt with a compiled default (researcher · writer · humanizer · honesty · judge). |
+| **Output** | a drafted cold email on the posting, with a stored critique (depth, proof tier, weaknesses, gaps). Scout never sends — the jobs panel is the review queue; mark-sent bumps tracking. |
 | **Idempotent** | Re-drafting replaces the draft. Discovery is cached in `outreach_sources` until `--refresh`. |
 | **Subcommands** | `scout outreach sources [--refresh]` (discover + cache the experience/voice bundle from the brain), `scout outreach draft --posting <id>` (research → draft). |
 
-Four inputs, cleanly separated: the **email template** (the *format* — verbatim
-prose + `{{var}}`/`{{name: instructions}}` holes), the **doctrine** (the
-*method* — depth ladder, show-don't-tell, kill list; see
-[cold-outreach-doctrine.md](./cold-outreach-doctrine.md)), **brain knowledge**
-(experience HARD / voice soft, discovered via the brain `/map`+`/doc`, not
-pinned), and **company research** (web).
+**The pipeline is five LLM stages, each a fully editable prompt.** Every stage's
+system prompt has a compiled default in `internal/outreach` (registry in
+`stages.go`) and is overridable per-stage from the dashboard (Settings →
+*Outreach pipeline*), stored in the `prompt_overrides` table and resolved at
+draft time by `Engine.stagePrompt`. A bad edit only fails that stage's drafts
+(Reset reverts it), never the binary — the JSON output contract lives inside
+each default prompt. Every stage **except the Writer** can also be toggled off
+and skipped (`Engine.stageEnabled`). **There is no separate "doctrine"** (it was
+removed): the writing *method* is folded into the Writer stage's default prompt
+— see [cold-outreach-doctrine.md](./cold-outreach-doctrine.md) for the method
+itself. The other scout-local inputs are unchanged: the **email template** (the
+*format* — verbatim prose + `{{var}}` / `{{name: instructions}}` holes) and
+**brain knowledge** (experience HARD / voice soft, discovered via the brain
+`/map`+`/doc`, not pinned).
 
-**Behavior (engine, Sonnet):** JD pre-fetch → researcher (`web_search`; facts
-plus interpretation) → one **fill** call that writes the holes against research
-+ experience + voice (doctrine-guided, strongest-honest **proof gradient**; a
-no-send signal is a valid refusal) → humanize → **honesty check** on the filled
-holes against the full experience bundle → **doctrine judge** (depth gate: deep
-ships; medium after a retry is flagged `needs_work` but editable; shallow fails
-"below the depth bar"). Verbatim template prose is true by construction.
+**Behavior (engine, Sonnet):** JD pre-fetch → **researcher** (`web_search`; true
+facts + interpretation, hunting *ranked, referenceable* hooks — eng/blog posts,
+founder theses, real launches — never funding or taglines) → one **fill**
+(writer) call that writes the template holes against research + experience +
+voice (strongest-honest **proof gradient**; a no-send signal is a valid refusal)
+→ **humanizer** (strips AI tells, never changes a fact) → **honesty check** on
+the filled holes against the full experience bundle (vetoes any sender claim
+beyond the documented experience) → **judge** (depth gate: deep ships; medium
+after a retry is flagged `needs_work` but editable; shallow fails "below the
+depth bar"). A disabled stage is skipped: no researcher → the writer works from
+JD + experience; no humanizer → raw fill ships; no honesty → passes by default;
+no judge → ships as "deep". Verbatim template prose is true by construction.
 Discovery fails loud (`ErrNoExperience`) when experience comes back empty. The
 engine wires into `serve` when `ANTHROPIC_API_KEY` is set; drafting is
 fire-and-forget. Code: `internal/outreach`.

@@ -113,6 +113,17 @@ the outreach engine; block sync needs the brain.
 | `PUT` | `/api/outreach/drafts/{id}` | Save the user's edit (re-lints) (`{edited}`). | `409` if the draft isn't `awaiting_review`/`no_hook` (only those are editable). |
 | `POST` | `/api/outreach/drafts/{id}/sent` | Mark the draft sent (bumps posting tracking). | `404` unknown id. |
 
+### Editable outreach config (scout-local, no brain)
+
+The email *format* and the five pipeline-stage *prompts* are scout-local DB rows,
+edited from the dashboard. The engine re-reads them at draft time — no restart.
+
+| Method | Path | Purpose | Gating / Notes |
+|---|---|---|---|
+| `GET`·`PUT` | `/api/outreach-template` | The email template (verbatim prose + `{{var}}` / `{{name: instructions}}` holes). `PUT {content}`. | — |
+| `GET` | `/api/outreach-prompts` | List the editable pipeline stages (`{prompts:[{stage,title,description,enabled,skippable,is_overridden}]}`). | — |
+| `GET`·`PUT` | `/api/outreach-prompts/{stage}` | One stage's system prompt + on/off. `PUT {content}` saves an override; `{enabled}` toggles the stage (the `fill`/Writer stage can't be disabled); `{reset:true}` reverts to the compiled default. Stages: `researcher`·`fill`·`humanizer`·`honesty`·`judge`. | `404` unknown stage. |
+
 ## Editor (taste / playbook — brain-isolated, local files only)
 
 These read and write **only** the local instruction files; nothing here touches

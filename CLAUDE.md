@@ -101,40 +101,43 @@ canonical port defeats that safety net — don't.
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
-- **Outreach pipeline, redesigned (template model 2026-06-08; doctrine
-  amendment 2026-06-11):** [`docs/pipeline.md`](./docs/pipeline.md) (`scout
-  outreach`) is the reference; `docs/cold-outreach-doctrine.md` is the method's
-  source document. The old
-  opinionated block taxonomy (`P2_LOCKED`/`HOOK_RULES`/`EXPERIENCE_CARD`/… +
-  manual pins + the 5-agent chain) is **gone**. Four inputs now: a scout-local
-  **email template** (DB singleton, compiled-in default, edited in the UI — the
-  email *format*: verbatim prose + `{{var}}` substitutions + `{{name:
-  instructions}}` holes; default = hook/proof/closer, the doctrine's
-  3-paragraph shape); a scout-local **outreach doctrine** (DB singleton, default
-  embedded from `internal/outreach/doctrine_default.md`, `GET/PUT
-  /api/outreach-doctrine` — the writing *method*: depth ladder,
-  show-don't-tell, kill list; spliced into the fill + judge prompts);
-  **brain knowledge** (experience + voice), *discovered* not pinned; and
-  **company research** (web). **Discovery**
-  (`internal/outreach/discover.go`): Haiku over the brain `/map` selects pages
-  per fixed knowledge-need (experience HARD, voice soft), whole-fetched via
-  `/doc` and cached in `outreach_sources` (M35); fail-loud `ErrNoExperience`
-  when experience comes back empty; UI shows the picks with Refresh + remove.
-  The **engine** (`internal/outreach`, Sonnet): JD pre-fetch → researcher
-  (`web_search`; facts **plus interpretation** — thesis/implication/
-  signals_read) → **one fill call** (writes the holes against research +
-  experience + voice, doctrine-guided; the **proof gradient** — direct /
-  openly-adjacent / standing-creds, strongest honest tier; a no-send signal =
-  refusal, a success path) → humanize → **honesty check on the filled holes**
-  against the complete experience bundle → **doctrine judge** (depth gate:
-  deep ships; medium after the shared retry → `needs_work`, flagged but
-  editable; shallow → failed "below the depth bar"; critique JSON — depth,
-  proof tier, weaknesses, experience gaps — stored on every finished draft and
-  rendered on the card). Verbatim template prose is true by construction. The
-  jobs panel is the review queue (edit, mark-sent bumps tracking);
-  fire-and-forget. CLI: `scout outreach sources [--refresh] | draft`. Engine
-  wires into serve when `ANTHROPIC_API_KEY` is set. Go-live gate: ingest the
-  guidance pages into the brain, then Refresh sources + localize the template.
+- **Outreach pipeline — every stage is an editable prompt (2026-06-13):**
+  [`docs/pipeline.md`](./docs/pipeline.md) (`scout outreach`) is the reference;
+  `docs/cold-outreach-doctrine.md` is the writing *method*. The pipeline is
+  **five LLM stages — researcher · writer (fill) · humanizer · honesty · judge —
+  and each stage's system prompt is fully editable from the dashboard** (Settings
+  → *Outreach pipeline*). Each stage has a compiled default in `internal/outreach`
+  (registry: `stages.go`); an override is stored in the `prompt_overrides` table
+  (`GET /api/outreach-prompts`, `GET/PUT /api/outreach-prompts/{stage}`) and
+  resolved at draft time by `Engine.stagePrompt` — Reset-to-default reverts. The
+  JSON output contract lives inside each default prompt, so a bad edit only fails
+  that stage's drafts, never the binary. Every stage **except the Writer** can be
+  toggled **off/skipped** (`Engine.stageEnabled`): no researcher → writer works
+  from JD+experience; no humanizer → raw fill; no honesty → passes; no judge →
+  ships "deep". **There is no separate "doctrine" anymore** — it was redundant
+  with the template holes + the compiled frame and over-constrained the model;
+  its writing method folded into the Writer stage's default prompt, and the judge
+  is self-contained on depth/recitation. The other scout-local inputs: the
+  **email template** (DB singleton, the *format* — verbatim prose + `{{var}}` +
+  `{{name: instructions}}` holes; default = hook/proof/closer); **brain
+  knowledge** (experience + voice), *discovered* not pinned
+  (`internal/outreach/discover.go`: Haiku over the brain `/map`, whole-fetched
+  via `/doc`, cached in `outreach_sources` (M35); fail-loud `ErrNoExperience`);
+  and **company research** (web). The **engine** (Sonnet): JD pre-fetch →
+  researcher (`web_search`; true facts + interpretation, hunting *ranked
+  referenceable* hooks — eng/blog posts, founder theses, real launches, **never
+  funding/taglines**) → **one fill call** (writes the holes against research +
+  experience + voice; the **proof gradient** — direct / openly-adjacent /
+  standing-creds, strongest honest tier; a no-send signal = refusal, a success
+  path) → humanize → **honesty check on the filled holes** against the complete
+  experience bundle (vetoes any sender claim beyond the docs) → **judge** (depth
+  gate: deep ships; medium after the shared retry → `needs_work`, flagged but
+  editable; shallow → failed "below the depth bar"; critique JSON — depth, proof
+  tier, weaknesses, experience gaps — stored on every finished draft, rendered on
+  the card). Verbatim template prose is true by construction. The jobs panel is
+  the review queue (edit, mark-sent bumps tracking); fire-and-forget. CLI: `scout
+  outreach sources [--refresh] | draft`. Engine wires into serve when
+  `ANTHROPIC_API_KEY` is set.
 - **Application answers, built:** [`docs/pipeline.md`](./docs/pipeline.md)
   (`scout questions`) is the reference; it reuses the outreach engine.
   **Detection** runs at capture time
