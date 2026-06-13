@@ -1251,6 +1251,10 @@
     resize: vertical; outline: none;
   }
   .modal-body textarea:focus { border-color: var(--link); box-shadow: 0 0 0 3px rgba(122,169,255,0.15); }
+  /* config editor (#editor-scrim) gets a roomier modal + a taller box —
+     these are long prose/markdown docs (playbook, doctrine, template). */
+  #editor-scrim .modal { width: 900px; }
+  #editor-scrim .modal-body textarea { min-height: 62vh; }
   /* pre-filter master switch — sits above the rules textarea in the editor */
   .editor-toggle {
     display: flex; align-items: flex-start; gap: 8px;

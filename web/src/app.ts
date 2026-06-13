@@ -3131,10 +3131,11 @@ function renderCriteria() {
   const usingBrain = active.startsWith("brain:");
   const hasBody = p && typeof p.body === "string";
 
-  // --- Group 1: brain-derived (criteria brief + discovered outreach knowledge).
-  // These are pulled from the brain and refreshed, not authored in scout — except
-  // the taste.md offline fallback, which stands in for the brief when the brain is
-  // down and is the one editable member of this group.
+  // Cards are built here, then grouped for display below by domain (Job hunting /
+  // Outreach / Integrations), not by origin. Brain-derived cards (criteria brief +
+  // discovered outreach knowledge) are pulled from the brain and refreshed, not
+  // authored in scout — except the taste.md offline fallback, which stands in for
+  // the brief when the brain is down and is the one editable member.
   let briefCard: string;
   if (usingBrain) {
     // Honest tri-state from the change-aware cascade (criteria_state), replacing
@@ -3188,7 +3189,8 @@ function renderCriteria() {
     actTitle: "re-discover experience + voice from the brain", actLabel: "refresh outreach knowledge",
   });
 
-  // --- Group 2: scout configuration (authored locally, edited in place).
+  // Locally-authored configs, edited in place (playbook + pre-filter shape the
+  // verdict; template + doctrine shape outreach).
   const playbookCard = critCard({
     icon: ICON_PLAYBOOK,
     nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit the verdict playbook">playbook</span>',
@@ -3216,7 +3218,7 @@ function renderCriteria() {
     act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
   });
 
-  // --- Group 3: integrations (dashboard-configurable secrets). The Anthropic key
+  // Integrations (dashboard-configurable secrets). The Anthropic key
   // powers verdict, capture, enrichment, outreach, chat & answers; stored in
   // scout's SQLite, it overrides the ANTHROPIC_API_KEY env when set.
   const ak = state.anthropicKey;
@@ -3231,14 +3233,18 @@ function renderCriteria() {
     act: "edit-anthropic-key", actIcon: PENCIL, actTitle: "set the Anthropic API key", actLabel: "set Anthropic API key",
   });
 
+  // Grouped by what the config is *for*, not where it comes from: everything that
+  // shapes a verdict (criteria brief, playbook, pre-filter) under Job hunting;
+  // everything that shapes an email (discovered knowledge, template, doctrine)
+  // under Outreach; the shared secret under Integrations.
   el.innerHTML =
     `<div class="settings-section">
-       <div class="settings-group-h">From the brain</div>
-       ${briefCard}${knowledgeCard}
+       <div class="settings-group-h">Job hunting</div>
+       ${briefCard}${playbookCard}${prefilterCard}
      </div>
      <div class="settings-section">
-       <div class="settings-group-h">Scout configuration</div>
-       ${playbookCard}${prefilterCard}${templateCard}${doctrineCard}
+       <div class="settings-group-h">Outreach</div>
+       ${knowledgeCard}${templateCard}${doctrineCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Integrations</div>
