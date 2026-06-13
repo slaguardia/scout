@@ -55,8 +55,10 @@ const (
 	// maxContinuations bounds pause_turn resumes of the hosted web_search
 	// server-side loop (per stage call); past it the partial output is used.
 	maxContinuations = 4
-	// webSearchMaxUses caps the researcher's hosted searches per run.
-	webSearchMaxUses = 6
+	// webSearchMaxUses caps the researcher's hosted searches per run. Enough for
+	// the targeted queries (blog, engineering, founder podcast, launch/changelog)
+	// the hook hunt now runs beyond the basic company lookup.
+	webSearchMaxUses = 8
 )
 
 func (e *Engine) log(format string, args ...any) {

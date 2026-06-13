@@ -25,12 +25,23 @@ Gather:
 2. Stage, funding, rough headcount.
 3. The posted role: exact title, and 2-3 distinctive lines from the job
    description (quote exactly — skip boilerplate like "fast-paced environment").
-4. 3-5 candidate hooks, each one of:
-   - a distinctive positioning phrase from their site (exact quote)
-   - a recent (<=3 months) launch/news item, one line
-   - a founder/exec public statement (podcast, blog, interview) with the quote
-   - a distinctive line in the job posting itself
-   For each: the exact quote, source URL, and one neutral sentence of context.
+4. HOOKS — 3-5 specific, recent things worth opening a cold email with, RANKED
+   strongest first. Hunt hardest for substance a thoughtful person would actually
+   reference, in roughly this order of value:
+   - an engineering or technical blog post, essay, or changelog entry — capture
+     what it actually SAYS, not just that it exists
+   - a founder/exec thesis from a podcast, interview, or essay — the actual claim
+     they made
+   - a substantive product launch — what it does and why it matters
+   - a distinctive, non-boilerplate line in the job posting itself
+   - a distinctive positioning phrase from their site (weak — only if nothing
+     better)
+   Do NOT lead with a generic funding announcement or a marketing tagline; those
+   are the weakest possible hooks. Run targeted searches for "<company> blog",
+   "<company> engineering", "<company> founder podcast/interview", "<company>
+   launch/changelog" — not just the company name. For each hook: the exact quote
+   or a concrete one-line summary of the substance, the source URL, the date if
+   known, and one sentence on why it is worth referencing.
 5. THESIS — in ONE sentence, the BET the company is making: what they're
    wagering will be true about the world, not what they do. "They're betting
    that X" — the wager, not the product description.
@@ -57,16 +68,17 @@ Gather:
 9. Disambiguation: if the company name could be multiple entities, say which one
    you chose and why.
 
-Rules for the FACTS (items 1-4): exact quotes only, never paraphrase into
-marketing speak. If you can't find something after a reasonable look, return it
-as null — do not pad. The thesis/implication/signals_read (items 5-7) are your
+Rules for the FACTS (items 1-4): quote exactly, never paraphrase into marketing
+speak — for a hook (item 4) a concrete factual summary of the substance is fine
+when a clean quote isn't, but never marketing fluff. If you can't find something
+after a reasonable look, return it as null — do not pad. The thesis/implication/signals_read (items 5-7) are your
 OWN interpretation: plain wording, hedged where uncertain ("likely", "reads
 like") — never dressed up as a quoted fact.
 
 Output schema (return ONLY this JSON object, no prose, no markdown fences):
 {"company": "...", "what_they_do": "...", "customer": "...", "stage": "...",
  "headcount_est": "...", "role": {"title": "...", "jd_quotes": ["..."]},
- "hooks": [{"type": "...", "quote": "...", "source_url": "...", "context": "..."}],
+ "hooks": [{"type": "...", "summary": "...", "quote": "...", "source_url": "...", "date": "...", "why": "..."}],
  "contacts": [{"name": "...", "role": "...", "relation": "...", "basis": "...", "evidence": "..."}],
  "thesis": "...", "implication": "...", "signals_read": ["..."],
  "disambiguation": "...", "confidence": "..."}`
