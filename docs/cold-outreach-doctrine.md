@@ -9,7 +9,7 @@ context document you can hand to Claude Code when evolving a cold-outreach tool.
 > the engine actually splices into its prompts (compiled-in default:
 > `internal/outreach/doctrine_default.md`, edited from the Criteria panel). §3 and
 > §6's specifics live in the email template's hole instructions. §8 is implemented
-> by the engine itself — see [outreach-agent.md](./outreach-agent.md). The worked
+> by the engine itself — see [pipeline.md](./pipeline.md) (`scout outreach`). The worked
 > example below uses a fictionalized company ("Acme").
 
 ---

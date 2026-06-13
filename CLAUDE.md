@@ -102,8 +102,9 @@ canonical port defeats that safety net — don't.
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
 - **Outreach pipeline, redesigned (template model 2026-06-08; doctrine
-  amendment 2026-06-11):** `docs/outreach-agent.md` is the spec;
-  `docs/cold-outreach-doctrine.md` is the method's source document. The old
+  amendment 2026-06-11):** [`docs/pipeline.md`](./docs/pipeline.md) (`scout
+  outreach`) is the reference; `docs/cold-outreach-doctrine.md` is the method's
+  source document. The old
   opinionated block taxonomy (`P2_LOCKED`/`HOOK_RULES`/`EXPERIENCE_CARD`/… +
   manual pins + the 5-agent chain) is **gone**. Four inputs now: a scout-local
   **email template** (DB singleton, compiled-in default, edited in the UI — the
@@ -134,8 +135,9 @@ canonical port defeats that safety net — don't.
   fire-and-forget. CLI: `scout outreach sources [--refresh] | draft`. Engine
   wires into serve when `ANTHROPIC_API_KEY` is set. Go-live gate: ingest the
   guidance pages into the brain, then Refresh sources + localize the template.
-- **Application answers, built:** `docs/application-answers.md` is the spec; it
-  reuses the outreach engine. **Detection** runs at capture time
+- **Application answers, built:** [`docs/pipeline.md`](./docs/pipeline.md)
+  (`scout questions`) is the reference; it reuses the outreach engine.
+  **Detection** runs at capture time
   (`internal/capture/questions.go`) via per-platform resolvers — Greenhouse
   `?questions=true` (official) and Ashby `applicationForm` over the unofficial
   `non-user-graphql` endpoint (fail-soft to `unsupported` on schema drift),

@@ -8,13 +8,12 @@ and links back to it.
 | Doc | What it covers |
 |---|---|
 | [north-star.md](./north-star.md) | **Canonical. Start here.** Architecture, diagrams, the four verdict inputs, the stores, invariants. |
-| [pipeline.md](./pipeline.md) | Each command in detail: inputs, behavior, idempotency. The web UI (`scout serve`) is the primary interface. |
+| [pipeline.md](./pipeline.md) | Each command in detail (ingest → filter → enrich → verdict, plus `scout outreach` / `scout questions` / `serve`): inputs, behavior, idempotency. The web UI is the primary interface. |
 | [verdict.md](./verdict.md) | The LLM call: prompt assembly, brain-primary criteria, prompt caching. |
 | [enrichment.md](./enrichment.md) | About-page fetch, HTML strip, fetch-status taxonomy. |
-| [outreach-agent.md](./outreach-agent.md) | Cold-email pipeline design: blocks, pins, the research→draft→honesty stages. |
-| [application-answers.md](./application-answers.md) | Detect application essay questions + draft grounded answers per posting (reuses the outreach engine). |
+| [cold-outreach-doctrine.md](./cold-outreach-doctrine.md) | The cold-email *method*: depth ladder, show-don't-tell, the kill list. The source the outreach engine enforces. |
 | [data-model.md](./data-model.md) | SQLite schema — every table and why it exists. |
-| [chat.md](./chat.md) | The chat feature: two surfaces, the tool loop, tools, storage, build checklist. |
+| [api.md](./api.md) | The HTTP `/api/*` contract clients build against. |
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
 | [limitations.md](./limitations.md) | Known limits and where it breaks first. |
 

@@ -17,7 +17,7 @@ import (
 // checker. These answers are claims made straight to a recruiter, so the
 // "never invent experience" rule matters even more than in cold email: every
 // answer is routed through the same honesty gate the email drafter uses.
-// See docs/application-answers.md.
+// See docs/pipeline.md (`scout questions`).
 
 const (
 	// answersTimeout bounds one posting's whole question fan-out.

@@ -244,6 +244,59 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 
 ---
 
+## `scout outreach`
+
+| | |
+|---|---|
+| **Input** | a `job_postings` row, the brain (experience + voice, *discovered*), the web (company research), and two scout-local DB singletons: the **email template** and the **outreach doctrine** (both edited in the UI). |
+| **Output** | a drafted cold email on the posting, with a stored doctrine critique (depth, proof tier, weaknesses, gaps). Scout never sends — the jobs panel is the review queue; mark-sent bumps tracking. |
+| **Idempotent** | Re-drafting replaces the draft. Discovery is cached in `outreach_sources` until `--refresh`. |
+| **Subcommands** | `scout outreach sources [--refresh]` (discover + cache the experience/voice bundle from the brain), `scout outreach draft --posting <id>` (research → draft). |
+
+Four inputs, cleanly separated: the **email template** (the *format* — verbatim
+prose + `{{var}}`/`{{name: instructions}}` holes), the **doctrine** (the
+*method* — depth ladder, show-don't-tell, kill list; see
+[cold-outreach-doctrine.md](./cold-outreach-doctrine.md)), **brain knowledge**
+(experience HARD / voice soft, discovered via the brain `/map`+`/doc`, not
+pinned), and **company research** (web).
+
+**Behavior (engine, Sonnet):** JD pre-fetch → researcher (`web_search`; facts
+plus interpretation) → one **fill** call that writes the holes against research
++ experience + voice (doctrine-guided, strongest-honest **proof gradient**; a
+no-send signal is a valid refusal) → humanize → **honesty check** on the filled
+holes against the full experience bundle → **doctrine judge** (depth gate: deep
+ships; medium after a retry is flagged `needs_work` but editable; shallow fails
+"below the depth bar"). Verbatim template prose is true by construction.
+Discovery fails loud (`ErrNoExperience`) when experience comes back empty. The
+engine wires into `serve` when `ANTHROPIC_API_KEY` is set; drafting is
+fire-and-forget. Code: `internal/outreach`.
+
+---
+
+## `scout questions`
+
+| | |
+|---|---|
+| **Input** | a `job_postings` row (its ATS application form), plus — for generation — the same JD + company-fit brief + experience bundle + voice the email pipeline uses. |
+| **Output** | one `posting_answers` row per detected essay question, each independently editable/regenerable from the pursuit panel's "Application" section. **Scout never submits** — it drafts; you copy-paste into the ATS. |
+| **Idempotent** | Re-detect refreshes the question set; per-question Regenerate redraws one answer. |
+| **Subcommands** | `scout questions detect (--posting <id> | --all)`. Generation is on a UI button (`Engine.GenerateAnswers`), gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. |
+
+**Detection** runs at capture time (`internal/capture/questions.go`) via
+per-platform resolvers — Greenhouse `?questions=true` (official) and Ashby
+`applicationForm` over the unofficial `non-user-graphql` endpoint (fail-soft to
+`unsupported` on schema drift), plus a Haiku HTML fallback. Identity / EEO /
+file / choice fields are filtered out and essays kept, tracked by a load-bearing
+`questions_status` (`ok|none|unsupported|unreachable`).
+
+**Generation** (Sonnet) drafts each answer once, then routes it through the same
+outreach **honesty checker** (a false claim to a recruiter is worse than a thin
+answer); a second honesty fail keeps the answer flagged `needs_review` rather
+than shipping it. Endpoints mirror outreach (`GET/POST
+/api/postings/{id}/answers`, `…/redetect`, `PUT /api/answers/{id}`).
+
+---
+
 ## `scout serve` — the primary interface
 
 | | |
