@@ -550,7 +550,8 @@ func TestRegenerateOutreachDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
 	}
-	if err := db.SetOutreachDraftResult(d1.ID, DraftAwaitingReview, "", "", "first body", "[]", "", "", ""); err != nil {
+	const research = `{"company":"Acme","hooks":[]}`
+	if err := db.SetOutreachDraftResult(d1.ID, DraftAwaitingReview, research, "", "first body", "[]", "", "", ""); err != nil {
 		t.Fatalf("set result: %v", err)
 	}
 
@@ -559,13 +560,17 @@ func TestRegenerateOutreachDraft(t *testing.T) {
 		t.Fatal("CreateOutreachDraft over an awaiting_review draft should conflict")
 	}
 
-	// Regenerate retires the old draft and returns a fresh researching one.
+	// Regenerate retires the old draft and returns a fresh researching one — with
+	// the prior draft's research carried forward (re-draft, don't re-search).
 	d2, err := db.RegenerateOutreachDraft(p.ID)
 	if err != nil {
 		t.Fatalf("regenerate: %v", err)
 	}
 	if d2.ID == d1.ID || d2.Status != DraftResearching {
 		t.Fatalf("regenerate returned %+v, want a new researching draft", d2)
+	}
+	if d2.Research != research {
+		t.Fatalf("regenerate did not carry research forward: got %q, want %q", d2.Research, research)
 	}
 
 	drafts, err := db.ListOutreachDrafts(p.ID)

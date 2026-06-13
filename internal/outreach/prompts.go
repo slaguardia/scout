@@ -284,6 +284,16 @@ document does NOT describe at all: invented experience, inflated scope ("led the
 program" vs "led a team"), or implied domain expertise the doc doesn't support
 (e.g. healthcare when the doc shows only fintech).
 
+A manufactured CONNECTION to the company is the most common miss, and you must
+catch it: a sender claim of having experienced, watched, seen, or lived the
+COMPANY's problem or domain ("I've watched a version of that", "I've seen this
+from the other side", "I've lived exactly that", "getting X has been my work")
+is a VIOLATION unless the document specifically describes that same experience.
+A loose parallel between the company's problem and the sender's background is
+invented experience even when it sounds plausible — the sender worked on what
+the doc actually says, not on the company's problem. Be strict: if the doc does
+not plainly show the sender lived the thing they claim to have lived, flag it.
+
 Judge a sentence by its weakest SENDER clause: a sentence fusing a true sender
 fact with an invented one fails for the invented part — e.g. "I built the
 integration (true) and owned its security model (the doc never mentions security)".

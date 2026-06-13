@@ -126,6 +126,12 @@ WHERE posting_id = ? AND status = ?`, postingID, DraftResearching).Scan(&researc
 		return nil, fmt.Errorf("posting %s already has an active draft", postingID)
 	}
 
+	// Carry the most recent research forward so a regenerate re-drafts against the
+	// same web data instead of paying for another search.
+	var priorResearch string
+	_ = tx.QueryRow(`SELECT COALESCE(research, '') FROM outreach_drafts
+WHERE posting_id = ? AND COALESCE(research, '') != '' ORDER BY id DESC LIMIT 1`, postingID).Scan(&priorResearch)
+
 	if _, err := tx.Exec(`UPDATE outreach_drafts SET status = ?, updated_at = CURRENT_TIMESTAMP
 WHERE posting_id = ? AND status IN (?, ?, ?)`,
 		DraftSuperseded, postingID, DraftAwaitingReview, DraftNeedsWork, DraftNoHook); err != nil {
@@ -135,6 +141,12 @@ WHERE posting_id = ? AND status IN (?, ?, ?)`,
 	d, err := insertDraftTx(tx, postingID)
 	if err != nil {
 		return nil, err
+	}
+	if priorResearch != "" {
+		if _, err := tx.Exec(`UPDATE outreach_drafts SET research = ? WHERE id = ?`, priorResearch, d.ID); err != nil {
+			return nil, err
+		}
+		d.Research = priorResearch
 	}
 	return d, tx.Commit()
 }

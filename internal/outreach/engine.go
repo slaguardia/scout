@@ -177,30 +177,37 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 	}
 	voice := e.knowledge("voice") // soft
 
-	// The job description (no model). The capture pass stores the full
-	// description for ATS-resolved postings — using it keeps drafts working after
-	// the posting is taken down and skips a network round-trip.
-	jd := JDResult{Text: trunc(posting.Description, jdMaxChars), Status: "stored at capture"}
-	if strings.TrimSpace(posting.Description) == "" {
-		jd = FetchJD(ctx, e.HTTP, posting.URL)
-	}
-	e.log("outreach: draft %d JD: %s (%d chars)", draftID, jd.Status, len(jd.Text))
-
-	// 1. Research (web_search). Save it so the row shows progress and the panel
-	// can render the trace. Skippable: when the stage is off, the writer works
-	// from the JD + experience alone (weaker hooks, but no crash).
-	e.setStage(draftID, stageResearch)
-	research := `{"note":"researcher stage disabled — no web research"}`
-	if e.stageEnabled("researcher") {
-		r, err := e.research(ctx, company, posting.URL, jd)
-		if err != nil {
-			return fmt.Errorf("researcher: %w", err)
+	// 1. Research. A regenerate carries the prior draft's research forward (copied
+	// at create time), so we re-draft against the same web data instead of paying
+	// for another search — the point of a regen is usually to re-run the writing.
+	research := strings.TrimSpace(d.Research)
+	if research != "" {
+		e.log("outreach: draft %d — reusing carried-over research (%d chars), skipping web search", draftID, len(research))
+	} else {
+		// The job description (no model). The capture pass stores the full
+		// description for ATS-resolved postings — using it keeps drafts working
+		// after the posting is taken down and skips a network round-trip.
+		jd := JDResult{Text: trunc(posting.Description, jdMaxChars), Status: "stored at capture"}
+		if strings.TrimSpace(posting.Description) == "" {
+			jd = FetchJD(ctx, e.HTTP, posting.URL)
 		}
-		research = r
-	}
-	if err := e.DB.SetOutreachDraftResult(draftID, store.DraftResearching,
-		research, "", "", "", "", "", ""); err != nil {
-		return fmt.Errorf("save research: %w", err)
+		e.log("outreach: draft %d JD: %s (%d chars)", draftID, jd.Status, len(jd.Text))
+
+		// web_search. Skippable: when the stage is off, the writer works from the
+		// JD + experience alone (weaker hooks, but no crash).
+		e.setStage(draftID, stageResearch)
+		research = `{"note":"researcher stage disabled — no web research"}`
+		if e.stageEnabled("researcher") {
+			r, rErr := e.research(ctx, company, posting.URL, jd)
+			if rErr != nil {
+				return fmt.Errorf("researcher: %w", rErr)
+			}
+			research = r
+		}
+		if err := e.DB.SetOutreachDraftResult(draftID, store.DraftResearching,
+			research, "", "", "", "", "", ""); err != nil {
+			return fmt.Errorf("save research: %w", err)
+		}
 	}
 
 	// Seed the posting's suggested-contacts field from the researcher's read of
