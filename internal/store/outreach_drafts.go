@@ -28,9 +28,13 @@ const (
 // Research/Hook/Lint/Violations/Critique carry stage outputs as JSON for the
 // panel (Critique is the doctrine judge's verdict).
 type OutreachDraft struct {
-	ID         int64  `json:"id"`
-	PostingID  string `json:"posting_id"`
-	Status     string `json:"status"`
+	ID        int64  `json:"id"`
+	PostingID string `json:"posting_id"`
+	Status    string `json:"status"`
+	// Stage is the pipeline step an in-flight (researching) draft is on —
+	// research|fill|humanize|honesty|judge — for the panel's progress bar. Empty
+	// once the run reaches a terminal/review status.
+	Stage      string `json:"stage"`
 	Research   string `json:"research"`
 	Hook       string `json:"hook"`
 	Draft      string `json:"draft"`
@@ -44,12 +48,12 @@ type OutreachDraft struct {
 	SentAt     string `json:"sent_at,omitempty"`
 }
 
-const draftCols = `id, posting_id, status, research, hook, draft, edited, lint,
+const draftCols = `id, posting_id, status, stage, research, hook, draft, edited, lint,
 violations, critique, fail_reason, created_at, updated_at, COALESCE(sent_at, '')`
 
 func scanDraft(row interface{ Scan(...any) error }) (*OutreachDraft, error) {
 	var d OutreachDraft
-	err := row.Scan(&d.ID, &d.PostingID, &d.Status, &d.Research, &d.Hook, &d.Draft,
+	err := row.Scan(&d.ID, &d.PostingID, &d.Status, &d.Stage, &d.Research, &d.Hook, &d.Draft,
 		&d.Edited, &d.Lint, &d.Violations, &d.Critique, &d.FailReason, &d.CreatedAt, &d.UpdatedAt, &d.SentAt)
 	if err != nil {
 		return nil, err
@@ -177,11 +181,26 @@ WHERE posting_id = ? ORDER BY id DESC`, postingID)
 	return out, rows.Err()
 }
 
+// SetOutreachDraftStage records which pipeline step an in-flight draft is on, so
+// the panel's progress bar can advance as the run proceeds. Best-effort from the
+// engine's view (a failed stage write must not abort the run), and a no-op-safe
+// update: it never changes status, only the stage marker.
+func (db *DB) SetOutreachDraftStage(id int64, stage string) error {
+	res, err := db.Exec(`UPDATE outreach_drafts SET
+stage = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, stage, id)
+	if err != nil {
+		return err
+	}
+	return mustAffect(res)
+}
+
 // SetOutreachDraftResult records a pipeline outcome: the new status plus any
-// stage outputs. Empty strings overwrite (stages own their fields).
+// stage outputs. Empty strings overwrite (stages own their fields). Reaching a
+// result clears the in-flight stage marker — the progress bar only shows while
+// researching.
 func (db *DB) SetOutreachDraftResult(id int64, status, research, hook, draft, lint, violations, critique, failReason string) error {
 	res, err := db.Exec(`UPDATE outreach_drafts SET
-status = ?, research = ?, hook = ?, draft = ?, lint = ?, violations = ?,
+status = ?, stage = '', research = ?, hook = ?, draft = ?, lint = ?, violations = ?,
 critique = ?, fail_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status, research, hook, draft, lint, violations, critique, failReason, id)
 	if err != nil {

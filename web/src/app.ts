@@ -521,8 +521,12 @@ function renderJobs() {
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
 // (awaiting_review / needs_work / no_hook) — the fire-and-forget "draft ready"
-// signal; needs_work is finished but rated below the depth bar.
+// signal; needs_work is finished but rated below the depth bar. A researching
+// draft gets an in-row spinner so the table shows a run is in flight without
+// opening the panel.
 function draftBadgeHTML(status) {
+  if (status === "researching")
+    return '<span class="draft-badge db-researching" title="drafting outreach…"><span class="spinner spinner-xs"></span>drafting</span>';
   if (status === "awaiting_review")
     return '<span class="draft-badge" title="an outreach draft is ready to review">draft ready</span>';
   if (status === "needs_work")
@@ -1095,6 +1099,37 @@ const ICON_SEND = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" st
 // The copy button lives in the card head, top right next to the timestamp.
 const COPY_BTN = `<button class="dh-copy draft-copy-btn" title="copy the email to the clipboard" aria-label="copy email">${ICON_COPY}</button>`;
 
+// The outreach pipeline's stages, in run order — the engine stamps the active
+// one on the draft row (the `stage` field) and the panel polls it. `label` is
+// the chip under each node; `active` is the present-tense status line shown
+// while that stage is running.
+const OUTREACH_STAGES = [
+  { key: "research", label: "Research", active: "Researching the company" },
+  { key: "fill",     label: "Draft",    active: "Writing the draft" },
+  { key: "humanize", label: "Polish",   active: "Polishing the voice" },
+  { key: "honesty",  label: "Fact-check", active: "Fact-checking against your experience" },
+  { key: "judge",    label: "Review",   active: "Judging against the doctrine" },
+];
+const STAGE_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+
+// outreachProgressHTML renders the staged progress bar shown on a researching
+// draft card: a connected row of nodes (done / active / pending) plus a
+// spinner'd status line for the active stage. An unknown/empty stage falls back
+// to the first node so a freshly-started run still reads as in-progress.
+function outreachProgressHTML(stage) {
+  let idx = OUTREACH_STAGES.findIndex(s => s.key === stage);
+  if (idx < 0) idx = 0;
+  const segs = OUTREACH_STAGES.map((s, i) => {
+    const cls = i < idx ? "is-done" : i === idx ? "is-active" : "is-pending";
+    const dot = i < idx ? STAGE_CHECK : "";
+    return `<div class="dp-seg ${cls}"><span class="dp-dot">${dot}</span><span class="dp-name">${s.label}</span></div>`;
+  }).join("");
+  return `<div class="draft-progress">
+    <div class="dp-track">${segs}</div>
+    <div class="dp-status"><span class="spinner"></span><span>${OUTREACH_STAGES[idx].active}…</span></div>
+  </div>`;
+}
+
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
 function draftCardHTML(d, readonly) {
@@ -1105,8 +1140,8 @@ function draftCardHTML(d, readonly) {
 
   if (d.status === "researching") {
     return `<div class="draft-card dc-busy">
-      ${head("loading-row", '<span class="spinner"></span><span>researching…</span>')}
-      <div class="draft-note">Gathering hook candidates and drafting — this usually takes a minute or two.</div>
+      ${outreachProgressHTML(d.stage)}
+      <div class="draft-note">This usually takes a minute or two — leave the panel or check back later.</div>
     </div>`;
   }
 

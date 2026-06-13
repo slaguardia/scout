@@ -501,6 +501,11 @@
     vertical-align: -3px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* a smaller spinner for inline contexts (the in-row "drafting" badge) */
+  .spinner.spinner-xs {
+    width: 9px; height: 9px; border-width: 1.5px;
+    vertical-align: -1px;
+  }
   .loading-row {
     display: inline-flex; align-items: center; gap: 8px;
     color: var(--fg-dim); font-size: 13px;
@@ -987,6 +992,56 @@
   /* the "next up for outreach" queue mark — accent, distinct from draft states */
   .draft-badge.db-next { background: rgba(139,109,255,0.14); color: var(--accent); }
   .pt-chip.pt-nextup.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
+  /* researching — a draft is in flight; spinner + label, accent family */
+  .draft-badge.db-researching {
+    background: rgba(139,109,255,0.14); color: var(--accent);
+    text-transform: none; letter-spacing: 0;
+  }
+  .draft-badge.db-researching .spinner { margin-right: 4px; border-top-color: var(--accent); }
+
+  /* ---- outreach progress bar (researching draft card) ---- */
+  .draft-progress { margin-bottom: 12px; }
+  .dp-track { display: flex; align-items: flex-start; }
+  .dp-seg {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    position: relative; min-width: 0;
+  }
+  /* the connector runs into each node from the previous one; coloring it on
+     done/active nodes makes the bar fill left-to-right as the run advances */
+  .dp-seg::before {
+    content: ""; position: absolute; top: 8px; left: -50%; width: 100%; height: 2px;
+    background: var(--line-2); z-index: 0;
+  }
+  .dp-seg:first-child::before { display: none; }
+  .dp-seg.is-done::before, .dp-seg.is-active::before { background: var(--accent); }
+  .dp-dot {
+    position: relative; z-index: 1;
+    width: 18px; height: 18px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel); border: 2px solid var(--line-2);
+    color: var(--bg); transition: all var(--dur-fast) var(--ease);
+  }
+  .dp-dot svg { width: 11px; height: 11px; }
+  .dp-seg.is-done .dp-dot { background: var(--accent); border-color: var(--accent); }
+  .dp-seg.is-active .dp-dot {
+    border-color: var(--accent); background: var(--panel);
+    box-shadow: 0 0 0 3px rgba(139,109,255,0.18);
+    animation: dp-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes dp-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(139,109,255,0.16); }
+    50%      { box-shadow: 0 0 0 5px rgba(139,109,255,0.05); }
+  }
+  .dp-name {
+    font-size: 10.5px; color: var(--fg-dim); text-align: center; line-height: 1.2;
+  }
+  .dp-seg.is-done .dp-name { color: var(--fg-mute); }
+  .dp-seg.is-active .dp-name { color: var(--accent); font-weight: 600; }
+  .dp-status {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px;
+    color: var(--fg-mute); font-size: 12.5px;
+  }
+  .dp-status .spinner { border-top-color: var(--accent); }
 
   /* ---- decision trail ---- */
   .trail-event {

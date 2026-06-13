@@ -65,6 +65,25 @@ func (e *Engine) log(format string, args ...any) {
 	}
 }
 
+// Pipeline stage markers, persisted on the in-flight draft for the panel's
+// progress bar. The order here is the order the run advances through them.
+const (
+	stageResearch = "research"
+	stageFill     = "fill"
+	stageHumanize = "humanize"
+	stageHonesty  = "honesty"
+	stageJudge    = "judge"
+)
+
+// setStage advances the draft's progress marker. Best-effort: a failed write is
+// logged but never aborts the run (the marker is cosmetic, the result write is
+// what matters).
+func (e *Engine) setStage(draftID int64, stage string) {
+	if err := e.DB.SetOutreachDraftStage(draftID, stage); err != nil {
+		e.log("outreach: draft %d set stage %s: %v", draftID, stage, err)
+	}
+}
+
 func (e *Engine) model() string {
 	if e.Model != "" {
 		return e.Model
@@ -170,6 +189,7 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 
 	// 1. Research (web_search). Save it so the row shows progress and the panel
 	// can render the trace.
+	e.setStage(draftID, stageResearch)
 	research, err := e.research(ctx, company, posting.URL, jd)
 	if err != nil {
 		return fmt.Errorf("researcher: %w", err)
@@ -204,6 +224,7 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 
 	var feedback string
 	for attempt := 0; attempt < 2; attempt++ {
+		e.setStage(draftID, stageFill)
 		filled, noSend, err := e.fill(ctx, holes, research, exp, voice, doctrine, feedback)
 		if err != nil {
 			return fmt.Errorf("fill: %w", err)
@@ -219,6 +240,7 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 		// then the deterministic flags: voice on whatever the humanizer leaves
 		// behind (LLM cleanup reintroduces patterns — the flag is the backstop),
 		// word count on the rendered email.
+		e.setStage(draftID, stageHumanize)
 		filled = e.humanize(ctx, holes, filled, voice)
 		email := tmpl.Render(vars, filled)
 		holesText := concatFilled(holes, filled)
@@ -228,12 +250,14 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 		// template prose is the user's own words, true by construction), then
 		// judge the whole email against the doctrine. Integrity and quality are
 		// separate verdicts; both feed the one retry.
+		e.setStage(draftID, stageHonesty)
 		verdict, violations, err := e.honestyCheckText(ctx, exp, holesText)
 		if err != nil {
 			return fmt.Errorf("honesty checker: %w", err)
 		}
 		honest := verdict == "pass"
 
+		e.setStage(draftID, stageJudge)
 		jv, err := e.judgeDraft(ctx, doctrine, research, exp, email, holes, filled)
 		if err != nil {
 			return fmt.Errorf("doctrine judge: %w", err)
