@@ -42,6 +42,6 @@
 .DS_Store
 
 # PWA build (web/ → internal/web/dist embedded by go:embed)
-/web/node_modules/
+/web/node_modules
 /web/public/manifest.webmanifest
 /web/public/sw.js
