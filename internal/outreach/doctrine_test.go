@@ -46,15 +46,15 @@ func TestStagePromptOrDefault(t *testing.T) {
 }
 
 // The Writer (fill) default folds the writing method into the compiled integrity
-// frame — the method shows up, and the integrity scaffolding stays around it.
-func TestFillSystemDefaultFoldsMethod(t *testing.T) {
+// The warm Writer default carries its register, the integrity rules, and the
+// JSON contract — all self-contained.
+func TestFillSystemDefaultIsWarmAndSelfContained(t *testing.T) {
 	for _, want := range []string{
-		"WRITING METHOD",   // the folded-in writing method
-		"One through-line", // a method line
-		"NEVER invent",     // integrity stays
-		"SENDER PRESENCE",  // containment stays
-		"PROOF GRADIENT",   // the tiers stay
-		`{"no_send": true`, // the JSON contract stays
+		"warm, human cold email",   // the register
+		"NEVER invent",             // integrity
+		"manufacture a connection", // the anti-fabrication rule
+		`{"no_send": true`,         // the JSON contract
+		`{"fills":`,                // the JSON contract
 	} {
 		if !strings.Contains(fillSystemDefault, want) {
 			t.Errorf("fill default prompt missing %q", want)

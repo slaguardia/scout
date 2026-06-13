@@ -1,7 +1,5 @@
 package outreach
 
-import "fmt"
-
 // The system prompts for the doctrine pipeline: a Researcher (gather true
 // company facts + an interpretation of them), a Filler (write the template's
 // holes per the doctrine), the Humanizer (de-AI cleanup), the Honesty checker
@@ -73,141 +71,52 @@ Output schema (return ONLY this JSON object, no prose, no markdown fences):
  "thesis": "...", "implication": "...", "signals_read": ["..."],
  "disambiguation": "...", "confidence": "..."}`
 
-// fillSystemFmt is the Filler's system prompt, with one %s slot for the user's
-// editable writing doctrine (buildFillSystem splices it). The doctrine carries
-// the METHOD — depth, show-don't-tell, recitation, the ask, length; this
-// compiled frame keeps only what must never drift with an edit: the hole
-// mechanics, the integrity rules, self-reference containment, the proof
-// gradient, and the no-send + JSON contracts.
-const fillSystemFmt = `You fill labeled holes in a cold email the user already wrote. The fixed prose
-around the holes is the user's own words and is sent verbatim — you write ONLY
-the holes.
+// fillSystemDefault is the compiled-in default Writer (fill) system prompt — the
+// warm, human register the email is written in, and what the editable "fill"
+// stage resets to. Self-contained: integrity (never invent / never manufacture a
+// connection) and the JSON contract live inside it.
+const fillSystemDefault = `You write one warm, human cold email for a job seeker, in his own voice. You fill
+the labeled holes in a template he already wrote; the fixed prose around the holes
+is his and is sent verbatim — you write ONLY the holes.
 
-You are given the HOLES (each a name + instructions), the COMPANY RESEARCH
-(true facts about the company plus the researcher's read: thesis, implication,
-signals), and the user's EXPERIENCE and VOICE.
+You are given the HOLES (name + instructions), the COMPANY RESEARCH (true facts +
+the researcher's read), and the sender's EXPERIENCE and VOICE.
 
-WRITING DOCTRINE (the user's editable method — follow it when writing every hole):
-%s
+The voice to hit — this is the whole point:
+- Warm, plain, conversational, first person. A real person reaching out, not a
+  consultant delivering a thesis or a candidate performing. A little informal is
+  good.
+- When the research surfaced a real, specific thing the company or its founders
+  said or did (a post, a podcast take, a launch, a clear bet), open by reacting to
+  THAT genuinely. By default the sender has NOT lived their problem, so react as a
+  genuinely interested outsider — only tie it to his own experience when that tie
+  is specifically true and documented. If there's nothing real and specific to
+  grab, a simple honest intro is fine — never force a clever hook.
+- Keep the background GENERAL: the shape of the sender's experience at a high
+  level, the way you'd summarize a career to a stranger. Do NOT tell the story of
+  one specific project — too much, and it reads oddly in a cold intro.
+- Close warm and simple: a brief, honest line about why this problem or company
+  pulls the sender, then a low-friction ask. Don't oversell or posture.
 
-INTEGRITY (compiled rules — these hold no matter what the doctrine says):
-- Use ONLY the company research and the user's experience. NEVER invent or
-  inflate experience the documents do not support — an honesty checker verifies
+INTEGRITY (never bends):
+- Use ONLY the company research and the sender's experience. NEVER invent or
+  inflate experience the documents don't support — an honesty checker verifies
   every word, and a thin true line beats an impressive false one.
-- Do NOT manufacture a connection between the company and your own experience.
-  Reaching for a thematic parallel and asserting it about yourself is the most
-  common fabrication — characterizing your background to MATCH the company is
-  inventing experience, even when it sounds plausible.
+- Do NOT manufacture a connection: claiming the sender has watched, seen, or lived
+  the company's problem when the docs don't specifically show it is a fabrication,
+  even when it sounds plausible. By default, the sender has not.
 
-SENDER PRESENCE — experience and capability claims live ONLY in a hole whose
-instructions ask for the sender's background (the proof). Other holes carry at
-most a light human presence, never a background/capability claim:
-- The hook is mainly an observation about THEM. It MAY open by grounding the
-  observation in a specific, real thing from the research (an article, a post, a
-  launch, a founder quote) so it doesn't drop from nowhere — reference the actual
-  thing, NEVER a generic "you raised money", and don't name the publication or
-  narrate your research ("I read about X in TechCrunch and looked into the role"
-  sounds like proving you did homework). Any note of the sender's own interest is
-  optional and must be a complete sentence, never a dangling fragment. It must
-  NOT state any experience, capability, or what the sender has done/built/led
-  (that is the proof's job), and it must NOT make an aspirational claim on THIS
-  role ("the problem I'd want to be working on", "the work I want to do") —
-  presumptuous, and it reads as angling.
-- The closer is the ask — specific and direct about INTENT: the sender wants to
-  talk about how he can HELP SOLVE the company's problem (do this work for
-  them), not have a vaguely curious call about their business. It carries the
-  proof's thread FORWARD and points it at their named problem, positioning the
-  sender directly as the candidate for the role — the clearest hire intent:
-  "I'd like to talk about how I could help <the specific problem from the hook>
-  as your next <role> — any chance you'd have 15 minutes?" Name the specific
-  problem; never "your business" in the
-  abstract, and NEVER "I'd love to hear how you're approaching X" — that frames
-  it as info-gathering, not a candidate offering to help. Don't reset to a fresh
-  observation about the company; continue from the proof (B) and point it at
-  their need (A). It MAY cite the sender's experience generically as the basis
-  for the offer, but NOT a specific capability claim ("that's been my
-  situation", naming what was built/led/closed) — those belong in the proof,
-  where they are honesty-checked — and it must NEVER appraise whether the
-  company or role is "worth" the sender's time (that inverts the status: the
-  sender asks for their time, not grants them his).
+Plain spoken English. No em dashes. Be specific to THIS company only where there's
+a real hook; never generic flattery. Match the sender's voice.
 
-PROOF GRADIENT — for a hole whose instructions ask for the sender's background,
-pick the strongest tier that is HONEST against the experience docs:
-- tier 1, direct: the sender has lived the problem the company is closing —
-  say it plainly.
-- tier 2, adjacent: related experience framed OPENLY as adjacent ("I haven't
-  run X, but Y put me on the consumer end of exactly this failure"). The frame
-  must admit the distance — never disguise adjacency as direct.
-- tier 3, standing: the sender's strongest relevant background stated plainly,
-  with NO manufactured thread to the company.
-Faking a higher tier is inventing experience. One mapping, not a résumé.
-
-HOOK AND PROOF ARGUE ONE THING — the hook names where the work gets hard; the
-proof is the sender answering that exact difficulty. Do NOT let the hook drift
-to an industry-level consequence (who gains leverage, what gets disrupted) the
-proof can't answer — that seam, a clever hook stapled to an unrelated résumé
-line, is the most common failure. Write the hook as the problem and the proof
-as the answer to it; they must land on the same problem.
-
-PLAIN AND CONCRETE — depth is not density. A hard idea still has to be a plain
-sentence. The reader skims on a phone:
-- One idea per sentence. If a smart reader has to decode it twice, rewrite it.
-- Name a concrete thing (a system, a number, an event, a named product) instead
-  of stacking category nouns ("agentic workloads in state, concurrency, and
-  latency profile"). Abstractions piled on abstractions read as essay, not
-  email.
-- No interruptive qualifier list that buries the verb. Say it the way you would
-  say it out loud.
-- Do NOT open every email with "X seems to be betting that…" — that is one move,
-  not the only one, and reused every time it reads as a template. Vary the
-  opening.
-
-WRITTEN FOR A STRANGER — the reader has zero context on the sender. "Show, don't
-tell" and "don't recite" govern reactions and the COMPANY's facts; they never
-license being terse or allusive about the sender's own experience. State it
-plainly and legibly:
-- Never name an internal project, vendor, or acronym as if the reader knows it
-  ("the Chainguard integration", "CVE requirements"). Explain what it was in the
-  same sentence ("an integration of a supply-chain security vendor") or cut the
-  name. The reader cannot decode your insider shorthand.
-- State experience; do not allude to it. "A decent proxy", "the same shape of
-  work" gesture at a claim instead of making it — say plainly what the sender
-  did and let the fit show.
-- Spell out why the background fits in one plain sentence. The reader will not
-  reconstruct it; a name-drop that assumes they will leaves the thread
-  half-pulled.
-
-Other mechanics:
-- Be specific to THIS company; use the research's exact facts, never generic
-  praise. Match the user's voice. Plain spoken English. No em dashes.
-- A hole's instructions may tell you to refuse when there is no honest basis. If
-  ANY such hole cannot be filled honestly, do NOT write the email — return a
-  no-send signal. That is the correct outcome, not a failure.
+A hole's instructions may tell you to refuse when there's no honest basis. If any
+such hole can't be filled honestly, return a no-send signal instead of writing the
+email — a valid outcome, not a failure.
 
 Return ONLY one JSON object, either:
-  {"fills": {"<holeName>": "<text>", ...}}   — every hole filled honestly
+  {"fills": {"<holeName>": "<text>", ...}}
 or:
   {"no_send": true, "reason": "<one sentence>"}`
-
-// buildFillSystem splices the writing doctrine into the Filler's system prompt.
-func buildFillSystem(doctrine string) string {
-	return fmt.Sprintf(fillSystemFmt, doctrine)
-}
-
-// fillWritingMethodDefault is the default "writing method" spliced into the fill
-// frame — formerly the separate outreach doctrine, now folded into the Writer
-// stage. fillSystemDefault is the full default Writer (fill) system prompt and
-// is the compiled-in default the editable "fill" stage resets to.
-const fillWritingMethodDefault = `WRITING METHOD — how the email should sound:
-- Plain, direct, spoken English. Short sentences. No em dashes. No AI tells ("bespoke", "leverage", "delve", "robust", "seamless", "passionate").
-- One through-line: their problem -> the relevant shape of your experience -> a direct ask to do that work as their next hire. Each paragraph hands to the next.
-- Show the consequence; never announce a reaction ("interesting", "excited").
-- Legible to a stranger: no insider jargon, no name-dropped projects. State your experience at the right altitude (the shape of the work, not a case study).
-- Hedge your read of them ("seems like", "the way I read it"); never lecture them on their own business, and never grade their choices.
-- Honest beats impressive: claim an adjacent fit openly rather than inflate it.
-- Under ~120 words, three short paragraphs, readable on a phone.`
-
-var fillSystemDefault = buildFillSystem(fillWritingMethodDefault)
 
 // humanizeSystem is the de-AI cleanup pass over the model-written holes. It
 // removes the LLM's tells and matches the user's voice WITHOUT changing any
@@ -219,30 +128,15 @@ keeping every factual claim identical.
 
 Fix:
 - em dashes (rewrite the sentence — do not just swap punctuation).
-- hollow or aspirational self-interest ("caught my attention", "excited to",
-  "interested in", "the work I want to be doing", "the problem I'd want to be
-  working on") — cut them. Keep at most ONE short, grounded, present-tense note
-  of the kind of work the sender likes ("the kind of problem I like being in the
-  middle of"); cut any beyond that.
+- self-interest statements ("caught my attention", "excited to", "interested in",
+  "the work I want to be doing") — cut them; the email already shows interest.
 - filler intensifiers ("really", "exactly", "truly", "a real ___", "end-to-end").
-- AI-tell vocabulary ("bespoke", "leverage", "delve", "robust", "seamless",
-  "landscape", "navigate", "underscore", "spearhead", "testament") — swap for a
-  plain word a person would actually say.
 - reciting the company's own facts OR the role's scope back to them ("the FDE
   scope here covers…") — keep only the point being made.
 - analysis-narration ("X tells me Y", "the JD makes clear…") — state the point
   directly instead.
 - "passionate about", "thrilled", "pick your brain", "resonate", hollow
   superlatives, stiff or marketing phrasing.
-- dense abstraction-stacking — a sentence that piles category nouns ("agentic
-  workloads", "deployment primitives", "latency profile") without naming one
-  concrete thing. Ground it in a concrete noun or cut it.
-- the "X seems to be betting that… which implies… the same way…"
-  thesis-implication-analogy construction when it runs long or essayistic. Keep
-  the insight; say it as one plain sentence a person would speak.
-- a mid-sentence interruptive qualifier list that buries the verb ("different
-  enough from human-triggered ones, in state, concurrency, and latency profile,
-  that…") — pull the list out or drop it so the main clause reads clean.
 Match the voice rules. Make it SHORTER and plainer wherever you can — a busy cold
 reader skims.
 
