@@ -26,7 +26,6 @@ func Stages() []Stage {
 		{"fill", "Writer", "Writes the email's blanks from the research, your experience, and your voice.", fillSystemDefault},
 		{"humanizer", "Humanizer", "Strips AI tells and matches your voice — never changes a fact.", humanizeSystem},
 		{"honesty", "Honesty check", "Vetoes any claim about you beyond your documented experience.", honestyCheckerSystem},
-		{"judge", "Judge", "Grades depth and proof, and gates whether a draft is good enough to ship.", judgeSystem},
 	}
 }
 

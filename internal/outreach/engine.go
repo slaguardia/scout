@@ -75,7 +75,6 @@ const (
 	stageFill     = "fill"
 	stageHumanize = "humanize"
 	stageHonesty  = "honesty"
-	stageJudge    = "judge"
 )
 
 // setStage advances the draft's progress marker. Best-effort: a failed write is
@@ -282,55 +281,31 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 			honest = verdict == "pass"
 		}
 
-		jv := judgeVerdict{Depth: "deep"}
-		if e.stageEnabled("judge") {
-			e.setStage(draftID, stageJudge)
-			var jerr error
-			jv, jerr = e.judgeDraft(ctx, research, exp, email, holes, filled)
-			if jerr != nil {
-				return fmt.Errorf("doctrine judge: %w", jerr)
-			}
-		}
-		critique := jv.critiqueJSON(attempt + 1)
-		e.log("outreach: draft %d attempt %d — honesty %s, depth %s, proof %s",
-			draftID, attempt+1, verdict, jv.Depth, jv.ProofTier)
+		e.log("outreach: draft %d attempt %d — honesty %s", draftID, attempt+1, verdict)
 
-		if honest && jv.Depth == "deep" {
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, lint, "", critique, "")
+		// The only gate is honesty: an honest draft ships to the review queue.
+		// A dishonest draft gets the one shared retry; still dishonest → failed
+		// so a false claim never reaches a recruiter.
+		if honest {
+			return e.DB.SetOutreachDraftResult(draftID, store.DraftAwaitingReview, research, "", email, lint, "", "", "")
 		}
 		if attempt == 0 {
-			feedback = retryFeedback(violations, jv)
+			feedback = retryFeedback(violations)
 			continue
 		}
-
-		// Second attempt still short — route by which gate failed.
-		if !honest {
-			violJSON, _ := json.Marshal(violations)
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
-				research, "", email, lint, string(violJSON), critique, "honesty check failed twice")
-		}
-		if jv.Depth == "medium" {
-			// Honest and decent but below the doctrine's bar: keep it reviewable,
-			// flagged — the user can still edit and send it.
-			return e.DB.SetOutreachDraftResult(draftID, store.DraftNeedsWork, research, "", email, lint, "", critique, "")
-		}
+		violJSON, _ := json.Marshal(violations)
 		return e.DB.SetOutreachDraftResult(draftID, store.DraftFailed,
-			research, "", email, lint, "", critique, "below the depth bar — judged shallow twice")
+			research, "", email, lint, string(violJSON), "", "honesty check failed twice")
 	}
 	return nil
 }
 
-// retryFeedback combines the honesty violations and the judge's rewrite
-// instructions into the one labeled feedback block the retry fill sees.
-func retryFeedback(violations []honestyViolation, jv judgeVerdict) string {
-	var parts []string
-	if len(violations) > 0 {
-		parts = append(parts, "A reviewer flagged these claims in your last fill — fix them without inventing anything:\n"+formatViolations(violations))
+// retryFeedback labels the honesty violations for the one retry fill.
+func retryFeedback(violations []honestyViolation) string {
+	if len(violations) == 0 {
+		return ""
 	}
-	if jv.Depth != "deep" && strings.TrimSpace(jv.Feedback) != "" {
-		parts = append(parts, "A quality reviewer wants these changes:\n"+strings.TrimSpace(jv.Feedback))
-	}
-	return strings.Join(parts, "\n\n")
+	return "A reviewer flagged these claims in your last fill — fix them without inventing anything:\n" + formatViolations(violations)
 }
 
 // --- research ------------------------------------------------------------
@@ -580,76 +555,6 @@ func formatViolations(vs []honestyViolation) string {
 		fmt.Fprintf(&b, "- %s (%s)\n", v.Claim, v.Why)
 	}
 	return strings.TrimSpace(b.String())
-}
-
-// --- judge ---------------------------------------------------------------
-
-// judgeVerdict is the doctrine judge's parsed output: the quality grade
-// (depth/proof tier), the per-span weaknesses, what missing experience would
-// have helped, and the rewrite instructions for a retry.
-type judgeVerdict struct {
-	Depth          string   `json:"depth"`
-	ProofTier      string   `json:"proof_tier"`
-	Weaknesses     []string `json:"weaknesses"`
-	ExperienceGaps string   `json:"experience_gaps"`
-	Feedback       string   `json:"feedback"`
-}
-
-// critiqueJSON marshals the verdict for the draft row's critique column —
-// everything the review card shows, plus how many attempts the draft took.
-// Feedback is deliberately omitted: it is retry steering, not review material.
-func (jv judgeVerdict) critiqueJSON(attempts int) string {
-	w := jv.Weaknesses
-	if w == nil {
-		w = []string{}
-	}
-	b, _ := json.Marshal(struct {
-		Depth          string   `json:"depth"`
-		ProofTier      string   `json:"proof_tier"`
-		Weaknesses     []string `json:"weaknesses"`
-		ExperienceGaps string   `json:"experience_gaps"`
-		Attempts       int      `json:"attempts"`
-	}{jv.Depth, jv.ProofTier, w, jv.ExperienceGaps, attempts})
-	return string(b)
-}
-
-// judgeDraft grades the assembled email against the doctrine's quality bar. It
-// is NOT the honesty checker (integrity is a separate gate): the judge answers
-// "is this email deep enough to send?" — depth, proof tier, the doctrine's
-// per-span tests. Unknown grades are an error, like a bad honesty verdict.
-func (e *Engine) judgeDraft(ctx context.Context, research, exp, email string, holes []Hole, filled map[string]string) (judgeVerdict, error) {
-	var b strings.Builder
-	fmt.Fprintf(&b, "COMPANY RESEARCH (JSON):\n%s\n", research)
-	fmt.Fprintf(&b, "\nSENDER EXPERIENCE (the documented ground truth):\n%s\n", exp)
-	fmt.Fprintf(&b, "\nEMAIL (assembled, as it would be sent):\n%s\n", email)
-	b.WriteString("\nLLM-WRITTEN SPANS (apply your tests to these only):\n")
-	for _, h := range holes {
-		fmt.Fprintf(&b, "- %s: %s\n", h.Name, filled[h.Name])
-	}
-
-	var jv judgeVerdict
-	raw, err := e.callJSON(ctx, e.stagePrompt("judge"), b.String(), stageMaxTokens, nil)
-	if err != nil {
-		return jv, err
-	}
-	cleaned, perr := extractJSONObject(raw)
-	if perr != nil {
-		return jv, fmt.Errorf("parse judge JSON: %w (raw=%q)", perr, trunc(raw, 200))
-	}
-	if err := json.Unmarshal([]byte(cleaned), &jv); err != nil {
-		return jv, fmt.Errorf("decode judge JSON: %w", err)
-	}
-	switch jv.Depth {
-	case "deep", "medium", "shallow":
-	default:
-		return jv, fmt.Errorf("judge returned unknown depth %q", jv.Depth)
-	}
-	switch jv.ProofTier {
-	case "direct", "adjacent", "standing", "none":
-	default:
-		return jv, fmt.Errorf("judge returned unknown proof_tier %q", jv.ProofTier)
-	}
-	return jv, nil
 }
 
 // --- shared LLM call with one JSON retry ---------------------------------

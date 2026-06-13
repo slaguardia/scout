@@ -323,11 +323,6 @@ func TestOutreachEndToEnd(t *testing.T) {
 			t.Fatalf("assembled draft missing %q:\n%s", want, d.Draft)
 		}
 	}
-	// The judge's critique rides the row to the panel.
-	if !strings.Contains(d.Critique, `"depth":"deep"`) {
-		t.Fatalf("critique not surfaced on the draft row: %q", d.Critique)
-	}
-
 	// Edit, then send.
 	idStr := strconv.FormatInt(d.ID, 10)
 	rec = do(t, h, http.MethodPut, "/api/outreach/drafts/"+idStr, `{"edited":"my edited email"}`)
@@ -430,32 +425,32 @@ func TestOutreachPromptsEndpoint(t *testing.T) {
 		Enabled      bool   `json:"enabled"`
 		IsOverridden bool   `json:"is_overridden"`
 	}
-	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/humanizer", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	def, _ := outreach.StageByKey("judge")
-	if body.Kind != "outreach-prompts/judge" || body.Content != def.Default || body.IsOverridden {
+	def, _ := outreach.StageByKey("humanizer")
+	if body.Kind != "outreach-prompts/humanizer" || body.Content != def.Default || body.IsOverridden {
 		t.Fatalf("default get: kind=%q overridden=%v len=%d", body.Kind, body.IsOverridden, len(body.Content))
 	}
 
 	// PUT an override and disable the stage.
-	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/judge", `{"content":"my judge","enabled":false}`)
+	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/humanizer", `{"content":"my humanizer","enabled":false}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/humanizer", "")
 	json.Unmarshal(rec.Body.Bytes(), &body)
-	if body.Content != "my judge" || body.Enabled || !body.IsOverridden {
+	if body.Content != "my humanizer" || body.Enabled || !body.IsOverridden {
 		t.Fatalf("after put: content=%q enabled=%v overridden=%v", body.Content, body.Enabled, body.IsOverridden)
 	}
 
 	// Reset reverts content to the default but leaves the stage disabled.
-	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/judge", `{"reset":true}`)
+	rec = do(t, h, http.MethodPut, "/api/outreach-prompts/humanizer", `{"reset":true}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset: want 200, got %d", rec.Code)
 	}
-	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/judge", "")
+	rec = do(t, h, http.MethodGet, "/api/outreach-prompts/humanizer", "")
 	json.Unmarshal(rec.Body.Bytes(), &body)
 	if body.Content != def.Default || body.IsOverridden || body.Enabled {
 		t.Fatalf("after reset: overridden=%v enabled=%v", body.IsOverridden, body.Enabled)

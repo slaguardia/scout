@@ -520,17 +520,14 @@ function renderJobs() {
 }
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
-// (awaiting_review / needs_work / no_hook) — the fire-and-forget "draft ready"
-// signal; needs_work is finished but rated below the depth bar. A researching
-// draft gets an in-row spinner so the table shows a run is in flight without
-// opening the panel.
+// (awaiting_review / no_hook) — the fire-and-forget "draft ready" signal. A
+// researching draft gets an in-row spinner so the table shows a run is in flight
+// without opening the panel.
 function draftBadgeHTML(status) {
   if (status === "researching")
     return '<span class="draft-badge db-researching" title="drafting outreach…"><span class="spinner spinner-xs"></span>drafting</span>';
   if (status === "awaiting_review")
     return '<span class="draft-badge" title="an outreach draft is ready to review">draft ready</span>';
-  if (status === "needs_work")
-    return '<span class="draft-badge db-needswork" title="the draft finished below the depth bar — review, fix or regenerate">draft needs work</span>';
   if (status === "no_hook")
     return '<span class="draft-badge db-nohook" title="no honest hook — scout recommends not emailing">no hook</span>';
   return "";
@@ -1160,7 +1157,6 @@ function draftCardHTML(d, readonly) {
       ${head("pill pill-no", "failed")}
       ${d.fail_reason ? `<div class="draft-note">${escapeHTML(d.fail_reason)}</div>` : ""}
       ${vio}
-      ${renderCritique(d.critique)}
       ${renderTrace(d)}
       ${readonly ? "" : `<div class="draft-actions"><button class="btn btn-primary draft-retry-btn">${REFRESH}Retry</button></div>`}
     </div>`;
@@ -1185,17 +1181,12 @@ function draftCardHTML(d, readonly) {
     </div>`;
   }
 
-  // awaiting_review, needs_work, or no_hook — all editable; no_hook is NEUTRAL,
-  // not an error, and needs_work is a finished draft the quality judge rated
-  // below the depth bar — flagged, with the critique saying why.
+  // awaiting_review or no_hook — both editable; no_hook is NEUTRAL, not an error.
   const text = draftText(d);
   const noHook = d.status === "no_hook";
-  const needsWork = d.status === "needs_work";
   const label = noHook
     ? `<span class="pill pill-info">no honest hook</span>`
-    : needsWork
-      ? `<span class="pill pill-maybe">needs work — below the depth bar</span>`
-      : `<span class="pill pill-maybe">awaiting review</span>`;
+    : `<span class="pill pill-maybe">awaiting review</span>`;
   // no_hook means there is nothing true to say (yet) — scout recommends NOT
   // emailing. No template fallback; writing anyway is a manual override.
   let noHookReason = "";
@@ -1205,13 +1196,11 @@ function draftCardHTML(d, readonly) {
   const note = noHook
     ? `<div class="draft-note">No honest hook found — nothing true to say yet; scout recommends not emailing.${noHookReason ? " " + escapeHTML(noHookReason) : ""}</div>`
     : "";
-  const critique = renderCritique(d.critique);
 
   if (readonly) {
     return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
       <div class="draft-head">${label}</div>
       ${note}
-      ${critique}
       <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
       ${renderTrace(d)}
     </div>`;
@@ -1221,7 +1210,6 @@ function draftCardHTML(d, readonly) {
   return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
     <div class="draft-head">${label}${text ? COPY_BTN : ""}</div>
     ${note}
-    ${critique}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
     <div class="draft-actions">
@@ -1293,35 +1281,6 @@ function renderLintChips(lintJSON) {
   return `<div class="lint-chips">` + findings.map(f =>
     `<span class="lint-chip" title="${escapeHTML(f.message || "")}"><code>${escapeHTML(f.code || "")}</code>${escapeHTML(f.message || "")}</span>`
   ).join("") + `</div>`;
-}
-
-// renderCritique shows the quality judge's read on a finished draft: depth +
-// proof-tier chips, the weaknesses, and — the signal that matters most — what
-// experience was missing when the fill came up thin. Present on
-// awaiting_review, needs_work, and failed drafts; empty/unparseable → "".
-function renderCritique(critiqueJSON) {
-  let c = null;
-  try { c = JSON.parse(critiqueJSON || "null"); } catch { return ""; }
-  if (!c || typeof c !== "object") return "";
-  const depthCls = c.depth === "deep" ? "pill-yes" : c.depth === "medium" ? "pill-maybe" : "pill-no";
-  const proofCls = { direct: "pill-yes", adjacent: "pill-info", standing: "pill-maybe" }[c.proof_tier] || "pill-no";
-  const proofLabel = c.proof_tier === "standing" ? "standing creds" : c.proof_tier;
-  const chips = [
-    c.depth ? `<span class="pill ${depthCls}">depth: ${escapeHTML(c.depth)}</span>` : "",
-    c.proof_tier ? `<span class="pill ${proofCls}">proof: ${escapeHTML(proofLabel)}</span>` : "",
-  ].filter(Boolean).join("");
-  const weak = (Array.isArray(c.weaknesses) && c.weaknesses.length)
-    ? `<ul class="critique-list">` + c.weaknesses.map(w => `<li>${escapeHTML(String(w))}</li>`).join("") + `</ul>`
-    : "";
-  const gaps = String(c.experience_gaps || "").trim();
-  const gap = gaps
-    ? `<div class="critique-gap"><span class="cg-label">experience gap:</span> ${escapeHTML(gaps)}</div>`
-    : "";
-  if (!chips && !weak && !gap) return "";
-  return `<div class="draft-critique">
-    ${chips ? `<div class="critique-chips">${chips}</div>` : ""}
-    ${weak}${gap}
-  </div>`;
 }
 
 function renderViolations(vioJSON) {
