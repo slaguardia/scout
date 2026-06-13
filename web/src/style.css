@@ -28,8 +28,8 @@
     --line-2:  var(--border-strong);
 
     /* scout-specific layout vars (not part of the toolkit palette) */
-    --pane-w:    680px;
-    --pursuit-w: 720px;   /* the role/pipeline/outreach panel needs more room */
+    --pane-w:    900px;
+    --pursuit-w: 960px;   /* the role/pipeline/outreach panel needs more room */
     --sidebar-w: 280px;
   }
 
