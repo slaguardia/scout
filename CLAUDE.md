@@ -101,43 +101,42 @@ canonical port defeats that safety net — don't.
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
-- **Outreach pipeline — every stage is an editable prompt (2026-06-13):**
-  [`docs/pipeline.md`](./docs/pipeline.md) (`scout outreach`) is the reference;
-  `docs/cold-outreach-doctrine.md` is the writing *method*. The pipeline is
-  **five LLM stages — researcher · writer (fill) · humanizer · honesty · judge —
-  and each stage's system prompt is fully editable from the dashboard** (Settings
-  → *Outreach pipeline*). Each stage has a compiled default in `internal/outreach`
-  (registry: `stages.go`); an override is stored in the `prompt_overrides` table
-  (`GET /api/outreach-prompts`, `GET/PUT /api/outreach-prompts/{stage}`) and
-  resolved at draft time by `Engine.stagePrompt` — Reset-to-default reverts. The
-  JSON output contract lives inside each default prompt, so a bad edit only fails
-  that stage's drafts, never the binary. Every stage **except the Writer** can be
-  toggled **off/skipped** (`Engine.stageEnabled`): no researcher → writer works
-  from JD+experience; no humanizer → raw fill; no honesty → passes; no judge →
-  ships "deep". **There is no separate "doctrine" anymore** — it was redundant
-  with the template holes + the compiled frame and over-constrained the model;
-  its writing method folded into the Writer stage's default prompt, and the judge
-  is self-contained on depth/recitation. The other scout-local inputs: the
-  **email template** (DB singleton, the *format* — verbatim prose + `{{var}}` +
-  `{{name: instructions}}` holes; default = hook/proof/closer); **brain
-  knowledge** (experience + voice), *discovered* not pinned
-  (`internal/outreach/discover.go`: Haiku over the brain `/map`, whole-fetched
-  via `/doc`, cached in `outreach_sources` (M35); fail-loud `ErrNoExperience`);
-  and **company research** (web). The **engine** (Sonnet): JD pre-fetch →
-  researcher (`web_search`; true facts + interpretation, hunting *ranked
-  referenceable* hooks — eng/blog posts, founder theses, real launches, **never
-  funding/taglines**) → **one fill call** (writes the holes against research +
-  experience + voice; the **proof gradient** — direct / openly-adjacent /
-  standing-creds, strongest honest tier; a no-send signal = refusal, a success
-  path) → humanize → **honesty check on the filled holes** against the complete
-  experience bundle (vetoes any sender claim beyond the docs) → **judge** (depth
-  gate: deep ships; medium after the shared retry → `needs_work`, flagged but
-  editable; shallow → failed "below the depth bar"; critique JSON — depth, proof
-  tier, weaknesses, experience gaps — stored on every finished draft, rendered on
-  the card). Verbatim template prose is true by construction. The jobs panel is
-  the review queue (edit, mark-sent bumps tracking); fire-and-forget. CLI: `scout
-  outreach sources [--refresh] | draft`. Engine wires into serve when
-  `ANTHROPIC_API_KEY` is set.
+- **Outreach pipeline — editable stage prompts + a mostly-fixed template (2026-06-13):**
+  [`docs/pipeline.md`](./docs/pipeline.md) (`scout outreach`) is the reference.
+  The pipeline is **four editable LLM stages — researcher · writer (fill) ·
+  humanizer · honesty — each a system prompt fully editable from the dashboard**
+  (Settings → *Outreach pipeline*). Each has a compiled default in
+  `internal/outreach` (registry: `stages.go`); an override lives in the
+  `prompt_overrides` table (`GET /api/outreach-prompts`, `GET/PUT
+  /api/outreach-prompts/{stage}`), resolved at draft time by `Engine.stagePrompt`
+  (Reset-to-default reverts). The JSON contract lives inside each default prompt,
+  so a bad edit only fails that stage's drafts, never the binary. Every stage
+  except the Writer can be toggled off/skipped (`Engine.stageEnabled`). **There
+  is no judge and no "doctrine"** — both removed: the judge's depth-gating
+  produced robotic, clever-sounding drafts (and dumped a critique report-card on
+  the user), and the doctrine doc was superseded. The writing register is now
+  **plain, warm, and specific** — cold-email replies are driven by
+  specificity/relevance + brevity, not cleverness (evidence: the
+  `cold-outreach-research` skill). The **email template** (DB singleton, localized
+  per user) is **mostly the user's fixed prose** — verbatim background + closer —
+  with the only generated holes a leashed **opener** (reference one real specific
+  thing + a genuine reaction, else a plain intro) and a short **closer**
+  (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Brain
+  knowledge** (experience + voice) is *discovered* not pinned (`discover.go`:
+  Haiku over `/map`, fetched via `/doc`, cached in `outreach_sources` (M35);
+  fail-loud `ErrNoExperience`) and is the honesty checker's ground truth — a thin
+  experience doc makes the writer confabulate, so the real lever is good source
+  pages. The **engine** (Sonnet): JD pre-fetch → researcher (`web_search`, ranked
+  *referenceable* hooks — never funding/taglines; a regenerate reuses the prior
+  draft's research instead of re-searching) → fill (writes the holes; never
+  invent / never manufacture a connection — honesty-checked) → humanize (cut
+  generic/hollow + AI tells, keep genuine *specific* warmth) → **honesty check —
+  the only gate** (vetoes any sender claim beyond the docs; honest → review
+  queue, dishonest twice → failed). Verbatim template prose is true by
+  construction. The jobs panel is the review queue (edit, mark-sent bumps
+  tracking); fire-and-forget. CLI: `scout outreach sources [--refresh] | draft`.
+  Spec'd but not built: a `draft-shorten` "too long → tighten" control
+  (`plans/draft-shorten.md`).
 - **Application answers, built:** [`docs/pipeline.md`](./docs/pipeline.md)
   (`scout questions`) is the reference; it reuses the outreach engine.
   **Detection** runs at capture time

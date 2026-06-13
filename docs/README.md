@@ -11,7 +11,6 @@ and links back to it.
 | [pipeline.md](./pipeline.md) | Each command in detail (ingest → filter → enrich → verdict, plus `scout outreach` / `scout questions` / `serve`): inputs, behavior, idempotency. The web UI is the primary interface. |
 | [verdict.md](./verdict.md) | The LLM call: prompt assembly, brain-primary criteria, prompt caching. |
 | [enrichment.md](./enrichment.md) | About-page fetch, HTML strip, fetch-status taxonomy. |
-| [cold-outreach-doctrine.md](./cold-outreach-doctrine.md) | The cold-email *method*: depth ladder, one through-line, legibility, the direct ask, the kill list. Embodied in the (editable) Writer + Judge stage prompts — there is no separate doctrine file. |
 | [data-model.md](./data-model.md) | SQLite schema — every table and why it exists. |
 | [api.md](./api.md) | The HTTP `/api/*` contract clients build against. |
 | [operations.md](./operations.md) | Running it: flags, env vars, troubleshooting. |
