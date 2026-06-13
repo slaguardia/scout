@@ -34,8 +34,12 @@ Gather:
 5. THESIS — in ONE sentence, the BET the company is making: what they're
    wagering will be true about the world, not what they do. "They're betting
    that X" — the wager, not the product description.
-6. IMPLICATION — what that bet makes obsolete, urgent, or newly true. One or
-   two sentences: if the bet is right, what follows?
+6. IMPLICATION — if the bet is right, where does the WORK get hard? Name the
+   operational problem the company has to solve and that a new hire would own:
+   what is unbuilt, unproven, or about to break under load. One or two
+   sentences. Aim at the execution problem, NOT the abstract industry
+   consequence (who gains leverage, what gets disrupted) — the execution
+   problem is the one a candidate's background can actually speak to.
 7. SIGNALS_READ — 2-4 one-line inferences about the company's current INTERNAL
    reality, each derived from a named external signal: funding stage → likely
    team size and role breadth; hiring pattern → what's getting heavy;
@@ -105,6 +109,41 @@ pick the strongest tier that is HONEST against the experience docs:
   with NO manufactured thread to the company.
 Faking a higher tier is inventing experience. One mapping, not a résumé.
 
+HOOK AND PROOF ARGUE ONE THING — the hook names where the work gets hard; the
+proof is the sender answering that exact difficulty. Do NOT let the hook drift
+to an industry-level consequence (who gains leverage, what gets disrupted) the
+proof can't answer — that seam, a clever hook stapled to an unrelated résumé
+line, is the most common failure. Write the hook as the problem and the proof
+as the answer to it; they must land on the same problem.
+
+PLAIN AND CONCRETE — depth is not density. A hard idea still has to be a plain
+sentence. The reader skims on a phone:
+- One idea per sentence. If a smart reader has to decode it twice, rewrite it.
+- Name a concrete thing (a system, a number, an event, a named product) instead
+  of stacking category nouns ("agentic workloads in state, concurrency, and
+  latency profile"). Abstractions piled on abstractions read as essay, not
+  email.
+- No interruptive qualifier list that buries the verb. Say it the way you would
+  say it out loud.
+- Do NOT open every email with "X seems to be betting that…" — that is one move,
+  not the only one, and reused every time it reads as a template. Vary the
+  opening.
+
+WRITTEN FOR A STRANGER — the reader has zero context on the sender. "Show, don't
+tell" and "don't recite" govern reactions and the COMPANY's facts; they never
+license being terse or allusive about the sender's own experience. State it
+plainly and legibly:
+- Never name an internal project, vendor, or acronym as if the reader knows it
+  ("the Chainguard integration", "CVE requirements"). Explain what it was in the
+  same sentence ("an integration of a supply-chain security vendor") or cut the
+  name. The reader cannot decode your insider shorthand.
+- State experience; do not allude to it. "A decent proxy", "the same shape of
+  work" gesture at a claim instead of making it — say plainly what the sender
+  did and let the fit show.
+- Spell out why the background fits in one plain sentence. The reader will not
+  reconstruct it; a name-drop that assumes they will leaves the thread
+  half-pulled.
+
 Other mechanics:
 - Be specific to THIS company; use the research's exact facts, never generic
   praise. Match the user's voice. Plain spoken English. No em dashes.
@@ -141,6 +180,15 @@ Fix:
   directly instead.
 - "passionate about", "thrilled", "pick your brain", "resonate", hollow
   superlatives, stiff or marketing phrasing.
+- dense abstraction-stacking — a sentence that piles category nouns ("agentic
+  workloads", "deployment primitives", "latency profile") without naming one
+  concrete thing. Ground it in a concrete noun or cut it.
+- the "X seems to be betting that… which implies… the same way…"
+  thesis-implication-analogy construction when it runs long or essayistic. Keep
+  the insight; say it as one plain sentence a person would speak.
+- a mid-sentence interruptive qualifier list that buries the verb ("different
+  enough from human-triggered ones, in state, concurrency, and latency profile,
+  that…") — pull the list out or drop it so the main clause reads clean.
 Match the voice rules. Make it SHORTER and plainer wherever you can — a busy cold
 reader skims.
 
@@ -216,6 +264,11 @@ Tasks:
    requires engaging the company's bet, trajectory, or problem WITH a stated
    consequence or a non-obvious inference — interpretation that could not have
    been written by someone who didn't understand the company.
+   COHERENCE CAP: the hook's implication and the proof must address the SAME
+   problem. If the hook argues an industry-level consequence (who gains
+   leverage, what gets disrupted) while the proof answers a different
+   operational reality, the email has a seam — cap DEPTH at "medium" and name
+   the seam in WEAKNESSES, however sharp each span is on its own.
 2. PROOF_TIER — for the sender-background span, judged against the EXPERIENCE
    bundle: "direct" (the sender has lived the problem), "adjacent" (related
    experience, openly framed as adjacent), "standing" (credentials stated
@@ -223,8 +276,18 @@ Tasks:
    exists). Report the tier the text actually earns, not the one it claims.
 3. WEAKNESSES — apply the doctrine's tests to the LLM-written spans: the
    recitation test, reaction words, consequence present, grading the founder's
-   choices, warm-up openings, length (~120-word body). Each weakness is one
-   short concrete string naming or quoting the offending or weak span.
+   choices, warm-up openings, length (~120-word body). Also flag READABILITY:
+   a sentence that stacks abstractions with no concrete anchor, an opener locked
+   to the "X seems to be betting that…" formula, a qualifier list that buries
+   the verb, or any sentence a busy reader must decode twice. Confusing-but-deep
+   is still a weakness. Also flag LEGIBILITY: an internal project, vendor, or
+   acronym named as if the reader knows it ("the Chainguard integration", "CVE
+   requirements"); an experience claim alluded to rather than stated ("a decent
+   proxy", "the same shape of work"); or a closer that restates what the proof
+   already said. The reader has zero context on the sender — a sentence they
+   can't follow is a weakness even when the underlying point is strong. Each
+   weakness is one short concrete string naming or quoting the offending or
+   weak span.
 4. EXPERIENCE_GAPS — 1-2 plain sentences on what experience, had it been in the
    bundle, would have made this email stronger. Empty string when nothing
    meaningful.

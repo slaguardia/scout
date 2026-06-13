@@ -22,18 +22,18 @@ import (
 // silently mis-filling an email.
 
 // DefaultTemplate is the compiled-in starting template, used until the user
-// saves their own. The doctrine structure: an interpretation-led hook (the bet
-// and what it implies), a proof hole written at the strongest honest tier of
-// the proof gradient, and a reason+ask closer. "Your Name" stays a placeholder
-// the user localizes. (The subject line's em dash is intentional — see
-// voice.go's note about never linting the subject.)
+// saves their own. The doctrine structure: an interpretation-led hook that names
+// where the work gets hard, a proof hole that answers that exact difficulty at
+// the strongest honest tier of the proof gradient, and a reason+ask closer.
+// "Your Name" stays a placeholder the user localizes. (The subject line's em
+// dash is intentional — see voice.go's note about never linting the subject.)
 const DefaultTemplate = `Subject: [Recipient] | Your Name — intro re {{role}}
 
 Hi [Recipient],
 
-{{hook: One or two tight sentences: a specific, true observation about {{company}} — the bet they're making and what it implies — hedged as your own read ("seems to be betting"). State a consequence, not a reaction. Zero words about the sender. If there is no Deep observation to make, don't send.}}
+{{hook: One or two tight, plain sentences: a specific, true observation about {{company}} — the bet they're making and where that makes the WORK hard to execute (the operational problem this role exists to close), not an industry-level consequence — hedged as your own read. This is the problem the proof answers, so make it one a person's background can speak to. State a consequence, not a reaction. Name a concrete thing rather than stacking abstractions, and don't lock the opener to "seems to be betting" — vary it. Zero words about the sender. If there is no Deep observation to make, don't send.}}
 
-{{proof: One or two sentences tying my background to the problem above, at the strongest HONEST tier: direct lived experience of this gap; or adjacent experience framed openly as adjacent; or my standing credentials stated plainly with no manufactured thread. One mapping, not a résumé.}}
+{{proof: One or two plain sentences answering the exact difficulty the hook named, at the strongest HONEST tier: direct lived experience of this problem; or adjacent experience framed openly as adjacent (say "not X, but Y" — never disguise the distance); or my standing credentials stated plainly with no manufactured thread. One mapping, not a résumé.}}
 
 {{closer: A short, concrete reason this company in particular is worth a conversation, folded into one low-friction ask (e.g. 15 minutes to hear where things are stretched thin, or simply "worth a conversation?"). Nothing about the sender. Vary the ask.}}
 
