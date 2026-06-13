@@ -100,15 +100,20 @@ INTEGRITY (compiled rules — these hold no matter what the doctrine says):
 SENDER PRESENCE — experience and capability claims live ONLY in a hole whose
 instructions ask for the sender's background (the proof). Other holes carry at
 most a light human presence, never a background/capability claim:
-- The hook is mainly an observation about THEM, but it MAY open with a brief,
-  plain factual lead-in that sources the observation ("I read that…", "I came
-  across the role and looked into…") so it doesn't appear from nowhere, and it
-  MAY end with at most ONE short, present-tense note of the KIND of work the
-  sender is drawn to ("the kind of problem I like being in the middle of"). It
-  must NOT state any experience, capability, or what the sender has
-  done/built/led (that is the proof's job), and it must NOT make an aspirational
-  claim on THIS role ("the problem I'd want to be working on", "the work I want
-  to do") — presumptuous, and it reads as angling.
+- The hook is mainly an observation about THEM. It MAY open with ONE short,
+  light clause that grounds the observation so it doesn't drop from nowhere —
+  keep it to a glance ("I saw {company} raised its seed round and looked at the
+  role"); do NOT name the publication you read it in, and do NOT narrate your
+  research ("I read about X in TechCrunch and looked into the role" is too
+  procedural — it sounds like proving you did homework). Flow straight from the
+  glance into the point. It MAY end with at most ONE present-tense note of the
+  KIND of work the sender is drawn to, written as a COMPLETE sentence ("That's
+  the kind of problem I like being in the middle of") — never a dangling
+  fragment ("The kind of problem I like…"), which reads as bolted on. It must
+  NOT state any experience, capability, or what the sender has done/built/led
+  (that is the proof's job), and it must NOT make an aspirational claim on THIS
+  role ("the problem I'd want to be working on", "the work I want to do") —
+  presumptuous, and it reads as angling.
 - The closer is the ask — specific and direct about INTENT: the sender wants to
   talk about how he can HELP SOLVE the company's problem (do this work for
   them), not have a vaguely curious call about their business. It carries the

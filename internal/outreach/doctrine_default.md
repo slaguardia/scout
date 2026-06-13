@@ -40,8 +40,10 @@ Cut "interesting", "exciting", "stuck with me", "resonated", "I love that".
 Interest declarations are the same failure aimed at yourself: "the problem I'd
 want to be working on", "the work I want to do" are presumptuous (they assume the
 job) and hollow (the email already shows interest by existing). One short,
-present-tense note of the *kind* of work you like ("the kind of problem I like
-being in the middle of") is fine; an aspirational claim on this role is not. None
+present-tense note of the *kind* of work you like is fine, written as a complete
+sentence ("That's the kind of problem I like being in the middle of") — never a
+dangling fragment, which reads as bolted on; an aspirational claim on this role
+is not. None
 of this licenses being terse about your own experience — state that plainly (see
 **Plain and legible**).
 
@@ -89,8 +91,11 @@ must land for a stranger with zero context on you.
   work" gestures at a claim instead of making it; say plainly what you did and
   draw the connection in one sentence.
 - Vary the opener; "X seems to be betting that…" reused every time reads as a
-  template. A brief factual lead-in that sources the observation ("I read that…")
-  is fine and human — it keeps the opening from dropping out of nowhere.
+  template. A light lead-in that grounds the observation ("I saw they raised
+  their seed round and looked at the role") keeps the opening from dropping out
+  of nowhere — but keep it to a glance: don't name the publication or narrate
+  your research ("I read about X in TechCrunch and looked into the role" sounds
+  like proving you did homework). Flow straight into the point.
 
 An email a stranger can't follow has failed, however sharp its insight.
 
