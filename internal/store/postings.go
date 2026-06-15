@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	neturl "net/url"
 	"strings"
@@ -31,6 +32,12 @@ func validOutreachStatus(s string) (string, error) {
 		return "", fmt.Errorf(`outreach_status must be "awaiting", "replied", "no_response", or empty`)
 	}
 }
+
+// ErrUnknownCompany is returned when an operation targets a company id that
+// doesn't exist — relinking a posting (UpdatePostingCompany) never creates the
+// target company, so the web layer maps this to a 400 (bad request), distinct
+// from sql.ErrNoRows for a missing posting (a 404).
+var ErrUnknownCompany = errors.New("company not found")
 
 // Posting is a link to a job/role posting found at a company. One-to-many:
 // a company can have any number of postings. Flattened + JSON-tagged for
@@ -404,6 +411,36 @@ func (db *DB) UpdatePostingURL(id, url string) (Posting, error) {
 	res, err := db.Exec(`UPDATE job_postings SET url = ? WHERE id = ?`, url, id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting url %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return Posting{}, sql.ErrNoRows
+	}
+	return db.readPosting(id)
+}
+
+// UpdatePostingCompany re-links a posting to a different existing company and
+// returns the refreshed row. This is the fix for a posting captured under the
+// wrong company twin (e.g. "Automat" vs "Automat AI" — the one with the real
+// enrichment): everything posting-scoped (drafts, answers, tracking) travels
+// with the row, and the verdict/brief it shows become the new company's. The
+// target must already exist — relinking never creates a company (that's the Add
+// dialog's job): an unknown/blank companyID returns ErrUnknownCompany, and an
+// unknown posting returns sql.ErrNoRows.
+func (db *DB) UpdatePostingCompany(id, companyID string) (Posting, error) {
+	companyID = strings.TrimSpace(companyID)
+	if companyID == "" {
+		return Posting{}, ErrUnknownCompany
+	}
+	exists, err := db.CompanyExists(companyID)
+	if err != nil {
+		return Posting{}, err
+	}
+	if !exists {
+		return Posting{}, ErrUnknownCompany
+	}
+	res, err := db.Exec(`UPDATE job_postings SET company_id = ? WHERE id = ?`, companyID, id)
+	if err != nil {
+		return Posting{}, fmt.Errorf("update posting company %s: %w", id, err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Posting{}, sql.ErrNoRows

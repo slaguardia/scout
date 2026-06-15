@@ -71,6 +71,7 @@ server is up (one LLM-gated exception: `/api/capture`).
 | `GET` | `/api/postings/{id}/outreach` | The posting's draft queue, newest first (`{drafts}`). | See **Outreach**. |
 | `POST` | `/api/postings/{id}/outreach` | Start an outreach draft (`202` + the new row). | Needs the **outreach engine** (`503` when absent); `412` w/ `missing_blocks` when context blocks aren't healthy; `409` if a draft is already active. |
 | `PUT`·`POST` | `/api/postings/{id}/next-up` | Toggle the "next up for outreach" queue mark (`{next_up: bool}`). | `404` on unknown id. |
+| `PUT`·`POST` | `/api/postings/{id}/company` | Re-link the posting to a different **existing** company (`{company_id}`); returns `{posting, company_id, company_name}`. Fixes a wrong-twin capture — drafts/answers/tracking travel with the row. | `400` on unknown/blank company (never a silent create); `404` on unknown posting. |
 | `POST` | `/api/capture` | Link-capture agent pass on one pasted URL (`{url, kind?, fields?}`). | ATS posting links resolve via public JSON, **no LLM, no key**. Any other link needs `ANTHROPIC_API_KEY` → `412`. Unfetchable page → `422` with `{error, fetch_status}` (JSON). `400` on a bad url/kind. |
 | `GET` | `/api/stats` | Aggregate stats (counts, verdict histogram, criteria version/source). | — |
 | `GET` | `/api/facets` | Distinct funding stages + verticals for the Add-company form. | — |

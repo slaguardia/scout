@@ -924,6 +924,74 @@ async function savePostingURL(j, val) {
   syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
+// wireRelinkCompany binds the "change" affordance in the role footer that moves
+// a posting to a different *existing* company — the fix for a job captured under
+// the wrong company twin (e.g. "Automat" vs the "Automat AI" row that has the
+// real enrichment). The picker is a datalist of the companies already in the DB
+// (state.rows); the typed name is resolved to its id client-side and rejected if
+// it doesn't match one — relinking never creates a company.
+function wireRelinkCompany(j) {
+  const view = document.getElementById("pursuit-company-view");
+  const editor = document.getElementById("pursuit-company-relink");
+  const edit = document.getElementById("pursuit-company-edit");
+  const input = document.getElementById("pursuit-company-input");
+  const save = document.getElementById("pursuit-company-save");
+  const cancel = document.getElementById("pursuit-company-cancel");
+  if (!view || !editor || !edit || !input || !save || !cancel) return;
+
+  const list = document.getElementById("relink-company-names");
+  list.innerHTML = (state.rows || [])
+    .map(r => `<option value="${escapeHTML(r.name)}">`).join("");
+
+  const show = (on) => {
+    editor.hidden = !on;
+    view.hidden = on;
+    if (on) { input.value = j.company || ""; input.focus(); input.select(); }
+  };
+  const commit = async () => {
+    const name = input.value.trim();
+    if (!name) { show(false); return; }
+    // Match the typed name to an existing company (case-insensitive), preferring
+    // an exact hit; the target must already exist.
+    const rows = state.rows || [];
+    const match = rows.find(r => r.name === name)
+      || rows.find(r => r.name.toLowerCase() === name.toLowerCase());
+    if (!match) { toast(`no company named "${name}" — add it first`); return; }
+    if (match.company_id === j.company_id) { show(false); return; }
+    try {
+      await savePostingCompany(j, match.company_id);
+      toast(`moved to ${j.company}`);
+    } catch (err) {
+      toast(`move failed: ${err.message}`);
+    }
+  };
+
+  edit.addEventListener("click", () => show(true));
+  cancel.addEventListener("click", () => show(false));
+  save.addEventListener("click", commit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); show(false); }
+  });
+}
+
+// savePostingCompany re-links the posting to an existing company via its own
+// endpoint, folds the new company id/name back into the cached row, and
+// refreshes everything keyed on the company (the row's verdict, the company
+// pane name). Throws on failure so the caller can flash the error.
+async function savePostingCompany(j, companyId) {
+  const resp = await fetch(`/api/postings/${j.posting_id}/company`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ company_id: companyId }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  j.company_id = fresh.company_id;
+  j.company = fresh.company_name;
+  renderPursuit();   // the footer link, verdict context, and outreach target all key on the company
+  loadJobs();        // the jobs table carries the company name + the new company's verdict
+}
+
 // saveCompanyField mirrors savePostingField for the company pane. Name is
 // required server-side; blanking it throws, the field rolls back.
 async function saveCompanyField(d, key, val) {
@@ -1014,7 +1082,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h12M8 2v12"/></svg>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -1059,7 +1126,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l3 3V13a.5.5 0 01-.5.5h-8A.5.5 0 014 13V3a.5.5 0 010-.5z"/><path d="M9.5 2.5V6h3M6 8.5h4M6 10.5h4"/></svg>
         Notes
       </h3>
       <textarea class="ie ie-notes" id="pursuit-notes-input" rows="4" placeholder="—">${escapeHTML(j.notes || "")}</textarea>
@@ -1086,6 +1152,7 @@ function renderPursuit() {
   wirePipeline();
   const co = document.getElementById("pursuit-company-link");
   if (co) co.addEventListener("click", () => openDetail(j.company_id));
+  wireRelinkCompany(j);
   wireInlineField(document.getElementById("pursuit-title-input"),
     (v) => savePostingField(j, "title", v));
   wireInlineField(document.getElementById("pursuit-url-input"),
@@ -1139,8 +1206,19 @@ function roleEditHTML(j) {
     </div>
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-              title="open the company panel">${escapeHTML(j.company)} ↗</button>
+      <span class="role-company-wrap" id="pursuit-company-view">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
+                title="link this job to a different company">change</button>
+      </span>
+      <span class="role-company-relink" id="pursuit-company-relink" hidden>
+        <input class="ie" id="pursuit-company-input" list="relink-company-names"
+               placeholder="company…" autocomplete="off">
+        <datalist id="relink-company-names"></datalist>
+        <button type="button" class="btn btn-primary" id="pursuit-company-save">move</button>
+        <button type="button" class="btn" id="pursuit-company-cancel">cancel</button>
+      </span>
     </div>`;
 }
 
@@ -1352,7 +1430,6 @@ const OUTREACH_STAGES = [
   { key: "fill",     label: "Draft",    active: "Writing the draft" },
   { key: "humanize", label: "Polish",   active: "Polishing the voice" },
   { key: "honesty",  label: "Fact-check", active: "Fact-checking against your experience" },
-  { key: "judge",    label: "Review",   active: "Judging against the doctrine" },
 ];
 const STAGE_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 
@@ -2892,10 +2969,10 @@ async function cancelActiveJob() {
 // ---- control surface: editor ----
 let editorKind = null;
 // editorLabel names the artifact in the modal title / save toast. The playbook,
-// outreach template/doctrine, and pre-filter rules are DB rows (no file
-// extension); taste (the narrative fallback) is still a file.
+// outreach template, and pre-filter rules are DB rows (no file extension); taste
+// (the narrative fallback) is still a file.
 const STAGE_LABELS: Record<string, string> = {
-  researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check", judge: "judge",
+  researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check",
 };
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
@@ -3372,7 +3449,7 @@ const ICON_KEY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" str
 const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></svg>';
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
-const ICON_DOCTRINE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
+const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 
@@ -3465,7 +3542,7 @@ function renderCriteria() {
   });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
-  // verdict; template + doctrine shape outreach).
+  // verdict; template + pipeline prompts shape outreach).
   const playbookCard = critCard({
     icon: ICON_PLAYBOOK,
     nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit the verdict playbook">playbook</span>',
@@ -3485,10 +3562,9 @@ function renderCriteria() {
     ["fill", "2 · Writer", "Writes the email's blanks from the research, your experience, and your voice."],
     ["humanizer", "3 · Humanizer", "Strips AI tells and matches your voice — never changes a fact."],
     ["honesty", "4 · Honesty check", "Vetoes any claim about you beyond your documented experience."],
-    ["judge", "5 · Judge", "Grades depth and proof; gates whether a draft is good enough to ship."],
   ];
   const pipelineCards = PIPELINE_STAGES.map(([key, title, desc]) => critCard({
-    icon: ICON_DOCTRINE,
+    icon: ICON_PROMPT,
     nameHTML: `<span class="edit-link" data-act="edit-prompt-${key}" title="edit the ${title.replace(/^\d+ · /, "")} prompt">${title}</span>`,
     desc,
     act: `edit-prompt-${key}`, actIcon: PENCIL, actTitle: `edit the ${title} prompt`, actLabel: `edit ${title} prompt`,
@@ -3519,8 +3595,8 @@ function renderCriteria() {
 
   // Grouped by what the config is *for*, not where it comes from: everything that
   // shapes a verdict (criteria brief, playbook, pre-filter) under Job hunting;
-  // everything that shapes an email (discovered knowledge, template, doctrine)
-  // under Outreach; the shared secret under Integrations.
+  // everything that shapes an email (discovered knowledge, template, pipeline
+  // prompts) under Outreach; the shared secret under Integrations.
   el.innerHTML =
     `<div class="settings-section">
        <div class="settings-group-h">Job hunting</div>

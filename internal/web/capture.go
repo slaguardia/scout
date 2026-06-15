@@ -204,6 +204,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingURL(w, r, pid)
 		return
 	}
+	// {id}/company re-links the posting to a different existing company.
+	if pid, ok := strings.CutSuffix(id, "/company"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingCompany(w, r, pid)
+		return
+	}
 	// {id}/answers/redetect forces a fresh question-detection run.
 	if pid, ok := strings.CutSuffix(id, "/answers/redetect"); ok && pid != "" && !strings.Contains(pid, "/") {
 		s.handlePostingAnswersRedetect(w, r, pid)
@@ -302,6 +307,42 @@ func (s *Server) handlePostingURL(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingCompany re-links a posting to a different existing company: PUT
+// /api/postings/{id}/company {"company_id": "…"}; returns the refreshed posting
+// plus the new company's name. The fix for a posting captured under the wrong
+// company twin — the target must already exist (an unknown/blank id is a 400,
+// not a silent create). Mirrors handlePostingURL: the company is a relinkable
+// identity, not editable content.
+func (s *Server) handlePostingCompany(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		CompanyID string `json:"company_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, err := s.DB.UpdatePostingCompany(id, body.CompanyID)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			http.NotFound(w, r)
+		case errors.Is(err, store.ErrUnknownCompany):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	cname, _, _ := s.DB.GetCompanyName(p.CompanyID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"posting": p, "company_id": p.CompanyID, "company_name": cname,
+	})
 }
 
 // handlePostingNextUp queues or unqueues one posting as "next up for
