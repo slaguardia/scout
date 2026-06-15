@@ -18,8 +18,10 @@
 export function initScout(_root) {
 const state = {
   rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
-  view: "companies",                       // "companies" | "jobs"
+  view: "companies",                       // "companies" | "jobs" | "follow-ups"
   jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
+  followups: [],                           // the Follow-ups view's due rows (GET /api/follow-ups)
+  followUpInterval: 7,                     // cadence in days; drives the "follow-up due" badge client-side
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
 };
@@ -99,18 +101,59 @@ async function pollJobsDraftStatus() {
   syncJobsDraftPoll(); // stop once nothing is researching
 }
 
+// loadFollowUpInterval reads the cadence (days) the badge/queue gate on. Cheap,
+// loaded at boot; a change re-renders the jobs view so badges reflect the new
+// interval immediately.
+async function loadFollowUpInterval() {
+  try {
+    const r = await fetch("/api/settings/follow-up-interval");
+    if (!r.ok) return;
+    const data = await r.json();
+    if (typeof data.days === "number" && data.days > 0) state.followUpInterval = data.days;
+  } catch { /* keep the default */ }
+  const fi = document.getElementById("fu-interval");
+  if (fi) fi.value = state.followUpInterval;
+  if (state.view === "jobs") renderJobs();
+}
+
+// loadFollowUps fetches the due-follow-up queue (most-overdue first) and renders
+// the Follow-ups view. The interval rides along so the header control stays in
+// sync even if it changed elsewhere.
+async function loadFollowUps() {
+  let data;
+  try {
+    const r = await fetch("/api/follow-ups");
+    if (!r.ok) { state.followups = []; renderFollowUps(); return; }
+    data = await r.json();
+  } catch { state.followups = []; renderFollowUps(); return; }
+  state.followups = data.follow_ups || [];
+  if (typeof data.interval_days === "number" && data.interval_days > 0) {
+    state.followUpInterval = data.interval_days;
+    const fi = document.getElementById("fu-interval");
+    if (fi) fi.value = state.followUpInterval;
+  }
+  renderFollowUps();
+  updateFollowUpsTabCount();
+}
+
 // ---- view tabs ----
 function setView(v) {
   state.view = v;
   document.getElementById("tab-companies").classList.toggle("active", v === "companies");
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
+  document.getElementById("tab-followups").classList.toggle("active", v === "follow-ups");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
-  // Each view owns its own Filter block — state stays put across switches.
+  document.getElementById("followups-view").style.display = v === "follow-ups" ? "" : "none";
+  // Each view owns its own Filter block — state stays put across switches. The
+  // Follow-ups view has no sidebar filter/columns blocks of its own.
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
+  document.getElementById("block-columns").style.display = v === "follow-ups" ? "none" : "";
   renderColToggles(); // the Columns block follows the active view
-  if (v === "jobs") renderJobs(); else renderList();
+  if (v === "jobs") renderJobs();
+  else if (v === "follow-ups") loadFollowUps();
+  else renderList();
 }
 
 async function loadStats() {
@@ -538,11 +581,14 @@ function renderJobs() {
       ["offer", "offer"], ["rejected", "rejected"],
     ].map(([v, label]) =>
       `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
+    const ostatus = j.outreach_status || "";
+    const osOpts = OUTREACH_STATUS_OPTS.map(([v, label]) =>
+      `<option value="${v}"${ostatus === v ? " selected" : ""}>${label}</option>`).join("");
     tr.innerHTML = `
-      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
+      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${isFollowUpDue(j) ? followUpBadgeHTML() : ""}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
       <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
-      <td class="small" data-col="outreach"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span><select class="jt-ostatus os-${ostatus || "none"}" title="outreach reply status">${osOpts}</select></div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
@@ -556,6 +602,8 @@ function renderJobs() {
       fitRespWidth(e.target);
       saveRowTracking(j, { response: e.target.value });
     };
+    tr.querySelector(".jt-ostatus").onchange = e =>
+      saveRowTracking(j, { outreach_status: e.target.value });
     tr.querySelector(".jt-inc").onclick = () =>
       saveRowTracking(j, { outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: isoToday() });
     tr.querySelector(".jt-dec").onclick = () => {
@@ -574,6 +622,63 @@ function renderJobs() {
       openPursuit(tr.dataset.id);
     });
   });
+  updateFollowUpsTabCount(); // the tab badge tracks how many rows are due
+}
+
+// ---- outreach reply status (M48) ----
+// The reply axis of a posting, SEPARATE from the application `response`. The
+// option list is shared by the jobs row, the pursuit panel, and the Follow-ups
+// view quick actions.
+const OUTREACH_STATUS_OPTS = [
+  ["", "none"], ["awaiting", "awaiting"], ["replied", "replied"], ["no_response", "no response"],
+];
+const OUTREACH_STATUS_LABEL = { "": "none", awaiting: "awaiting reply", replied: "replied", no_response: "no response" };
+
+// daysSinceUTC returns whole days between a "YYYY-MM-DD" date and today (UTC),
+// matching the server's date('now') threshold — or null when the date is empty/
+// unparseable.
+function daysSinceUTC(dateStr) {
+  if (!dateStr) return null;
+  const today = Date.parse(new Date().toISOString().slice(0, 10));
+  const d = Date.parse(dateStr);
+  if (isNaN(d)) return null;
+  return Math.round((today - d) / 86400000);
+}
+
+// isFollowUpDue mirrors the server's ListFollowUpsDue gate client-side: awaiting
+// a reply, no application response yet (which excludes rejected/advanced), a
+// real last-outreach date, and at/past the cadence. Never contacted (no date),
+// replied, or no_response all fall out here.
+function isFollowUpDue(j) {
+  if ((j.outreach_status || "") !== "awaiting") return false;
+  if (j.response) return false;
+  const ds = daysSinceUTC(j.last_outreach_at);
+  return ds !== null && ds >= (state.followUpInterval || 7);
+}
+
+function followUpBadgeHTML() {
+  return '<span class="draft-badge db-followup" title="overdue for a follow-up — awaiting a reply past your cadence">follow-up due</span>';
+}
+
+// updateFollowUpsTabCount recomputes the due count from the jobs cache (so it
+// stays live with inline status edits, no extra fetch) and shows it on the tab.
+function updateFollowUpsTabCount() {
+  const el = document.getElementById("followups-n");
+  if (!el) return;
+  const n = state.jobs.filter(isFollowUpDue).length;
+  el.textContent = n;
+  el.style.display = n ? "" : "none";
+}
+
+// setOutreachStatus sets a posting's reply status through the shared full-state
+// tracking PUT, then refreshes whichever views are showing it. `j` is a jobs-row
+// object (the same object the table renders from).
+async function setOutreachStatus(j, status) {
+  const fresh = await savePostingTracking(j, { outreach_status: status });
+  if (!fresh) return;
+  if (state.view === "jobs") renderJobs();
+  if (pursuit.postingId === j.posting_id) { pursuit.row = j; renderPursuit(); }
+  updateFollowUpsTabCount();
 }
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
@@ -588,6 +693,69 @@ function draftBadgeHTML(status) {
   if (status === "no_hook")
     return '<span class="draft-badge db-nohook" title="no honest hook — scout recommends not emailing">no hook</span>';
   return "";
+}
+
+// ---- Follow-ups view ----
+// The cadence queue: every posting overdue for a nudge (awaiting a reply past
+// the interval), most-overdue first. Rows render from GET /api/follow-ups;
+// quick actions PUT the reply status (which drops the row) or open the pursuit
+// panel to draft the follow-up via the existing outreach flow.
+function renderFollowUps() {
+  const tbody = document.querySelector("#fut tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const rows = state.followups || [];
+  document.getElementById("followups-empty").style.display = rows.length ? "none" : "block";
+  // Keep the header cadence input in sync, but never yank a value the user is
+  // mid-edit on.
+  const fi = document.getElementById("fu-interval");
+  if (fi && document.activeElement !== fi) fi.value = state.followUpInterval;
+
+  for (const f of rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = f.posting_id;
+    const overdue = f.days_overdue | 0;
+    const overdueLabel = overdue <= 0 ? "due today" : `${overdue} day${overdue === 1 ? "" : "s"} overdue`;
+    const overdueCls = overdue >= 14 ? "fu-od-high" : overdue >= 7 ? "fu-od-mid" : "fu-od-low";
+    tr.innerHTML = `
+      <td><div class="jt-namecol"><span class="row-name">${escapeHTML(f.title || f.company)}</span>${f.title ? `<div class="small dim">${escapeHTML(f.company)}</div>` : ""}</div></td>
+      <td class="small">${f.last_outreach_at ? escapeHTML(f.last_outreach_at) : '<span class="dim">—</span>'}</td>
+      <td><span class="fu-overdue ${overdueCls}">${escapeHTML(overdueLabel)}</span></td>
+      <td class="small td-contacts">${contactsHTML(f.contacts)}</td>
+      <td class="fu-actions">
+        <button class="btn fu-replied" title="mark replied — removes it from the queue">replied</button>
+        <button class="btn fu-noresp" title="mark no response — removes it from the queue">no response</button>
+        <button class="btn fu-open" title="open the pursuit panel to draft a follow-up">draft ↗</button>
+      </td>`;
+    tr.querySelector(".fu-replied").onclick = () => followUpMark(f, "replied");
+    tr.querySelector(".fu-noresp").onclick = () => followUpMark(f, "no_response");
+    tr.querySelector(".fu-open").onclick = () => openPursuit(f.posting_id);
+    tbody.appendChild(tr);
+  }
+  // Row click (off the action buttons) opens the pursuit panel, like the jobs table.
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("click", e => {
+      if (e.target.closest("a, button")) return;
+      openPursuit(tr.dataset.id);
+    });
+  });
+}
+
+// followUpMark sets a due posting's reply status (replied / no_response) through
+// the shared full-state tracking PUT — which removes it from the due list — then
+// re-fetches the queue and refreshes the jobs badges. Uses the cached jobs row so
+// the PUT preserves the rest of the lifecycle (it's a full-state write).
+async function followUpMark(f, status) {
+  let j = state.jobs.find(x => x.posting_id === f.posting_id);
+  if (!j) { await loadJobs(); j = state.jobs.find(x => x.posting_id === f.posting_id); }
+  if (!j) { toast("posting not found — refresh"); return; }
+  const fresh = await savePostingTracking(j, { outreach_status: status });
+  if (!fresh) return;
+  toast(status === "replied" ? "marked replied" : "marked no response");
+  await loadFollowUps();
+  if (state.view === "jobs") renderJobs();
+  if (pursuit.postingId === f.posting_id) { pursuit.row = j; renderPursuit(); }
+  updateFollowUpsTabCount();
 }
 
 // ---- pursuit panel (jobs-view side panel) ----
@@ -756,55 +924,15 @@ async function savePostingURL(j, val) {
   syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
-// wireRelinkCompany binds the "change" affordance in the role footer that moves
-// a posting to a different *existing* company — the fix for a job captured under
-// the wrong company twin (e.g. "Automat" vs the "Automat AI" row that has the
-// real enrichment). The picker is a datalist of the companies already in the DB
-// (state.rows); the typed name is resolved to its id client-side and rejected if
-// it doesn't match one — relinking never creates a company.
+// wireRelinkCompany binds the "change" affordance in the role footer that opens
+// the relink search modal — moving a posting to a different *existing* company
+// is the fix for a job captured under the wrong company twin (e.g. "Automat" vs
+// the "Automat AI" row that has the real enrichment). The modal itself is global
+// markup wired once (see the relink-modal block below); here we only re-bind the
+// per-render button to open it against the current row.
 function wireRelinkCompany(j) {
-  const view = document.getElementById("pursuit-company-view");
-  const editor = document.getElementById("pursuit-company-relink");
   const edit = document.getElementById("pursuit-company-edit");
-  const input = document.getElementById("pursuit-company-input");
-  const save = document.getElementById("pursuit-company-save");
-  const cancel = document.getElementById("pursuit-company-cancel");
-  if (!view || !editor || !edit || !input || !save || !cancel) return;
-
-  const list = document.getElementById("relink-company-names");
-  list.innerHTML = (state.rows || [])
-    .map(r => `<option value="${escapeHTML(r.name)}">`).join("");
-
-  const show = (on) => {
-    editor.hidden = !on;
-    view.hidden = on;
-    if (on) { input.value = j.company || ""; input.focus(); input.select(); }
-  };
-  const commit = async () => {
-    const name = input.value.trim();
-    if (!name) { show(false); return; }
-    // Match the typed name to an existing company (case-insensitive), preferring
-    // an exact hit; the target must already exist.
-    const rows = state.rows || [];
-    const match = rows.find(r => r.name === name)
-      || rows.find(r => r.name.toLowerCase() === name.toLowerCase());
-    if (!match) { toast(`no company named "${name}" — add it first`); return; }
-    if (match.company_id === j.company_id) { show(false); return; }
-    try {
-      await savePostingCompany(j, match.company_id);
-      toast(`moved to ${j.company}`);
-    } catch (err) {
-      toast(`move failed: ${err.message}`);
-    }
-  };
-
-  edit.addEventListener("click", () => show(true));
-  cancel.addEventListener("click", () => show(false));
-  save.addEventListener("click", commit);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); commit(); }
-    else if (e.key === "Escape") { e.preventDefault(); show(false); }
-  });
+  if (edit) edit.addEventListener("click", () => openRelinkModal(j));
 }
 
 // savePostingCompany re-links the posting to an existing company via its own
@@ -822,6 +950,83 @@ async function savePostingCompany(j, companyId) {
   j.company = fresh.company_name;
   renderPursuit();   // the footer link, verdict context, and outreach target all key on the company
   loadJobs();        // the jobs table carries the company name + the new company's verdict
+}
+
+// ---- relink search modal ----
+// The "change" affordance opens a search-as-you-type picker over the companies
+// already in the DB (state.rows), showing each candidate's verdict + vertical /
+// location so twins are easy to tell apart. Picking one moves the posting via
+// savePostingCompany. relinkRow holds the posting being moved while it's open.
+let relinkRow = null;
+
+function openRelinkModal(j) {
+  relinkRow = j;
+  const meta = document.getElementById("relink-current");
+  if (meta) meta.textContent = j.company ? `currently: ${j.company}` : "";
+  const search = document.getElementById("relink-search");
+  if (search) search.value = "";
+  renderRelinkResults("");
+  document.getElementById("relink-scrim").classList.add("open");
+  if (search) search.focus();
+}
+
+function closeRelinkModal() {
+  document.getElementById("relink-scrim").classList.remove("open");
+  relinkRow = null;
+}
+
+// renderRelinkResults paints the filtered company list. Empty query → all
+// companies (alphabetical); a query ranks prefix matches first, then any
+// substring hit on the name. The current company is shown but not selectable.
+function renderRelinkResults(query) {
+  const box = document.getElementById("relink-results");
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  let rows = (state.rows || []).slice();
+  if (q) {
+    rows = rows.filter(r => (r.name || "").toLowerCase().includes(q));
+    rows.sort((a, b) => {
+      const ap = (a.name || "").toLowerCase().startsWith(q) ? 0 : 1;
+      const bp = (b.name || "").toLowerCase().startsWith(q) ? 0 : 1;
+      return ap - bp || (a.name || "").localeCompare(b.name || "");
+    });
+  } else {
+    rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+  rows = rows.slice(0, 60);
+  if (!rows.length) {
+    box.innerHTML = `<div class="relink-empty">${(state.rows || []).length ? "no company matches" : "no companies yet — Add one first"}</div>`;
+    return;
+  }
+  const curId = relinkRow ? relinkRow.company_id : "";
+  box.innerHTML = rows.map(r => {
+    const current = r.company_id === curId;
+    const sub = [r.vertical, r.location].filter(Boolean).map(escapeHTML).join(" · ");
+    return `<button type="button" class="relink-result${current ? " is-current" : ""}"
+        data-id="${r.company_id}"${current ? " disabled" : ""}>
+        <span class="rr-main">
+          <span class="rr-name">${escapeHTML(r.name || "—")}</span>
+          ${sub ? `<span class="rr-sub">${sub}</span>` : ""}
+        </span>
+        <span class="${pillClass(r.verdict)} rr-verdict">${escapeHTML(r.verdict || "—")}</span>
+        ${current ? `<span class="rr-current-tag">current</span>` : ""}
+      </button>`;
+  }).join("");
+}
+
+// chooseRelinkCompany moves the posting to the picked company and closes. A
+// no-op (just close) if it's already the current one.
+async function chooseRelinkCompany(companyId) {
+  const j = relinkRow;
+  if (!j) { closeRelinkModal(); return; }
+  if (companyId === j.company_id) { closeRelinkModal(); return; }
+  try {
+    await savePostingCompany(j, companyId);
+    closeRelinkModal();
+    toast(`moved to ${j.company}`);
+  } catch (err) {
+    toast(`move failed: ${err.message}`);
+  }
 }
 
 // saveCompanyField mirrors savePostingField for the company pane. Name is
@@ -914,7 +1119,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h12M8 2v12"/></svg>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -938,6 +1142,16 @@ function renderPursuit() {
           </select>
         </div>
         <div class="pipeline-row">
+          <span class="pl-label">reply</span>
+          <select class="input pl-ostatus" title="outreach reply status — separate from the application response">
+            <option value="">— none</option>
+            <option value="awaiting" ${j.outreach_status === "awaiting" ? "selected" : ""}>awaiting reply</option>
+            <option value="replied" ${j.outreach_status === "replied" ? "selected" : ""}>replied</option>
+            <option value="no_response" ${j.outreach_status === "no_response" ? "selected" : ""}>no response</option>
+          </select>
+          ${isFollowUpDue(j) ? '<span class="pl-due" title="overdue for a follow-up under your cadence">follow-up due</span>' : ""}
+        </div>
+        <div class="pipeline-row">
           <span class="pl-label">queue</span>
           <button class="pt-chip pt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "unmark — it also clears itself when the outreach goes out" : "mark this pursuit next up for outreach"}">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg>
@@ -949,7 +1163,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l3 3V13a.5.5 0 01-.5.5h-8A.5.5 0 014 13V3a.5.5 0 010-.5z"/><path d="M9.5 2.5V6h3M6 8.5h4M6 10.5h4"/></svg>
         Notes
       </h3>
       <textarea class="ie ie-notes" id="pursuit-notes-input" rows="4" placeholder="—">${escapeHTML(j.notes || "")}</textarea>
@@ -1028,18 +1241,11 @@ function roleEditHTML(j) {
     </div>
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <span class="role-company-wrap" id="pursuit-company-view">
+      <span class="role-company-wrap">
         <button type="button" class="role-company role-company-link" id="pursuit-company-link"
                 title="open the company panel">${escapeHTML(j.company)} ↗</button>
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
-                title="link this job to a different company">change</button>
-      </span>
-      <span class="role-company-relink" id="pursuit-company-relink" hidden>
-        <input class="ie" id="pursuit-company-input" list="relink-company-names"
-               placeholder="company…" autocomplete="off">
-        <datalist id="relink-company-names"></datalist>
-        <button type="button" class="btn btn-primary" id="pursuit-company-save">move</button>
-        <button type="button" class="btn" id="pursuit-company-cancel">cancel</button>
+                title="move this job to a different company">change</button>
       </span>
     </div>`;
 }
@@ -1058,6 +1264,9 @@ function wirePipeline() {
   const sel = document.querySelector("#pursuit-body .pl-response");
   if (sel) sel.addEventListener("change", e =>
     savePursuitTracking({ response: e.target.value }));
+  const ostatus = document.querySelector("#pursuit-body .pl-ostatus");
+  if (ostatus) ostatus.addEventListener("change", e =>
+    savePursuitTracking({ outreach_status: e.target.value }));
   const nextUp = document.querySelector("#pursuit-body .pt-nextup");
   if (nextUp) nextUp.addEventListener("click", () => toggleNextUp(pursuit.row, true));
 }
@@ -1097,6 +1306,7 @@ async function savePostingTracking(j, patch) {
     response: j.response || "",
     outreach_count: j.outreach_count || 0,
     last_outreach_at: j.last_outreach_at || "",
+    outreach_status: j.outreach_status || "",
     contacts: j.contacts || "",
     notes: j.notes || "",
     ...patch,
@@ -1120,6 +1330,7 @@ async function savePostingTracking(j, patch) {
   Object.assign(j, {
     applied_at: fresh.applied_at, response: fresh.response,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
+    outreach_status: fresh.outreach_status,
     contacts: fresh.contacts, notes: fresh.notes,
     next_up: fresh.next_up,
   });
@@ -1140,6 +1351,7 @@ async function savePursuitNotes(v) {
   const body = {
     applied_at: j.applied_at || "", response: j.response || "",
     outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
+    outreach_status: j.outreach_status || "",
     contacts: j.contacts || "", notes: v,
   };
   const resp = await fetch(`/api/postings/${j.posting_id}`, {
@@ -2967,6 +3179,33 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
+document.getElementById("tab-followups").onclick = () => setView("follow-ups");
+// Follow-ups view — the cadence control reads/writes the interval; a change
+// re-fetches the queue and re-renders the jobs badges under the new threshold.
+(() => {
+  const fi = document.getElementById("fu-interval");
+  if (!fi) return;
+  const commit = async () => {
+    const n = parseInt(fi.value, 10);
+    if (!Number.isInteger(n) || n < 1) { fi.value = state.followUpInterval; return; }
+    if (n === state.followUpInterval) return;
+    try {
+      const r = await fetch("/api/settings/follow-up-interval", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: n }),
+      });
+      if (!r.ok) { toast("couldn’t save cadence"); fi.value = state.followUpInterval; return; }
+      const data = await r.json();
+      state.followUpInterval = data.days;
+      fi.value = state.followUpInterval;
+      await loadFollowUps();
+      if (state.view === "jobs") renderJobs();
+      updateFollowUpsTabCount();
+      toast(`follow up after ${state.followUpInterval} days`);
+    } catch (e) { toast(`couldn’t save cadence: ${e.message}`); fi.value = state.followUpInterval; }
+  };
+  fi.addEventListener("change", commit);
+})();
 // Companies filter block — search, verdict chips, flag.
 document.getElementById("q").oninput = renderList;
 document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
@@ -3023,6 +3262,8 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
   if (document.getElementById("help-scrim").classList.contains("open")) { closeHelp(); return; }
+  // The relink modal sits on top of the pursuit panel — peel it before the panes.
+  if (document.getElementById("relink-scrim").classList.contains("open")) { closeRelinkModal(); return; }
   // The company pane and the pursuit panel can stack either way; peel whichever
   // raisePane() last lifted to the top, falling back to whichever is open.
   const companyOpen = document.getElementById("pane").classList.contains("open");
@@ -3202,6 +3443,26 @@ document.getElementById("key-scrim").onclick = e => {
 };
 document.getElementById("key-input").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); saveKey(); }
+});
+
+// relink search modal (move a job to another company)
+document.getElementById("relink-cancel").onclick = closeRelinkModal;
+document.getElementById("relink-scrim").onclick = e => {
+  if (e.target.id === "relink-scrim") closeRelinkModal();
+};
+document.getElementById("relink-search").addEventListener("input", e => {
+  renderRelinkResults(e.target.value);
+});
+document.getElementById("relink-search").addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const first = document.querySelector("#relink-results .relink-result:not([disabled])");
+    if (first) chooseRelinkCompany(first.dataset.id);
+  }
+});
+document.getElementById("relink-results").addEventListener("click", e => {
+  const btn = e.target.closest(".relink-result");
+  if (btn && !btn.disabled) chooseRelinkCompany(btn.dataset.id);
 });
 
 // ---- company-fit brief + criteria block ----
@@ -3837,4 +4098,5 @@ loadRuns();
 loadProfile();
 loadSources();
 loadKeyState();
+loadFollowUpInterval(); // the cadence drives the "follow-up due" badge on the jobs view
 }

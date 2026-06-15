@@ -232,8 +232,10 @@ edited = ?, lint = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, edited, lint
 }
 
 // MarkOutreachDraftSent flips a draft to sent and, in the same transaction,
-// bumps the posting's outreach_count and stamps last_outreach_at — the send
-// date is what makes Touch-2 follow-ups cheap later.
+// bumps the posting's outreach_count, stamps last_outreach_at, and moves the
+// outreach reply status to 'awaiting' (without clobbering an existing 'replied'
+// — a sent follow-up after a reply shouldn't reset that) — the send date plus
+// the awaiting status are what drive the follow-up cadence queue later.
 func (db *DB) MarkOutreachDraftSent(id int64) (*OutreachDraft, error) {
 	tx, err := db.Begin()
 	if err != nil {
@@ -255,9 +257,13 @@ WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 		}
 		return nil, err
 	}
-	// The send completes the "next up" to-do, so the queue mark clears too.
+	// The send completes the "next up" to-do, so the queue mark clears too. It
+	// also opens the reply window — outreach_status -> 'awaiting' — but never
+	// over an existing 'replied' (they already answered; a follow-up after that
+	// shouldn't reset the axis).
 	if _, err := tx.Exec(`UPDATE job_postings SET
-outreach_count = outreach_count + 1, last_outreach_at = DATE('now'), next_up_at = NULL
+outreach_count = outreach_count + 1, last_outreach_at = DATE('now'), next_up_at = NULL,
+outreach_status = CASE WHEN outreach_status = 'replied' THEN 'replied' ELSE 'awaiting' END
 WHERE id = (SELECT posting_id FROM outreach_drafts WHERE id = ?)`, id); err != nil {
 		return nil, err
 	}

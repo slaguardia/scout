@@ -11,6 +11,28 @@ import (
 	"github.com/google/uuid"
 )
 
+// Outreach reply statuses (M48) — the reply axis of a posting, separate from the
+// application `response`. Empty means none (never reached out / no status set).
+const (
+	OutreachStatusNone       = ""
+	OutreachStatusAwaiting   = "awaiting"
+	OutreachStatusReplied    = "replied"
+	OutreachStatusNoResponse = "no_response"
+)
+
+// validOutreachStatus normalizes (trim + lower) and validates an outreach
+// status, returning the canonical value or an error whose message starts with
+// "outreach_status " so the web layer can map it to a 400.
+func validOutreachStatus(s string) (string, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case OutreachStatusNone, OutreachStatusAwaiting, OutreachStatusReplied, OutreachStatusNoResponse:
+		return s, nil
+	default:
+		return "", fmt.Errorf(`outreach_status must be "awaiting", "replied", "no_response", or empty`)
+	}
+}
+
 // ErrUnknownCompany is returned when an operation targets a company id that
 // doesn't exist — relinking a posting (UpdatePostingCompany) never creates the
 // target company, so the web layer maps this to a 400 (bad request), distinct
@@ -57,6 +79,11 @@ type Posting struct {
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
+	// OutreachStatus (M48) is the reply state of the outreach — a SEPARATE axis
+	// from Response. ""|"awaiting"|"replied"|"no_response" (see OutreachStatus*
+	// constants). Marking a draft sent flips '' -> 'awaiting'.
+	OutreachStatus string `json:"outreach_status"`
+
 	// Contacts (M24): hand-curated outreach contacts for this role, stored as a
 	// JSON array of {position, email} entries (legacy free-form strings still
 	// parse). Opaque to the backend — the UI owns the shape.
@@ -84,6 +111,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
+       COALESCE(outreach_status, ''),
        COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')`
 
@@ -95,6 +123,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
+		&p.OutreachStatus,
 		&p.Contacts, &p.Notes, &nextUpAt,
 		&p.QuestionsStatus, &p.QuestionsAt)
 	p.NextUp = nextUpAt.Valid
@@ -269,6 +298,7 @@ type PostingTracking struct {
 	Response       string `json:"response"`         // ""|"screening"|"interview"|"offer"|"rejected"
 	OutreachCount  int    `json:"outreach_count"`   // >= 0
 	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
+	OutreachStatus string `json:"outreach_status"`  // ""|"awaiting"|"replied"|"no_response"
 	Contacts       string `json:"contacts"`         // JSON [{position,email}]; trimmed, opaque
 	Notes          string `json:"notes"`            // free-form, human-only; trimmed
 }
@@ -304,6 +334,10 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	default:
 		return Posting{}, fmt.Errorf(`response must be "screening", "interview", "offer", "rejected", or empty`)
 	}
+	outreachStatus, err := validOutreachStatus(t.OutreachStatus)
+	if err != nil {
+		return Posting{}, err
+	}
 	if t.OutreachCount < 0 {
 		return Posting{}, fmt.Errorf("outreach_count must be >= 0")
 	}
@@ -311,12 +345,15 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	// A rising outreach_count means the outreach went out — the "next up"
 	// to-do mark has served its purpose, so it clears in the same write.
 	// (SET expressions see the old row, so the CASE compares old vs new.)
+	// outreach_status is independent of response — neither write touches the
+	// other. Empty stores as '' (the column is NOT NULL DEFAULT '').
 	const q = `UPDATE job_postings SET
 	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
-	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?, contacts = ?, notes = ?
+	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?,
+	    outreach_status = ?, contacts = ?, notes = ?
 	 WHERE id = ?`
 	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
-		NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
+		outreachStatus, NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
 	}
@@ -504,9 +541,10 @@ type JobRow struct {
 	Response       string `json:"response"`
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
-	Contacts       string `json:"contacts"` // outreach contacts (M24)
-	Notes          string `json:"notes"`    // free-form, human-only posting notes
-	NextUp         bool   `json:"next_up"`  // queued "next up for outreach" (M27)
+	OutreachStatus string `json:"outreach_status"` // reply axis (M48): ""|awaiting|replied|no_response
+	Contacts       string `json:"contacts"`        // outreach contacts (M24)
+	Notes          string `json:"notes"`           // free-form, human-only posting notes
+	NextUp         bool   `json:"next_up"`         // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
@@ -534,6 +572,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
+       COALESCE(p.outreach_status, ''),
        COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
                  WHERE od.posting_id = p.id ORDER BY od.id DESC LIMIT 1), ''),
@@ -559,6 +598,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
 			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
+			&r.OutreachStatus,
 			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
 			return nil, err
 		}

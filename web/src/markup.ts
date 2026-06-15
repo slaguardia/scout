@@ -12,6 +12,7 @@ export const SCOUT_MARKUP = `
     <div class="view-switch" title="which table the main area shows">
       <button class="tab active" id="tab-companies">companies</button>
       <button class="tab" id="tab-jobs">jobs</button>
+      <button class="tab tab-followups" id="tab-followups" title="postings awaiting a reply that have gone past your follow-up cadence">follow-ups <span class="tab-count" id="followups-n" style="display:none">0</span></button>
     </div>
   </div>
 
@@ -192,6 +193,42 @@ export const SCOUT_MARKUP = `
       <div class="small dim">Paste a posting URL via <strong>Add…</strong> — the agent pass fills in the rest.</div>
     </div>
     <div class="hidden-note" id="jobs-hidden-note" style="display:none"></div>
+  </div>
+
+  <!-- Follow-ups view: postings awaiting a reply that have gone past the
+       cadence. Header carries the inline cadence control; rows have quick
+       actions (mark replied / no response / draft a follow-up). -->
+  <div class="table-wrap" id="followups-view" style="display:none">
+    <div class="fu-head">
+      <div class="fu-title">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
+        Follow-ups due
+      </div>
+      <div class="fu-cadence" title="postings re-surface once they pass this many days with no reply">
+        <label for="fu-interval">follow up after</label>
+        <input type="number" id="fu-interval" min="1" max="365" step="1" value="7">
+        <span>days</span>
+      </div>
+    </div>
+    <table id="fut">
+      <thead>
+        <tr>
+          <th>role · company</th>
+          <th>last outreach</th>
+          <th>overdue</th>
+          <th>contacts</th>
+          <th>actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="followups-empty" class="empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12l4 4L19 7"/>
+      </svg>
+      <div class="t">No follow-ups due.</div>
+      <div class="small dim">Postings you’ve reached out to surface here once they pass your follow-up cadence with no reply.</div>
+    </div>
   </div>
 </main>
 </div>
@@ -405,6 +442,27 @@ export const SCOUT_MARKUP = `
     <div class="modal-foot">
       <button class="btn" id="run-cancel">Cancel</button>
       <button class="btn btn-primary" id="run-go">Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- relink a job to a different company — search the existing companies -->
+<div class="modal-scrim" id="relink-scrim">
+  <div class="modal" style="width:520px">
+    <div class="modal-head">
+      <h2>Move job to another company</h2>
+      <span class="ver" id="relink-current"></span>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="relink-search" class="key-input" placeholder="search companies…" autocomplete="off" spellcheck="false">
+      <div class="relink-results" id="relink-results"></div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Moves this job to a different <strong>existing</strong> company — the fix for a posting captured under the wrong company twin. Its outreach drafts, application answers, and tracking travel with it; it then shows the new company's verdict. To add a brand-new company, use <strong>Add</strong> first.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="relink-cancel">Cancel</button>
     </div>
   </div>
 </div>

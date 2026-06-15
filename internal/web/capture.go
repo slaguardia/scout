@@ -240,6 +240,7 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(err.Error(), "applied_at "),
 			strings.HasPrefix(err.Error(), "last_outreach_at "),
 			strings.HasPrefix(err.Error(), "response "),
+			strings.HasPrefix(err.Error(), "outreach_status "),
 			strings.HasPrefix(err.Error(), "outreach_count "):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		default:
