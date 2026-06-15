@@ -499,6 +499,17 @@ function statusOptions(current) {
   if (current && !state.outreachStatuses.includes(current)) opts.push([current, current + " (removed)"]);
   return opts;
 }
+// VOCAB_COLORS is the size of the pill palette (see .sc-N in style.css). A
+// value's color is fixed by its position in its configurable vocabulary, so each
+// stage / status gets a distinct, stable color. "" (none) and removed values get
+// no color class (the muted default).
+const VOCAB_COLORS = 8;
+function vocabColorClass(value, list) {
+  const i = (list || []).indexOf(value);
+  return i < 0 ? "" : "sc-" + (i % VOCAB_COLORS);
+}
+function stageColorClass(stage) { return vocabColorClass(stage, state.applicationStages); }
+function statusColorClass(status) { return vocabColorClass(status, state.outreachStatuses); }
 
 // contactsHTML renders the stored contacts as comma-separated entries — each is
 // the position (or the email when none), linked as a mailto when an email exists.
@@ -562,22 +573,6 @@ function compareJobs(a, b, k) {
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
-// Size a response <select> to its selected option so the pill shrink-wraps its
-// value. A native <select> sizes to its WIDEST option ("interview"/"screening"),
-// which strands a short value like "none"/"offer" on the left with a big gap
-// before the chevron. Measure the selected label and set an explicit width.
-function fitRespWidth(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  const cs = getComputedStyle(sel);
-  const ctx = (fitRespWidth._c ||= document.createElement("canvas").getContext("2d"));
-  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  const w = ctx.measureText(opt ? opt.text : "").width;
-  // These selects are chevron-less (appearance:none) and center their text, so
-  // size to the label + symmetric padding (≈9px each side + border) — no chevron
-  // gutter, which would otherwise strand the centered text low and off-center.
-  sel.style.width = Math.ceil(w + 24) + "px";
-}
-
 function renderJobs() {
   const tbody = document.querySelector("#jt tbody");
   tbody.innerHTML = "";
@@ -626,8 +621,8 @@ function renderJobs() {
       `<option value="${escapeHTML(v)}"${ostatus === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
-      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel${stage ? " has-stage" : ""}" title="application stage — pick a new stage to record it (dated today)">${stOpts}</select>${stageDate ? `<span class="jt-stage-date" title="when this stage was reached">${escapeHTML(stageDate)}</span>` : ""}</div></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span><select class="jt-ostatus${ostatus ? " has-status" : ""}" title="outreach reply status">${osOpts}</select></div></td>
+      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage — pick a new stage to record it (dated today)">${stOpts}</select>${stageDate ? `<span class="jt-stage-date" title="when this stage was reached">${escapeHTML(stageDate)}</span>` : ""}</div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select></div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
@@ -645,7 +640,6 @@ function renderJobs() {
     };
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll(".jt-stage-sel, .jt-ostatus").forEach(fitRespWidth);
   applyColumnVisibility();
   // Row click opens the pursuit panel (role + pipeline + the outreach queue);
   // the external link and the inline tracking controls are guarded out.
@@ -1029,7 +1023,7 @@ function renderPursuit() {
     `<input class="ie ie-title" id="pursuit-title-input" placeholder="role name" value="${escapeHTML(j.title || "")}">`;
   const stage = currentStage(j.stage_history);
   document.getElementById("pursuit-pills").innerHTML =
-    `<span class="pill ${stage ? "pill-stage" : "pill-none"}">${escapeHTML(stage || "—")}</span>` +
+    `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>` +
     (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
   const pursuitChat = document.getElementById("pursuit-chat");
   if (pursuitChat) {
@@ -2445,7 +2439,7 @@ function postingsListHTML(d) {
     const stage = currentStage(p.stage_history), stageDate = currentStageDate(p.stage_history);
     const status = [
       p.next_up ? '<span class="draft-badge db-next" style="margin-left:0" title="queued next up for outreach">next up</span>' : "",
-      `<span class="pill ${stage ? "pill-stage" : "pill-none"}">${escapeHTML(stage || "—")}</span>`,
+      `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>`,
       `<span class="pt-meta">${stage ? (stageDate ? escapeHTML(stageDate) : "tracked") : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
     ].filter(Boolean).join("");

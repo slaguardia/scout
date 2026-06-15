@@ -249,8 +249,10 @@
   }
   .jt-nextup:hover { color: var(--accent); }
   .jt-nextup.is-on { color: var(--accent); }
-  /* application-stage cell: a compact stage select with its date stacked under */
-  .jt-stage { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  /* application-stage cell: a compact stage select with its date stacked under.
+     The select takes its natural (widest-option) width so it does NOT resize when
+     the value changes — its color comes from the per-value .sc-N palette below. */
+  .jt-stage { display: flex; flex-direction: column; align-items: center; gap: 4px; width: fit-content; }
   .jt-stage-sel {
     font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
     padding: 2px 9px; border-radius: 999px;
@@ -259,8 +261,7 @@
     text-align: center; text-align-last: center;
     -webkit-appearance: none; appearance: none;
   }
-  .jt-stage-sel:hover { border-color: var(--line-2); }
-  .jt-stage-sel.has-stage { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  .jt-stage-sel:hover { filter: brightness(1.1); border-color: var(--line-2); }
   .jt-stage-date { font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 2px; }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
@@ -1009,11 +1010,23 @@
     text-align: center; text-align-last: center;
     -webkit-appearance: none; appearance: none;
   }
-  .jt-ostatus:hover { border-color: var(--line-2); }
-  .jt-ostatus.has-status { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
+  .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
 
-  /* stage pill — current application stage (pursuit header + company posting card) */
+  /* stage pill fallback (an out-of-vocab / removed value, which gets no .sc-N) */
   .pill-stage { background-color: var(--link-bg); color: var(--link); }
+
+  /* Per-value color palette: each stage / outreach status gets a stable, distinct
+     color by its position in its configurable vocabulary (value % 8). Applied to
+     the inline selects AND the read-only stage pills, so a value reads the same
+     color everywhere. Declared after the select rules so it wins on source order. */
+  .sc-0 { color: #7aa9ff; background: rgba(122,169,255,0.16); border-color: transparent; }
+  .sc-1 { color: #f5b942; background: rgba(245,185,66,0.17);  border-color: transparent; }
+  .sc-2 { color: #b98bff; background: rgba(139,109,255,0.20); border-color: transparent; }
+  .sc-3 { color: #34d399; background: rgba(52,211,153,0.16);  border-color: transparent; }
+  .sc-4 { color: #ef6464; background: rgba(239,100,100,0.16); border-color: transparent; }
+  .sc-5 { color: #2dd4bf; background: rgba(45,212,191,0.16);  border-color: transparent; }
+  .sc-6 { color: #f472b6; background: rgba(244,114,182,0.16); border-color: transparent; }
+  .sc-7 { color: #a3a3a3; background: rgba(163,163,163,0.16); border-color: transparent; }
 
   /* stage filter chips flow inline with the next-up/not-reached chips */
   .stage-chips { display: contents; }
