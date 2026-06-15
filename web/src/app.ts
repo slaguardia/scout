@@ -756,6 +756,74 @@ async function savePostingURL(j, val) {
   syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
+// wireRelinkCompany binds the "change" affordance in the role footer that moves
+// a posting to a different *existing* company — the fix for a job captured under
+// the wrong company twin (e.g. "Automat" vs the "Automat AI" row that has the
+// real enrichment). The picker is a datalist of the companies already in the DB
+// (state.rows); the typed name is resolved to its id client-side and rejected if
+// it doesn't match one — relinking never creates a company.
+function wireRelinkCompany(j) {
+  const view = document.getElementById("pursuit-company-view");
+  const editor = document.getElementById("pursuit-company-relink");
+  const edit = document.getElementById("pursuit-company-edit");
+  const input = document.getElementById("pursuit-company-input");
+  const save = document.getElementById("pursuit-company-save");
+  const cancel = document.getElementById("pursuit-company-cancel");
+  if (!view || !editor || !edit || !input || !save || !cancel) return;
+
+  const list = document.getElementById("relink-company-names");
+  list.innerHTML = (state.rows || [])
+    .map(r => `<option value="${escapeHTML(r.name)}">`).join("");
+
+  const show = (on) => {
+    editor.hidden = !on;
+    view.hidden = on;
+    if (on) { input.value = j.company || ""; input.focus(); input.select(); }
+  };
+  const commit = async () => {
+    const name = input.value.trim();
+    if (!name) { show(false); return; }
+    // Match the typed name to an existing company (case-insensitive), preferring
+    // an exact hit; the target must already exist.
+    const rows = state.rows || [];
+    const match = rows.find(r => r.name === name)
+      || rows.find(r => r.name.toLowerCase() === name.toLowerCase());
+    if (!match) { toast(`no company named "${name}" — add it first`); return; }
+    if (match.company_id === j.company_id) { show(false); return; }
+    try {
+      await savePostingCompany(j, match.company_id);
+      toast(`moved to ${j.company}`);
+    } catch (err) {
+      toast(`move failed: ${err.message}`);
+    }
+  };
+
+  edit.addEventListener("click", () => show(true));
+  cancel.addEventListener("click", () => show(false));
+  save.addEventListener("click", commit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); show(false); }
+  });
+}
+
+// savePostingCompany re-links the posting to an existing company via its own
+// endpoint, folds the new company id/name back into the cached row, and
+// refreshes everything keyed on the company (the row's verdict, the company
+// pane name). Throws on failure so the caller can flash the error.
+async function savePostingCompany(j, companyId) {
+  const resp = await fetch(`/api/postings/${j.posting_id}/company`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ company_id: companyId }),
+  });
+  if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
+  const fresh = await resp.json();
+  j.company_id = fresh.company_id;
+  j.company = fresh.company_name;
+  renderPursuit();   // the footer link, verdict context, and outreach target all key on the company
+  loadJobs();        // the jobs table carries the company name + the new company's verdict
+}
+
 // saveCompanyField mirrors savePostingField for the company pane. Name is
 // required server-side; blanking it throws, the field rolls back.
 async function saveCompanyField(d, key, val) {
@@ -908,6 +976,7 @@ function renderPursuit() {
   wirePipeline();
   const co = document.getElementById("pursuit-company-link");
   if (co) co.addEventListener("click", () => openDetail(j.company_id));
+  wireRelinkCompany(j);
   wireInlineField(document.getElementById("pursuit-title-input"),
     (v) => savePostingField(j, "title", v));
   wireInlineField(document.getElementById("pursuit-url-input"),
@@ -961,8 +1030,19 @@ function roleEditHTML(j) {
     </div>
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-              title="open the company panel">${escapeHTML(j.company)} ↗</button>
+      <span class="role-company-wrap" id="pursuit-company-view">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
+                title="link this job to a different company">change</button>
+      </span>
+      <span class="role-company-relink" id="pursuit-company-relink" hidden>
+        <input class="ie" id="pursuit-company-input" list="relink-company-names"
+               placeholder="company…" autocomplete="off">
+        <datalist id="relink-company-names"></datalist>
+        <button type="button" class="btn btn-primary" id="pursuit-company-save">move</button>
+        <button type="button" class="btn" id="pursuit-company-cancel">cancel</button>
+      </span>
     </div>`;
 }
 

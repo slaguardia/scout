@@ -757,6 +757,18 @@
     transition: color var(--dur-fast) var(--ease);
   }
   .role-head .role-company-link:hover { text-decoration: underline; }
+  /* "change" — relink this job to a different company. A quiet affordance next
+     to the company name; it swaps in the picker below. */
+  .role-head .role-company-wrap { display: inline-flex; align-items: center; gap: 8px; }
+  .role-head .role-company-relink-btn {
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; font-size: 12px; color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .role-head .role-company-relink-btn:hover { color: var(--link); text-decoration: underline; }
+  .role-head .role-company-relink { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .role-head .role-company-relink .ie { width: 200px; }
+  .role-head .role-company-relink .btn { padding: 5px 12px; font-size: 12.5px; }
   .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);
