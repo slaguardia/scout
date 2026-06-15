@@ -31,11 +31,11 @@ import (
 )
 
 const (
-	// maxPageRunes is the page-text cap handed to the extractor — and, for a
-	// non-ATS job posting, the cap on the page text we store as the posting's
-	// description. The company/title/location signal is usually early, but a
-	// bigger window keeps extraction honest and the stored body useful. Still
-	// cheap on Haiku.
+	// maxPageRunes caps the page text handed to the extractor (Haiku) — enough
+	// for the title/company/location signal, which is usually early, while
+	// keeping the classifier call cheap. The full fetched text (up to
+	// descCapRunes, the same cap the ATS path stores) is kept as the posting
+	// description; this is just the slice the model reads.
 	maxPageRunes = 6000
 	// enrichSeedRunes matches enrichment's summary cap — a captured company
 	// page seeds the enrichment row, so it must look like one enrich wrote.
@@ -161,14 +161,17 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 
-	// low_content still goes to the extractor: ATS pages are often JS shells
-	// whose residual text (title/meta) carries enough to extract from.
-	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, maxPageRunes)
+	// Fetch up to the store cap (descCapRunes) — for a job posting the whole
+	// thing becomes the description (outreach's JD), so we keep more than the
+	// classifier needs. low_content still goes to the extractor: ATS pages are
+	// often JS shells whose residual text (title/meta) carries enough.
+	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
 	if status != "ok" && status != "low_content" {
 		return &Result{FetchStatus: status, URL: finalURL}, FetchError{Status: status}
 	}
 
-	ext, err := c.extract(ctx, finalURL, text, req.Kind)
+	// The model only needs the early signal — hand it a slice, not the full body.
+	ext, err := c.extract(ctx, finalURL, truncRunes(text, maxPageRunes), req.Kind)
 	if err != nil {
 		return &Result{FetchStatus: status, URL: finalURL}, fmt.Errorf("extract: %w", err)
 	}
@@ -226,8 +229,8 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 		}
 	case KindJob:
 		// No LLM blurb to store — we keep the fetched page text itself as the
-		// posting body (capped at maxPageRunes by FetchPage). It's the same
-		// description slot the ATS path fills, and what outreach/chat read.
+		// posting body (up to descCapRunes, matching the ATS path). It's the
+		// same description slot the ATS path fills, and what outreach/chat read.
 		p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
 			CompanyID:   id,
 			URL:         finalURL,
