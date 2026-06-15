@@ -951,7 +951,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h12M8 2v12"/></svg>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -986,7 +985,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h6l3 3V13a.5.5 0 01-.5.5h-8A.5.5 0 014 13V3a.5.5 0 010-.5z"/><path d="M9.5 2.5V6h3M6 8.5h4M6 10.5h4"/></svg>
         Notes
       </h3>
       <textarea class="ie ie-notes" id="pursuit-notes-input" rows="4" placeholder="—">${escapeHTML(j.notes || "")}</textarea>
@@ -1278,7 +1276,6 @@ const OUTREACH_STAGES = [
   { key: "fill",     label: "Draft",    active: "Writing the draft" },
   { key: "humanize", label: "Polish",   active: "Polishing the voice" },
   { key: "honesty",  label: "Fact-check", active: "Fact-checking against your experience" },
-  { key: "judge",    label: "Review",   active: "Judging against the doctrine" },
 ];
 const STAGE_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 
@@ -2818,10 +2815,10 @@ async function cancelActiveJob() {
 // ---- control surface: editor ----
 let editorKind = null;
 // editorLabel names the artifact in the modal title / save toast. The playbook,
-// outreach template/doctrine, and pre-filter rules are DB rows (no file
-// extension); taste (the narrative fallback) is still a file.
+// outreach template, and pre-filter rules are DB rows (no file extension); taste
+// (the narrative fallback) is still a file.
 const STAGE_LABELS: Record<string, string> = {
-  researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check", judge: "judge",
+  researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check",
 };
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
@@ -3293,7 +3290,7 @@ const ICON_KEY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" str
 const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></svg>';
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
-const ICON_DOCTRINE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
+const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 
@@ -3386,7 +3383,7 @@ function renderCriteria() {
   });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
-  // verdict; template + doctrine shape outreach).
+  // verdict; template + pipeline prompts shape outreach).
   const playbookCard = critCard({
     icon: ICON_PLAYBOOK,
     nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit the verdict playbook">playbook</span>',
@@ -3406,10 +3403,9 @@ function renderCriteria() {
     ["fill", "2 · Writer", "Writes the email's blanks from the research, your experience, and your voice."],
     ["humanizer", "3 · Humanizer", "Strips AI tells and matches your voice — never changes a fact."],
     ["honesty", "4 · Honesty check", "Vetoes any claim about you beyond your documented experience."],
-    ["judge", "5 · Judge", "Grades depth and proof; gates whether a draft is good enough to ship."],
   ];
   const pipelineCards = PIPELINE_STAGES.map(([key, title, desc]) => critCard({
-    icon: ICON_DOCTRINE,
+    icon: ICON_PROMPT,
     nameHTML: `<span class="edit-link" data-act="edit-prompt-${key}" title="edit the ${title.replace(/^\d+ · /, "")} prompt">${title}</span>`,
     desc,
     act: `edit-prompt-${key}`, actIcon: PENCIL, actTitle: `edit the ${title} prompt`, actLabel: `edit ${title} prompt`,
@@ -3440,8 +3436,8 @@ function renderCriteria() {
 
   // Grouped by what the config is *for*, not where it comes from: everything that
   // shapes a verdict (criteria brief, playbook, pre-filter) under Job hunting;
-  // everything that shapes an email (discovered knowledge, template, doctrine)
-  // under Outreach; the shared secret under Integrations.
+  // everything that shapes an email (discovered knowledge, template, pipeline
+  // prompts) under Outreach; the shared secret under Integrations.
   el.innerHTML =
     `<div class="settings-section">
        <div class="settings-group-h">Job hunting</div>

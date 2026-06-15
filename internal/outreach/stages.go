@@ -2,7 +2,7 @@ package outreach
 
 import "strings"
 
-// The outreach pipeline is five LLM stages, each driven by a system prompt. Each
+// The outreach pipeline is four LLM stages, each driven by a system prompt. Each
 // stage's prompt is fully editable from the dashboard (stored per-stage in the
 // `prompt_overrides` table); an empty/absent override falls back to the
 // compiled-in default below. A bad edit is recoverable with reset-to-default —

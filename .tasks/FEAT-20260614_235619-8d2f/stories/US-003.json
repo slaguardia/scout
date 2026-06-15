@@ -1,0 +1,20 @@
+{
+  "id": "US-003",
+  "featureId": "FEAT-20260614_235619-8d2f",
+  "title": "Expose outreach_status, the follow-ups list, and the cadence setting over the API",
+  "userStory": "As the web client, I want endpoints to read/write outreach_status, fetch the due-follow-up list, and read/update the cadence interval, so the UI can drive the feature.",
+  "acceptanceCriteria": [
+    "PUT /api/postings/{id} accepts an `outreachStatus` field in the PostingTracking payload and persists it; an invalid value returns HTTP 400 (not 500, not silently ignored).",
+    "The posting JSON returned by existing read endpoints (the jobs list and the single posting) includes outreach_status.",
+    "GET /api/follow-ups returns the ListFollowUpsDue() result as JSON (array of due postings with days-overdue and the fields the view needs); empty list returns an empty array, not null/404.",
+    "GET /api/settings/follow-up-interval (or the agreed settings route) returns the current interval; PUT updates it; a non-positive or non-integer value returns HTTP 400.",
+    "Round-trip test/manual check: PUT outreach_status='awaiting' then GET the posting shows 'awaiting'; PUT='replied' then GET /api/follow-ups no longer lists it.",
+    "Handlers live alongside the existing posting/outreach handlers (internal/web/capture.go, internal/web/outreach.go) and follow their error-handling conventions.",
+    "`go build ./...` and `go vet ./...` pass."
+  ],
+  "dependencies": ["US-001", "US-002"],
+  "status": "todo",
+  "createdAt": "2026-06-14T23:56:25Z",
+  "completedAt": null,
+  "iteration": null
+}
