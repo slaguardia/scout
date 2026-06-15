@@ -31,9 +31,11 @@ import (
 )
 
 const (
-	// maxPageRunes is the page-text cap handed to the extractor. Postings run
-	// longer than about pages, and the company/title/location signal is usually
-	// early, but a bigger window keeps the summary honest. Still cheap on Haiku.
+	// maxPageRunes is the page-text cap handed to the extractor — and, for a
+	// non-ATS job posting, the cap on the page text we store as the posting's
+	// description. The company/title/location signal is usually early, but a
+	// bigger window keeps extraction honest and the stored body useful. Still
+	// cheap on Haiku.
 	maxPageRunes = 6000
 	// enrichSeedRunes matches enrichment's summary cap — a captured company
 	// page seeds the enrichment row, so it must look like one enrich wrote.
@@ -109,7 +111,6 @@ type extraction struct {
 	CompanyDomain   string `json:"company_domain"`
 	JobTitle        string `json:"job_title"`
 	JobLocation     string `json:"job_location"`
-	Summary         string `json:"summary"`
 	Vertical        string `json:"vertical"`
 	CompanyLocation string `json:"company_location"`
 }
@@ -224,13 +225,16 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 			})
 		}
 	case KindJob:
+		// No LLM blurb to store — we keep the fetched page text itself as the
+		// posting body (capped at maxPageRunes by FetchPage). It's the same
+		// description slot the ATS path fills, and what outreach/chat read.
 		p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
 			CompanyID:   id,
 			URL:         finalURL,
 			PastedURL:   rawURL,
 			Title:       ext.JobTitle,
 			Location:    ext.JobLocation,
-			Summary:     ext.Summary,
+			Description: strings.TrimSpace(text),
 			FetchStatus: status,
 		})
 		if err != nil {
@@ -314,7 +318,6 @@ const captureContract = `You are Scout's link-capture engine. The user pasted a 
  "company_domain": "the company's OWN website domain (e.g. acme.com): the domain stated on the page, or — for a well-known company — its primary domain when you know it with high confidence. \"\" when unsure; never guess for small or unknown companies, and NEVER the host of a job board or ATS (greenhouse.io, lever.co, ashbyhq.com, workday, linkedin.com, indeed.com, ...)",
  "job_title": "the role's title, or \"\" if not a job posting",
  "job_location": "the role's location / remote policy, or \"\"",
- "summary": "1-2 plain sentences: for a job posting what the role is, for a company page what the company does",
  "vertical": "1-3 short industry tags, comma-separated (e.g. \"AI, Developer Tools\"), or \"\"",
  "company_location": "the company's HQ location if stated, or \"\""}
 

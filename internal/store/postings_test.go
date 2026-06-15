@@ -182,7 +182,7 @@ func TestUpsertCapturedPosting(t *testing.T) {
 	// Fresh insert carries the extracted fields + capture provenance.
 	p, updated, err := db.UpsertCapturedPosting(CapturedPosting{
 		CompanyID: cid, URL: "https://acme.com/jobs/se", PastedURL: "https://acme.co/r/123",
-		Title: "Solutions Engineer", Location: "SF / remote", Summary: "Pre-sales eng.", FetchStatus: "ok",
+		Title: "Solutions Engineer", Location: "SF / remote", Description: "Pre-sales eng.", FetchStatus: "ok",
 	})
 	if err != nil {
 		t.Fatalf("UpsertCapturedPosting: %v", err)
@@ -191,7 +191,7 @@ func TestUpsertCapturedPosting(t *testing.T) {
 		t.Error("fresh insert reported as update")
 	}
 	if p.Source != "capture" || p.Title != "Solutions Engineer" || p.Location != "SF / remote" ||
-		p.Summary != "Pre-sales eng." || p.FetchStatus != "ok" || p.CapturedAt == "" {
+		p.Description != "Pre-sales eng." || p.FetchStatus != "ok" || p.CapturedAt == "" {
 		t.Errorf("unexpected captured posting: %+v", p)
 	}
 
@@ -381,14 +381,14 @@ func TestUpdatePostingDetails(t *testing.T) {
 
 	// Full edit round-trips; strings are trimmed.
 	got, err := db.UpdatePostingDetails(p.ID, PostingEdit{
-		Title: "  Staff Engineer  ", Location: "Remote", Summary: "build things",
+		Title: "  Staff Engineer  ", Location: "Remote",
 		EmploymentType: "Full-time", WorkplaceType: "Remote", Department: "Eng",
 		CompRange: "$200k-$250k", Description: "long description",
 	})
 	if err != nil {
 		t.Fatalf("UpdatePostingDetails: %v", err)
 	}
-	if got.Title != "Staff Engineer" || got.Location != "Remote" || got.Summary != "build things" ||
+	if got.Title != "Staff Engineer" || got.Location != "Remote" ||
 		got.EmploymentType != "Full-time" || got.WorkplaceType != "Remote" || got.Department != "Eng" ||
 		got.CompRange != "$200k-$250k" || got.Description != "long description" {
 		t.Errorf("unexpected details: %+v", got)
@@ -403,7 +403,7 @@ func TestUpdatePostingDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clear details: %v", err)
 	}
-	if got.Title != "Just a Title" || got.Location != "" || got.Summary != "" ||
+	if got.Title != "Just a Title" || got.Location != "" ||
 		got.Department != "" || got.CompRange != "" || got.Description != "" {
 		t.Errorf("details not cleared: %+v", got)
 	}
