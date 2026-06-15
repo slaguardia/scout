@@ -570,14 +570,14 @@ export const SCOUT_MARKUP = `
                 <div class="sm-desc">Your experience + voice — the ground truth every draft is honesty-checked against.</div>
               </div>
               <div class="sm-arrow"><span class="sm-label sm-cfg">+ playbook — how to judge</span></div>
-              <div class="sm-arrow"><span class="sm-label sm-cfg">+ email template · outreach doctrine</span></div>
+              <div class="sm-arrow"><span class="sm-label sm-cfg">+ email template · pipeline prompts</span></div>
               <div class="sm-node sm-llm">
                 <div class="sm-name">verdict engine</div>
                 <div class="sm-desc">One LLM call per company: the brief + playbook against the company's data and fetched site text.</div>
               </div>
               <div class="sm-node sm-llm">
                 <div class="sm-name">outreach engine</div>
-                <div class="sm-desc">Company research, then fill the template's holes, honesty-check, doctrine judge. The same knowledge also drafts application answers.</div>
+                <div class="sm-desc">Company research, then fill the template's holes, humanize, honesty-check. The same knowledge also drafts application answers.</div>
               </div>
               <div class="sm-arrow"></div>
               <div class="sm-arrow"></div>
