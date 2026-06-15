@@ -18,10 +18,13 @@
 export function initScout(_root) {
 const state = {
   rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
-  view: "companies",                       // "companies" | "jobs" | "follow-ups"
+  view: "companies",                       // "companies" | "jobs"
   jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
-  followups: [],                           // the Follow-ups view's due rows (GET /api/follow-ups)
-  followUpInterval: 7,                     // cadence in days; drives the "follow-up due" badge client-side
+  // Configurable status vocabularies (loaded from the API; defaults until then).
+  // applicationStages drives the application-stage pill; outreachStatuses the
+  // outreach reply pill. "none" (empty) is always implicit, not in these lists.
+  applicationStages: ["applied", "screening", "interview", "offer", "rejected"],
+  outreachStatuses: ["initial contact", "no response", "replied", "followed up"],
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
 };
@@ -101,39 +104,21 @@ async function pollJobsDraftStatus() {
   syncJobsDraftPoll(); // stop once nothing is researching
 }
 
-// loadFollowUpInterval reads the cadence (days) the badge/queue gate on. Cheap,
-// loaded at boot; a change re-renders the jobs view so badges reflect the new
-// interval immediately.
-async function loadFollowUpInterval() {
-  try {
-    const r = await fetch("/api/settings/follow-up-interval");
-    if (!r.ok) return;
-    const data = await r.json();
-    if (typeof data.days === "number" && data.days > 0) state.followUpInterval = data.days;
-  } catch { /* keep the default */ }
-  const fi = document.getElementById("fu-interval");
-  if (fi) fi.value = state.followUpInterval;
+// loadStatusVocab fetches the two configurable status vocabularies (application
+// stages + outreach statuses) that drive the jobs-view dropdowns. Cheap; loaded
+// at boot and after the Settings editors save. Re-renders the jobs view + stage
+// filter chips so a vocab change shows immediately.
+async function loadStatusVocab() {
+  await Promise.all([
+    fetch("/api/application-stages").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && Array.isArray(d.statuses) && d.statuses.length) state.applicationStages = d.statuses;
+    }).catch(() => {}),
+    fetch("/api/outreach-statuses").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && Array.isArray(d.statuses) && d.statuses.length) state.outreachStatuses = d.statuses;
+    }).catch(() => {}),
+  ]);
+  renderStageChips();
   if (state.view === "jobs") renderJobs();
-}
-
-// loadFollowUps fetches the due-follow-up queue (most-overdue first) and renders
-// the Follow-ups view. The interval rides along so the header control stays in
-// sync even if it changed elsewhere.
-async function loadFollowUps() {
-  let data;
-  try {
-    const r = await fetch("/api/follow-ups");
-    if (!r.ok) { state.followups = []; renderFollowUps(); return; }
-    data = await r.json();
-  } catch { state.followups = []; renderFollowUps(); return; }
-  state.followups = data.follow_ups || [];
-  if (typeof data.interval_days === "number" && data.interval_days > 0) {
-    state.followUpInterval = data.interval_days;
-    const fi = document.getElementById("fu-interval");
-    if (fi) fi.value = state.followUpInterval;
-  }
-  renderFollowUps();
-  updateFollowUpsTabCount();
 }
 
 // ---- view tabs ----
@@ -141,19 +126,13 @@ function setView(v) {
   state.view = v;
   document.getElementById("tab-companies").classList.toggle("active", v === "companies");
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
-  document.getElementById("tab-followups").classList.toggle("active", v === "follow-ups");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
-  document.getElementById("followups-view").style.display = v === "follow-ups" ? "" : "none";
-  // Each view owns its own Filter block — state stays put across switches. The
-  // Follow-ups view has no sidebar filter/columns blocks of its own.
+  // Each view owns its own Filter block — state stays put across switches.
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
-  document.getElementById("block-columns").style.display = v === "follow-ups" ? "none" : "";
   renderColToggles(); // the Columns block follows the active view
-  if (v === "jobs") renderJobs();
-  else if (v === "follow-ups") loadFollowUps();
-  else renderList();
+  if (v === "jobs") renderJobs(); else renderList();
 }
 
 async function loadStats() {
@@ -236,8 +215,7 @@ const COLUMNS = [
   { k: "site",     label: "site" },
 ];
 const JCOLUMNS = [
-  { k: "applied",       label: "applied" },
-  { k: "response",      label: "response" },
+  { k: "application",   label: "application" },
   { k: "outreach",      label: "outreach" },
   { k: "last_outreach", label: "last outreach" },
   { k: "contacts",      label: "contacts" },
@@ -401,17 +379,18 @@ async function updateCompanyRows(ids) {
 // response chips filter on the application lifecycle, and "hide rejected"
 // mirrors the Notion tracker's default view. Picking the "rejected" chip
 // explicitly overrides hide-rejected — an empty table would just confuse.
-const responseFilter = new Set();
+const stageFilter = new Set();
 let nextUpOnly = false;    // jobs-view chip: postings queued next up for outreach
 let notReachedOnly = false; // "not reached out" chip: postings with zero outreach yet
 let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
 
 function filteredJobs() {
   const q = document.getElementById("jq").value.trim().toLowerCase();
-  const hideRej = hideRejected && !responseFilter.has("rejected");
+  const hideRej = hideRejected && !stageFilter.has("rejected");
   return state.jobs.filter(j => {
-    if (hideRej && j.response === "rejected") return false;
-    if (responseFilter.size && !responseFilter.has(j.response || "")) return false;
+    const stage = currentStage(j.stage_history);
+    if (hideRej && stage === "rejected") return false;
+    if (stageFilter.size && !stageFilter.has(stage)) return false;
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
     if (q) {
@@ -420,6 +399,17 @@ function filteredJobs() {
     }
     return true;
   });
+}
+
+// renderStageChips paints the jobs-view stage filter chips from the configured
+// application stages. Clicks are delegated (see boot wiring); filters for stages
+// no longer configured are pruned so a vocab change doesn't strand a hidden filter.
+function renderStageChips() {
+  const host = document.getElementById("stage-chips");
+  if (!host) return;
+  for (const s of [...stageFilter]) if (!state.applicationStages.includes(s)) stageFilter.delete(s);
+  host.innerHTML = state.applicationStages.map(s =>
+    `<button class="v-chip${stageFilter.has(s) ? " is-on" : ""}" data-stage="${escapeHTML(s)}">${escapeHTML(s)}</button>`).join("");
 }
 
 const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
@@ -459,6 +449,57 @@ function serializeContacts(entries) {
   return kept.length ? JSON.stringify(kept) : "";
 }
 
+const isoToday = () => new Date().toISOString().slice(0, 10);
+
+// ---- application stage (configurable vocab, dated history) ----
+// stage_history is a JSON array of {stage, date}; the current stage is the last
+// entry. Opaque to the backend (like contacts) — the UI owns the shape.
+function parseStages(s) {
+  s = String(s || "").trim();
+  if (!s) return [];
+  try {
+    const a = JSON.parse(s);
+    if (Array.isArray(a)) return a
+      .map(e => ({ stage: String(e?.stage || "").trim(), date: String(e?.date || "").trim() }))
+      .filter(e => e.stage);
+  } catch { /* malformed → no stages */ }
+  return [];
+}
+function serializeStages(entries) {
+  const kept = (entries || [])
+    .map(e => ({ stage: (e.stage || "").trim(), date: (e.date || "").trim() }))
+    .filter(e => e.stage);
+  // Keep the history chronological so the current stage (last entry) is always
+  // the latest-dated one — even when an earlier stage is backfilled. Dateless
+  // entries sort last (stay "current").
+  kept.sort((a, b) => (a.date || "9999-99-99").localeCompare(b.date || "9999-99-99"));
+  return kept.length ? JSON.stringify(kept) : "";
+}
+function currentStage(stageHistory) {
+  const ev = parseStages(stageHistory);
+  return ev.length ? ev[ev.length - 1].stage : "";
+}
+function currentStageDate(stageHistory) {
+  const ev = parseStages(stageHistory);
+  return ev.length ? ev[ev.length - 1].date : "";
+}
+// stageOptions builds the <select> options for a stage control: "none" plus the
+// configured stages, and the posting's current stage even if it's no longer in
+// the configured list (so a vocab change never silently drops a stored value).
+function stageOptions(current) {
+  const opts = [["", "none"]];
+  for (const s of state.applicationStages) opts.push([s, s]);
+  if (current && !state.applicationStages.includes(current)) opts.push([current, current + " (removed)"]);
+  return opts;
+}
+// statusOptions does the same for the outreach reply status.
+function statusOptions(current) {
+  const opts = [["", "none"]];
+  for (const s of state.outreachStatuses) opts.push([s, s]);
+  if (current && !state.outreachStatuses.includes(current)) opts.push([current, current + " (removed)"]);
+  return opts;
+}
+
 // contactsHTML renders the stored contacts as comma-separated entries — each is
 // the position (or the email when none), linked as a mailto when an email exists.
 function contactsHTML(s) {
@@ -492,26 +533,25 @@ function contactsEditorHTML(stored) {
     </div>`;
 }
 
-// Response display: pill class + label. Triage-ordered for sorting (an offer
-// outranks an interview outranks a screening; rejected sinks).
-const RESPONSE_META = {
-  offer:     { cls: "pill-yes",   label: "offer",          order: 0 },
-  interview: { cls: "pill-info",  label: "interview",      order: 1 },
-  screening: { cls: "pill-maybe", label: "screening call", order: 2 },
-  "":        { cls: "pill-none",  label: "—",              order: 3 },
-  rejected:  { cls: "pill-no",    label: "rejected",       order: 4 },
-};
+// stageOrder ranks a posting by its current application stage for sorting,
+// using the configured progression order (untracked sinks to the end).
+function stageOrder(j) {
+  const s = currentStage(j.stage_history);
+  if (!s) return state.applicationStages.length + 1;
+  const i = state.applicationStages.indexOf(s);
+  return i < 0 ? state.applicationStages.length : i;
+}
 
 function compareJobs(a, b, k) {
   if (k === "verdict") {
     const order = { yes: 0, maybe: 1, no: 2, "": 3 };
     return (order[a.verdict] ?? 3) - (order[b.verdict] ?? 3);
   }
-  if (k === "response")
-    return (RESPONSE_META[a.response]?.order ?? 3) - (RESPONSE_META[b.response]?.order ?? 3);
+  if (k === "application")
+    return stageOrder(a) - stageOrder(b);
   if (k === "outreach_count")
     return (b.outreach_count|0) - (a.outreach_count|0); // most-contacted first
-  if (k === "created_at" || k === "applied_at" || k === "last_outreach_at") {
+  if (k === "created_at" || k === "last_outreach_at") {
     // Newest first on the first click; blanks sink regardless of direction.
     const av = a[k] || "", bv = b[k] || "";
     if (!av && !bv) return 0;
@@ -542,8 +582,8 @@ function renderJobs() {
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
   // Say what hide-rejected is suppressing — a silently missing row reads as a
   // bug. The chip gets a count; the table gets a footer note with the undo.
-  const hiddenRej = (hideRejected && !responseFilter.has("rejected"))
-    ? state.jobs.filter(j => j.response === "rejected").length : 0;
+  const hiddenRej = (hideRejected && !stageFilter.has("rejected"))
+    ? state.jobs.filter(j => currentStage(j.stage_history) === "rejected").length : 0;
   const hn = document.getElementById("hidden-rej-n");
   hn.textContent = hiddenRej;
   hn.style.display = hiddenRej ? "" : "none";
@@ -556,7 +596,7 @@ function renderJobs() {
   // have zero outreach logged. Respects hide-rejected so the count matches the
   // table the user is actually looking at.
   const notReachedN = state.jobs.filter(j =>
-    !(j.outreach_count|0) && !(hideRejected && !responseFilter.has("rejected") && j.response === "rejected")).length;
+    !(j.outreach_count|0) && !(hideRejected && !stageFilter.has("rejected") && currentStage(j.stage_history) === "rejected")).length;
   const nrn = document.getElementById("not-reached-n");
   nrn.textContent = notReachedN;
   nrn.style.display = notReachedN ? "" : "none";
@@ -571,37 +611,27 @@ function renderJobs() {
     };
   }
   for (const j of rows) {
-    const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
+    const stage = currentStage(j.stage_history), stageDate = currentStageDate(j.stage_history);
     const tr = document.createElement("tr");
     tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
-    // The applied / response / outreach cells carry inline tracking controls so
-    // the common lifecycle bumps don't require opening the pursuit panel.
-    const respOpts = [
-      ["", "none"], ["screening", "screening"], ["interview", "interview"],
-      ["offer", "offer"], ["rejected", "rejected"],
-    ].map(([v, label]) =>
-      `<option value="${v}"${(j.response || "") === v ? " selected" : ""}>${label}</option>`).join("");
+    // The application-stage and outreach cells carry inline controls so the
+    // common lifecycle bumps don't require opening the pursuit panel.
+    const stOpts = stageOptions(stage).map(([v, label]) =>
+      `<option value="${escapeHTML(v)}"${stage === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     const ostatus = j.outreach_status || "";
-    const osOpts = OUTREACH_STATUS_OPTS.map(([v, label]) =>
-      `<option value="${v}"${ostatus === v ? " selected" : ""}>${label}</option>`).join("");
+    const osOpts = statusOptions(ostatus).map(([v, label]) =>
+      `<option value="${escapeHTML(v)}"${ostatus === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     tr.innerHTML = `
-      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${isFollowUpDue(j) ? followUpBadgeHTML() : ""}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
-      <td class="small" data-col="applied"><button class="jt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">${j.applied_at ? escapeHTML(j.applied_at) : "+ applied"}</button></td>
-      <td data-col="response"><select class="jt-resp ${resp.cls}" title="furthest response reached">${respOpts}</select></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span><select class="jt-ostatus os-${ostatus || "none"}" title="outreach reply status">${osOpts}</select></div></td>
+      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
+      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel${stage ? " has-stage" : ""}" title="application stage — pick a new stage to record it (dated today)">${stOpts}</select>${stageDate ? `<span class="jt-stage-date" title="when this stage was reached">${escapeHTML(stageDate)}</span>` : ""}</div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span><select class="jt-ostatus${ostatus ? " has-status" : ""}" title="outreach reply status">${osOpts}</select></div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
     `;
     // Wire the inline controls to the cached row (the table re-renders from it).
-    const isoToday = () => new Date().toISOString().slice(0, 10);
     tr.querySelector(".jt-nextup").onclick = () => toggleNextUp(j, false);
-    tr.querySelector(".jt-applied").onclick = () =>
-      saveRowTracking(j, { applied_at: j.applied_at ? "" : isoToday() });
-    tr.querySelector(".jt-resp").onchange = e => {
-      fitRespWidth(e.target);
-      saveRowTracking(j, { response: e.target.value });
-    };
+    tr.querySelector(".jt-stage-sel").onchange = e => advanceRowStage(j, e.target.value);
     tr.querySelector(".jt-ostatus").onchange = e =>
       saveRowTracking(j, { outreach_status: e.target.value });
     tr.querySelector(".jt-inc").onclick = () =>
@@ -612,7 +642,7 @@ function renderJobs() {
     };
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll(".jt-resp").forEach(fitRespWidth);
+  tbody.querySelectorAll(".jt-stage-sel, .jt-ostatus").forEach(fitRespWidth);
   applyColumnVisibility();
   // Row click opens the pursuit panel (role + pipeline + the outreach queue);
   // the external link and the inline tracking controls are guarded out.
@@ -622,63 +652,18 @@ function renderJobs() {
       openPursuit(tr.dataset.id);
     });
   });
-  updateFollowUpsTabCount(); // the tab badge tracks how many rows are due
 }
 
-// ---- outreach reply status (M48) ----
-// The reply axis of a posting, SEPARATE from the application `response`. The
-// option list is shared by the jobs row, the pursuit panel, and the Follow-ups
-// view quick actions.
-const OUTREACH_STATUS_OPTS = [
-  ["", "none"], ["awaiting", "awaiting"], ["replied", "replied"], ["no_response", "no response"],
-];
-const OUTREACH_STATUS_LABEL = { "": "none", awaiting: "awaiting reply", replied: "replied", no_response: "no response" };
-
-// daysSinceUTC returns whole days between a "YYYY-MM-DD" date and today (UTC),
-// matching the server's date('now') threshold — or null when the date is empty/
-// unparseable.
-function daysSinceUTC(dateStr) {
-  if (!dateStr) return null;
-  const today = Date.parse(new Date().toISOString().slice(0, 10));
-  const d = Date.parse(dateStr);
-  if (isNaN(d)) return null;
-  return Math.round((today - d) / 86400000);
-}
-
-// isFollowUpDue mirrors the server's ListFollowUpsDue gate client-side: awaiting
-// a reply, no application response yet (which excludes rejected/advanced), a
-// real last-outreach date, and at/past the cadence. Never contacted (no date),
-// replied, or no_response all fall out here.
-function isFollowUpDue(j) {
-  if ((j.outreach_status || "") !== "awaiting") return false;
-  if (j.response) return false;
-  const ds = daysSinceUTC(j.last_outreach_at);
-  return ds !== null && ds >= (state.followUpInterval || 7);
-}
-
-function followUpBadgeHTML() {
-  return '<span class="draft-badge db-followup" title="overdue for a follow-up — awaiting a reply past your cadence">follow-up due</span>';
-}
-
-// updateFollowUpsTabCount recomputes the due count from the jobs cache (so it
-// stays live with inline status edits, no extra fetch) and shows it on the tab.
-function updateFollowUpsTabCount() {
-  const el = document.getElementById("followups-n");
-  if (!el) return;
-  const n = state.jobs.filter(isFollowUpDue).length;
-  el.textContent = n;
-  el.style.display = n ? "" : "none";
-}
-
-// setOutreachStatus sets a posting's reply status through the shared full-state
-// tracking PUT, then refreshes whichever views are showing it. `j` is a jobs-row
-// object (the same object the table renders from).
-async function setOutreachStatus(j, status) {
-  const fresh = await savePostingTracking(j, { outreach_status: status });
-  if (!fresh) return;
-  if (state.view === "jobs") renderJobs();
-  if (pursuit.postingId === j.posting_id) { pursuit.row = j; renderPursuit(); }
-  updateFollowUpsTabCount();
+// advanceRowStage records a new application stage (dated today) from the inline
+// jobs-row select. Picking the current stage or "none" is a no-op (re-render
+// resets the control) — stage history is only edited additively from the row;
+// fix dates / remove entries in the pursuit panel.
+function advanceRowStage(j, newStage) {
+  newStage = (newStage || "").trim();
+  if (!newStage || newStage === currentStage(j.stage_history)) { renderJobs(); return; }
+  const ev = parseStages(j.stage_history);
+  ev.push({ stage: newStage, date: isoToday() });
+  saveRowTracking(j, { stage_history: serializeStages(ev) });
 }
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
@@ -693,69 +678,6 @@ function draftBadgeHTML(status) {
   if (status === "no_hook")
     return '<span class="draft-badge db-nohook" title="no honest hook — scout recommends not emailing">no hook</span>';
   return "";
-}
-
-// ---- Follow-ups view ----
-// The cadence queue: every posting overdue for a nudge (awaiting a reply past
-// the interval), most-overdue first. Rows render from GET /api/follow-ups;
-// quick actions PUT the reply status (which drops the row) or open the pursuit
-// panel to draft the follow-up via the existing outreach flow.
-function renderFollowUps() {
-  const tbody = document.querySelector("#fut tbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  const rows = state.followups || [];
-  document.getElementById("followups-empty").style.display = rows.length ? "none" : "block";
-  // Keep the header cadence input in sync, but never yank a value the user is
-  // mid-edit on.
-  const fi = document.getElementById("fu-interval");
-  if (fi && document.activeElement !== fi) fi.value = state.followUpInterval;
-
-  for (const f of rows) {
-    const tr = document.createElement("tr");
-    tr.dataset.id = f.posting_id;
-    const overdue = f.days_overdue | 0;
-    const overdueLabel = overdue <= 0 ? "due today" : `${overdue} day${overdue === 1 ? "" : "s"} overdue`;
-    const overdueCls = overdue >= 14 ? "fu-od-high" : overdue >= 7 ? "fu-od-mid" : "fu-od-low";
-    tr.innerHTML = `
-      <td><div class="jt-namecol"><span class="row-name">${escapeHTML(f.title || f.company)}</span>${f.title ? `<div class="small dim">${escapeHTML(f.company)}</div>` : ""}</div></td>
-      <td class="small">${f.last_outreach_at ? escapeHTML(f.last_outreach_at) : '<span class="dim">—</span>'}</td>
-      <td><span class="fu-overdue ${overdueCls}">${escapeHTML(overdueLabel)}</span></td>
-      <td class="small td-contacts">${contactsHTML(f.contacts)}</td>
-      <td class="fu-actions">
-        <button class="btn fu-replied" title="mark replied — removes it from the queue">replied</button>
-        <button class="btn fu-noresp" title="mark no response — removes it from the queue">no response</button>
-        <button class="btn fu-open" title="open the pursuit panel to draft a follow-up">draft ↗</button>
-      </td>`;
-    tr.querySelector(".fu-replied").onclick = () => followUpMark(f, "replied");
-    tr.querySelector(".fu-noresp").onclick = () => followUpMark(f, "no_response");
-    tr.querySelector(".fu-open").onclick = () => openPursuit(f.posting_id);
-    tbody.appendChild(tr);
-  }
-  // Row click (off the action buttons) opens the pursuit panel, like the jobs table.
-  tbody.querySelectorAll("tr").forEach(tr => {
-    tr.addEventListener("click", e => {
-      if (e.target.closest("a, button")) return;
-      openPursuit(tr.dataset.id);
-    });
-  });
-}
-
-// followUpMark sets a due posting's reply status (replied / no_response) through
-// the shared full-state tracking PUT — which removes it from the due list — then
-// re-fetches the queue and refreshes the jobs badges. Uses the cached jobs row so
-// the PUT preserves the rest of the lifecycle (it's a full-state write).
-async function followUpMark(f, status) {
-  let j = state.jobs.find(x => x.posting_id === f.posting_id);
-  if (!j) { await loadJobs(); j = state.jobs.find(x => x.posting_id === f.posting_id); }
-  if (!j) { toast("posting not found — refresh"); return; }
-  const fresh = await savePostingTracking(j, { outreach_status: status });
-  if (!fresh) return;
-  toast(status === "replied" ? "marked replied" : "marked no response");
-  await loadFollowUps();
-  if (state.view === "jobs") renderJobs();
-  if (pursuit.postingId === f.posting_id) { pursuit.row = j; renderPursuit(); }
-  updateFollowUpsTabCount();
 }
 
 // ---- pursuit panel (jobs-view side panel) ----
@@ -1102,9 +1024,9 @@ function renderPursuit() {
   const prevScroll = samePosting && pbody ? pbody.scrollTop : 0;
   document.getElementById("pursuit-title").innerHTML =
     `<input class="ie ie-title" id="pursuit-title-input" placeholder="role name" value="${escapeHTML(j.title || "")}">`;
-  const resp = RESPONSE_META[j.response] || RESPONSE_META[""];
+  const stage = currentStage(j.stage_history);
   document.getElementById("pursuit-pills").innerHTML =
-    `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>` +
+    `<span class="pill ${stage ? "pill-stage" : "pill-none"}">${escapeHTML(stage || "—")}</span>` +
     (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
   const pursuitChat = document.getElementById("pursuit-chat");
   if (pursuitChat) {
@@ -1122,34 +1044,16 @@ function renderPursuit() {
         Pipeline
       </h3>
       <div class="pipeline-grid">
-        <div class="pipeline-row">
-          <span class="pl-label">applied</span>
-          <button class="pt-chip pt-applied${j.applied_at ? " is-on" : ""}" title="${j.applied_at ? "mark as not applied" : "mark applied today"}">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>
-            applied
-          </button>
-          <input type="date" class="input pl-applied-date" value="${escapeHTML(j.applied_at || "")}"
-                 style="display:${j.applied_at ? "" : "none"}" title="application date">
-        </div>
-        <div class="pipeline-row">
-          <span class="pl-label">response</span>
-          <select class="input pl-response" title="furthest response reached">
-            <option value="">— none yet</option>
-            <option value="screening" ${j.response === "screening" ? "selected" : ""}>screening call</option>
-            <option value="interview" ${j.response === "interview" ? "selected" : ""}>interview</option>
-            <option value="offer" ${j.response === "offer" ? "selected" : ""}>offer</option>
-            <option value="rejected" ${j.response === "rejected" ? "selected" : ""}>rejected</option>
-          </select>
+        <div class="pipeline-row pipeline-stage-row">
+          <span class="pl-label">stage</span>
+          <div class="pl-stage-wrap">${stageTimelineHTML(j)}</div>
         </div>
         <div class="pipeline-row">
           <span class="pl-label">reply</span>
-          <select class="input pl-ostatus" title="outreach reply status — separate from the application response">
-            <option value="">— none</option>
-            <option value="awaiting" ${j.outreach_status === "awaiting" ? "selected" : ""}>awaiting reply</option>
-            <option value="replied" ${j.outreach_status === "replied" ? "selected" : ""}>replied</option>
-            <option value="no_response" ${j.outreach_status === "no_response" ? "selected" : ""}>no response</option>
+          <select class="input pl-ostatus" title="outreach reply status — separate from the application stage">
+            ${statusOptions(j.outreach_status || "").map(([v, label]) =>
+              `<option value="${escapeHTML(v)}"${(j.outreach_status || "") === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
           </select>
-          ${isFollowUpDue(j) ? '<span class="pl-due" title="overdue for a follow-up under your cadence">follow-up due</span>' : ""}
         </div>
         <div class="pipeline-row">
           <span class="pl-label">queue</span>
@@ -1176,7 +1080,7 @@ function renderPursuit() {
       <div id="outreach-section"></div>
     </section>
 
-    ${j.applied_at ? "" : `
+    ${currentStage(j.stage_history) ? "" : `
     <section class="pane-section">
       <h3>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h7l3 3V13a.5.5 0 01-.5.5h-9A.5.5 0 013 13z"/><path d="M6 7h4M6 9.5h4M6 12h2.5"/></svg>
@@ -1252,18 +1156,58 @@ function roleEditHTML(j) {
 
 // wirePipeline binds the relocated tracker controls; they PUT the posting and
 // keep state.jobs + the table in sync via savePursuitTracking.
+// stageTimelineHTML renders the application-stage history (one editable {stage,
+// date} row each, current = last) plus an "add stage" control. Wired in
+// wirePipeline; every edit re-serializes the array and saves through the
+// tracking PUT.
+function stageTimelineHTML(j) {
+  const ev = parseStages(j.stage_history);
+  const rows = ev.map((e, i) => `
+    <div class="stage-entry" data-i="${i}">
+      <span class="stage-name${i === ev.length - 1 ? " is-current" : ""}">${escapeHTML(e.stage)}</span>
+      <input type="date" class="input stage-date" value="${escapeHTML(e.date)}" title="when this stage was reached">
+      <button class="stage-del" type="button" title="remove this stage" aria-label="remove">×</button>
+    </div>`).join("");
+  const addOpts = ['<option value="">+ add stage…</option>']
+    .concat(state.applicationStages.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`)).join("");
+  return `
+    <div class="stage-timeline">${rows || '<div class="stage-empty dim">no stage yet</div>'}</div>
+    <div class="stage-add">
+      <select class="input stage-add-sel">${addOpts}</select>
+      <input type="date" class="input stage-add-date" value="${isoToday()}" title="date for the new stage">
+      <button class="btn stage-add-btn" type="button">add</button>
+    </div>`;
+}
+
 function wirePipeline() {
   const j = pursuit.row;
-  const today = () => new Date().toISOString().slice(0, 10);
-  const applied = document.querySelector("#pursuit-body .pt-applied");
-  if (applied) applied.addEventListener("click", () =>
-    savePursuitTracking({ applied_at: j.applied_at ? "" : today() }));
-  const date = document.querySelector("#pursuit-body .pl-applied-date");
-  if (date) date.addEventListener("change", e =>
-    savePursuitTracking({ applied_at: e.target.value }));
-  const sel = document.querySelector("#pursuit-body .pl-response");
-  if (sel) sel.addEventListener("change", e =>
-    savePursuitTracking({ response: e.target.value }));
+  // Stage timeline: edit a date, remove an entry, or add a stage — each rebuilds
+  // the array and saves. parseStages reads the current stored state each time.
+  document.querySelectorAll("#pursuit-body .stage-entry .stage-date").forEach(inp => {
+    inp.addEventListener("change", e => {
+      const i = +e.target.closest(".stage-entry").dataset.i;
+      const ev = parseStages(j.stage_history);
+      if (ev[i]) { ev[i].date = e.target.value; savePursuitTracking({ stage_history: serializeStages(ev) }); }
+    });
+  });
+  document.querySelectorAll("#pursuit-body .stage-entry .stage-del").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const i = +e.target.closest(".stage-entry").dataset.i;
+      const ev = parseStages(j.stage_history);
+      ev.splice(i, 1);
+      savePursuitTracking({ stage_history: serializeStages(ev) });
+    });
+  });
+  const addBtn = document.querySelector("#pursuit-body .stage-add-btn");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const sel = document.querySelector("#pursuit-body .stage-add-sel");
+    const dateInp = document.querySelector("#pursuit-body .stage-add-date");
+    const stage = (sel.value || "").trim();
+    if (!stage) return;
+    const ev = parseStages(j.stage_history);
+    ev.push({ stage, date: dateInp.value || isoToday() });
+    savePursuitTracking({ stage_history: serializeStages(ev) });
+  });
   const ostatus = document.querySelector("#pursuit-body .pl-ostatus");
   if (ostatus) ostatus.addEventListener("change", e =>
     savePursuitTracking({ outreach_status: e.target.value }));
@@ -1302,8 +1246,7 @@ async function toggleNextUp(j, refreshPanel) {
 // the fresh row (or null on failure) so callers can decide what to re-render.
 async function savePostingTracking(j, patch) {
   const body = {
-    applied_at: j.applied_at || "",
-    response: j.response || "",
+    stage_history: j.stage_history || "",
     outreach_count: j.outreach_count || 0,
     last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
@@ -1328,14 +1271,14 @@ async function savePostingTracking(j, patch) {
   // next_up rides along so the server-side auto-clear (+1 outreach completes
   // the queued to-do) reflects immediately.
   Object.assign(j, {
-    applied_at: fresh.applied_at, response: fresh.response,
+    stage_history: fresh.stage_history,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     outreach_status: fresh.outreach_status,
     contacts: fresh.contacts, notes: fresh.notes,
     next_up: fresh.next_up,
   });
   syncCompanyPosting(j.posting_id, {   // the company pane card shows the lifecycle too
-    applied_at: fresh.applied_at, response: fresh.response,
+    stage_history: fresh.stage_history,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     next_up: fresh.next_up,
   });
@@ -1349,7 +1292,7 @@ async function savePostingTracking(j, patch) {
 async function savePursuitNotes(v) {
   const j = pursuit.row;
   const body = {
-    applied_at: j.applied_at || "", response: j.response || "",
+    stage_history: j.stage_history || "",
     outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
     contacts: j.contacts || "", notes: v,
@@ -2496,11 +2439,11 @@ function postingsListHTML(d) {
       p.source === "capture" ? "captured" : "added",
       (p.created_at || "").slice(0, 10),
     ].filter(Boolean).map(escapeHTML).join(" · ");
-    const resp = RESPONSE_META[p.response] || RESPONSE_META[""];
+    const stage = currentStage(p.stage_history), stageDate = currentStageDate(p.stage_history);
     const status = [
       p.next_up ? '<span class="draft-badge db-next" style="margin-left:0" title="queued next up for outreach">next up</span>' : "",
-      `<span class="pill ${resp.cls}">${escapeHTML(resp.label)}</span>`,
-      `<span class="pt-meta">${p.applied_at ? `applied ${escapeHTML(p.applied_at)}` : "not applied"}</span>`,
+      `<span class="pill ${stage ? "pill-stage" : "pill-none"}">${escapeHTML(stage || "—")}</span>`,
+      `<span class="pt-meta">${stage ? (stageDate ? escapeHTML(stageDate) : "tracked") : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
     ].filter(Boolean).join("");
     const chatBtn = (state.meta && state.meta.chat)
@@ -3002,10 +2945,18 @@ let editorKind = null;
 const STAGE_LABELS: Record<string, string> = {
   researcher: "researcher", fill: "writer", humanizer: "humanizer", honesty: "honesty check",
 };
+// isStatusListKind marks the two configurable status vocabularies, which the
+// editor handles as a one-label-per-line list (PUT {statuses:[...]}) rather than
+// the usual {content} text artifact.
+function isStatusListKind(kind) {
+  return kind === "application-stages" || kind === "outreach-statuses";
+}
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
   if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
+  if (kind === "application-stages") return "application stages";
+  if (kind === "outreach-statuses") return "outreach statuses";
   if (kind && kind.startsWith("outreach-prompts/")) {
     const stage = kind.slice("outreach-prompts/".length);
     return (STAGE_LABELS[stage] || stage) + " prompt";
@@ -3040,7 +2991,12 @@ async function openEditor(kind) {
       return;
     }
     const d = await r.json();
-    document.getElementById("editor-text").value = d.content || "";
+    if (isStatusListKind(kind)) {
+      document.getElementById("editor-title").textContent = "edit " + editorLabel(kind) + " — one per line";
+      document.getElementById("editor-text").value = (d.statuses || []).join("\n");
+    } else {
+      document.getElementById("editor-text").value = d.content || "";
+    }
     if (showToggle) (document.getElementById("editor-enabled") as HTMLInputElement).checked = d.enabled !== false;
     if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
   } catch (e) {
@@ -3123,12 +3079,18 @@ async function removeSource(need, pageId) {
 
 async function saveEditor() {
   if (!editorKind) return;
-  const content = document.getElementById("editor-text").value;
-  const body: { content: string; enabled?: boolean } = { content };
-  // The pre-filter editor and the skippable pipeline stages carry an on/off
-  // switch alongside the text.
-  const isPipelineStage = editorKind.startsWith("outreach-prompts/") && editorKind !== "outreach-prompts/fill";
-  if (editorKind === "taste-filter" || isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
+  const text = document.getElementById("editor-text").value;
+  // The two status vocabularies save as a {statuses:[...]} list (one label per
+  // line); everything else is a {content} text artifact (some with an on/off
+  // switch — the pre-filter and skippable pipeline stages).
+  let body;
+  if (isStatusListKind(editorKind)) {
+    body = { statuses: text.split(/\r?\n/).map(s => s.trim()).filter(Boolean) };
+  } else {
+    body = { content: text };
+    const isPipelineStage = editorKind.startsWith("outreach-prompts/") && editorKind !== "outreach-prompts/fill";
+    if (editorKind === "taste-filter" || isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
+  }
   let resp;
   try {
     resp = await fetch(`/api/${editorKind}`, {
@@ -3137,11 +3099,13 @@ async function saveEditor() {
       body: JSON.stringify(body),
     });
   } catch (e) { toast(`save failed: ${e.message}`); return; }
-  if (!resp.ok) { toast(`save failed: HTTP ${resp.status}`); return; }
+  if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
   const d = await resp.json();
   if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
+  const wasStatusList = isStatusListKind(editorKind);
   toast(`${editorLabel(editorKind)} saved`);
   closeEditor();
+  if (wasStatusList) loadStatusVocab(); // refresh the jobs-view dropdowns + filter chips
   loadStats(); // refresh the criteria version shown in the sidebar
 }
 
@@ -3179,33 +3143,6 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
-document.getElementById("tab-followups").onclick = () => setView("follow-ups");
-// Follow-ups view — the cadence control reads/writes the interval; a change
-// re-fetches the queue and re-renders the jobs badges under the new threshold.
-(() => {
-  const fi = document.getElementById("fu-interval");
-  if (!fi) return;
-  const commit = async () => {
-    const n = parseInt(fi.value, 10);
-    if (!Number.isInteger(n) || n < 1) { fi.value = state.followUpInterval; return; }
-    if (n === state.followUpInterval) return;
-    try {
-      const r = await fetch("/api/settings/follow-up-interval", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ days: n }),
-      });
-      if (!r.ok) { toast("couldn’t save cadence"); fi.value = state.followUpInterval; return; }
-      const data = await r.json();
-      state.followUpInterval = data.days;
-      fi.value = state.followUpInterval;
-      await loadFollowUps();
-      if (state.view === "jobs") renderJobs();
-      updateFollowUpsTabCount();
-      toast(`follow up after ${state.followUpInterval} days`);
-    } catch (e) { toast(`couldn’t save cadence: ${e.message}`); fi.value = state.followUpInterval; }
-  };
-  fi.addEventListener("change", commit);
-})();
 // Companies filter block — search, verdict chips, flag.
 document.getElementById("q").oninput = renderList;
 document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
@@ -3228,13 +3165,16 @@ document.getElementById("hide-rejected").addEventListener("click", e => {
   e.currentTarget.classList.toggle("is-on", hideRejected);
   renderJobs();
 });
-document.querySelectorAll("#response-chips .v-chip[data-r]").forEach(b => {
-  b.addEventListener("click", () => {
-    const v = b.dataset.r;
-    if (responseFilter.has(v)) responseFilter.delete(v); else responseFilter.add(v);
-    b.classList.toggle("is-on", responseFilter.has(v));
-    renderJobs();
-  });
+// Stage filter chips are configurable, so they're rendered dynamically into
+// #stage-chips (see renderStageChips) and clicks are handled by delegation —
+// the binding survives a re-render.
+document.getElementById("stage-chips").addEventListener("click", e => {
+  const b = e.target.closest(".v-chip[data-stage]");
+  if (!b) return;
+  const s = b.dataset.stage;
+  if (stageFilter.has(s)) stageFilter.delete(s); else stageFilter.add(s);
+  b.classList.toggle("is-on", stageFilter.has(s));
+  renderJobs();
 });
 document.getElementById("next-up-filter").addEventListener("click", e => {
   nextUpOnly = !nextUpOnly;
@@ -3643,14 +3583,34 @@ function renderCriteria() {
     act: "edit-anthropic-key", actIcon: PENCIL, actTitle: "set the Anthropic API key", actLabel: "set Anthropic API key",
   });
 
+  // The two configurable jobs-view vocabularies: the application-stage pipeline
+  // labels and the outreach reply-status labels. Edited as one-per-line lists.
+  const stagesCard = critCard({
+    icon: ICON_PROMPT,
+    nameHTML: '<span class="edit-link" data-act="edit-application-stages" title="edit the application stages">application stages</span>',
+    desc: "The application pipeline labels you track (applied, screening, interview…). One per line.",
+    act: "edit-application-stages", actIcon: PENCIL, actTitle: "edit the application stages", actLabel: "edit application stages",
+  });
+  const statusesCard = critCard({
+    icon: ICON_PROMPT,
+    nameHTML: '<span class="edit-link" data-act="edit-outreach-statuses" title="edit the outreach statuses">outreach statuses</span>',
+    desc: "The outreach reply labels (initial contact, no response, replied…). One per line.",
+    act: "edit-outreach-statuses", actIcon: PENCIL, actTitle: "edit the outreach statuses", actLabel: "edit outreach statuses",
+  });
+
   // Grouped by what the config is *for*, not where it comes from: everything that
   // shapes a verdict (criteria brief, playbook, pre-filter) under Job hunting;
-  // everything that shapes an email (discovered knowledge, template, pipeline
-  // prompts) under Outreach; the shared secret under Integrations.
+  // the jobs-view vocabularies under Tracking; everything that shapes an email
+  // (discovered knowledge, template, pipeline prompts) under Outreach; the shared
+  // secret under Integrations.
   el.innerHTML =
     `<div class="settings-section">
        <div class="settings-group-h">Job hunting</div>
        ${briefCard}${playbookCard}${prefilterCard}
+     </div>
+     <div class="settings-section">
+       <div class="settings-group-h">Tracking</div>
+       ${stagesCard}${statusesCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
@@ -3674,6 +3634,8 @@ function renderCriteria() {
     "refresh-profile": refreshProfile,
     "edit-taste": () => openEditor("taste"),
     "edit-taste-filter": () => openEditor("taste-filter"),
+    "edit-application-stages": () => openEditor("application-stages"),
+    "edit-outreach-statuses": () => openEditor("outreach-statuses"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
     "view-sources": openSourcesModal,
@@ -4098,5 +4060,5 @@ loadRuns();
 loadProfile();
 loadSources();
 loadKeyState();
-loadFollowUpInterval(); // the cadence drives the "follow-up due" badge on the jobs view
+loadStatusVocab(); // the configurable stage/status vocabularies drive the jobs dropdowns + filter chips
 }
