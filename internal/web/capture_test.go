@@ -326,3 +326,87 @@ func TestPostingTrackingAPI(t *testing.T) {
 		t.Errorf("jobs view lifecycle mismatch: %+v", jobs.Rows[0])
 	}
 }
+
+// TestPostingCompanyAPI covers PUT /api/postings/{id}/company: a posting moves
+// to a different existing company (the fix for a wrong-twin capture), an unknown
+// or blank target is a 400 (never a silent create), an unknown posting is a 404,
+// and GET is a 405.
+func TestPostingCompanyAPI(t *testing.T) {
+	s, cid := newTestServer(t) // seeds "Acme" (acme.com)
+	h := s.Handler()
+
+	// A second company to relink to (the "real" twin with the enrichment).
+	addReq := httptest.NewRequest(http.MethodPost, "/api/companies",
+		bytes.NewBufferString(`{"website":"https://automat.ai","name":"Automat AI"}`))
+	addReq.Header.Set("Content-Type", "application/json")
+	addRec := httptest.NewRecorder()
+	h.ServeHTTP(addRec, addReq)
+	if addRec.Code != http.StatusOK {
+		t.Fatalf("seed 2nd company: want 200, got %d (%s)", addRec.Code, addRec.Body.String())
+	}
+	var added struct {
+		CompanyID string `json:"company_id"`
+	}
+	if err := json.Unmarshal(addRec.Body.Bytes(), &added); err != nil || added.CompanyID == "" {
+		t.Fatalf("decode 2nd company: %v (%s)", err, addRec.Body.String())
+	}
+
+	p, err := s.DB.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	put := func(id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/api/postings/"+id+"/company", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Happy path: the posting moves; the response carries the new company name.
+	rec := put(p.ID, `{"company_id":"`+added.CompanyID+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("relink: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		CompanyID   string `json:"company_id"`
+		CompanyName string `json:"company_name"`
+		Posting     struct {
+			CompanyID string `json:"company_id"`
+		} `json:"posting"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.CompanyID != added.CompanyID || got.Posting.CompanyID != added.CompanyID {
+		t.Errorf("posting not relinked: %+v", got)
+	}
+	if got.CompanyName != "Automat AI" {
+		t.Errorf("company_name = %q, want Automat AI", got.CompanyName)
+	}
+
+	// Actually persisted.
+	if gp, _ := s.DB.GetPosting(p.ID); gp == nil || gp.CompanyID != added.CompanyID {
+		t.Errorf("not persisted: %+v", gp)
+	}
+
+	// Unknown / blank target → 400 (never a silent create); unknown posting → 404.
+	if rec := put(p.ID, `{"company_id":"does-not-exist"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown company: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := put(p.ID, `{"company_id":""}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("blank company: want 400, got %d", rec.Code)
+	}
+	if rec := put("nope", `{"company_id":"`+added.CompanyID+`"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown posting: want 404, got %d", rec.Code)
+	}
+
+	// GET → 405.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/postings/"+p.ID+"/company", nil)
+	getRec := httptest.NewRecorder()
+	h.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET company: want 405, got %d", getRec.Code)
+	}
+}
