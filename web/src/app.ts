@@ -572,7 +572,10 @@ function fitRespWidth(sel) {
   const ctx = (fitRespWidth._c ||= document.createElement("canvas").getContext("2d"));
   ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   const w = ctx.measureText(opt ? opt.text : "").width;
-  sel.style.width = Math.ceil(w + 35) + "px"; // 9 left pad + 22 chevron gutter + 2 border + 2 fudge
+  // These selects are chevron-less (appearance:none) and center their text, so
+  // size to the label + symmetric padding (≈9px each side + border) — no chevron
+  // gutter, which would otherwise strand the centered text low and off-center.
+  sel.style.width = Math.ceil(w + 24) + "px";
 }
 
 function renderJobs() {
