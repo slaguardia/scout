@@ -113,14 +113,14 @@ func TestNextUpClearsWhenOutreachGoesOut(t *testing.T) {
 	}
 
 	// A tracking write that does NOT bump outreach keeps the mark.
-	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-06"})
+	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: "initial contact"})
 	if err != nil || !p.NextUp {
 		t.Fatalf("mark lost on unrelated tracking write: next_up=%v err=%v", p.NextUp, err)
 	}
 
 	// Logging the outreach (+1) completes the to-do — the mark clears.
 	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{
-		AppliedAt: "2026-06-06", OutreachCount: 1, LastOutreachAt: "2026-06-06",
+		OutreachCount: 1, LastOutreachAt: "2026-06-06",
 	})
 	if err != nil || p.NextUp {
 		t.Fatalf("mark not cleared by outreach bump: next_up=%v err=%v", p.NextUp, err)
@@ -312,53 +312,57 @@ func TestUpdatePostingTracking(t *testing.T) {
 	}
 
 	// Fresh posting starts blank.
-	if p.AppliedAt != "" || p.Response != "" || p.OutreachCount != 0 || p.LastOutreachAt != "" {
+	if p.StageHistory != "" || p.OutreachCount != 0 || p.LastOutreachAt != "" || p.OutreachStatus != "" {
 		t.Errorf("expected blank lifecycle, got %+v", p)
 	}
 
-	// Full update round-trips.
+	// Full update round-trips (stage_history + outreach_status are opaque labels).
+	stages := `[{"stage":"applied","date":"2026-05-22"},{"stage":"interview","date":"2026-06-10"}]`
 	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{
-		AppliedAt: "2026-05-22", Response: "Screening", OutreachCount: 2, LastOutreachAt: "2026-05-30",
+		StageHistory: stages, OutreachStatus: "initial contact", OutreachCount: 2, LastOutreachAt: "2026-05-30",
 		Contacts: "  Jane Doe <jane@acme.com>, cto@acme.com  ",
 	})
 	if err != nil {
 		t.Fatalf("UpdatePostingTracking: %v", err)
 	}
-	if got.AppliedAt != "2026-05-22" || got.Response != "screening" || // response is case-folded
+	if got.StageHistory != stages || got.OutreachStatus != "initial contact" ||
 		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" ||
 		got.Contacts != "Jane Doe <jane@acme.com>, cto@acme.com" { // trimmed
 		t.Errorf("unexpected tracking: %+v", got)
 	}
+	if cur := CurrentStage(got.StageHistory); cur != "interview" {
+		t.Errorf("current stage = %q, want interview", cur)
+	}
 
-	// Clearing works (un-applied, response reset).
+	// Clearing works (stage history + status reset).
 	got, err = db.UpdatePostingTracking(p.ID, PostingTracking{})
 	if err != nil {
 		t.Fatalf("clear tracking: %v", err)
 	}
-	if got.AppliedAt != "" || got.Response != "" || got.OutreachCount != 0 ||
+	if got.StageHistory != "" || got.OutreachStatus != "" || got.OutreachCount != 0 ||
 		got.LastOutreachAt != "" || got.Contacts != "" {
 		t.Errorf("tracking not cleared: %+v", got)
 	}
 
 	// The jobs view carries the lifecycle columns.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "2026-06-01", Response: "offer", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{StageHistory: stages, OutreachStatus: "replied", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
 		t.Fatalf("re-set tracking: %v", err)
 	}
 	rows, err := db.ListJobRows()
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
 	}
-	if r := rows[0]; r.AppliedAt != "2026-06-01" || r.Response != "offer" || r.OutreachCount != 1 ||
+	if r := rows[0]; r.StageHistory != stages || r.OutreachStatus != "replied" || r.OutreachCount != 1 ||
 		r.LastOutreachAt != "2026-06-02" || r.Contacts != "jane@acme.com" {
 		t.Errorf("job row lifecycle mismatch: %+v", r)
 	}
 
-	// Validation: bad date, bad response, negative count, unknown posting.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{AppliedAt: "May 22"}); err == nil || !strings.HasPrefix(err.Error(), "applied_at ") {
-		t.Errorf("bad date: want applied_at error, got %v", err)
+	// Validation: bad date, over-long outreach_status, negative count, unknown posting.
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{LastOutreachAt: "May 22"}); err == nil || !strings.HasPrefix(err.Error(), "last_outreach_at ") {
+		t.Errorf("bad date: want last_outreach_at error, got %v", err)
 	}
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{Response: "ghosted"}); err == nil || !strings.HasPrefix(err.Error(), "response ") {
-		t.Errorf("bad response: want response error, got %v", err)
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: strings.Repeat("x", 100)}); err == nil || !strings.HasPrefix(err.Error(), "outreach_status ") {
+		t.Errorf("over-long status: want outreach_status error, got %v", err)
 	}
 	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachCount: -1}); err == nil || !strings.HasPrefix(err.Error(), "outreach_count ") {
 		t.Errorf("negative count: want outreach_count error, got %v", err)

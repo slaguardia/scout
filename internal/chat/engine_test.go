@@ -216,7 +216,7 @@ func TestEngineAppliedToLinkFlow(t *testing.T) {
 				return
 			}
 			io.WriteString(w, toolUseSSE("track_application",
-				`{\"posting_id\":\"`+string(m[1])+`\",\"applied_at\":\"2026-06-08\"}`))
+				`{\"posting_id\":\"`+string(m[1])+`\",\"stage\":\"applied\",\"stage_date\":\"2026-06-08\"}`))
 		default:
 			io.WriteString(w, endTurnStream)
 		}
@@ -235,7 +235,7 @@ func TestEngineAppliedToLinkFlow(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// A company was created and a posting tracked with applied_at set.
+	// A company was created and a posting tracked with the 'applied' stage set.
 	jobs, err := db.ListJobRows()
 	if err != nil {
 		t.Fatalf("ListJobRows: %v", err)
@@ -246,8 +246,9 @@ func TestEngineAppliedToLinkFlow(t *testing.T) {
 	if jobs[0].Company != "Acme" {
 		t.Errorf("company = %q, want Acme", jobs[0].Company)
 	}
-	if jobs[0].AppliedAt != "2026-06-08" {
-		t.Errorf("applied_at = %q, want 2026-06-08 (track_application didn't run)", jobs[0].AppliedAt)
+	ev := store.ParseStageHistory(jobs[0].StageHistory)
+	if len(ev) != 1 || ev[0].Stage != "applied" || ev[0].Date != "2026-06-08" {
+		t.Errorf("stage history = %+v, want one 'applied' on 2026-06-08 (track_application didn't run)", ev)
 	}
 }
 

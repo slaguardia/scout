@@ -140,12 +140,12 @@ func parseRawJSON(s string) map[string]string {
 
 // Stats is the payload for GET /api/stats.
 type Stats struct {
-	TotalCompanies    int            `json:"total_companies"`
-	EnrichedOK        int            `json:"enriched_ok"`
-	Scored            int            `json:"scored"`
-	Unscored          int            `json:"unscored"`
-	ByVerdict         map[string]int `json:"by_verdict"`
-	FetchStatus       map[string]int `json:"fetch_status"`
+	TotalCompanies     int            `json:"total_companies"`
+	EnrichedOK         int            `json:"enriched_ok"`
+	Scored             int            `json:"scored"`
+	Unscored           int            `json:"unscored"`
+	ByVerdict          map[string]int `json:"by_verdict"`
+	FetchStatus        map[string]int `json:"fetch_status"`
 	CurrentTaste       string         `json:"current_taste"`        // version hash, e.g. "b4cd783174d6"
 	TasteSource        string         `json:"taste_source"`         // "file:taste.md" or "brainbot:<url>" or "" if unknown
 	TasteFilterEnabled bool           `json:"taste_filter_enabled"` // pre-filter master switch (on by default)

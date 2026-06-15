@@ -11,7 +11,7 @@ import (
 // SystemPrompt builds the per-request system prompt for a chat turn. scope is
 // global / company / posting; contextBlock is the seeded entity context the
 // caller assembles (regenerated each turn, never persisted as a message). now
-// stamps today's date so the model can fill applied_at without guessing.
+// stamps today's date so the model can date a stage without guessing.
 func SystemPrompt(scope, contextBlock string, now time.Time) string {
 	var b strings.Builder
 	b.WriteString(basePrompt)
@@ -36,7 +36,7 @@ You act on scout's local data only. You never write to anything outside scout.`
 
 const globalPrompt = `This is the global tracking chat. The common task: the user says they applied to a job (often with a link). When they do:
 1. Call capture_link with the URL to add the company and posting (idempotent — re-capturing a known link just refreshes it). It returns the company_id and posting_id.
-2. Call track_application with that posting_id and applied_at set to today's date to mark it applied.
+2. Call track_application with that posting_id and stage set to "applied" to record the application (it dates the stage to today by default).
 3. Confirm briefly: which company/role, that it's saved and marked applied.
 
 For questions like "did I already add X?" or "what's the verdict on Y?", use search, then get_company / get_posting. Use track_application for any application-status update (heard back, did outreach, added a contact).`

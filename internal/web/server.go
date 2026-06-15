@@ -155,18 +155,18 @@ func (s *Server) Handler() http.Handler {
 	// read / triage
 	mux.HandleFunc("/api/companies", s.handleCompanies)
 	mux.HandleFunc("/api/companies/", s.handleCompany)
-	mux.HandleFunc("/api/postings", s.handlePostings)                            // all postings across companies (jobs view)
-	mux.HandleFunc("/api/postings/", s.handlePosting)                            // PUT {id}: application-lifecycle update
-	mux.HandleFunc("/api/follow-ups", s.handleFollowUps)                         // GET: postings overdue for a follow-up (see followups.go)
-	mux.HandleFunc("/api/settings/follow-up-interval", s.handleFollowUpInterval) // GET/PUT the follow-up cadence in days
-	mux.HandleFunc("/api/capture", s.handleCapture)                              // POST: link-capture agent pass
-	mux.HandleFunc("/api/outreach-template", s.handleOutreachTemplate)           // GET/PUT the scout-local email template (see editor.go)
-	mux.HandleFunc("/api/outreach-prompts", s.handleOutreachPromptsList)         // GET the editable pipeline stages (see editor.go)
-	mux.HandleFunc("/api/outreach-prompts/", s.handleOutreachPrompt)             // GET/PUT one stage's prompt + on/off (see editor.go)
-	mux.HandleFunc("/api/outreach/", s.handleOutreach)                           // sources / refresh / drafts (see outreach.go)
-	mux.HandleFunc("/api/answers/", s.handleAnswer)                              // PUT {id}: edit / regenerate one answer (see answers.go)
-	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)                     // GET open-or-create a (scope,scope_id) thread
-	mux.HandleFunc("/api/chat/", s.handleChat)                                   // POST {thread}/message, GET {thread}/stream
+	mux.HandleFunc("/api/postings", s.handlePostings)                    // all postings across companies (jobs view)
+	mux.HandleFunc("/api/postings/", s.handlePosting)                    // PUT {id}: application-lifecycle update
+	mux.HandleFunc("/api/outreach-statuses", s.handleOutreachStatuses)   // GET/PUT the configurable outreach-status vocabulary
+	mux.HandleFunc("/api/application-stages", s.handleApplicationStages) // GET/PUT the configurable application-stage vocabulary
+	mux.HandleFunc("/api/capture", s.handleCapture)                      // POST: link-capture agent pass
+	mux.HandleFunc("/api/outreach-template", s.handleOutreachTemplate)   // GET/PUT the scout-local email template (see editor.go)
+	mux.HandleFunc("/api/outreach-prompts", s.handleOutreachPromptsList) // GET the editable pipeline stages (see editor.go)
+	mux.HandleFunc("/api/outreach-prompts/", s.handleOutreachPrompt)     // GET/PUT one stage's prompt + on/off (see editor.go)
+	mux.HandleFunc("/api/outreach/", s.handleOutreach)                   // sources / refresh / drafts (see outreach.go)
+	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate one answer (see answers.go)
+	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)             // GET open-or-create a (scope,scope_id) thread
+	mux.HandleFunc("/api/chat/", s.handleChat)                           // POST {thread}/message, GET {thread}/stream
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/facets", s.handleFacets) // distinct stages/verticals for the Add-company form
 
