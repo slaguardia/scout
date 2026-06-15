@@ -446,6 +446,27 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<!-- relink a job to a different company — search the existing companies -->
+<div class="modal-scrim" id="relink-scrim">
+  <div class="modal" style="width:520px">
+    <div class="modal-head">
+      <h2>Move job to another company</h2>
+      <span class="ver" id="relink-current"></span>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="relink-search" class="key-input" placeholder="search companies…" autocomplete="off" spellcheck="false">
+      <div class="relink-results" id="relink-results"></div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>Moves this job to a different <strong>existing</strong> company — the fix for a posting captured under the wrong company twin. Its outreach drafts, application answers, and tracking travel with it; it then shows the new company's verdict. To add a brand-new company, use <strong>Add</strong> first.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="relink-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- section help — what each button does, with links into the docs overlay -->
 <div class="modal-scrim" id="help-scrim">
   <div class="modal" style="width:440px">

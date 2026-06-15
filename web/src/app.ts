@@ -924,55 +924,15 @@ async function savePostingURL(j, val) {
   syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
-// wireRelinkCompany binds the "change" affordance in the role footer that moves
-// a posting to a different *existing* company — the fix for a job captured under
-// the wrong company twin (e.g. "Automat" vs the "Automat AI" row that has the
-// real enrichment). The picker is a datalist of the companies already in the DB
-// (state.rows); the typed name is resolved to its id client-side and rejected if
-// it doesn't match one — relinking never creates a company.
+// wireRelinkCompany binds the "change" affordance in the role footer that opens
+// the relink search modal — moving a posting to a different *existing* company
+// is the fix for a job captured under the wrong company twin (e.g. "Automat" vs
+// the "Automat AI" row that has the real enrichment). The modal itself is global
+// markup wired once (see the relink-modal block below); here we only re-bind the
+// per-render button to open it against the current row.
 function wireRelinkCompany(j) {
-  const view = document.getElementById("pursuit-company-view");
-  const editor = document.getElementById("pursuit-company-relink");
   const edit = document.getElementById("pursuit-company-edit");
-  const input = document.getElementById("pursuit-company-input");
-  const save = document.getElementById("pursuit-company-save");
-  const cancel = document.getElementById("pursuit-company-cancel");
-  if (!view || !editor || !edit || !input || !save || !cancel) return;
-
-  const list = document.getElementById("relink-company-names");
-  list.innerHTML = (state.rows || [])
-    .map(r => `<option value="${escapeHTML(r.name)}">`).join("");
-
-  const show = (on) => {
-    editor.hidden = !on;
-    view.hidden = on;
-    if (on) { input.value = j.company || ""; input.focus(); input.select(); }
-  };
-  const commit = async () => {
-    const name = input.value.trim();
-    if (!name) { show(false); return; }
-    // Match the typed name to an existing company (case-insensitive), preferring
-    // an exact hit; the target must already exist.
-    const rows = state.rows || [];
-    const match = rows.find(r => r.name === name)
-      || rows.find(r => r.name.toLowerCase() === name.toLowerCase());
-    if (!match) { toast(`no company named "${name}" — add it first`); return; }
-    if (match.company_id === j.company_id) { show(false); return; }
-    try {
-      await savePostingCompany(j, match.company_id);
-      toast(`moved to ${j.company}`);
-    } catch (err) {
-      toast(`move failed: ${err.message}`);
-    }
-  };
-
-  edit.addEventListener("click", () => show(true));
-  cancel.addEventListener("click", () => show(false));
-  save.addEventListener("click", commit);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); commit(); }
-    else if (e.key === "Escape") { e.preventDefault(); show(false); }
-  });
+  if (edit) edit.addEventListener("click", () => openRelinkModal(j));
 }
 
 // savePostingCompany re-links the posting to an existing company via its own
@@ -990,6 +950,83 @@ async function savePostingCompany(j, companyId) {
   j.company = fresh.company_name;
   renderPursuit();   // the footer link, verdict context, and outreach target all key on the company
   loadJobs();        // the jobs table carries the company name + the new company's verdict
+}
+
+// ---- relink search modal ----
+// The "change" affordance opens a search-as-you-type picker over the companies
+// already in the DB (state.rows), showing each candidate's verdict + vertical /
+// location so twins are easy to tell apart. Picking one moves the posting via
+// savePostingCompany. relinkRow holds the posting being moved while it's open.
+let relinkRow = null;
+
+function openRelinkModal(j) {
+  relinkRow = j;
+  const meta = document.getElementById("relink-current");
+  if (meta) meta.textContent = j.company ? `currently: ${j.company}` : "";
+  const search = document.getElementById("relink-search");
+  if (search) search.value = "";
+  renderRelinkResults("");
+  document.getElementById("relink-scrim").classList.add("open");
+  if (search) search.focus();
+}
+
+function closeRelinkModal() {
+  document.getElementById("relink-scrim").classList.remove("open");
+  relinkRow = null;
+}
+
+// renderRelinkResults paints the filtered company list. Empty query → all
+// companies (alphabetical); a query ranks prefix matches first, then any
+// substring hit on the name. The current company is shown but not selectable.
+function renderRelinkResults(query) {
+  const box = document.getElementById("relink-results");
+  if (!box) return;
+  const q = query.trim().toLowerCase();
+  let rows = (state.rows || []).slice();
+  if (q) {
+    rows = rows.filter(r => (r.name || "").toLowerCase().includes(q));
+    rows.sort((a, b) => {
+      const ap = (a.name || "").toLowerCase().startsWith(q) ? 0 : 1;
+      const bp = (b.name || "").toLowerCase().startsWith(q) ? 0 : 1;
+      return ap - bp || (a.name || "").localeCompare(b.name || "");
+    });
+  } else {
+    rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+  rows = rows.slice(0, 60);
+  if (!rows.length) {
+    box.innerHTML = `<div class="relink-empty">${(state.rows || []).length ? "no company matches" : "no companies yet — Add one first"}</div>`;
+    return;
+  }
+  const curId = relinkRow ? relinkRow.company_id : "";
+  box.innerHTML = rows.map(r => {
+    const current = r.company_id === curId;
+    const sub = [r.vertical, r.location].filter(Boolean).map(escapeHTML).join(" · ");
+    return `<button type="button" class="relink-result${current ? " is-current" : ""}"
+        data-id="${r.company_id}"${current ? " disabled" : ""}>
+        <span class="rr-main">
+          <span class="rr-name">${escapeHTML(r.name || "—")}</span>
+          ${sub ? `<span class="rr-sub">${sub}</span>` : ""}
+        </span>
+        <span class="${pillClass(r.verdict)} rr-verdict">${escapeHTML(r.verdict || "—")}</span>
+        ${current ? `<span class="rr-current-tag">current</span>` : ""}
+      </button>`;
+  }).join("");
+}
+
+// chooseRelinkCompany moves the posting to the picked company and closes. A
+// no-op (just close) if it's already the current one.
+async function chooseRelinkCompany(companyId) {
+  const j = relinkRow;
+  if (!j) { closeRelinkModal(); return; }
+  if (companyId === j.company_id) { closeRelinkModal(); return; }
+  try {
+    await savePostingCompany(j, companyId);
+    closeRelinkModal();
+    toast(`moved to ${j.company}`);
+  } catch (err) {
+    toast(`move failed: ${err.message}`);
+  }
 }
 
 // saveCompanyField mirrors savePostingField for the company pane. Name is
@@ -1206,18 +1243,11 @@ function roleEditHTML(j) {
     </div>
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <span class="role-company-wrap" id="pursuit-company-view">
+      <span class="role-company-wrap">
         <button type="button" class="role-company role-company-link" id="pursuit-company-link"
                 title="open the company panel">${escapeHTML(j.company)} ↗</button>
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
-                title="link this job to a different company">change</button>
-      </span>
-      <span class="role-company-relink" id="pursuit-company-relink" hidden>
-        <input class="ie" id="pursuit-company-input" list="relink-company-names"
-               placeholder="company…" autocomplete="off">
-        <datalist id="relink-company-names"></datalist>
-        <button type="button" class="btn btn-primary" id="pursuit-company-save">move</button>
-        <button type="button" class="btn" id="pursuit-company-cancel">cancel</button>
+                title="move this job to a different company">change</button>
       </span>
     </div>`;
 }
@@ -3234,6 +3264,8 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
   if (document.getElementById("help-scrim").classList.contains("open")) { closeHelp(); return; }
+  // The relink modal sits on top of the pursuit panel — peel it before the panes.
+  if (document.getElementById("relink-scrim").classList.contains("open")) { closeRelinkModal(); return; }
   // The company pane and the pursuit panel can stack either way; peel whichever
   // raisePane() last lifted to the top, falling back to whichever is open.
   const companyOpen = document.getElementById("pane").classList.contains("open");
@@ -3413,6 +3445,26 @@ document.getElementById("key-scrim").onclick = e => {
 };
 document.getElementById("key-input").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); saveKey(); }
+});
+
+// relink search modal (move a job to another company)
+document.getElementById("relink-cancel").onclick = closeRelinkModal;
+document.getElementById("relink-scrim").onclick = e => {
+  if (e.target.id === "relink-scrim") closeRelinkModal();
+};
+document.getElementById("relink-search").addEventListener("input", e => {
+  renderRelinkResults(e.target.value);
+});
+document.getElementById("relink-search").addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const first = document.querySelector("#relink-results .relink-result:not([disabled])");
+    if (first) chooseRelinkCompany(first.dataset.id);
+  }
+});
+document.getElementById("relink-results").addEventListener("click", e => {
+  const btn = e.target.closest(".relink-result");
+  if (btn && !btn.disabled) chooseRelinkCompany(btn.dataset.id);
 });
 
 // ---- company-fit brief + criteria block ----

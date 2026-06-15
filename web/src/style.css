@@ -766,9 +766,6 @@
     transition: color var(--dur-fast) var(--ease);
   }
   .role-head .role-company-relink-btn:hover { color: var(--link); text-decoration: underline; }
-  .role-head .role-company-relink { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .role-head .role-company-relink .ie { width: 200px; }
-  .role-head .role-company-relink .btn { padding: 5px 12px; font-size: 12.5px; }
   .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);
@@ -1289,6 +1286,29 @@
   .modal-scrim.open { opacity: 1; pointer-events: auto; }
   /* Settings is a base modal: editors/viewers opened from it (z 70) stack above. */
   #settings-scrim { z-index: 68; }
+
+  /* relink search modal — move a job to a different existing company */
+  #relink-search { margin-bottom: 10px; font-family: inherit; }
+  .relink-results {
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 46vh; overflow-y: auto; margin-bottom: 4px;
+  }
+  .relink-empty { color: var(--fg-dim); font-size: 13px; padding: 18px 4px; text-align: center; }
+  .relink-result {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 9px 12px; font: inherit; cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .relink-result:hover { border-color: var(--link); background: var(--panel-2); }
+  .relink-result.is-current { cursor: default; opacity: 0.7; }
+  .relink-result.is-current:hover { border-color: var(--line); background: var(--bg); }
+  .relink-result .rr-main { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+  .relink-result .rr-name { font-size: 13.5px; font-weight: 550; }
+  .relink-result .rr-sub { font-size: 12px; color: var(--fg-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .relink-result .rr-verdict { flex: none; font-size: 11px; }
+  .relink-result .rr-current-tag { flex: none; font-size: 11px; color: var(--fg-dim); }
 
   /* floating chat CTA — bottom-right, above the main view but below side panes */
   .chat-fab {
