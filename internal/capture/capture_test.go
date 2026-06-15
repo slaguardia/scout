@@ -113,7 +113,7 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	llm := fakeAnthropic(t, extraction{
 		Kind: KindJob, CompanyName: "Acme", CompanyDomain: "acme.com",
 		JobTitle: "Solutions Engineer", JobLocation: "SF / remote",
-		Summary: "Pre-sales engineering.", Vertical: "AI infra",
+		Vertical: "AI infra",
 	})
 	c := newCapturer(t, llm)
 
@@ -130,6 +130,11 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	if res.Posting == nil || res.Posting.Title != "Solutions Engineer" ||
 		res.Posting.Location != "SF / remote" || res.Posting.Source != "capture" {
 		t.Errorf("unexpected posting: %+v", res.Posting)
+	}
+	// The non-ATS path keeps the fetched page text as the posting body (no LLM
+	// blurb) — it's what outreach/chat read.
+	if res.Posting != nil && !strings.Contains(res.Posting.Description, "AI infrastructure") {
+		t.Errorf("posting description not seeded from page text: %q", res.Posting.Description)
 	}
 	// The company row landed under the extracted domain.
 	if res.CompanyID != store.CompanyID("acme.com", "Acme") {
@@ -153,7 +158,7 @@ func TestRunCapturesCompanyPage(t *testing.T) {
 	page := jobPage(t)
 	llm := fakeAnthropic(t, extraction{
 		Kind: KindCompany, CompanyName: "Acme", CompanyDomain: "acme.com",
-		Summary: "AI infra for ML teams.", Vertical: "AI infra", CompanyLocation: "San Francisco",
+		Vertical: "AI infra", CompanyLocation: "San Francisco",
 	})
 	c := newCapturer(t, llm)
 

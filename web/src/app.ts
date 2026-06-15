@@ -354,7 +354,7 @@ async function updateCompanyRows(ids) {
 // ---- jobs view ----
 // The tracker: one row per saved posting, company name + application
 // lifecycle (everything else lives in the side panel). The jobs Filter block
-// is its own — search matches title/company/location/summary/contacts,
+// is its own — search matches title/company/location/description/contacts,
 // response chips filter on the application lifecycle, and "hide rejected"
 // mirrors the Notion tracker's default view. Picking the "rejected" chip
 // explicitly overrides hide-rejected — an empty table would just confuse.
@@ -372,7 +372,7 @@ function filteredJobs() {
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
     if (q) {
-      const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.summary||"") + " " + (j.contacts||"")).toLowerCase();
+      const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.description||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -720,7 +720,7 @@ async function savePostingField(j, key, val) {
   const body = {
     title: j.title || "", location: j.location || "", comp_range: j.comp_range || "",
     employment_type: j.employment_type || "", workplace_type: j.workplace_type || "",
-    department: j.department || "", summary: j.summary || "", description: j.description || "",
+    department: j.department || "", description: j.description || "",
     [key]: val,
   };
   const resp = await fetch(`/api/postings/${j.posting_id}/details`, {
@@ -730,13 +730,13 @@ async function savePostingField(j, key, val) {
   if (!resp.ok) throw new Error((await resp.text().catch(() => "")).trim() || "HTTP " + resp.status);
   const fresh = await resp.json();
   Object.assign(j, {
-    title: fresh.title, location: fresh.location, summary: fresh.summary,
+    title: fresh.title, location: fresh.location,
     employment_type: fresh.employment_type, workplace_type: fresh.workplace_type,
     department: fresh.department, comp_range: fresh.comp_range, description: fresh.description,
   });
   renderJobs();   // the table shows the role title — keep it current
   syncCompanyPosting(j.posting_id, {   // the company pane beneath shows these too
-    title: fresh.title, location: fresh.location, summary: fresh.summary,
+    title: fresh.title, location: fresh.location,
   });
 }
 
@@ -1023,8 +1023,6 @@ function roleEditHTML(j) {
       </div>
       <div class="ie-field"><label>department</label>
         <input class="ie" data-k="department" placeholder="—" value="${escapeHTML(j.department || "")}"></div>
-      <div class="ie-field"><label>summary</label>
-        <textarea class="ie" data-k="summary" rows="2" placeholder="—">${escapeHTML(j.summary || "")}</textarea></div>
       <div class="ie-field"><label>description</label>
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${escapeHTML(j.description || "")}</textarea></div>
     </div>
@@ -2299,7 +2297,7 @@ function postingsListHTML(d) {
     return `
     <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
-      ${p.summary ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.summary)}</div>` : ""}
+      ${p.description ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.description.length > 200 ? p.description.slice(0, 200).trimEnd() + "…" : p.description)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
       <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">open →</span></div>
     </div>`;
@@ -2572,7 +2570,7 @@ function updateAddNote() {
   if (addEnrichOn()) {
     note.innerHTML = addKind === "company"
       ? "scout fetches the page and fills the blank fields — your values win. The page text also seeds enrichment, so the next Verdict can score it. Pages behind a login wall (LinkedIn) usually can't be fetched."
-      : "scout fetches the posting and fills in the title, location and summary — your values win. The job attaches to its company, adding it to the list first if needed. Pages behind a login wall (LinkedIn) usually can't be fetched.";
+      : "scout fetches the posting and fills in the title, location and description — your values win. The job attaches to its company, adding it to the list first if needed. Pages behind a login wall (LinkedIn) usually can't be fetched.";
   } else {
     note.innerHTML = addKind === "company"
       ? "Stored as source <code>manual</code>. Run Enrich then Verdict to score it. A website already in the list is rejected — manual adds never overwrite an existing company."

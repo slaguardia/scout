@@ -23,7 +23,7 @@ var ErrUnknownCompany = errors.New("company not found")
 // company_id is the company's deterministic TEXT uuid (see CompanyID).
 //
 // Beyond the hand-entered url/title, the link-capture agent pass fills the
-// extracted fields (location, summary) and provenance: source is "manual"
+// extracted fields (location, description) and provenance: source is "manual"
 // (hand-added) or "capture", fetch_status records how the capture fetch went,
 // and captured_at is when the agent pass last filled the row.
 type Posting struct {
@@ -32,15 +32,16 @@ type Posting struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`        // "" when null
 	Location    string `json:"location"`     // "" when null
-	Summary     string `json:"summary"`      // "" when null
 	Source      string `json:"source"`       // "manual" | "capture"
 	FetchStatus string `json:"fetch_status"` // capture taxonomy; "" for manual adds
 	CreatedAt   string `json:"created_at"`
 	CapturedAt  string `json:"captured_at"` // "" when never captured
 
 	// Structured details (M28), filled by the ATS resolver — the no-LLM capture
-	// path that reads ashby/greenhouse/lever's public posting API. All "" when
-	// the link wasn't ATS-resolved.
+	// path that reads ashby/greenhouse/lever's public posting API. The detail
+	// columns are "" when the link wasn't ATS-resolved; Description is the
+	// exception — the non-ATS LLM path also fills it (with the fetched page
+	// text), since it's the posting body outreach and chat read.
 	PostedAt       string `json:"posted_at"`       // "YYYY-MM-DD"
 	EmploymentType string `json:"employment_type"` // "Full-time", "Contract", ...
 	WorkplaceType  string `json:"workplace_type"`  // "Remote" | "Hybrid" | "On-site"
@@ -78,7 +79,7 @@ type Posting struct {
 
 // postingCols is the shared SELECT list; keep in sync with scanPosting.
 const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location, ''),
-       COALESCE(summary, ''), COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
+       COALESCE(source, 'manual'), COALESCE(fetch_status, ''),
        created_at, COALESCE(captured_at, ''),
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
@@ -90,7 +91,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 	var p Posting
 	var nextUpAt sql.NullString
 	err := row.Scan(&p.ID, &p.CompanyID, &p.URL, &p.Title, &p.Location,
-		&p.Summary, &p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
+		&p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
 		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
@@ -176,11 +177,11 @@ type CapturedPosting struct {
 	PastedURL   string
 	Title       string
 	Location    string
-	Summary     string
 	FetchStatus string
 
-	// Structured details (M28) — set only by the ATS resolver; the LLM path
-	// leaves them empty, and empties never overwrite stored values on upsert.
+	// Structured details (M28) — set by the ATS resolver; the LLM path leaves
+	// PostedAt/EmploymentType/etc. empty but does fill Description (the fetched
+	// page text). Empties never overwrite stored values on upsert.
 	PostedAt       string // "YYYY-MM-DD"
 	EmploymentType string
 	WorkplaceType  string
@@ -215,17 +216,17 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 	switch {
 	case err == nil:
 		// Most columns COALESCE — the two capture paths fill different fields
-		// (the ATS resolver never writes a summary, the LLM path never writes
-		// the detail columns), so an empty re-capture must not erase what the
-		// other path stored. Non-empty values still overwrite.
+		// (the ATS resolver fills the detail columns, the LLM path fills only
+		// description), so an empty re-capture must not erase what the other
+		// path stored. Non-empty values still overwrite.
 		const q = `UPDATE job_postings SET
-		    url = ?, title = ?, location = COALESCE(?, location), summary = COALESCE(?, summary),
+		    url = ?, title = ?, location = COALESCE(?, location),
 		    posted_at = COALESCE(?, posted_at), employment_type = COALESCE(?, employment_type),
 		    workplace_type = COALESCE(?, workplace_type), department = COALESCE(?, department),
 		    comp_range = COALESCE(?, comp_range), description = COALESCE(?, description),
 		    source = 'capture', fetch_status = ?, captured_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`
-		if _, err := db.Exec(q, url, null(p.Title), null(p.Location), null(p.Summary),
+		if _, err := db.Exec(q, url, null(p.Title), null(p.Location),
 			null(p.PostedAt), null(p.EmploymentType), null(p.WorkplaceType),
 			null(p.Department), null(p.CompRange), null(p.Description),
 			null(p.FetchStatus), existingID); err != nil {
@@ -245,11 +246,11 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 		return Posting{}, false, sql.ErrNoRows
 	}
 	id := uuid.NewString()
-	const q = `INSERT INTO job_postings (id, company_id, url, title, location, summary,
+	const q = `INSERT INTO job_postings (id, company_id, url, title, location,
 	               posted_at, employment_type, workplace_type, department, comp_range, description,
 	               source, fetch_status, captured_at)
-	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'capture', ?, CURRENT_TIMESTAMP)`
-	if _, err := db.Exec(q, id, p.CompanyID, url, null(p.Title), null(p.Location), null(p.Summary),
+	           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'capture', ?, CURRENT_TIMESTAMP)`
+	if _, err := db.Exec(q, id, p.CompanyID, url, null(p.Title), null(p.Location),
 		null(p.PostedAt), null(p.EmploymentType), null(p.WorkplaceType),
 		null(p.Department), null(p.CompRange), null(p.Description),
 		null(p.FetchStatus)); err != nil {
@@ -333,7 +334,6 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 type PostingEdit struct {
 	Title          string `json:"title"`
 	Location       string `json:"location"`
-	Summary        string `json:"summary"`
 	EmploymentType string `json:"employment_type"`
 	WorkplaceType  string `json:"workplace_type"`
 	Department     string `json:"department"`
@@ -346,11 +346,11 @@ type PostingEdit struct {
 // Strings are trimmed; empty ones store as NULL.
 func (db *DB) UpdatePostingDetails(id string, e PostingEdit) (Posting, error) {
 	const q = `UPDATE job_postings SET
-	    title = ?, location = ?, summary = ?, employment_type = ?,
+	    title = ?, location = ?, employment_type = ?,
 	    workplace_type = ?, department = ?, comp_range = ?, description = ?
 	 WHERE id = ?`
 	tr := func(s string) sql.NullString { return NullString(strings.TrimSpace(s)) }
-	res, err := db.Exec(q, tr(e.Title), tr(e.Location), tr(e.Summary), tr(e.EmploymentType),
+	res, err := db.Exec(q, tr(e.Title), tr(e.Location), tr(e.EmploymentType),
 		tr(e.WorkplaceType), tr(e.Department), tr(e.CompRange), tr(e.Description), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting details %s: %w", id, err)
@@ -482,7 +482,6 @@ type JobRow struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	Location    string `json:"location"`
-	Summary     string `json:"summary"`
 	Source      string `json:"source"`
 	FetchStatus string `json:"fetch_status"`
 	CreatedAt   string `json:"created_at"`
@@ -501,13 +500,13 @@ type JobRow struct {
 	Flagged  bool   `json:"flagged"`
 
 	// Application lifecycle (M23) — the tracker columns of the jobs view.
-	AppliedAt         string `json:"applied_at"`
-	Response          string `json:"response"`
-	OutreachCount     int    `json:"outreach_count"`
-	LastOutreachAt    string `json:"last_outreach_at"`
-	Contacts          string `json:"contacts"`           // outreach contacts (M24)
-	Notes             string `json:"notes"`              // free-form, human-only posting notes
-	NextUp            bool   `json:"next_up"`            // queued "next up for outreach" (M27)
+	AppliedAt      string `json:"applied_at"`
+	Response       string `json:"response"`
+	OutreachCount  int    `json:"outreach_count"`
+	LastOutreachAt string `json:"last_outreach_at"`
+	Contacts       string `json:"contacts"` // outreach contacts (M24)
+	Notes          string `json:"notes"`    // free-form, human-only posting notes
+	NextUp         bool   `json:"next_up"`  // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
@@ -528,7 +527,7 @@ func (db *DB) ListJobRows() ([]JobRow, error) {
 	// shape — it feeds the jobs-table "draft ready" badge, nothing more.
 	const q = `
 SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.location, ''),
-       COALESCE(p.summary, ''), COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
+       COALESCE(p.source, 'manual'), COALESCE(p.fetch_status, ''),
        p.created_at,
        COALESCE(p.posted_at, ''), COALESCE(p.employment_type, ''), COALESCE(p.workplace_type, ''),
        COALESCE(p.department, ''), COALESCE(p.comp_range, ''), COALESCE(p.description, ''),
@@ -554,7 +553,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 		var r JobRow
 		var reviewedAt, flaggedAt, nextUpAt sql.NullString
 		if err := rows.Scan(&r.PostingID, &r.CompanyID, &r.Company, &r.URL, &r.Title, &r.Location,
-			&r.Summary, &r.Source, &r.FetchStatus, &r.CreatedAt,
+			&r.Source, &r.FetchStatus, &r.CreatedAt,
 			&r.PostedAt, &r.EmploymentType, &r.WorkplaceType,
 			&r.Department, &r.CompRange, &r.Description,
 			&r.Verdict, &r.Reason,

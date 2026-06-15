@@ -355,12 +355,8 @@ func (s *Server) postingContext(postingID string) string {
 	if p.URL != "" {
 		fmt.Fprintf(&b, "URL: %s\n", p.URL)
 	}
-	desc := p.Description
-	if desc == "" {
-		desc = p.Summary
-	}
-	if desc != "" {
-		fmt.Fprintf(&b, "Description:\n%s\n", truncate(desc, 4000))
+	if p.Description != "" {
+		fmt.Fprintf(&b, "Description:\n%s\n", truncate(p.Description, 4000))
 	}
 	return b.String()
 }

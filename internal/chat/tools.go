@@ -331,7 +331,7 @@ func (e *Engine) toolGetPosting(ctx context.Context, input json.RawMessage) (str
 		"posting_id": p.ID, "company_id": p.CompanyID, "company": name,
 		"title": p.Title, "url": p.URL, "location": p.Location,
 		"employment_type": p.EmploymentType, "workplace_type": p.WorkplaceType,
-		"department": p.Department, "comp_range": p.CompRange, "summary": p.Summary,
+		"department": p.Department, "comp_range": p.CompRange,
 		"description": p.Description, "applied_at": p.AppliedAt, "response": p.Response,
 		"outreach_count": p.OutreachCount, "contacts": p.Contacts, "notes": p.Notes,
 	}), nil
