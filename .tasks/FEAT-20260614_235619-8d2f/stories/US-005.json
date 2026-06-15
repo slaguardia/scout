@@ -13,9 +13,11 @@
     "[UI changes] Verify in the browser: a posting older than the interval with status=awaiting appears; marking replied removes it; changing the interval changes the list; empty state renders. (Use the tsx build workaround per project memory.)",
     "TypeScript compiles via the project's working build path; no console errors on the Follow-ups view."
   ],
-  "dependencies": ["US-003"],
-  "status": "todo",
+  "dependencies": [
+    "US-003"
+  ],
+  "status": "done",
   "createdAt": "2026-06-14T23:56:25Z",
-  "completedAt": null,
+  "completedAt": "2026-06-15T00:30:00Z",
   "iteration": null
 }

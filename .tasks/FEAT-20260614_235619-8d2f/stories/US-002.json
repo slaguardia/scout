@@ -13,9 +13,11 @@
     "A store-level test covers the inclusion/exclusion rules, the interval sensitivity, and the ordering.",
     "`go build ./...` and `go test ./internal/store/...` pass."
   ],
-  "dependencies": ["US-001"],
-  "status": "todo",
+  "dependencies": [
+    "US-001"
+  ],
+  "status": "done",
   "createdAt": "2026-06-14T23:56:25Z",
-  "completedAt": null,
+  "completedAt": "2026-06-15T00:30:00Z",
   "iteration": null
 }

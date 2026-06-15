@@ -1014,6 +1014,72 @@
   }
   .draft-badge.db-researching .spinner { margin-right: 4px; border-top-color: var(--accent); }
 
+  /* "follow-up due" badge on the jobs row — a posting awaiting a reply past the
+     cadence. Accent "needs action" family, distinct from the amber/blue draft
+     states (which share the row's name cell). */
+  .draft-badge.db-followup {
+    background: rgba(139,109,255,0.14); color: var(--accent);
+    text-transform: none; letter-spacing: 0;
+  }
+
+  /* count badge on the Follow-ups tab */
+  .tab-count {
+    display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px;
+    border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 16px;
+    background: rgba(139,109,255,0.16); color: var(--accent); vertical-align: 1px;
+  }
+  .tab.active .tab-count { background: rgba(0,0,0,0.2); color: inherit; }
+
+  /* inline outreach reply-status select (jobs row, stacked under the +N stepper).
+     Compact pill, color-coded by state — separate axis from the response pill. */
+  .jt-out { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+  .jt-ostatus {
+    font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
+    padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--fg-dim); max-width: 100%;
+    text-transform: lowercase; letter-spacing: 0.01em;
+    -webkit-appearance: none; appearance: none;
+  }
+  .jt-ostatus:hover { border-color: var(--line-2); }
+  .jt-ostatus.os-awaiting    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
+  .jt-ostatus.os-replied     { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
+  .jt-ostatus.os-no_response { color: var(--fg-mute); background: var(--panel-3); border-color: transparent; }
+
+  /* pursuit Pipeline "reply" row — the follow-up-due hint chip beside the select */
+  .pl-due {
+    font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+    background: rgba(139,109,255,0.14); color: var(--accent); white-space: nowrap;
+  }
+
+  /* ---- Follow-ups view ---- */
+  .fu-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 4px 2px 14px; flex-wrap: wrap;
+  }
+  .fu-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; color: var(--fg);
+  }
+  .fu-title svg { width: 16px; height: 16px; opacity: 0.7; }
+  .fu-cadence { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--fg-mute); }
+  .fu-cadence input {
+    width: 56px; padding: 4px 8px; font: inherit; font-size: 13px;
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    text-align: center; font-variant-numeric: tabular-nums;
+  }
+  .fu-cadence input:focus { border-color: var(--link); outline: none; }
+  .fu-overdue {
+    display: inline-block; font-size: 11.5px; font-weight: 600;
+    padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .fu-overdue.fu-od-low  { background: var(--maybe-bg); color: var(--maybe); }
+  .fu-overdue.fu-od-mid  { background: rgba(245,185,66,0.22); color: var(--maybe); }
+  .fu-overdue.fu-od-high { background: var(--no-bg); color: var(--no); }
+  .fu-actions { white-space: nowrap; }
+  .fu-actions .btn { font-size: 11.5px; padding: 3px 9px; margin-right: 5px; }
+  .fu-actions .btn:last-child { margin-right: 0; }
+
   /* ---- outreach progress bar (researching draft card) ---- */
   .draft-progress { margin-bottom: 12px; }
   .dp-track { display: flex; align-items: flex-start; }

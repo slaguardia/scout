@@ -14,8 +14,8 @@
     "`go build ./...` and `go test ./internal/store/...` pass."
   ],
   "dependencies": [],
-  "status": "todo",
+  "status": "done",
   "createdAt": "2026-06-14T23:56:25Z",
-  "completedAt": null,
+  "completedAt": "2026-06-15T00:30:00Z",
   "iteration": null
 }

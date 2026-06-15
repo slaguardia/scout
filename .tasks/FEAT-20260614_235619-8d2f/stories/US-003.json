@@ -12,9 +12,12 @@
     "Handlers live alongside the existing posting/outreach handlers (internal/web/capture.go, internal/web/outreach.go) and follow their error-handling conventions.",
     "`go build ./...` and `go vet ./...` pass."
   ],
-  "dependencies": ["US-001", "US-002"],
-  "status": "todo",
+  "dependencies": [
+    "US-001",
+    "US-002"
+  ],
+  "status": "done",
   "createdAt": "2026-06-14T23:56:25Z",
-  "completedAt": null,
+  "completedAt": "2026-06-15T00:30:00Z",
   "iteration": null
 }

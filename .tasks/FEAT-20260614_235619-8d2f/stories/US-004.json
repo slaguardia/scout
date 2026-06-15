@@ -12,9 +12,11 @@
     "[UI changes] Verify in the browser: change status on a row, confirm it persists across reload; confirm the badge appears/disappears per the rules above. (Use the tsx build workaround per project memory; npm run build is broken in this sandbox.)",
     "TypeScript compiles via the project's working build path; no console errors on the jobs view."
   ],
-  "dependencies": ["US-003"],
-  "status": "todo",
+  "dependencies": [
+    "US-003"
+  ],
+  "status": "done",
   "createdAt": "2026-06-14T23:56:25Z",
-  "completedAt": null,
+  "completedAt": "2026-06-15T00:30:00Z",
   "iteration": null
 }
