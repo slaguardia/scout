@@ -154,6 +154,37 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	}
 }
 
+func TestRunStoresFullDescription(t *testing.T) {
+	// A posting page with more text than the classifier reads (maxPageRunes)
+	// but within the store cap (descCapRunes): the whole body must land in the
+	// description so outreach gets the full JD, not just the slice Haiku saw.
+	body := strings.Repeat("Acme builds AI infrastructure for ML platform teams. ", 200) // ~10.6k runes
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "<html><body><h1>Solutions Engineer</h1><p>%s</p></body></html>", body)
+	}))
+	t.Cleanup(srv.Close)
+
+	llm := fakeAnthropic(t, extraction{
+		Kind: KindJob, CompanyName: "Acme", CompanyDomain: "acme.com", JobTitle: "Solutions Engineer",
+	})
+	c := newCapturer(t, llm)
+
+	res, err := c.Run(context.Background(), Request{URL: srv.URL + "/jobs/1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Posting == nil {
+		t.Fatal("no posting stored")
+	}
+	got := len([]rune(res.Posting.Description))
+	if got <= maxPageRunes {
+		t.Errorf("description capped at the classifier slice: got %d runes, want > %d", got, maxPageRunes)
+	}
+	if got > descCapRunes {
+		t.Errorf("description exceeds the store cap: got %d runes, want <= %d", got, descCapRunes)
+	}
+}
+
 func TestRunCapturesCompanyPage(t *testing.T) {
 	page := jobPage(t)
 	llm := fakeAnthropic(t, extraction{

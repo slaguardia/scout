@@ -27,6 +27,7 @@ import (
 // their own API hosts; the posting URL's host picks the base.
 var (
 	ashbyAPIBase        = "https://api.ashbyhq.com"
+	ashbyBoardBase      = "https://jobs.ashbyhq.com" // board page host — carries the org's display name
 	greenhouseAPIBase   = "https://boards-api.greenhouse.io"
 	greenhouseEUAPIBase = "https://boards-api.eu.greenhouse.io"
 	leverAPIBase        = "https://api.lever.co"
@@ -216,10 +217,21 @@ func resolveAshby(ctx context.Context, httpc *http.Client, apiBase, org, jobID s
 		if dept == "" {
 			dept = j.Team
 		}
+		// The posting API states no company name. A hyphen/underscore slug
+		// de-slugs cleanly ("foresight-health" → "Foresight Health"); a
+		// run-together slug doesn't ("chaidiscovery" → "Chaidiscovery"), so read
+		// the real name off the public board page's title. Best-effort — the
+		// slug stays if the page is unreachable.
+		name := slugName(org)
+		if !strings.ContainsAny(org, "-_") {
+			if n := fetchBoardName(ctx, httpc, ashbyBoardBase+"/"+neturl.PathEscape(org)); n != "" {
+				name = n
+			}
+		}
 		return &atsJob{
 			ATS:            "ashby",
 			URL:            j.JobURL,
-			CompanyName:    slugName(org),
+			CompanyName:    name,
 			Title:          j.Title,
 			Location:       j.Location,
 			Department:     dept,
@@ -463,6 +475,53 @@ func fetchATSJSON(ctx context.Context, httpc *http.Client, url string, v any) er
 		return fmt.Errorf("http %d", resp.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, atsMaxBody)).Decode(v)
+}
+
+// Board-page title parsing: ATS boards title their index page "{Company} Jobs"
+// (in <title> and og:title), so the company name is recoverable even when the
+// posting API omits it. reBoardSuffix trims the trailing "Jobs"/"Careers" label.
+var (
+	reBoardOGTitle = regexp.MustCompile(`(?is)<meta[^>]+og:title[^>]+content=["']([^"']*)["']`)
+	reBoardTitle   = regexp.MustCompile(`(?is)<title[^>]*>([^<]*)</title>`)
+	reBoardSuffix  = regexp.MustCompile(`(?i)\s*[-–|·:]?\s*(jobs|careers|open roles|openings|job board)\s*$`)
+)
+
+// fetchBoardName reads an ATS board page's company display name from its
+// og:title (or <title>): "Chai Discovery Jobs" → "Chai Discovery". Best-effort
+// — "" on any fetch/parse failure, so the caller keeps its slug fallback. Reads
+// only the head-ish prefix; the title lives there.
+func fetchBoardName(ctx context.Context, httpc *http.Client, pageURL string) string {
+	ctx, cancel := context.WithTimeout(ctx, atsCallTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (scout)")
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return ""
+	}
+	name := func(re *regexp.Regexp) string {
+		m := re.FindSubmatch(body)
+		if m == nil {
+			return ""
+		}
+		s := strings.TrimSpace(html.UnescapeString(string(m[1])))
+		return strings.TrimSpace(reBoardSuffix.ReplaceAllString(s, ""))
+	}
+	if n := name(reBoardOGTitle); n != "" {
+		return n
+	}
+	return name(reBoardTitle)
 }
 
 // slugName turns a board slug into a readable company-name fallback:

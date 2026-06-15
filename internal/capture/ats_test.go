@@ -60,6 +60,8 @@ func ashbyBoard(t *testing.T) *httptest.Server {
 // never fetched — and the platform-stated details land on the posting row.
 func TestRunResolvesAshbyWithoutLLM(t *testing.T) {
 	overrideBase(t, &ashbyAPIBase, ashbyBoard(t).URL)
+	// A hyphenated slug de-slugs cleanly — the board page must not be fetched.
+	overrideBase(t, &ashbyBoardBase, tripwire(t, "board fetch").URL)
 	c := newCapturer(t, tripwire(t, "LLM"))
 
 	pasted := "https://jobs.ashbyhq.com/foresight-health/" + ashbyJobID
@@ -115,6 +117,7 @@ func TestRunResolvesAshbyWithoutLLM(t *testing.T) {
 
 func TestRunATSUserFieldsWin(t *testing.T) {
 	overrideBase(t, &ashbyAPIBase, ashbyBoard(t).URL)
+	overrideBase(t, &ashbyBoardBase, tripwire(t, "board fetch").URL)
 	c := newCapturer(t, tripwire(t, "LLM"))
 
 	res, err := c.Run(context.Background(), Request{
@@ -134,6 +137,61 @@ func TestRunATSUserFieldsWin(t *testing.T) {
 	// The board's fields still fill everything the user didn't type.
 	if res.Posting.Department != "Engineering" || res.Posting.PostedAt != "2026-04-14" {
 		t.Errorf("board details missing: %+v", res.Posting)
+	}
+}
+
+// TestResolveAshbyReadsBoardName: Ashby's posting API states no company name,
+// so a run-together slug ("chaidiscovery") can't be de-slugged. The board
+// page's title carries the real one — read it instead of mashing the slug.
+func TestResolveAshbyReadsBoardName(t *testing.T) {
+	jid := "11111111-2222-3333-4444-555555555555"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/posting-api/job-board/chaidiscovery":
+			fmt.Fprintf(w, `{"apiVersion":"1","jobs":[{"id":%q,"title":"Software Engineer","descriptionPlain":"Build."}]}`, jid)
+		case "/chaidiscovery":
+			fmt.Fprint(w, `<html><head><meta property="og:title" content="Chai Discovery Jobs"><title>Chai Discovery Jobs</title></head><body></body></html>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	overrideBase(t, &ashbyBoardBase, srv.URL)
+
+	job, err := resolveAshby(context.Background(), srv.Client(), srv.URL, "chaidiscovery", jid)
+	if err != nil {
+		t.Fatalf("resolveAshby: %v", err)
+	}
+	if job.CompanyName != "Chai Discovery" { // board title, not slugName("chaidiscovery")="Chaidiscovery"
+		t.Errorf("company = %q, want %q", job.CompanyName, "Chai Discovery")
+	}
+}
+
+func TestFetchBoardName(t *testing.T) {
+	cases := []struct {
+		name, head string
+		status     int
+		want       string
+	}{
+		{"og:title preferred, Jobs suffix", `<meta property="og:title" content="Chai Discovery Jobs"><title>x</title>`, 200, "Chai Discovery"},
+		{"title fallback, Careers suffix", `<title>Acme Robotics Careers</title>`, 200, "Acme Robotics"},
+		{"no suffix", `<title>Stripe</title>`, 200, "Stripe"},
+		{"pipe separator", `<title>Foo Corp | Jobs</title>`, 200, "Foo Corp"},
+		{"non-200 yields nothing", `<title>whatever</title>`, 500, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if c.status != 200 {
+					w.WriteHeader(c.status)
+				}
+				fmt.Fprintf(w, "<html><head>%s</head></html>", c.head)
+			}))
+			t.Cleanup(srv.Close)
+			if got := fetchBoardName(context.Background(), srv.Client(), srv.URL); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
