@@ -11,6 +11,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/capture"
+	"github.com/slaguardia/scout/internal/store"
 )
 
 func postCapture(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
@@ -279,25 +280,26 @@ func TestPostingTrackingAPI(t *testing.T) {
 	}
 
 	// Happy path: tracking lands and the refreshed posting comes back.
-	rec := put(p.ID, `{"applied_at":"2026-05-22","response":"screening","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
+	stages := `[{\"stage\":\"applied\",\"date\":\"2026-05-22\"},{\"stage\":\"screening\",\"date\":\"2026-05-30\"}]`
+	rec := put(p.ID, `{"stage_history":"`+stages+`","outreach_status":"initial contact","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("track: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		AppliedAt     string `json:"applied_at"`
-		Response      string `json:"response"`
-		OutreachCount int    `json:"outreach_count"`
+		StageHistory   string `json:"stage_history"`
+		OutreachStatus string `json:"outreach_status"`
+		OutreachCount  int    `json:"outreach_count"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.AppliedAt != "2026-05-22" || got.Response != "screening" || got.OutreachCount != 2 {
+	if store.CurrentStage(got.StageHistory) != "screening" || got.OutreachStatus != "initial contact" || got.OutreachCount != 2 {
 		t.Errorf("unexpected tracking payload: %+v", got)
 	}
 
-	// Validation → 400; unknown posting → 404; GET → 405.
-	if rec := put(p.ID, `{"response":"ghosted"}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("bad response: want 400, got %d (%s)", rec.Code, rec.Body.String())
+	// Validation → 400 (over-long status); unknown posting → 404; GET → 405.
+	if rec := put(p.ID, `{"outreach_status":"`+strings.Repeat("x", 100)+`"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad status: want 400, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if rec := put("nope", `{}`); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown posting: want 404, got %d", rec.Code)
@@ -315,14 +317,14 @@ func TestPostingTrackingAPI(t *testing.T) {
 	h.ServeHTTP(jrec, jr)
 	var jobs struct {
 		Rows []struct {
-			AppliedAt string `json:"applied_at"`
-			Response  string `json:"response"`
+			StageHistory   string `json:"stage_history"`
+			OutreachStatus string `json:"outreach_status"`
 		} `json:"rows"`
 	}
 	if err := json.Unmarshal(jrec.Body.Bytes(), &jobs); err != nil || len(jobs.Rows) != 1 {
 		t.Fatalf("jobs decode: rows=%d err=%v", len(jobs.Rows), err)
 	}
-	if jobs.Rows[0].AppliedAt != "2026-05-22" || jobs.Rows[0].Response != "screening" {
+	if store.CurrentStage(jobs.Rows[0].StageHistory) != "screening" || jobs.Rows[0].OutreachStatus != "initial contact" {
 		t.Errorf("jobs view lifecycle mismatch: %+v", jobs.Rows[0])
 	}
 }

@@ -106,11 +106,28 @@ func (db *DB) migrate() error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
 		}
-		if _, err := db.Exec(string(body)); err != nil {
+		// Apply the migration body AND its schema_migrations bookkeeping in one
+		// transaction so a multi-statement migration (e.g. ADD COLUMN + backfill +
+		// DROP COLUMN) is atomic. Without this, an interruption between two DDL
+		// statements (SQLite auto-commits each) leaves the schema half-migrated and
+		// the migration unrecorded — and the re-run then fails on the already-applied
+		// first statement (e.g. "duplicate column name"), wedging startup. SQLite runs
+		// DDL inside transactions, and no migration uses PRAGMA/VACUUM, so the whole
+		// body is safe to wrap.
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin %s: %w", name, err)
+		}
+		if _, err := tx.Exec(string(body)); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("record %s: %w", name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit %s: %w", name, err)
 		}
 	}
 	return nil

@@ -11,26 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// Outreach reply statuses (M48) — the reply axis of a posting, separate from the
-// application `response`. Empty means none (never reached out / no status set).
-const (
-	OutreachStatusNone       = ""
-	OutreachStatusAwaiting   = "awaiting"
-	OutreachStatusReplied    = "replied"
-	OutreachStatusNoResponse = "no_response"
-)
-
-// validOutreachStatus normalizes (trim + lower) and validates an outreach
-// status, returning the canonical value or an error whose message starts with
+// cleanOutreachStatus trims the outreach reply status. The vocabulary is
+// user-configurable (the outreach_statuses setting) and "none" is empty, so the
+// column is opaque (like contacts/stage_history) — only a length bound is
+// enforced here; the UI constrains the choices. The error is prefixed
 // "outreach_status " so the web layer can map it to a 400.
-func validOutreachStatus(s string) (string, error) {
-	s = strings.ToLower(strings.TrimSpace(s))
-	switch s {
-	case OutreachStatusNone, OutreachStatusAwaiting, OutreachStatusReplied, OutreachStatusNoResponse:
-		return s, nil
-	default:
-		return "", fmt.Errorf(`outreach_status must be "awaiting", "replied", "no_response", or empty`)
+func cleanOutreachStatus(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if len(s) > maxStatusLabelLen {
+		return "", fmt.Errorf("outreach_status label is too long")
 	}
+	return s, nil
 }
 
 // ErrUnknownCompany is returned when an operation targets a company id that
@@ -71,17 +62,19 @@ type Posting struct {
 	CompRange      string `json:"comp_range"`  // published salary range, pre-formatted
 	Description    string `json:"description"` // full posting text, plain
 
-	// Application lifecycle (M23) — the jobs view doubles as the user's
-	// application tracker. AppliedAt "" means not applied; Response is the
-	// furthest reply reached ("screening"|"interview"|"offer"|"rejected").
-	AppliedAt      string `json:"applied_at"`
-	Response       string `json:"response"`
+	// Application lifecycle — the jobs view doubles as the user's application
+	// tracker. StageHistory (M50) is the application axis: an ordered JSON array
+	// of {stage, date} entries (current stage = last entry), opaque to the
+	// backend like Contacts — the UI owns the shape and the configurable stage
+	// vocabulary. "" / "[]" = untracked. It replaced the old applied_at + response
+	// columns (collapsed into one dated, configurable stage).
+	StageHistory   string `json:"stage_history"`
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
 	// OutreachStatus (M48) is the reply state of the outreach — a SEPARATE axis
-	// from Response. ""|"awaiting"|"replied"|"no_response" (see OutreachStatus*
-	// constants). Marking a draft sent flips '' -> 'awaiting'.
+	// from the application stage. A configurable label ("" = none); the
+	// vocabulary lives in the outreach_statuses setting.
 	OutreachStatus string `json:"outreach_status"`
 
 	// Contacts (M24): hand-curated outreach contacts for this role, stored as a
@@ -110,7 +103,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        created_at, COALESCE(captured_at, ''),
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
-       COALESCE(applied_at, ''), COALESCE(response, ''), outreach_count, COALESCE(last_outreach_at, ''),
+       COALESCE(stage_history, ''), outreach_count, COALESCE(last_outreach_at, ''),
        COALESCE(outreach_status, ''),
        COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')`
@@ -122,7 +115,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
-		&p.AppliedAt, &p.Response, &p.OutreachCount, &p.LastOutreachAt,
+		&p.StageHistory, &p.OutreachCount, &p.LastOutreachAt,
 		&p.OutreachStatus,
 		&p.Contacts, &p.Notes, &nextUpAt,
 		&p.QuestionsStatus, &p.QuestionsAt)
@@ -291,14 +284,13 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 
 // PostingTracking is the application-lifecycle payload for one posting. All
 // fields are full-state (not deltas): the UI sends the complete picture and
-// the row is set to it. Empty strings clear the dates/response; a negative
-// OutreachCount is rejected.
+// the row is set to it. Empty strings clear a field; a negative OutreachCount
+// is rejected.
 type PostingTracking struct {
-	AppliedAt      string `json:"applied_at"`       // "YYYY-MM-DD" or "" (not applied)
-	Response       string `json:"response"`         // ""|"screening"|"interview"|"offer"|"rejected"
+	StageHistory   string `json:"stage_history"`    // JSON [{stage,date}]; opaque, UI-owned
 	OutreachCount  int    `json:"outreach_count"`   // >= 0
 	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
-	OutreachStatus string `json:"outreach_status"`  // ""|"awaiting"|"replied"|"no_response"
+	OutreachStatus string `json:"outreach_status"`  // configurable label; "" = none
 	Contacts       string `json:"contacts"`         // JSON [{position,email}]; trimmed, opaque
 	Notes          string `json:"notes"`            // free-form, human-only; trimmed
 }
@@ -320,21 +312,11 @@ func validTrackingDate(field, s string) (sql.NullString, error) {
 // returns the refreshed row. Returns sql.ErrNoRows for an unknown posting;
 // validation errors carry the offending field's name as a prefix.
 func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, error) {
-	applied, err := validTrackingDate("applied_at", t.AppliedAt)
-	if err != nil {
-		return Posting{}, err
-	}
 	lastOutreach, err := validTrackingDate("last_outreach_at", t.LastOutreachAt)
 	if err != nil {
 		return Posting{}, err
 	}
-	response := strings.ToLower(strings.TrimSpace(t.Response))
-	switch response {
-	case "", "screening", "interview", "offer", "rejected":
-	default:
-		return Posting{}, fmt.Errorf(`response must be "screening", "interview", "offer", "rejected", or empty`)
-	}
-	outreachStatus, err := validOutreachStatus(t.OutreachStatus)
+	outreachStatus, err := cleanOutreachStatus(t.OutreachStatus)
 	if err != nil {
 		return Posting{}, err
 	}
@@ -345,14 +327,15 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	// A rising outreach_count means the outreach went out — the "next up"
 	// to-do mark has served its purpose, so it clears in the same write.
 	// (SET expressions see the old row, so the CASE compares old vs new.)
-	// outreach_status is independent of response — neither write touches the
-	// other. Empty stores as '' (the column is NOT NULL DEFAULT '').
+	// stage_history (the application axis) and outreach_status (the reply axis)
+	// are independent — neither write touches the other. Both are opaque,
+	// UI-owned; empty stores as NULL.
 	const q = `UPDATE job_postings SET
 	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
-	    applied_at = ?, response = ?, outreach_count = ?, last_outreach_at = ?,
+	    stage_history = ?, outreach_count = ?, last_outreach_at = ?,
 	    outreach_status = ?, contacts = ?, notes = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, t.OutreachCount, applied, NullString(response), t.OutreachCount, lastOutreach,
+	res, err := db.Exec(q, t.OutreachCount, NullString(strings.TrimSpace(t.StageHistory)), t.OutreachCount, lastOutreach,
 		outreachStatus, NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
@@ -536,12 +519,11 @@ type JobRow struct {
 	Reviewed bool   `json:"reviewed"`
 	Flagged  bool   `json:"flagged"`
 
-	// Application lifecycle (M23) — the tracker columns of the jobs view.
-	AppliedAt      string `json:"applied_at"`
-	Response       string `json:"response"`
+	// Application lifecycle — the tracker columns of the jobs view.
+	StageHistory   string `json:"stage_history"` // application axis (M50): JSON [{stage,date}], current = last
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
-	OutreachStatus string `json:"outreach_status"` // reply axis (M48): ""|awaiting|replied|no_response
+	OutreachStatus string `json:"outreach_status"` // reply axis (M48): configurable label, "" = none
 	Contacts       string `json:"contacts"`        // outreach contacts (M24)
 	Notes          string `json:"notes"`           // free-form, human-only posting notes
 	NextUp         bool   `json:"next_up"`         // queued "next up for outreach" (M27)
@@ -571,7 +553,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.department, ''), COALESCE(p.comp_range, ''), COALESCE(p.description, ''),
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
-       COALESCE(p.applied_at, ''), COALESCE(p.response, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
+       COALESCE(p.stage_history, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
        COALESCE(p.outreach_status, ''),
        COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
@@ -597,7 +579,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Department, &r.CompRange, &r.Description,
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
-			&r.AppliedAt, &r.Response, &r.OutreachCount, &r.LastOutreachAt,
+			&r.StageHistory, &r.OutreachCount, &r.LastOutreachAt,
 			&r.OutreachStatus,
 			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
 			return nil, err

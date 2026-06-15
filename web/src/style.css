@@ -231,19 +231,9 @@
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background-color: var(--link-bg); color: var(--link); }
 
-  /* inline jobs-row tracking controls — applied toggle, response select,
-     +1 outreach. Compact so the lifecycle bumps don't need the pursuit panel.
+  /* inline jobs-row tracking controls — application-stage select, +1 outreach,
+     reply status. Compact so the lifecycle bumps don't need the pursuit panel.
      They stop the row-click (which opens the panel) via the closest() guard. */
-  .jt-applied {
-    font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
-    padding: 2px 9px; border-radius: 999px;
-    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
-    font-variant-numeric: tabular-nums;
-    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
-                background var(--dur-fast) var(--ease);
-  }
-  .jt-applied:hover { border-color: var(--line-2); color: var(--fg-mute); }
-  .jt-applied.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
   /* next-up star — an inline "queue for outreach" toggle on the name cell.
      Subtle (hollow) when off so it doesn't crowd the row; accent when queued.
      The star + text-column flex keeps the title AND the company subline aligned
@@ -259,24 +249,18 @@
   }
   .jt-nextup:hover { color: var(--accent); }
   .jt-nextup.is-on { color: var(--accent); }
-  .jt-resp {
+  /* application-stage cell: a compact stage select + the current stage's date */
+  .jt-stage { display: flex; align-items: center; gap: 8px; }
+  .jt-stage-sel {
     font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
-    padding: 2px 22px 2px 9px; border-radius: 999px; border: 1px solid transparent;
+    padding: 2px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg-dim);
     text-transform: lowercase; letter-spacing: 0.01em;
     -webkit-appearance: none; appearance: none;
-    background-repeat: no-repeat; background-position: right 7px center;
   }
-  .jt-resp:hover { filter: brightness(1.12); }
-  /* Response pill states. The chevron is a background-image SVG, so a
-     `currentColor` stroke renders BLACK (data-URI SVGs don't inherit the host's
-     color) — give each state a chevron stroked in its own text color (hexes
-     mirror the fg-muted / yes / link / maybe / no tokens). Empty "none" is a
-     muted grey dropdown pill (no "+"/ghost) so it reads as a picker. */
-  .jt-resp.pill-none  { color: var(--fg-mute); background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%239099a8' stroke-width='1.3' fill='none'/></svg>"); }
-  .jt-resp.pill-yes   { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%2334d399' stroke-width='1.3' fill='none'/></svg>"); }
-  .jt-resp.pill-info  { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%237aa9ff' stroke-width='1.3' fill='none'/></svg>"); }
-  .jt-resp.pill-maybe { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%23f5b942' stroke-width='1.3' fill='none'/></svg>"); }
-  .jt-resp.pill-no    { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5L5 6.5L8 3.5' stroke='%23ef6464' stroke-width='1.3' fill='none'/></svg>"); }
+  .jt-stage-sel:hover { border-color: var(--line-2); }
+  .jt-stage-sel.has-stage { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  .jt-stage-date { font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
   .jt-dec, .jt-inc {
@@ -1011,21 +995,8 @@
   /* "follow-up due" badge on the jobs row — a posting awaiting a reply past the
      cadence. Accent "needs action" family, distinct from the amber/blue draft
      states (which share the row's name cell). */
-  .draft-badge.db-followup {
-    background: rgba(139,109,255,0.14); color: var(--accent);
-    text-transform: none; letter-spacing: 0;
-  }
-
-  /* count badge on the Follow-ups tab */
-  .tab-count {
-    display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px;
-    border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 16px;
-    background: rgba(139,109,255,0.16); color: var(--accent); vertical-align: 1px;
-  }
-  .tab.active .tab-count { background: rgba(0,0,0,0.2); color: inherit; }
-
   /* inline outreach reply-status select (jobs row, stacked under the +N stepper).
-     Compact pill, color-coded by state — separate axis from the response pill. */
+     Compact configurable pill — a separate axis from the application stage. */
   .jt-out { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
   .jt-ostatus {
     font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
@@ -1035,44 +1006,34 @@
     -webkit-appearance: none; appearance: none;
   }
   .jt-ostatus:hover { border-color: var(--line-2); }
-  .jt-ostatus.os-awaiting    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
-  .jt-ostatus.os-replied     { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
-  .jt-ostatus.os-no_response { color: var(--fg-mute); background: var(--panel-3); border-color: transparent; }
+  .jt-ostatus.has-status { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
 
-  /* pursuit Pipeline "reply" row — the follow-up-due hint chip beside the select */
-  .pl-due {
-    font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
-    background: rgba(139,109,255,0.14); color: var(--accent); white-space: nowrap;
-  }
+  /* stage pill — current application stage (pursuit header + company posting card) */
+  .pill-stage { background-color: var(--link-bg); color: var(--link); }
 
-  /* ---- Follow-ups view ---- */
-  .fu-head {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; padding: 4px 2px 14px; flex-wrap: wrap;
+  /* stage filter chips flow inline with the next-up/not-reached chips */
+  .stage-chips { display: contents; }
+
+  /* ---- application-stage timeline (pursuit Pipeline) ---- */
+  .pipeline-stage-row { align-items: flex-start; }
+  .pl-stage-wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+  .stage-timeline { display: flex; flex-direction: column; gap: 5px; }
+  .stage-entry { display: flex; align-items: center; gap: 8px; }
+  .stage-name {
+    font-size: 12px; font-weight: 600; min-width: 88px;
+    color: var(--fg-mute); text-transform: lowercase;
   }
-  .fu-title {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 15px; font-weight: 600; color: var(--fg);
+  .stage-name.is-current { color: var(--link); }
+  .stage-entry .stage-date { width: 140px; }
+  .stage-del {
+    font-size: 15px; line-height: 1; cursor: pointer; padding: 0 5px;
+    background: none; border: none; color: var(--fg-faint);
   }
-  .fu-title svg { width: 16px; height: 16px; opacity: 0.7; }
-  .fu-cadence { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--fg-mute); }
-  .fu-cadence input {
-    width: 56px; padding: 4px 8px; font: inherit; font-size: 13px;
-    background: var(--panel); color: var(--fg);
-    border: 1px solid var(--line); border-radius: var(--r-md);
-    text-align: center; font-variant-numeric: tabular-nums;
-  }
-  .fu-cadence input:focus { border-color: var(--link); outline: none; }
-  .fu-overdue {
-    display: inline-block; font-size: 11.5px; font-weight: 600;
-    padding: 2px 9px; border-radius: 999px; white-space: nowrap;
-  }
-  .fu-overdue.fu-od-low  { background: var(--maybe-bg); color: var(--maybe); }
-  .fu-overdue.fu-od-mid  { background: rgba(245,185,66,0.22); color: var(--maybe); }
-  .fu-overdue.fu-od-high { background: var(--no-bg); color: var(--no); }
-  .fu-actions { white-space: nowrap; }
-  .fu-actions .btn { font-size: 11.5px; padding: 3px 9px; margin-right: 5px; }
-  .fu-actions .btn:last-child { margin-right: 0; }
+  .stage-del:hover { color: var(--no); }
+  .stage-empty { font-size: 12px; padding: 2px 0; }
+  .stage-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .stage-add .stage-add-date { width: 140px; }
+  .stage-add .btn { font-size: 12px; padding: 3px 10px; }
 
   /* ---- outreach progress bar (researching draft card) ---- */
   .draft-progress { margin-bottom: 12px; }

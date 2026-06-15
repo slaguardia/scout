@@ -40,11 +40,11 @@ func (e *Engine) registerTools() {
 		{
 			anthropic.ToolDef{
 				Name:        "track_application",
-				Description: "Update a posting's application-tracking fields (applied date, response stage, outreach count, last outreach date, contacts, notes). Call this when the user reports applying, hearing back, doing outreach, or adding a contact. Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
+				Description: "Update a posting's application-tracking fields. Call this when the user reports applying, advancing a stage (heard back / screening / interview / offer / rejected), doing outreach, or adding a contact. Passing `stage` records a dated entry in the posting's application-stage history (the current stage is the latest entry). Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
 				InputSchema: objSchema(map[string]any{
 					"posting_id":       strProp("The posting id (from capture_link or search)."),
-					"applied_at":       strProp("Date the user applied, YYYY-MM-DD. Use today's date when they say they just applied. Empty string clears it."),
-					"response":         enumProp("Furthest response reached.", "", "screening", "interview", "offer", "rejected"),
+					"stage":            strProp("The application stage just reached (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Appends a dated entry to the stage history; the current stage becomes this."),
+					"stage_date":       strProp("Date the stage was reached, YYYY-MM-DD. Defaults to today when omitted."),
 					"outreach_count":   intProp("Total outreach messages sent for this role."),
 					"last_outreach_at": strProp("Date of the most recent outreach, YYYY-MM-DD."),
 					"contacts":         strProp("Free-form contacts, comma-separated (names/emails)."),
@@ -157,8 +157,8 @@ func (e *Engine) toolCaptureLink(ctx context.Context, input json.RawMessage) (st
 func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage) (string, error) {
 	var in struct {
 		PostingID      string  `json:"posting_id"`
-		AppliedAt      *string `json:"applied_at"`
-		Response       *string `json:"response"`
+		Stage          *string `json:"stage"`
+		StageDate      *string `json:"stage_date"`
 		OutreachCount  *int    `json:"outreach_count"`
 		LastOutreachAt *string `json:"last_outreach_at"`
 		Contacts       *string `json:"contacts"`
@@ -180,18 +180,12 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 		return "", fmt.Errorf("no posting with id %q (use search to find it)", in.PostingID)
 	}
 	t := store.PostingTracking{
-		AppliedAt:      cur.AppliedAt,
-		Response:       cur.Response,
+		StageHistory:   cur.StageHistory,
 		OutreachCount:  cur.OutreachCount,
 		LastOutreachAt: cur.LastOutreachAt,
+		OutreachStatus: cur.OutreachStatus,
 		Contacts:       cur.Contacts,
 		Notes:          cur.Notes,
-	}
-	if in.AppliedAt != nil {
-		t.AppliedAt = strings.TrimSpace(*in.AppliedAt)
-	}
-	if in.Response != nil {
-		t.Response = strings.TrimSpace(*in.Response)
 	}
 	if in.OutreachCount != nil {
 		t.OutreachCount = *in.OutreachCount
@@ -210,13 +204,28 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", fmt.Errorf("no posting with id %q", in.PostingID)
 		}
-		return "", err // validation errors (bad date / response) surface to the model
+		return "", err // validation errors surface to the model
+	}
+	// A stage advances the application history (a dated entry), handled
+	// separately since it's append-only, not full-state.
+	if in.Stage != nil && strings.TrimSpace(*in.Stage) != "" {
+		date := ""
+		if in.StageDate != nil {
+			date = *in.StageDate
+		}
+		p, err = e.DB.AppendStageEvent(in.PostingID, *in.Stage, date)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", fmt.Errorf("no posting with id %q", in.PostingID)
+			}
+			return "", err
+		}
 	}
 	return jsonString(map[string]any{
 		"posting_id":     p.ID,
 		"title":          p.Title,
-		"applied_at":     p.AppliedAt,
-		"response":       p.Response,
+		"stage":          store.CurrentStage(p.StageHistory),
+		"stage_history":  store.ParseStageHistory(p.StageHistory),
 		"outreach_count": p.OutreachCount,
 		"last_outreach":  p.LastOutreachAt,
 		"contacts":       p.Contacts,
@@ -271,8 +280,7 @@ func (e *Engine) toolSearch(ctx context.Context, input json.RawMessage) (string,
 				"company_id": j.CompanyID,
 				"company":    j.Company,
 				"title":      j.Title,
-				"applied_at": j.AppliedAt,
-				"response":   j.Response,
+				"stage":      store.CurrentStage(j.StageHistory),
 			})
 		}
 	}
@@ -301,7 +309,7 @@ func (e *Engine) toolGetCompany(ctx context.Context, input json.RawMessage) (str
 	for _, p := range d.Postings {
 		postings = append(postings, map[string]any{
 			"posting_id": p.ID, "title": p.Title, "url": p.URL,
-			"applied_at": p.AppliedAt, "response": p.Response,
+			"stage": store.CurrentStage(p.StageHistory),
 		})
 	}
 	return jsonString(map[string]any{
@@ -332,7 +340,8 @@ func (e *Engine) toolGetPosting(ctx context.Context, input json.RawMessage) (str
 		"title": p.Title, "url": p.URL, "location": p.Location,
 		"employment_type": p.EmploymentType, "workplace_type": p.WorkplaceType,
 		"department": p.Department, "comp_range": p.CompRange,
-		"description": p.Description, "applied_at": p.AppliedAt, "response": p.Response,
+		"description": p.Description,
+		"stage":       store.CurrentStage(p.StageHistory), "stage_history": store.ParseStageHistory(p.StageHistory),
 		"outreach_count": p.OutreachCount, "contacts": p.Contacts, "notes": p.Notes,
 	}), nil
 }
