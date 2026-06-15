@@ -1,0 +1,21 @@
+{
+  "id": "US-001",
+  "featureId": "FEAT-20260614_235619-8d2f",
+  "title": "Add outreach_status field to job_postings with sent-draft auto-transition",
+  "userStory": "As the user, I want each posting to carry an outreach status (awaiting / replied / no response) separate from its application response, so I can record whether my outreach got a reply.",
+  "acceptanceCriteria": [
+    "A new sequential migration adds `outreach_status TEXT NOT NULL DEFAULT ''` to job_postings; existing rows backfill to '' (none).",
+    "Migration applies cleanly against an existing DB with data (no data loss; outreach_count, last_outreach_at, response, contacts all preserved).",
+    "store.PostingTracking gains an OutreachStatus field; UpdatePostingTracking persists it.",
+    "Status is validated app-side to one of {'', 'awaiting', 'replied', 'no_response'}; an invalid value is rejected (returns an error, not silently stored).",
+    "MarkOutreachDraftSent (internal/store/outreach_drafts.go) sets outreach_status -> 'awaiting' in the same transaction, but does NOT clobber an existing 'replied' value.",
+    "outreach_status is independent of the `response` field: setting one does not mutate the other.",
+    "A store-level test confirms: default is '', mark-sent sets 'awaiting', mark-sent leaves 'replied' untouched, and invalid status is rejected.",
+    "`go build ./...` and `go test ./internal/store/...` pass."
+  ],
+  "dependencies": [],
+  "status": "todo",
+  "createdAt": "2026-06-14T23:56:25Z",
+  "completedAt": null,
+  "iteration": null
+}

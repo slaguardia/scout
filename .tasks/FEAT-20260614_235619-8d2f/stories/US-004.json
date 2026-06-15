@@ -1,0 +1,20 @@
+{
+  "id": "US-004",
+  "featureId": "FEAT-20260614_235619-8d2f",
+  "title": "Add inline outreach-status control and an overdue badge to the jobs table and pursuit panel",
+  "userStory": "As the user, I want to set a posting's outreach status from the jobs table and pursuit panel and see an at-a-glance 'follow-up due' badge, so I can manage reply state where I already work.",
+  "acceptanceCriteria": [
+    "The jobs table row exposes an inline outreach-status control (select or cycling button) with values none / awaiting / replied / no response; changing it PUTs to /api/postings/{id} and reflects the new value without a full reload.",
+    "The pursuit slide-in panel shows and edits the same outreach_status (in the Outreach or Pipeline section).",
+    "Rows that are overdue for follow-up (awaiting AND last_outreach_at older than the interval AND response empty) show a distinct 'follow-up due' badge.",
+    "The badge does NOT show for postings that are replied, no_response, never contacted, advanced (response set), or hidden/rejected.",
+    "Setting status to 'replied' or 'no_response' clears the due badge on that row immediately.",
+    "[UI changes] Verify in the browser: change status on a row, confirm it persists across reload; confirm the badge appears/disappears per the rules above. (Use the tsx build workaround per project memory; npm run build is broken in this sandbox.)",
+    "TypeScript compiles via the project's working build path; no console errors on the jobs view."
+  ],
+  "dependencies": ["US-003"],
+  "status": "todo",
+  "createdAt": "2026-06-14T23:56:25Z",
+  "completedAt": null,
+  "iteration": null
+}

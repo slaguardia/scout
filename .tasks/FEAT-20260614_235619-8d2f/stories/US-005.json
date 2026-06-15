@@ -1,0 +1,21 @@
+{
+  "id": "US-005",
+  "featureId": "FEAT-20260614_235619-8d2f",
+  "title": "Build the dedicated Follow-ups view with quick actions and inline cadence control",
+  "userStory": "As the user, I want a dedicated Follow-ups view listing every posting due for a nudge, most-overdue first, with quick actions, so I can work through who needs following up in one place.",
+  "acceptanceCriteria": [
+    "A new Follow-ups view/tab sits alongside the existing companies | jobs tabs and loads from GET /api/follow-ups.",
+    "Each row shows company + title, last outreach date, days overdue, and contacts rendered as mailto links, sorted most-overdue-first.",
+    "Quick actions per row: mark replied, mark no-response (both PUT outreach_status and remove the row from the list), and open the pursuit panel (to draft a follow-up via the existing outreach flow).",
+    "An inline 'follow up after N days' control in the view header reads/writes the cadence setting; changing it re-fetches and re-renders the list.",
+    "Empty state: when nothing is due, the view shows a clear 'no follow-ups due' message rather than a blank/broken list.",
+    "Drafting and marking-sent a follow-up from the pursuit panel bumps last_outreach_at (existing behavior), which removes the posting from the due list until the interval elapses again.",
+    "[UI changes] Verify in the browser: a posting older than the interval with status=awaiting appears; marking replied removes it; changing the interval changes the list; empty state renders. (Use the tsx build workaround per project memory.)",
+    "TypeScript compiles via the project's working build path; no console errors on the Follow-ups view."
+  ],
+  "dependencies": ["US-003"],
+  "status": "todo",
+  "createdAt": "2026-06-14T23:56:25Z",
+  "completedAt": null,
+  "iteration": null
+}
