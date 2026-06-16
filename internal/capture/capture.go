@@ -167,6 +167,18 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	// often JS shells whose residual text (title/meta) carries enough.
 	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
 	if status != "ok" && status != "low_content" {
+		// The page is unfetchable — a bot challenge, a 403/login wall, a dead
+		// host. For a company the user explicitly pinned we don't need the page
+		// to land the record: create it from the typed name and/or the link's
+		// own domain — inventing nothing, just degrading to a bare row the user
+		// can enrich later. A job link still needs the page (no title or
+		// description without it), and an unclassified link can't be guessed at,
+		// so both of those stay strict and report the honest fetch failure.
+		if req.Kind == KindCompany {
+			if res, ok, err := c.addBareCompany(req, rawURL, finalURL, status); ok {
+				return res, err
+			}
+		}
 		return &Result{FetchStatus: status, URL: finalURL}, FetchError{Status: status}
 	}
 
@@ -251,6 +263,42 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 		c.detectAndStore(ctx, p.ID, finalURL)
 	}
 	return res, nil
+}
+
+// addBareCompany lands a company without any page content — the graceful path
+// for when a user-pinned company link can't be fetched. It uses only the typed
+// name and the link's own (non-ATS) domain, so nothing is invented; enrichment
+// is left unseeded, so a later Enrich run still fills it in if the page becomes
+// reachable. ok=false means there was nothing to identify the company by (e.g.
+// an ATS host with no typed name), leaving the caller to report the honest
+// fetch failure instead; a non-nil error is a real store failure to surface.
+func (c *Capturer) addBareCompany(req Request, rawURL, finalURL, status string) (*Result, bool, error) {
+	name := strings.TrimSpace(req.Fields.Name)
+	domain := resolveCompanyDomain("", rawURL, finalURL)
+	if name == "" && domain == "" {
+		return nil, false, nil
+	}
+	res := &Result{Kind: KindCompany, FetchStatus: status, URL: finalURL}
+	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
+		Name:         name,
+		Domain:       domain,
+		Location:     strings.TrimSpace(req.Fields.Location),
+		Vertical:     strings.TrimSpace(req.Fields.Vertical),
+		SourceURL:    finalURL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
+	})
+	if err != nil {
+		return res, true, err
+	}
+	res.CompanyID = id
+	res.CompanyCreated = created
+	if name == "" {
+		name = domain
+	}
+	res.CompanyName = name
+	res.Note = fmt.Sprintf("couldn't read the page (%s) — added %s as a bare record you can enrich later", status, name)
+	return res, true, nil
 }
 
 // runATS makes the same writes a captured job posting makes, from the

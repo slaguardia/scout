@@ -2904,7 +2904,9 @@ async function submitAdd() {
     toast(`tracking: ${what} @ ${res.company_name}${res.posting_updated ? " (refreshed)" : ""}`);
     setView("jobs");
   } else if (enriched) {
-    toast(res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`);
+    // res.note carries the honest outcome when the page couldn't be read but
+    // the company landed anyway (bare record); otherwise the plain add toast.
+    toast(res.note || (res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`));
     openDetail(res.company_id);
   } else {
     toast("company added");
