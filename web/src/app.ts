@@ -843,6 +843,45 @@ async function savePostingURL(j, val) {
   syncCompanyPosting(j.posting_id, { url: fresh.url });
 }
 
+// reenrichPosting re-runs the capture/enrich pass on the posting's stored link
+// (the same pipeline as the Add dialog) and folds the refreshed details back in,
+// so a posting added by hand needn't have its fields re-typed. The button shows
+// a busy state — the LLM path can take a while — and the panel re-renders with
+// whatever came back; blanks are filled, stored detail is never erased server-side.
+async function reenrichPosting(j, btn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "re-enriching…";
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}/recapture`, { method: "POST" });
+  } catch (e) {
+    btn.disabled = false; btn.textContent = label;
+    toast(`re-enrich failed: ${e.message}`);
+    return;
+  }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    let msg = txt || "HTTP " + resp.status;
+    try { msg = JSON.parse(txt).error || msg; } catch { /* plain-text error */ }
+    btn.disabled = false; btn.textContent = label;
+    toast(`re-enrich failed: ${msg}`);
+    return;
+  }
+  const fresh = await resp.json();
+  Object.assign(j, {
+    title: fresh.title, location: fresh.location,
+    employment_type: fresh.employment_type, workplace_type: fresh.workplace_type,
+    department: fresh.department, comp_range: fresh.comp_range, description: fresh.description,
+    posted_at: fresh.posted_at, url: fresh.url, questions_status: fresh.questions_status,
+  });
+  renderJobs();      // the table shows the role title — keep it current
+  renderPursuit();   // rebuild the role body so the filled-in fields show
+  syncCompanyPosting(j.posting_id, { title: fresh.title, location: fresh.location, url: fresh.url });
+  toast("re-enriched from the posting link");
+}
+
 // wireRelinkCompany binds the "change" affordance in the role footer that opens
 // the relink search modal — moving a posting to a different *existing* company
 // is the fix for a job captured under the wrong company twin (e.g. "Automat" vs
@@ -1093,6 +1132,8 @@ function renderPursuit() {
     (v) => savePostingField(j, "title", v));
   wireInlineField(document.getElementById("pursuit-url-input"),
     (v) => savePostingURL(j, v));
+  const reenrich = document.getElementById("pursuit-reenrich");
+  if (reenrich) reenrich.addEventListener("click", () => reenrichPosting(j, reenrich));
   wireInlineField(document.getElementById("pursuit-notes-input"),
     (v) => savePursuitNotes(v), { multiline: true });
   document.querySelectorAll("#role-body [data-k]").forEach(el =>
@@ -1116,6 +1157,8 @@ function roleEditHTML(j) {
     <div class="role-url ie-field">
       <div class="role-url-head">
         <label>link</label>
+        <button type="button" class="role-reenrich" id="pursuit-reenrich"
+                title="re-fetch this posting's details from the link — fills in blanks, no re-typing">re-enrich</button>
         <a class="role-url-open" href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open the posting">↗</a>
       </div>
       <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${escapeHTML(j.url || "")}">
@@ -2441,15 +2484,12 @@ function postingsListHTML(d) {
       `<span class="pt-meta">${stage ? (stageDate ? escapeHTML(stageDate) : "tracked") : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
     ].filter(Boolean).join("");
-    const chatBtn = (state.meta && state.meta.chat)
-      ? `<button class="pcard-chat" data-pid="${escapeHTML(p.id)}" data-ptitle="${escapeHTML(p.title || "")}" title="chat about this role">chat</button>`
-      : "";
     return `
     <div class="brain-node posting-card" data-pid="${escapeHTML(p.id)}" title="open the pursuit — tracking, outreach, drafts">
       <div class="n"><a href="${safeHref(p.url)}" target="_blank" rel="noopener">${escapeHTML(p.title || p.url)} ↗</a></div>
       ${p.description ? `<div class="small muted" style="margin-top:3px">${escapeHTML(p.description.length > 200 ? p.description.slice(0, 200).trimEnd() + "…" : p.description)}</div>` : ""}
       ${meta ? `<div class="l" style="margin-top:3px">${meta}</div>` : ""}
-      <div class="pcard-status">${status}${chatBtn}<span class="pcard-open">open →</span></div>
+      <div class="pcard-status">${status}<span class="pcard-open">open →</span></div>
     </div>`;
   }).join("");
 }
@@ -2477,14 +2517,7 @@ function wirePostingCards() {
   document.querySelectorAll("#postings-list .posting-card").forEach(card => {
     card.addEventListener("click", e => {
       if (e.target.closest("a")) return;
-      if (e.target.closest(".pcard-chat")) return; // chat button handles its own click
       openPursuit(card.dataset.pid);
-    });
-  });
-  document.querySelectorAll("#postings-list .pcard-chat").forEach(btn => {
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      openChat("posting", btn.dataset.pid, btn.dataset.ptitle || "");
     });
   });
 }

@@ -94,3 +94,38 @@ func TestPostingsAPI(t *testing.T) {
 		t.Errorf("detail postings = %+v", detail.Postings)
 	}
 }
+
+// TestPostingRecapture covers the network-free contract of the re-enrich
+// endpoint: routing, method handling, and the LLM-path key gate. The happy
+// path (actual ATS/LLM resolve) needs the network and is not exercised here.
+func TestPostingRecapture(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "") // force the no-key state regardless of CI env
+	s, cid := newTestServer(t)
+	h := s.Handler()
+	p, err := s.DB.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+
+	do := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Unknown posting → 404.
+	if rec := do(http.MethodPost, "/api/postings/no-such-id/recapture"); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown posting: want 404, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Wrong method → 405.
+	if rec := do(http.MethodGet, "/api/postings/"+p.ID+"/recapture"); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET recapture: want 405, got %d", rec.Code)
+	}
+
+	// A non-ATS link with no key can't run the LLM pass → 412 (precondition).
+	if rec := do(http.MethodPost, "/api/postings/"+p.ID+"/recapture"); rec.Code != http.StatusPreconditionFailed {
+		t.Errorf("non-ATS recapture without key: want 412, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
