@@ -1157,9 +1157,9 @@ function roleEditHTML(j) {
     <div class="role-url ie-field">
       <div class="role-url-head">
         <label>link</label>
-        <button type="button" class="role-reenrich" id="pursuit-reenrich"
-                title="re-fetch this posting's details from the link — fills in blanks, no re-typing">re-enrich</button>
         <a class="role-url-open" href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open the posting">↗</a>
+        <button type="button" class="role-reenrich h3-action" id="pursuit-reenrich"
+                title="re-fetch this posting's details from the link — fills in blanks, no re-typing">↻ re-enrich</button>
       </div>
       <input class="ie" id="pursuit-url-input" placeholder="https://…" value="${escapeHTML(j.url || "")}">
     </div>
