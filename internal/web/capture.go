@@ -209,6 +209,13 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		s.handlePostingCompany(w, r, pid)
 		return
 	}
+	// {id}/recapture re-runs the capture/enrich pass on the posting's stored
+	// link — refreshes details and fills blanks in place, so a posting added by
+	// hand needn't have its fields re-typed.
+	if pid, ok := strings.CutSuffix(id, "/recapture"); ok && pid != "" && !strings.Contains(pid, "/") {
+		s.handlePostingRecapture(w, r, pid)
+		return
+	}
 	// {id}/answers/redetect forces a fresh question-detection run.
 	if pid, ok := strings.CutSuffix(id, "/answers/redetect"); ok && pid != "" && !strings.Contains(pid, "/") {
 		s.handlePostingAnswersRedetect(w, r, pid)
@@ -370,4 +377,79 @@ func (s *Server) handlePostingNextUp(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingRecapture re-runs the capture/enrich pass on a posting already
+// on file: POST /api/postings/{id}/recapture (no body). It re-resolves the
+// posting's stored link through the same pipeline as the Add dialog — the ATS
+// API when supported, else the one-shot LLM pass — and folds the fresh fields
+// back into the existing row. The point is to fill the blanks for a posting the
+// user added by hand without re-typing the details.
+//
+// Two things are pinned so a re-run can't drift. The kind: it's a known job, so
+// it's never reclassified as a company page. The company: the existing name is
+// passed as the typed field, so EnsureCompany matches the current company
+// instead of minting a twin (and the URL-keyed upsert keeps the posting's
+// company regardless). The capture upsert COALESCEs blanks, so a thin re-fetch
+// never erases stored detail; the title rides along too, since it's the one
+// editable column the upsert overwrites unconditionally.
+func (s *Server) handlePostingRecapture(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	p, err := s.DB.GetPosting(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if p == nil {
+		http.NotFound(w, r)
+		return
+	}
+	// The key gate only bites the LLM path; an ATS-resolvable link re-captures
+	// keyless, exactly like the Add dialog.
+	if s.ensureAnthropicKey() == "" && !capture.IsATSPosting(p.URL) {
+		http.Error(w, "re-enrich needs an Anthropic API key for this link (set one in Settings, or ANTHROPIC_API_KEY in the server environment)", http.StatusPreconditionFailed)
+		return
+	}
+	name, _, _ := s.DB.GetCompanyName(p.CompanyID)
+
+	// One fetch (≤12s) plus at most one LLM call (≤45s); the margin covers redirects.
+	ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+	defer cancel()
+	c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+	res, err := c.Run(ctx, capture.Request{
+		URL:    p.URL,
+		Kind:   capture.KindJob,
+		Fields: capture.Fields{Name: name, Title: p.Title},
+	})
+	if err != nil {
+		var fe capture.FetchError
+		switch {
+		case strings.HasPrefix(err.Error(), "url "):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.As(err, &fe): // page unfetchable — honest status for the UI
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": err.Error(), "fetch_status": fe.Status,
+			})
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	// A pinned-job run writes the posting on any clean fetch; a nil posting means
+	// the link no longer identifies a company, so report that rather than echo a
+	// stale row.
+	if res.Posting == nil {
+		msg := res.Note
+		if msg == "" {
+			msg = "nothing to re-enrich from that link"
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": msg, "fetch_status": res.FetchStatus,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, res.Posting)
 }

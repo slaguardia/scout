@@ -730,6 +730,16 @@
     font-size: 18px; padding: 0 2px;
   }
   .role-head .role-url-open:hover { text-decoration: underline; }
+  /* "re-enrich" — re-fetch the posting's details from its link. A quiet
+     affordance pushed to the right of the link row, mirroring "change". */
+  .role-head .role-reenrich {
+    margin-left: auto;
+    background: none; border: none; padding: 0; margin-right: 2px;
+    font: inherit; font-size: 12px; color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .role-head .role-reenrich:hover:not(:disabled) { color: var(--link); text-decoration: underline; }
+  .role-head .role-reenrich:disabled { opacity: 0.6; cursor: default; }
   .role-head .role-meta {
     margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;
     color: var(--fg-mute); font-size: 12.5px; align-items: center;
@@ -1963,11 +1973,3 @@
   .chat-send:hover { opacity: 0.9; }
   .chat-send:disabled { opacity: 0.45; cursor: default; }
   .chat-send svg { width: 16px; height: 16px; }
-
-  /* the small "chat" affordance on a posting card's status row */
-  .pcard-chat {
-    font-size: 12px; color: var(--link);
-    background: transparent; border: none; cursor: pointer;
-    padding: 0 2px;
-  }
-  .pcard-chat:hover { text-decoration: underline; }
