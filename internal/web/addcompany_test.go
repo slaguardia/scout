@@ -86,6 +86,51 @@ func TestAddCompanyAPI(t *testing.T) {
 	}
 }
 
+// TestDeleteCompanyAPI covers DELETE /api/companies/:id: a real id returns 200
+// and the row is gone afterward; an unknown id is a 404 (not a silent 200).
+func TestDeleteCompanyAPI(t *testing.T) {
+	s, _ := newTestServer(t) // seeds an "Acme" company at acme.com
+	h := s.Handler()
+
+	// Add a company we can delete without disturbing the seed.
+	add := httptest.NewRequest(http.MethodPost, "/api/companies", bytes.NewBufferString(`{"website":"globex.io","name":"Globex"}`))
+	add.Header.Set("Content-Type", "application/json")
+	arec := httptest.NewRecorder()
+	h.ServeHTTP(arec, add)
+	if arec.Code != http.StatusOK {
+		t.Fatalf("seed add: want 200, got %d (%s)", arec.Code, arec.Body.String())
+	}
+	var added struct {
+		CompanyID string `json:"company_id"`
+	}
+	if err := json.Unmarshal(arec.Body.Bytes(), &added); err != nil {
+		t.Fatalf("decode add: %v", err)
+	}
+
+	del := func(id string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/api/companies/"+id, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Delete the real company → 200, and it's no longer retrievable.
+	if rec := del(added.CompanyID); rec.Code != http.StatusOK {
+		t.Fatalf("delete: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if d, _ := s.DB.GetCompanyDetail(added.CompanyID); d != nil {
+		t.Errorf("company still present after delete: %+v", d)
+	}
+	if n, _ := s.DB.CountCompanies(); n != 1 {
+		t.Errorf("companies=%d, want 1 (only the seed remains)", n)
+	}
+
+	// Unknown id → 404, not a silent success.
+	if rec := del("does-not-exist"); rec.Code != http.StatusNotFound {
+		t.Errorf("delete unknown: want 404, got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 // TestFacetsAPI checks that GET /api/facets returns distinct funding stages and
 // verticals split out of composite "A, B, C" cells, deduped case-insensitively
 // across companies, and sorted — the data the Add-company dropdowns consume.

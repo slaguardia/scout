@@ -140,6 +140,74 @@ func TestMergeCompanyCollapsesNameKeyIntoDomainKey(t *testing.T) {
 	}
 }
 
+// DeleteCompany wipes the company and everything hanging off it — the company_id
+// children it deletes explicitly (companyChildTables) and the posting-keyed
+// grandchildren that cascade off job_postings — leaving the DB empty. An unknown
+// id is sql.ErrNoRows so the API can 404 rather than silently no-op.
+func TestDeleteCompanyRemovesEverything(t *testing.T) {
+	db := openTestDB(t)
+	id, err := db.UpsertCompany(mkCompany("crunchbase", "Acme", "acme.com"))
+	if err != nil {
+		t.Fatalf("seed company: %v", err)
+	}
+
+	// One row in each company_id child table…
+	if err := db.UpsertEnrichment(Enrichment{CompanyID: id, FetchStatus: "ok"}); err != nil {
+		t.Fatalf("seed enrichment: %v", err)
+	}
+	if err := db.UpsertVerdict(Verdict{CompanyID: id, Verdict: "yes", Reason: "fits", Model: "manual"}); err != nil {
+		t.Fatalf("seed verdict: %v", err)
+	}
+	if err := db.InsertVerdictTrace(VerdictTrace{CompanyID: id, Model: "haiku", Verdict: "yes"}); err != nil {
+		t.Fatalf("seed trace: %v", err)
+	}
+	if err := db.InsertVerdictOverride(VerdictOverride{CompanyID: id, ToVerdict: "yes"}); err != nil {
+		t.Fatalf("seed override: %v", err)
+	}
+	p, err := db.AddPosting(id, "https://acme.com/jobs", "SE")
+	if err != nil {
+		t.Fatalf("seed posting: %v", err)
+	}
+	// …and a posting-keyed grandchild that must cascade off job_postings.
+	if _, err := db.CreateOutreachDraft(p.ID); err != nil {
+		t.Fatalf("seed draft: %v", err)
+	}
+
+	if err := db.DeleteCompany(id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if n, _ := db.CountCompanies(); n != 0 {
+		t.Fatalf("CountCompanies = %d, want 0 after delete", n)
+	}
+	if exists, _ := db.CompanyExists(id); exists {
+		t.Fatalf("company %q still present after delete", id)
+	}
+	// Every company_id child table is empty…
+	for _, table := range companyChildTables {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(1) FROM ` + table).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if n != 0 {
+			t.Errorf("%s still has %d rows after delete", table, n)
+		}
+	}
+	// …and the posting-keyed grandchild cascaded away with its posting.
+	var drafts int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM outreach_drafts`).Scan(&drafts); err != nil {
+		t.Fatalf("count outreach_drafts: %v", err)
+	}
+	if drafts != 0 {
+		t.Errorf("outreach_drafts not cascaded: %d remain", drafts)
+	}
+
+	// Unknown id → sql.ErrNoRows (the handler maps it to 404).
+	if err := db.DeleteCompany("does-not-exist"); err != sql.ErrNoRows {
+		t.Errorf("delete unknown: want sql.ErrNoRows, got %v", err)
+	}
+}
+
 // Child rows keyed on the company UUID cascade on delete.
 func TestCompanyDeleteCascades(t *testing.T) {
 	db := openTestDB(t)

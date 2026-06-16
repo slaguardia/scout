@@ -334,6 +334,40 @@ func (db *DB) MergeCompany(oldID, newID string) error {
 	return nil
 }
 
+// DeleteCompany permanently removes one company and every row attached to it, in
+// one transaction. It deletes each company_id child (companyChildTables — the
+// same schema-guarded list the merge uses) before the parent, then the parent
+// itself; posting-keyed grandchildren (outreach_drafts, posting_answers) fall
+// away via ON DELETE CASCADE off job_postings (foreign keys are always ON — see
+// store.Open). Doing it explicitly rather than leaning on the parent's CASCADE
+// keeps the deletion honest against schema drift (TestCompanyChildTablesMatchSchema
+// guards the list) and matches foldChildren. Returns sql.ErrNoRows for an unknown
+// id so the caller can 404. Irreversible — there is no soft-delete.
+func (db *DB) DeleteCompany(id string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("delete company %q: begin: %w", id, err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range companyChildTables {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE company_id = ?`, id); err != nil {
+			return fmt.Errorf("delete company %q: %s: %w", id, table, err)
+		}
+	}
+	res, err := tx.Exec(`DELETE FROM companies WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete company %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("delete company %q: commit: %w", id, err)
+	}
+	return nil
+}
+
 // UpsertAndFoldName upserts the new domain-keyed company AND folds a pre-existing
 // name-keyed twin (nameKey) into it in a SINGLE transaction, so a crash or a
 // cross-process SQLITE_BUSY can never leave the new row committed with the twin
