@@ -28,6 +28,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/capture"
 	"github.com/slaguardia/scout/internal/chat"
 	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/ingest"
@@ -719,7 +720,12 @@ func (s *Server) handleCompanyNotes(w http.ResponseWriter, r *http.Request, id s
 
 // handleCompanyPostings adds a job posting link to a company. POST only this
 // pass — the list is delivered with the company detail payload. The created
-// posting is returned so the client can append it without a refetch.
+// posting is returned so the client can append it without a refetch. A posting
+// link on a supported ATS (ashby/greenhouse/lever/rippling) resolves through the
+// platform's public API first — keyless, no LLM — so its details auto-fill, the
+// same as the Add dialog and the re-enrich button; the resolved row is pinned to
+// THIS company (never a name-resolved twin). A non-ATS link, or a failed
+// resolve, takes the bare insert.
 func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -733,6 +739,22 @@ func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, i
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	if capture.IsATSPosting(strings.TrimSpace(body.URL)) {
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+		if res := c.CaptureATSPostingForCompany(ctx, id, capture.Request{
+			URL:    body.URL,
+			Kind:   capture.KindJob,
+			Fields: capture.Fields{Title: body.Title},
+		}); res != nil && res.Posting != nil {
+			writeJSON(w, http.StatusOK, *res.Posting)
+			return
+		}
+		// resolve missed — fall through to the bare insert below
+	}
+
 	p, err := s.DB.AddPosting(id, body.URL, body.Title)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
