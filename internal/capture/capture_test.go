@@ -305,6 +305,74 @@ func TestRunFetchFailure(t *testing.T) {
 	}
 }
 
+// A user-pinned company whose page can't be fetched still lands as a bare
+// record (from the typed name / link domain) rather than erroring out — the
+// graceful fallback. The honest fetch status rides along in the result, and no
+// enrichment is seeded (there was no page text to seed it with).
+func TestRunFetchFailureCompanyFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		// A Cloudflare-style challenge body so the status classifies as
+		// "challenge" — the real-world case this fallback exists for.
+		fmt.Fprint(w, "<html><body>Just a moment...</body></html>")
+	}))
+	t.Cleanup(srv.Close)
+	// The extractor must never be reached on an unfetchable page.
+	llm := fakeAnthropic(t, extraction{Kind: KindOther})
+	c := newCapturer(t, llm)
+
+	res, err := c.Run(context.Background(), Request{
+		URL:    srv.URL + "/",
+		Kind:   KindCompany,
+		Fields: Fields{Name: "Persona", FundingStage: "Series C"},
+	})
+	if err != nil {
+		t.Fatalf("want graceful success, got error: %v", err)
+	}
+	if res.CompanyID == "" || !res.CompanyCreated {
+		t.Fatalf("company not created: %+v", res)
+	}
+	if res.CompanyName != "Persona" {
+		t.Errorf("company name = %q, want Persona", res.CompanyName)
+	}
+	if res.FetchStatus != "challenge" {
+		t.Errorf("fetch status = %q, want challenge", res.FetchStatus)
+	}
+	if res.Note == "" {
+		t.Errorf("want a note explaining the bare-record outcome, got none")
+	}
+	// Typed fields made it onto the row.
+	d, err := c.DB.GetCompanyDetail(res.CompanyID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.FundingStage != "Series C" {
+		t.Errorf("funding stage = %q, want Series C", d.FundingStage)
+	}
+	// No page text means no enrichment seed — a later Enrich run handles it.
+	if e, _ := c.DB.GetEnrichment(res.CompanyID); e != nil {
+		t.Errorf("enrichment unexpectedly seeded: %+v", e)
+	}
+}
+
+// When a pinned company link can't be fetched *and* can't be identified (an ATS
+// host, no typed name), the fallback declines (ok=false) so the caller reports
+// the honest fetch failure rather than inventing a company.
+func TestAddBareCompanyUnidentifiable(t *testing.T) {
+	c := newCapturer(t, fakeAnthropic(t, extraction{Kind: KindOther}))
+	// boards.greenhouse.io is an ATS host, rejected as a company identity, and
+	// no name was typed — so there's nothing to key the company on.
+	url := "https://boards.greenhouse.io/some/job"
+	res, ok, err := c.addBareCompany(Request{URL: url, Kind: KindCompany}, url, url, "challenge")
+	if ok || err != nil || res != nil {
+		t.Fatalf("want (nil, false, nil), got (%+v, %v, %v)", res, ok, err)
+	}
+	if n, _ := c.DB.CountCompanies(); n != 0 {
+		t.Errorf("no company should have been created, got %d", n)
+	}
+}
+
 func TestRunBadURL(t *testing.T) {
 	c := newCapturer(t, fakeAnthropic(t, extraction{Kind: KindOther}))
 	for _, bad := range []string{"", "   ", "javascript:alert(1)", "ftp://x.com/j", "not a url"} {

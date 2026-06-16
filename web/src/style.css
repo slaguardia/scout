@@ -620,8 +620,11 @@
     display: flex; align-items: center; gap: 6px;
   }
   .pane-section h3 svg { width: 12px; height: 12px; opacity: 0.85; }
-  /* per-section action (re-enrich / re-score) — quiet, right-aligned */
-  .pane-section h3 .h3-action {
+  /* per-section action (re-enrich / re-score) — quiet, right-aligned. The role
+     panel's "re-enrich" reuses this pill even though it sits in the link row
+     rather than an h3, so it matches the company pane's button exactly. */
+  .pane-section h3 .h3-action,
+  .role-head .role-url-head .h3-action {
     margin-left: auto;
     font: inherit; font-size: 11px; text-transform: none; letter-spacing: normal;
     color: var(--fg-mute); background: var(--panel);
@@ -629,8 +632,10 @@
     padding: 2px 10px; cursor: pointer;
     transition: all var(--dur-fast) var(--ease);
   }
-  .pane-section h3 .h3-action:hover { color: var(--fg); border-color: var(--line-2); background: var(--panel-2); }
-  .pane-section h3 .h3-action:disabled { opacity: 0.5; cursor: default; }
+  .pane-section h3 .h3-action:hover,
+  .role-head .role-url-head .h3-action:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); background: var(--panel-2); }
+  .pane-section h3 .h3-action:disabled,
+  .role-head .role-url-head .h3-action:disabled { opacity: 0.5; cursor: default; }
 
   /* kv grid */
   .kv {
@@ -730,16 +735,9 @@
     font-size: 18px; padding: 0 2px;
   }
   .role-head .role-url-open:hover { text-decoration: underline; }
-  /* "re-enrich" — re-fetch the posting's details from its link. A quiet
-     affordance pushed to the right of the link row, mirroring "change". */
-  .role-head .role-reenrich {
-    margin-left: auto;
-    background: none; border: none; padding: 0; margin-right: 2px;
-    font: inherit; font-size: 12px; color: var(--fg-dim); cursor: pointer;
-    transition: color var(--dur-fast) var(--ease);
-  }
-  .role-head .role-reenrich:hover:not(:disabled) { color: var(--link); text-decoration: underline; }
-  .role-head .role-reenrich:disabled { opacity: 0.6; cursor: default; }
+  /* "↻ re-enrich" — re-fetch the posting's details from its link. Reuses the
+     .h3-action pill so it matches the company pane's re-enrich button; pushed to
+     the right of the link row, leaving the link-out "↗" next to the link. */
   .role-head .role-meta {
     margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;
     color: var(--fg-mute); font-size: 12.5px; align-items: center;
@@ -1383,6 +1381,24 @@
   .btn:hover { border-color: var(--line-2); background: var(--panel-2); }
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
+  /* destructive confirm action — the delete-company modal's Delete button */
+  .btn-danger { background: var(--no-bg); border-color: var(--no); color: var(--no); }
+  .btn-danger:hover { background: var(--no-bg); border-color: var(--no); filter: brightness(1.15); }
+  .modal-note-danger { color: var(--no); }
+  .modal-note-danger svg { opacity: 0.85; }
+
+  /* danger zone at the foot of the company pane — a quiet, out-of-the-way
+     delete affordance kept clear of the everyday edit controls */
+  .pane-danger {
+    margin: 22px 0 4px; padding-top: 14px; border-top: 1px solid var(--line);
+    display: flex; justify-content: flex-end;
+  }
+  .pane-danger .btn-delete {
+    background: none; border: 1px solid transparent; color: var(--fg-dim);
+    border-radius: var(--r-md); padding: 6px 12px; font: inherit; font-size: 12.5px;
+    cursor: pointer; transition: all var(--dur-fast) var(--ease);
+  }
+  .pane-danger .btn-delete:hover { color: var(--no); border-color: var(--no); }
 
   /* ---- the Add dialog ---- */
   .kind-toggle { display: flex; gap: 6px; }

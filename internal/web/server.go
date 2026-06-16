@@ -550,6 +550,9 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id 
 	case http.MethodPut:
 		s.handleCompanyEdit(w, r, id)
 		return
+	case http.MethodDelete:
+		s.handleCompanyDelete(w, r, id)
+		return
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -613,6 +616,23 @@ func (s *Server) handleCompanyEdit(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyDelete permanently removes a company and everything attached to
+// it. DELETE /api/companies/:id — no body. Cascades to its postings, outreach
+// drafts, application answers, enrichment, verdict, and decision trail (see
+// store.DeleteCompany); irreversible, no soft-delete. 404 for an unknown id.
+// Returns the deleted id so the client can drop it from its caches.
+func (s *Server) handleCompanyDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if err := s.DB.DeleteCompany(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"company_id": id, "deleted": true})
 }
 
 // handleCompanyDomain attaches or changes a company's website/domain. PUT
