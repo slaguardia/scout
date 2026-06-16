@@ -179,6 +179,7 @@ function sortRows(rows) {
 // ("yes"/"maybe"/"no"/"__none__" for unscored). Empty set = no filter.
 const verdictFilter = new Set();
 let flagOnly = false; // the ⚑ chip: show flagged companies only
+let enrichedOnly = false; // the "enriched" chip: show only cleanly-enriched companies
 
 function renderVerdictChips() {
   document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
@@ -191,6 +192,7 @@ function filtered() {
   return state.rows.filter(r => {
     if (verdictFilter.size && !verdictFilter.has(r.verdict || "__none__")) return false;
     if (flagOnly && !r.flagged) return false;
+    if (enrichedOnly && !r.enriched) return false;
     if (q) {
       const hay = (r.name + " " + (r.vertical||"") + " " + (r.reason||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -3244,6 +3246,11 @@ document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
 document.getElementById("flag-filter").addEventListener("click", e => {
   flagOnly = !flagOnly;
   e.currentTarget.classList.toggle("is-on", flagOnly);
+  renderList();
+});
+document.getElementById("enriched-filter").addEventListener("click", e => {
+  enrichedOnly = !enrichedOnly;
+  e.currentTarget.classList.toggle("is-on", enrichedOnly);
   renderList();
 });
 // Jobs filter block — its own search, response chips, flag, hide-rejected.

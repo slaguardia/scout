@@ -80,6 +80,7 @@ export const SCOUT_MARKUP = `
         <button class="v-chip" data-v="maybe">maybe</button>
         <button class="v-chip" data-v="no">no</button>
         <button class="v-chip" data-v="__none__" title="companies awaiting a verdict">unscored <span class="v-count" id="unscored-n">–</span></button>
+        <button class="v-chip" id="enriched-filter" title="show only companies with a clean enrichment fetch">enriched</button>
         <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
     </div>
