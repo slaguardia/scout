@@ -720,12 +720,13 @@ func (s *Server) handleCompanyNotes(w http.ResponseWriter, r *http.Request, id s
 
 // handleCompanyPostings adds a job posting link to a company. POST only this
 // pass — the list is delivered with the company detail payload. The created
-// posting is returned so the client can append it without a refetch. A posting
-// link on a supported ATS (ashby/greenhouse/lever/rippling) resolves through the
-// platform's public API first — keyless, no LLM — so its details auto-fill, the
-// same as the Add dialog and the re-enrich button; the resolved row is pinned to
-// THIS company (never a name-resolved twin). A non-ATS link, or a failed
-// resolve, takes the bare insert.
+// posting is returned so the client can append it without a refetch. The
+// details auto-fill where possible, always pinned to THIS company (never a
+// name-resolved twin): a posting link on a supported ATS
+// (ashby/greenhouse/lever/rippling) resolves through the platform's public API
+// (keyless, no LLM); any other fetchable link gets the one-shot LLM extraction
+// when a key is set. A non-ATS link with no key, an unfetchable page, or a
+// failed resolve falls back to the bare insert, so the link always tracks.
 func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -753,6 +754,20 @@ func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		// resolve missed — fall through to the bare insert below
+	} else if s.ensureAnthropicKey() != "" {
+		// Not an ATS link, but a key is set — fetch the page and let the one-shot
+		// LLM pass fill the title/location/description. Pinned to this company.
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+		if res := c.CaptureJobForCompany(ctx, id, capture.Request{
+			URL:    body.URL,
+			Fields: capture.Fields{Title: body.Title},
+		}); res != nil && res.Posting != nil {
+			writeJSON(w, http.StatusOK, *res.Posting)
+			return
+		}
+		// unfetchable / no extraction — fall through to the bare insert below
 	}
 
 	p, err := s.DB.AddPosting(id, body.URL, body.Title)

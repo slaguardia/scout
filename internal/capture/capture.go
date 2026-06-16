@@ -324,6 +324,56 @@ func (c *Capturer) CaptureATSPostingForCompany(ctx context.Context, companyID st
 	}
 }
 
+// CaptureJobForCompany fetches a non-ATS posting link, runs the one-shot LLM
+// extraction (Haiku), and writes the resulting posting under an already-known
+// company id — the LLM counterpart to CaptureATSPostingForCompany for the
+// company-scoped add. Like that method it pins the posting to the given company
+// (no EnsureCompany, so no twin); the kind is pinned to a job, since the user
+// added it to a company's job list. Needs an Anthropic key. Returns nil when
+// there's no key, the page can't be read, or the model can't be called, so the
+// caller falls back to a bare insert and the link still tracks. A user-typed
+// Title wins over the extracted one; the fetched page text becomes the posting
+// body (the JD outreach/chat read), matching Run's non-ATS job path.
+func (c *Capturer) CaptureJobForCompany(ctx context.Context, companyID string, req Request) *Result {
+	rawURL := strings.TrimSpace(req.URL)
+	if rawURL == "" {
+		return nil
+	}
+	if c.Client == nil || !c.Client.HasKey() {
+		return nil // no key → no LLM path; caller bare-inserts
+	}
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = enrich.NewHTTPClient(0)
+	}
+	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
+	if status != "ok" && status != "low_content" {
+		return nil // unfetchable (challenge / login wall / dead host) → bare insert
+	}
+	ext, err := c.extract(ctx, finalURL, truncRunes(text, maxPageRunes), KindJob)
+	if err != nil {
+		return nil
+	}
+	ext.apply(req.Fields) // user-typed Title wins over the extraction
+	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID:   companyID,
+		URL:         finalURL,
+		PastedURL:   rawURL,
+		Title:       ext.JobTitle,
+		Location:    ext.JobLocation,
+		Description: strings.TrimSpace(text),
+		FetchStatus: status,
+	})
+	if err != nil {
+		return nil
+	}
+	c.detectAndStore(ctx, p.ID, finalURL)
+	return &Result{
+		Kind: KindJob, FetchStatus: status, URL: finalURL,
+		CompanyID: companyID, Posting: &p, PostingUpdated: updated,
+	}
+}
+
 // addBareCompany lands a company without any page content — the graceful path
 // for when a user-pinned company link can't be fetched. It uses only the typed
 // name and the link's own (non-ATS) domain, so nothing is invented; enrichment
