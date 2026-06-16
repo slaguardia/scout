@@ -28,6 +28,7 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/brainbot"
+	"github.com/slaguardia/scout/internal/capture"
 	"github.com/slaguardia/scout/internal/chat"
 	"github.com/slaguardia/scout/internal/criteria"
 	"github.com/slaguardia/scout/internal/ingest"
@@ -550,6 +551,9 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request, id 
 	case http.MethodPut:
 		s.handleCompanyEdit(w, r, id)
 		return
+	case http.MethodDelete:
+		s.handleCompanyDelete(w, r, id)
+		return
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -613,6 +617,23 @@ func (s *Server) handleCompanyEdit(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// handleCompanyDelete permanently removes a company and everything attached to
+// it. DELETE /api/companies/:id — no body. Cascades to its postings, outreach
+// drafts, application answers, enrichment, verdict, and decision trail (see
+// store.DeleteCompany); irreversible, no soft-delete. 404 for an unknown id.
+// Returns the deleted id so the client can drop it from its caches.
+func (s *Server) handleCompanyDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if err := s.DB.DeleteCompany(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"company_id": id, "deleted": true})
 }
 
 // handleCompanyDomain attaches or changes a company's website/domain. PUT
@@ -699,7 +720,13 @@ func (s *Server) handleCompanyNotes(w http.ResponseWriter, r *http.Request, id s
 
 // handleCompanyPostings adds a job posting link to a company. POST only this
 // pass — the list is delivered with the company detail payload. The created
-// posting is returned so the client can append it without a refetch.
+// posting is returned so the client can append it without a refetch. The
+// details auto-fill where possible, always pinned to THIS company (never a
+// name-resolved twin): a posting link on a supported ATS
+// (ashby/greenhouse/lever/rippling) resolves through the platform's public API
+// (keyless, no LLM); any other fetchable link gets the one-shot LLM extraction
+// when a key is set. A non-ATS link with no key, an unfetchable page, or a
+// failed resolve falls back to the bare insert, so the link always tracks.
 func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -713,6 +740,36 @@ func (s *Server) handleCompanyPostings(w http.ResponseWriter, r *http.Request, i
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	if capture.IsATSPosting(strings.TrimSpace(body.URL)) {
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+		if res := c.CaptureATSPostingForCompany(ctx, id, capture.Request{
+			URL:    body.URL,
+			Kind:   capture.KindJob,
+			Fields: capture.Fields{Title: body.Title},
+		}); res != nil && res.Posting != nil {
+			writeJSON(w, http.StatusOK, *res.Posting)
+			return
+		}
+		// resolve missed — fall through to the bare insert below
+	} else if s.ensureAnthropicKey() != "" {
+		// Not an ATS link, but a key is set — fetch the page and let the one-shot
+		// LLM pass fill the title/location/description. Pinned to this company.
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+		if res := c.CaptureJobForCompany(ctx, id, capture.Request{
+			URL:    body.URL,
+			Fields: capture.Fields{Title: body.Title},
+		}); res != nil && res.Posting != nil {
+			writeJSON(w, http.StatusOK, *res.Posting)
+			return
+		}
+		// unfetchable / no extraction — fall through to the bare insert below
+	}
+
 	p, err := s.DB.AddPosting(id, body.URL, body.Title)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

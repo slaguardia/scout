@@ -80,6 +80,7 @@ export const SCOUT_MARKUP = `
         <button class="v-chip" data-v="maybe">maybe</button>
         <button class="v-chip" data-v="no">no</button>
         <button class="v-chip" data-v="__none__" title="companies awaiting a verdict">unscored <span class="v-count" id="unscored-n">–</span></button>
+        <button class="v-chip" id="enriched-filter" title="show only companies with a clean enrichment fetch">enriched</button>
         <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
       </div>
     </div>
@@ -423,6 +424,46 @@ export const SCOUT_MARKUP = `
     </div>
     <div class="modal-foot">
       <button class="btn" id="relink-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- delete a company — irreversible, spells out what goes with it -->
+<div class="modal-scrim" id="delcompany-scrim">
+  <div class="modal" style="width:460px">
+    <div class="modal-head">
+      <h2>Delete company?</h2>
+    </div>
+    <div class="modal-body">
+      <p id="delcompany-summary" style="margin:0; font-size:14px; line-height:1.5;"></p>
+      <div class="modal-note modal-note-danger">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5 1 14h14L8 1.5z" stroke-linejoin="round"/><path d="M8 6.5v3.5M8 11.8v.4" stroke-linecap="round"/></svg>
+        <span>This permanently removes the company and everything attached to it — its job postings, outreach drafts, application answers, enrichment, verdict, and decision trail. It can't be undone.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="delcompany-cancel">Cancel</button>
+      <button class="btn btn-danger" id="delcompany-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- delete a job posting — irreversible, mirrors the company delete modal -->
+<div class="modal-scrim" id="deljob-scrim">
+  <div class="modal" style="width:460px">
+    <div class="modal-head">
+      <h2>Delete job?</h2>
+    </div>
+    <div class="modal-body">
+      <p id="deljob-summary" style="margin:0; font-size:14px; line-height:1.5;"></p>
+      <div class="modal-note modal-note-danger">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5 1 14h14L8 1.5z" stroke-linejoin="round"/><path d="M8 6.5v3.5M8 11.8v.4" stroke-linecap="round"/></svg>
+        <span>This permanently removes the job posting and everything attached to it — its outreach drafts and application answers. The company stays. It can't be undone.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="deljob-cancel">Cancel</button>
+      <button class="btn btn-danger" id="deljob-confirm">Delete</button>
     </div>
   </div>
 </div>

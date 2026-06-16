@@ -115,7 +115,7 @@ func FetchPage(ctx context.Context, client *http.Client, url string, maxRunes in
 		return "", finalURL, classifyErr(err)
 	}
 	if code < 200 || code >= 300 || len(body) == 0 {
-		return "", finalURL, fmt.Sprintf("http_%d", code)
+		return "", finalURL, statusForBadCode(code, body)
 	}
 	text = extractText(body)
 	switch {
@@ -275,7 +275,7 @@ func (e *Enricher) fetchOne(ctx context.Context, t store.EnrichmentTarget) store
 			rec.FetchStatus = "ok"
 			return rec
 		}
-		lastStatus = fmt.Sprintf("http_%d", code)
+		lastStatus = statusForBadCode(code, body)
 	}
 
 	if lowFallback != nil {
@@ -321,6 +321,19 @@ func get(ctx context.Context, client *http.Client, url string) ([]byte, int, str
 		return nil, resp.StatusCode, finalURL, err
 	}
 	return body, resp.StatusCode, finalURL, nil
+}
+
+// statusForBadCode classifies a non-2xx (or empty-body) response. Bot
+// challenges (Cloudflare et al.) commonly ride on a 403/503 rather than a 200,
+// so a challenge body is reported as the actionable "challenge" before falling
+// back to the raw "http_<code>" — the apex of a Cloudflare-protected site is
+// unfetchable by any HTTP client, and "challenge" tells the caller that, where
+// "http_403" reads as a permissions problem. Empty bodies carry no signal.
+func statusForBadCode(code int, body []byte) string {
+	if len(body) > 0 && looksLikeChallenge(extractText(body)) {
+		return "challenge"
+	}
+	return fmt.Sprintf("http_%d", code)
 }
 
 func classifyErr(err error) string {

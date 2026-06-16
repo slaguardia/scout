@@ -116,12 +116,16 @@ func (s *Server) handlePostings(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAddPosting adds one posting from just a link, with no agent pass: POST
-// /api/postings {"url": "...", "title"?: "...", "company"?: "..."}. The company
-// is resolved without a fetch — the typed company name and/or the link's own
-// host (a posting on acme.com/careers identifies acme.com; an ATS host
-// identifies nothing) go through ingest.EnsureCompany, creating the company on
-// first sight exactly like a capture would. When neither identifies a company,
-// the add is rejected with guidance rather than guessed at.
+// /api/postings {"url": "...", "title"?: "...", "company"?: "..."}. A posting
+// link on a supported ATS (ashby/greenhouse/lever/rippling) resolves through the
+// platform's public API first — keyless, no LLM — so the details auto-fill on a
+// plain add exactly as they do on re-enrich; only a non-ATS link (or a failed
+// resolve) takes the bare path. There the company is resolved without a fetch —
+// the typed company name and/or the link's own host (a posting on
+// acme.com/careers identifies acme.com; an ATS host identifies nothing) go
+// through ingest.EnsureCompany, creating the company on first sight exactly like
+// a capture would. When neither identifies a company, the add is rejected with
+// guidance rather than guessed at.
 func (s *Server) handleAddPosting(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		URL     string `json:"url"`
@@ -139,6 +143,30 @@ func (s *Server) handleAddPosting(w http.ResponseWriter, r *http.Request) {
 	if u, err := neturl.Parse(rawURL); rawURL == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		http.Error(w, "url must be http(s)", http.StatusBadRequest)
 		return
+	}
+
+	// A posting link on a supported ATS (ashby/greenhouse/lever/rippling)
+	// resolves through the platform's public API with no LLM and no key — the
+	// same keyless path the job panel's re-enrich button uses. Do it on the plain
+	// add too, so pasting an ATS job link auto-fills the title, location, comp,
+	// and description instead of landing a bare row that needs a manual
+	// re-enrich. A resolve miss returns nil and falls through to the plain insert
+	// below, so the link still tracks either way.
+	if capture.IsATSPosting(rawURL) {
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		c := &capture.Capturer{DB: s.DB, Client: s.Anthropic}
+		if res := c.CaptureATSPosting(ctx, capture.Request{
+			URL:  rawURL,
+			Kind: capture.KindJob,
+			Fields: capture.Fields{
+				Name:  strings.TrimSpace(body.Company),
+				Title: body.Title,
+			},
+		}); res != nil && res.Posting != nil {
+			writeJSON(w, http.StatusOK, res)
+			return
+		}
 	}
 
 	name := strings.TrimSpace(body.Company)
@@ -230,6 +258,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// DELETE /api/postings/{id} permanently removes the posting (mirrors company delete).
+	if r.Method == http.MethodDelete {
+		s.handlePostingDelete(w, r, id)
+		return
+	}
 	if r.Method != http.MethodPut && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -254,6 +287,23 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingDelete permanently removes one job posting and everything
+// attached to it. DELETE /api/postings/{id} — no body. Its outreach drafts and
+// application answers cascade off job_postings (see store.DeletePosting);
+// irreversible, no soft-delete. 404 for an unknown id. Returns the deleted id
+// so the client can drop it from its caches. Mirrors handleCompanyDelete.
+func (s *Server) handlePostingDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if err := s.DB.DeletePosting(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"posting_id": id, "deleted": true})
 }
 
 // handlePostingDetails edits a posting's hand-editable content: PUT

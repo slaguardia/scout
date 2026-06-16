@@ -2,10 +2,12 @@ package capture
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -112,6 +114,89 @@ func TestRunResolvesAshbyWithoutLLM(t *testing.T) {
 	}
 	if res2.CompanyCreated || !res2.PostingUpdated || res2.Posting.ID != p.ID {
 		t.Errorf("re-capture: %+v", res2)
+	}
+}
+
+// TestCaptureATSPostingKeyless is the bug-fix contract: the no-agent add path
+// (a Capturer with no Anthropic key) still resolves a supported-ATS posting link
+// through the platform API and writes the details — the LLM and the page are
+// never touched. A non-ATS link returns nil so the caller falls back to a plain
+// insert.
+func TestCaptureATSPostingKeyless(t *testing.T) {
+	overrideBase(t, &ashbyAPIBase, ashbyBoard(t).URL)
+	overrideBase(t, &ashbyBoardBase, tripwire(t, "board fetch").URL)
+	// No Anthropic client at all — the keyless path must not need one.
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	c := &Capturer{DB: db}
+
+	res := c.CaptureATSPosting(context.Background(), Request{
+		URL:    "https://jobs.ashbyhq.com/foresight-health/" + ashbyJobID,
+		Kind:   KindJob,
+		Fields: Fields{Title: ""},
+	})
+	if res == nil || res.Posting == nil {
+		t.Fatalf("expected a written posting, got %+v", res)
+	}
+	if res.CompanyName != "Foresight Health" || !res.CompanyCreated {
+		t.Errorf("company: %+v", res)
+	}
+	if res.Posting.Title != "Founding Engineer" || res.Posting.CompRange != "$150K – $200K" {
+		t.Errorf("posting details not resolved: %+v", res.Posting)
+	}
+
+	// A link that isn't a recognized ATS posting returns nil — the caller's
+	// signal to fall back to a plain insert.
+	if got := c.CaptureATSPosting(context.Background(), Request{URL: "https://acme.com/careers/123"}); got != nil {
+		t.Errorf("non-ATS link should return nil, got %+v", got)
+	}
+}
+
+// TestCaptureATSPostingForCompanyPinsCompany is the company-scoped add's
+// contract: the resolved posting attaches to the GIVEN company id and never
+// mints or re-homes to a slug-named twin — even when the board's name
+// ("Foresight Health") is nothing like the stored company and the company
+// carries a domain (the twin-prone case).
+func TestCaptureATSPostingForCompanyPinsCompany(t *testing.T) {
+	overrideBase(t, &ashbyAPIBase, ashbyBoard(t).URL)
+	overrideBase(t, &ashbyBoardBase, tripwire(t, "board fetch").URL)
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	cid, err := db.UpsertCompany(store.Company{
+		Source: "test", Name: "Acme Inc",
+		Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}",
+	})
+	if err != nil {
+		t.Fatalf("seed company: %v", err)
+	}
+	c := &Capturer{DB: db} // no Anthropic client — keyless
+
+	res := c.CaptureATSPostingForCompany(context.Background(), cid, Request{
+		URL:  "https://jobs.ashbyhq.com/foresight-health/" + ashbyJobID,
+		Kind: KindJob,
+	})
+	if res == nil || res.Posting == nil {
+		t.Fatalf("expected a written posting, got %+v", res)
+	}
+	if res.Posting.CompanyID != cid {
+		t.Errorf("posting attached to %q, want the given company %q", res.Posting.CompanyID, cid)
+	}
+	if res.Posting.Title != "Founding Engineer" || res.Posting.CompRange != "$150K – $200K" {
+		t.Errorf("ATS details not resolved: %+v", res.Posting)
+	}
+	if n, _ := db.CountCompanies(); n != 1 {
+		t.Errorf("company count = %d, want 1 (no twin minted)", n)
+	}
+
+	// A non-ATS link returns nil — the caller falls back to the bare insert.
+	if got := c.CaptureATSPostingForCompany(context.Background(), cid, Request{URL: "https://acme.com/careers/1"}); got != nil {
+		t.Errorf("non-ATS link should return nil, got %+v", got)
 	}
 }
 

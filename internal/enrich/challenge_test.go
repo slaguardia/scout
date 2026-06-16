@@ -48,6 +48,55 @@ func TestLooksLikeChallenge(t *testing.T) {
 	}
 }
 
+func TestStatusForBadCode(t *testing.T) {
+	cases := []struct {
+		name string
+		code int
+		body string
+		want string
+	}{
+		{
+			name: "cloudflare challenge on a 403",
+			code: 403,
+			// Mirrors the real Cloudflare interstitial: the visible text is just
+			// "Just a moment..." once the <script>/<style> blocks are stripped.
+			body: `<html><head><style>body{display:flex}</style></head><body><h1>Just a moment...</h1><script>window._cf_chl_opt={};</script></body></html>`,
+			want: "challenge",
+		},
+		{
+			name: "challenge served as a 503",
+			code: 503,
+			body: `<html><body>Checking your browser before accessing the site.</body></html>`,
+			want: "challenge",
+		},
+		{
+			name: "plain forbidden, no challenge body",
+			code: 403,
+			body: `<html><body>forbidden</body></html>`,
+			want: "http_403",
+		},
+		{
+			name: "empty body falls back to the code",
+			code: 403,
+			body: "",
+			want: "http_403",
+		},
+		{
+			name: "not found",
+			code: 404,
+			body: `<html><body>Page not found</body></html>`,
+			want: "http_404",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := statusForBadCode(tc.code, []byte(tc.body)); got != tc.want {
+				t.Errorf("statusForBadCode(%d, %q) = %q, want %q", tc.code, first(tc.body, 40), got, tc.want)
+			}
+		})
+	}
+}
+
 func longString(unit string, n int) string {
 	s := ""
 	for i := 0; i < n; i++ {

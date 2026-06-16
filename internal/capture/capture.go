@@ -167,6 +167,18 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	// often JS shells whose residual text (title/meta) carries enough.
 	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
 	if status != "ok" && status != "low_content" {
+		// The page is unfetchable — a bot challenge, a 403/login wall, a dead
+		// host. For a company the user explicitly pinned we don't need the page
+		// to land the record: create it from the typed name and/or the link's
+		// own domain — inventing nothing, just degrading to a bare row the user
+		// can enrich later. A job link still needs the page (no title or
+		// description without it), and an unclassified link can't be guessed at,
+		// so both of those stay strict and report the honest fetch failure.
+		if req.Kind == KindCompany {
+			if res, ok, err := c.addBareCompany(req, rawURL, finalURL, status); ok {
+				return res, err
+			}
+		}
 		return &Result{FetchStatus: status, URL: finalURL}, FetchError{Status: status}
 	}
 
@@ -253,6 +265,151 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	return res, nil
 }
 
+// CaptureATSPosting resolves a supported-ATS posting link (ashby, greenhouse,
+// lever, rippling) through the platform's public API and writes the company +
+// posting — the keyless path, no page fetch and no LLM, identical to what Run
+// does for the same link. It returns nil when the link isn't a recognized ATS
+// posting or the platform resolve fails, so a caller that wants a guaranteed
+// write (the no-agent "Add job") can fall back to a plain insert. User-typed
+// Fields still win over the platform values.
+func (c *Capturer) CaptureATSPosting(ctx context.Context, req Request) *Result {
+	rawURL := strings.TrimSpace(req.URL)
+	if !IsATSPosting(rawURL) {
+		return nil
+	}
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = enrich.NewHTTPClient(0)
+	}
+	job := resolveATS(ctx, httpc, rawURL)
+	if job == nil {
+		return nil
+	}
+	res, err := c.runATS(ctx, rawURL, req, job)
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+// CaptureATSPostingForCompany resolves a supported-ATS posting link and writes
+// it under an already-known company id — the company-scoped add (POST
+// /api/companies/{id}/postings), where the caller owns the company and the
+// posting must attach to it. Unlike CaptureATSPosting it never goes through
+// EnsureCompany, so it can neither mint a company nor re-home the posting to a
+// name-resolved twin. Keyless, no page fetch, no LLM. Returns nil on a non-ATS
+// link or a resolve miss, so the caller can fall back to a bare insert. A
+// user-typed Title wins over the platform's.
+func (c *Capturer) CaptureATSPostingForCompany(ctx context.Context, companyID string, req Request) *Result {
+	rawURL := strings.TrimSpace(req.URL)
+	if !IsATSPosting(rawURL) {
+		return nil
+	}
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = enrich.NewHTTPClient(0)
+	}
+	job := resolveATS(ctx, httpc, rawURL)
+	if job == nil {
+		return nil
+	}
+	p, updated, err := c.writeATSPosting(ctx, companyID, rawURL, strings.TrimSpace(req.Fields.Title), job)
+	if err != nil {
+		return nil
+	}
+	return &Result{
+		Kind: KindJob, FetchStatus: "ok", URL: job.URL,
+		CompanyID: companyID, Posting: &p, PostingUpdated: updated,
+		Note: "details from the " + job.ATS + " posting API — no LLM pass needed",
+	}
+}
+
+// CaptureJobForCompany fetches a non-ATS posting link, runs the one-shot LLM
+// extraction (Haiku), and writes the resulting posting under an already-known
+// company id — the LLM counterpart to CaptureATSPostingForCompany for the
+// company-scoped add. Like that method it pins the posting to the given company
+// (no EnsureCompany, so no twin); the kind is pinned to a job, since the user
+// added it to a company's job list. Needs an Anthropic key. Returns nil when
+// there's no key, the page can't be read, or the model can't be called, so the
+// caller falls back to a bare insert and the link still tracks. A user-typed
+// Title wins over the extracted one; the fetched page text becomes the posting
+// body (the JD outreach/chat read), matching Run's non-ATS job path.
+func (c *Capturer) CaptureJobForCompany(ctx context.Context, companyID string, req Request) *Result {
+	rawURL := strings.TrimSpace(req.URL)
+	if rawURL == "" {
+		return nil
+	}
+	if c.Client == nil || !c.Client.HasKey() {
+		return nil // no key → no LLM path; caller bare-inserts
+	}
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = enrich.NewHTTPClient(0)
+	}
+	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
+	if status != "ok" && status != "low_content" {
+		return nil // unfetchable (challenge / login wall / dead host) → bare insert
+	}
+	ext, err := c.extract(ctx, finalURL, truncRunes(text, maxPageRunes), KindJob)
+	if err != nil {
+		return nil
+	}
+	ext.apply(req.Fields) // user-typed Title wins over the extraction
+	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID:   companyID,
+		URL:         finalURL,
+		PastedURL:   rawURL,
+		Title:       ext.JobTitle,
+		Location:    ext.JobLocation,
+		Description: strings.TrimSpace(text),
+		FetchStatus: status,
+	})
+	if err != nil {
+		return nil
+	}
+	c.detectAndStore(ctx, p.ID, finalURL)
+	return &Result{
+		Kind: KindJob, FetchStatus: status, URL: finalURL,
+		CompanyID: companyID, Posting: &p, PostingUpdated: updated,
+	}
+}
+
+// addBareCompany lands a company without any page content — the graceful path
+// for when a user-pinned company link can't be fetched. It uses only the typed
+// name and the link's own (non-ATS) domain, so nothing is invented; enrichment
+// is left unseeded, so a later Enrich run still fills it in if the page becomes
+// reachable. ok=false means there was nothing to identify the company by (e.g.
+// an ATS host with no typed name), leaving the caller to report the honest
+// fetch failure instead; a non-nil error is a real store failure to surface.
+func (c *Capturer) addBareCompany(req Request, rawURL, finalURL, status string) (*Result, bool, error) {
+	name := strings.TrimSpace(req.Fields.Name)
+	domain := resolveCompanyDomain("", rawURL, finalURL)
+	if name == "" && domain == "" {
+		return nil, false, nil
+	}
+	res := &Result{Kind: KindCompany, FetchStatus: status, URL: finalURL}
+	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
+		Name:         name,
+		Domain:       domain,
+		Location:     strings.TrimSpace(req.Fields.Location),
+		Vertical:     strings.TrimSpace(req.Fields.Vertical),
+		SourceURL:    finalURL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
+	})
+	if err != nil {
+		return res, true, err
+	}
+	res.CompanyID = id
+	res.CompanyCreated = created
+	if name == "" {
+		name = domain
+	}
+	res.CompanyName = name
+	res.Note = fmt.Sprintf("couldn't read the page (%s) — added %s as a bare record you can enrich later", status, name)
+	return res, true, nil
+}
+
 // runATS makes the same writes a captured job posting makes, from the
 // platform-stated fields instead of an extraction. The ATS host never
 // identifies the company, so its identity is the user-typed name or the
@@ -284,12 +441,27 @@ func (c *Capturer) runATS(ctx context.Context, rawURL string, req Request, job *
 	res.CompanyCreated = created
 	res.CompanyName = name
 
-	title := strings.TrimSpace(req.Fields.Title)
-	if title == "" {
+	p, updated, err := c.writeATSPosting(ctx, id, rawURL, strings.TrimSpace(req.Fields.Title), job)
+	if err != nil {
+		return res, fmt.Errorf("store posting: %w", err)
+	}
+	res.Posting = &p
+	res.PostingUpdated = updated
+	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
+	return res, nil
+}
+
+// writeATSPosting upserts the posting row from a resolved ATS job under the
+// given company id, then kicks off best-effort question detection. title is the
+// user-typed value (which wins); the platform's title fills a blank. The upsert
+// is keyed by URL and never reassigns company_id, so calling this for an
+// already-anchored posting only enriches it in place.
+func (c *Capturer) writeATSPosting(ctx context.Context, companyID, rawURL, title string, job *atsJob) (store.Posting, bool, error) {
+	if strings.TrimSpace(title) == "" {
 		title = job.Title
 	}
 	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
-		CompanyID:      id,
+		CompanyID:      companyID,
 		URL:            job.URL,
 		PastedURL:      rawURL,
 		Title:          title,
@@ -303,14 +475,11 @@ func (c *Capturer) runATS(ctx context.Context, rawURL string, req Request, job *
 		Description:    job.Description,
 	})
 	if err != nil {
-		return res, fmt.Errorf("store posting: %w", err)
+		return store.Posting{}, false, err
 	}
-	res.Posting = &p
-	res.PostingUpdated = updated
-	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
 	// Resolve the application-form questions off the same ATS link (best-effort).
 	c.detectAndStore(ctx, p.ID, job.URL)
-	return res, nil
+	return p, updated, nil
 }
 
 // captureContract is the extractor's system prompt — the JSON output contract

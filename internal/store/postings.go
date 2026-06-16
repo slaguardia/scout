@@ -471,6 +471,23 @@ func (db *DB) GetPosting(id string) (*Posting, error) {
 	return &p, nil
 }
 
+// DeletePosting permanently removes one job posting and everything attached to
+// it — its outreach drafts and application answers fall away via ON DELETE
+// CASCADE off job_postings (foreign keys are always ON; see store.Open). One
+// statement is the whole cleanup, unlike DeleteCompany which must fan across
+// several company_id tables. Returns sql.ErrNoRows for an unknown id so the
+// caller can 404. Irreversible — there is no soft-delete.
+func (db *DB) DeletePosting(id string) error {
+	res, err := db.Exec(`DELETE FROM job_postings WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete posting %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // ListPostings returns a company's postings, newest first. Returns an empty
 // (non-nil) slice when there are none, so callers serialize [] not null.
 func (db *DB) ListPostings(companyID string) ([]Posting, error) {

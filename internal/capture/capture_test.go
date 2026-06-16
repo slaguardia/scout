@@ -2,6 +2,7 @@ package capture
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -154,6 +155,58 @@ func TestRunCapturesJobPosting(t *testing.T) {
 	}
 }
 
+// TestCaptureJobForCompanyPinsCompany: the company-scoped add's LLM fallback
+// writes the extracted posting under the GIVEN company id (never the company the
+// model extracts), so a non-ATS link added from a company panel can't mint or
+// re-home to a twin. A user-typed title still wins; no key returns nil.
+func TestCaptureJobForCompanyPinsCompany(t *testing.T) {
+	page := jobPage(t)
+	// The model "extracts" a different company — proof we ignore it and pin.
+	llm := fakeAnthropic(t, extraction{
+		Kind: KindJob, CompanyName: "Wrong Co", CompanyDomain: "wrong.com",
+		JobTitle: "Solutions Engineer", JobLocation: "SF / remote",
+	})
+	c := newCapturer(t, llm)
+	cid, err := c.DB.UpsertCompany(store.Company{
+		Source: "test", Name: "Acme Inc",
+		Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}",
+	})
+	if err != nil {
+		t.Fatalf("seed company: %v", err)
+	}
+
+	res := c.CaptureJobForCompany(context.Background(), cid, Request{URL: page.URL + "/jobs/1"})
+	if res == nil || res.Posting == nil {
+		t.Fatalf("expected a written posting, got %+v", res)
+	}
+	if res.Posting.CompanyID != cid {
+		t.Errorf("posting attached to %q, want the given company %q", res.Posting.CompanyID, cid)
+	}
+	if res.Posting.Title != "Solutions Engineer" || res.Posting.Location != "SF / remote" {
+		t.Errorf("LLM details not applied: %+v", res.Posting)
+	}
+	if !strings.Contains(res.Posting.Description, "AI infrastructure") {
+		t.Errorf("page text not kept as the JD: %q", res.Posting.Description)
+	}
+	if n, _ := c.DB.CountCompanies(); n != 1 {
+		t.Errorf("company count = %d, want 1 (no twin minted)", n)
+	}
+
+	// A user-typed title wins over the extraction (same URL → update in place).
+	res2 := c.CaptureJobForCompany(context.Background(), cid, Request{
+		URL: page.URL + "/jobs/1", Fields: Fields{Title: "Forward-Deployed Engineer"},
+	})
+	if res2 == nil || res2.Posting == nil || res2.Posting.Title != "Forward-Deployed Engineer" {
+		t.Errorf("typed title should win: %+v", res2)
+	}
+
+	// No key → nil, so the caller falls back to a bare insert (and never fetches).
+	noKey := &Capturer{DB: c.DB}
+	if got := noKey.CaptureJobForCompany(context.Background(), cid, Request{URL: page.URL + "/jobs/1"}); got != nil {
+		t.Errorf("no-key capture should return nil, got %+v", got)
+	}
+}
+
 func TestRunStoresFullDescription(t *testing.T) {
 	// A posting page with more text than the classifier reads (maxPageRunes)
 	// but within the store cap (descCapRunes): the whole body must land in the
@@ -302,6 +355,74 @@ func TestRunFetchFailure(t *testing.T) {
 	}
 	if res == nil || res.FetchStatus != "http_403" {
 		t.Errorf("unexpected result: %+v", res)
+	}
+}
+
+// A user-pinned company whose page can't be fetched still lands as a bare
+// record (from the typed name / link domain) rather than erroring out — the
+// graceful fallback. The honest fetch status rides along in the result, and no
+// enrichment is seeded (there was no page text to seed it with).
+func TestRunFetchFailureCompanyFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		// A Cloudflare-style challenge body so the status classifies as
+		// "challenge" — the real-world case this fallback exists for.
+		fmt.Fprint(w, "<html><body>Just a moment...</body></html>")
+	}))
+	t.Cleanup(srv.Close)
+	// The extractor must never be reached on an unfetchable page.
+	llm := fakeAnthropic(t, extraction{Kind: KindOther})
+	c := newCapturer(t, llm)
+
+	res, err := c.Run(context.Background(), Request{
+		URL:    srv.URL + "/",
+		Kind:   KindCompany,
+		Fields: Fields{Name: "Persona", FundingStage: "Series C"},
+	})
+	if err != nil {
+		t.Fatalf("want graceful success, got error: %v", err)
+	}
+	if res.CompanyID == "" || !res.CompanyCreated {
+		t.Fatalf("company not created: %+v", res)
+	}
+	if res.CompanyName != "Persona" {
+		t.Errorf("company name = %q, want Persona", res.CompanyName)
+	}
+	if res.FetchStatus != "challenge" {
+		t.Errorf("fetch status = %q, want challenge", res.FetchStatus)
+	}
+	if res.Note == "" {
+		t.Errorf("want a note explaining the bare-record outcome, got none")
+	}
+	// Typed fields made it onto the row.
+	d, err := c.DB.GetCompanyDetail(res.CompanyID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.FundingStage != "Series C" {
+		t.Errorf("funding stage = %q, want Series C", d.FundingStage)
+	}
+	// No page text means no enrichment seed — a later Enrich run handles it.
+	if e, _ := c.DB.GetEnrichment(res.CompanyID); e != nil {
+		t.Errorf("enrichment unexpectedly seeded: %+v", e)
+	}
+}
+
+// When a pinned company link can't be fetched *and* can't be identified (an ATS
+// host, no typed name), the fallback declines (ok=false) so the caller reports
+// the honest fetch failure rather than inventing a company.
+func TestAddBareCompanyUnidentifiable(t *testing.T) {
+	c := newCapturer(t, fakeAnthropic(t, extraction{Kind: KindOther}))
+	// boards.greenhouse.io is an ATS host, rejected as a company identity, and
+	// no name was typed — so there's nothing to key the company on.
+	url := "https://boards.greenhouse.io/some/job"
+	res, ok, err := c.addBareCompany(Request{URL: url, Kind: KindCompany}, url, url, "challenge")
+	if ok || err != nil || res != nil {
+		t.Fatalf("want (nil, false, nil), got (%+v, %v, %v)", res, ok, err)
+	}
+	if n, _ := c.DB.CountCompanies(); n != 0 {
+		t.Errorf("no company should have been created, got %d", n)
 	}
 }
 
