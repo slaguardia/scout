@@ -1071,7 +1071,6 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v8H2z"/><path d="M2 4l6 5 6-5"/></svg>
         Outreach
       </h3>
       <div id="outreach-section"></div>
@@ -1080,7 +1079,6 @@ function renderPursuit() {
     ${currentStage(j.stage_history) ? "" : `
     <section class="pane-section">
       <h3>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h7l3 3V13a.5.5 0 01-.5.5h-9A.5.5 0 013 13z"/><path d="M6 7h4M6 9.5h4M6 12h2.5"/></svg>
         Application
       </h3>
       <div id="answers-section"></div>
