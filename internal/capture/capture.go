@@ -265,6 +265,33 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	return res, nil
 }
 
+// CaptureATSPosting resolves a supported-ATS posting link (ashby, greenhouse,
+// lever, rippling) through the platform's public API and writes the company +
+// posting — the keyless path, no page fetch and no LLM, identical to what Run
+// does for the same link. It returns nil when the link isn't a recognized ATS
+// posting or the platform resolve fails, so a caller that wants a guaranteed
+// write (the no-agent "Add job") can fall back to a plain insert. User-typed
+// Fields still win over the platform values.
+func (c *Capturer) CaptureATSPosting(ctx context.Context, req Request) *Result {
+	rawURL := strings.TrimSpace(req.URL)
+	if !IsATSPosting(rawURL) {
+		return nil
+	}
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = enrich.NewHTTPClient(0)
+	}
+	job := resolveATS(ctx, httpc, rawURL)
+	if job == nil {
+		return nil
+	}
+	res, err := c.runATS(ctx, rawURL, req, job)
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
 // addBareCompany lands a company without any page content — the graceful path
 // for when a user-pinned company link can't be fetched. It uses only the typed
 // name and the link's own (non-ATS) domain, so nothing is invented; enrichment

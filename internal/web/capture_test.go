@@ -150,8 +150,12 @@ func TestAddPostingDirect(t *testing.T) {
 		t.Errorf("re-add: want same posting, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// An ATS link with a typed company creates the company by name.
-	rec = post(`{"url":"https://boards.greenhouse.io/widgets/jobs/1","company":"Widgets"}`)
+	// An ATS host the resolver doesn't cover (workable — recognized as an ATS so
+	// it identifies no domain, but not one of the keyless-resolvable platforms)
+	// takes the plain-insert path: a typed company creates the company by name.
+	// (Resolvable platforms — ashby/greenhouse/lever/rippling — auto-fill instead;
+	// that keyless path is covered hermetically in the capture package.)
+	rec = post(`{"url":"https://apply.workable.com/widgets/j/ABC123","company":"Widgets"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ATS+company add: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -162,9 +166,9 @@ func TestAddPostingDirect(t *testing.T) {
 		t.Errorf("typed company not created: %+v", res)
 	}
 
-	// An ATS link with no company named is rejected, and writes nothing.
+	// The same kind of link with no company named is rejected, and writes nothing.
 	before, _ := s.DB.CountCompanies()
-	if rec := post(`{"url":"https://boards.greenhouse.io/mystery/jobs/2"}`); rec.Code != http.StatusBadRequest {
+	if rec := post(`{"url":"https://apply.workable.com/mystery/j/DEF456"}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("ATS bare: want 400, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if after, _ := s.DB.CountCompanies(); after != before {
