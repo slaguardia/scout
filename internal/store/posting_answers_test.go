@@ -131,6 +131,45 @@ func TestAnswerGenerationLifecycle(t *testing.T) {
 	}
 }
 
+func TestDismissAnswerStickyAcrossRedetect(t *testing.T) {
+	db, pid := answersTestDB(t)
+	q1 := DetectedQuestion{Key: "k1", Prompt: "Why us?"}
+	q2 := DetectedQuestion{Key: "k2", Prompt: "Tell us about a project."}
+	if err := db.UpsertDetectedQuestions(pid, []DetectedQuestion{q1, q2}, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	all := answersByID(t, db, pid)
+	if len(all) != 2 {
+		t.Fatalf("want 2, got %d", len(all))
+	}
+
+	// Dismiss the first → it leaves the list.
+	if err := db.DismissAnswer(all[0].ID); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+	if left := answersByID(t, db, pid); len(left) != 1 || left[0].Prompt != "Tell us about a project." {
+		t.Fatalf("after dismiss want only Q2, got %+v", left)
+	}
+
+	// A dismissed row is never re-grabbed for generation.
+	if pending, _ := db.MarkAnswersGenerating(pid); len(pending) != 1 || pending[0].Prompt != "Tell us about a project." {
+		t.Fatalf("dismissed row must not generate; pending=%+v", pending)
+	}
+
+	// Re-detecting the same questions does NOT resurrect the dismissed one.
+	if err := db.UpsertDetectedQuestions(pid, []DetectedQuestion{q1, q2}, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if got := answersByID(t, db, pid); len(got) != 1 {
+		t.Fatalf("re-detect resurrected a dismissed question: %d rows", len(got))
+	}
+
+	// Unknown id → ErrNoRows.
+	if err := db.DismissAnswer(999999); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("dismiss unknown: want ErrNoRows, got %v", err)
+	}
+}
+
 func TestReapStuckAnswers(t *testing.T) {
 	db, pid := answersTestDB(t)
 	if err := db.UpsertDetectedQuestions(pid, []DetectedQuestion{{Key: "k", Prompt: "Q"}}, "ok"); err != nil {

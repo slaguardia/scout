@@ -9,13 +9,16 @@ import (
 // PostingAnswer statuses. detected: question found, no answer yet. generating:
 // the engine is drafting. ready: drafted + honesty-passed. needs_review: drafted
 // but the honesty checker flagged it (kept, not shipped silently). failed: the
-// draft pass errored.
+// draft pass errored. dismissed: the user removed the question — the row is kept
+// (not hard-deleted) so the idempotent re-detection upsert can't resurrect it,
+// and it is filtered out of every read + the generation set.
 const (
 	AnswerDetected    = "detected"
 	AnswerGenerating  = "generating"
 	AnswerReady       = "ready"
 	AnswerNeedsReview = "needs_review"
 	AnswerFailed      = "failed"
+	AnswerDismissed   = "dismissed"
 )
 
 // DetectedQuestion is one essay question a capture-side resolver found on a
@@ -104,10 +107,11 @@ func (db *DB) UpsertDetectedQuestions(postingID string, qs []DetectedQuestion, s
 }
 
 // ListAnswers returns a posting's questions+answers in form order (oldest id
-// first). Returns an empty (non-nil) slice when there are none.
+// first), excluding questions the user dismissed. Returns an empty (non-nil)
+// slice when there are none.
 func (db *DB) ListAnswers(postingID string) ([]PostingAnswer, error) {
 	rows, err := db.Query(`SELECT `+answerCols+` FROM posting_answers
-WHERE posting_id = ? ORDER BY id ASC`, postingID)
+WHERE posting_id = ? AND status != ? ORDER BY id ASC`, postingID, AnswerDismissed)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +207,20 @@ WHERE id = ?`, AnswerGenerating, id)
 		return PostingAnswer{}, err
 	}
 	return scanAnswer(db.QueryRow(`SELECT `+answerCols+` FROM posting_answers WHERE id = ?`, id))
+}
+
+// DismissAnswer removes one detected question from view: it flips the row to
+// `dismissed` (a soft delete) and clears any draft/edit. The row is kept rather
+// than hard-deleted so re-detection's idempotent upsert (ON CONFLICT DO NOTHING)
+// can't bring the question back, and ListAnswers/MarkAnswersGenerating both skip
+// it. Returns sql.ErrNoRows when the id doesn't exist.
+func (db *DB) DismissAnswer(id int64) error {
+	res, err := db.Exec(`UPDATE posting_answers SET status = ?, answer = '', edited = '', fail_reason = '', updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`, AnswerDismissed, id)
+	if err != nil {
+		return err
+	}
+	return mustAffect(res)
 }
 
 // ReapStuckAnswers fails any answer stuck in `generating` longer than

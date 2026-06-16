@@ -129,10 +129,19 @@ func TestAnswerEditAndRegenerate(t *testing.T) {
 		t.Fatalf("regenerate no engine: want 503, got %d", rec.Code)
 	}
 
-	// With a runner → 202, runner fired, row cleared to generating.
+	// With a runner but no experience discovered → 412 (same honesty gate the
+	// bulk draft enforces, so a single-question Generate can't slip past it).
 	runner := &fakeAnswersRunner{}
 	s.Answers = runner
 	h = s.Handler()
+	if rec := do(t, h, http.MethodPut, idPath, `{"regenerate":true}`); rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("regenerate missing experience: want 412, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Seed experience → 202, runner fired, row cleared to generating.
+	if err := s.DB.UpsertOutreachSource(store.OutreachSource{Need: "experience", PageID: "exp1", Title: "Exp", Content: "exp doc", Version: "v1"}); err != nil {
+		t.Fatal(err)
+	}
 	rec = do(t, h, http.MethodPut, idPath, `{"regenerate":true}`)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("regenerate: want 202, got %d (%s)", rec.Code, rec.Body.String())
@@ -148,6 +157,31 @@ func TestAnswerEditAndRegenerate(t *testing.T) {
 	// Unknown answer id → 404.
 	if rec := do(t, h, http.MethodPut, "/api/answers/99999", `{"edited":"x"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown answer: want 404, got %d", rec.Code)
+	}
+}
+
+func TestAnswerDismiss(t *testing.T) {
+	s, cid := newTestServer(t)
+	pid := seedAnswersPosting(t, s, cid)
+	_ = s.DB.UpsertDetectedQuestions(pid, []store.DetectedQuestion{
+		{Key: "k1", Prompt: "Why us?"},
+		{Key: "k2", Prompt: "A project?"},
+	}, "ok")
+	h := s.Handler()
+	id := mustListAnswers(t, s, pid)[0].ID
+	idPath := "/api/answers/" + strconv.FormatInt(id, 10)
+
+	// DELETE → 204, the question leaves the list.
+	if rec := do(t, h, http.MethodDelete, idPath, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("dismiss: want 204, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if left := mustListAnswers(t, s, pid); len(left) != 1 || left[0].Prompt != "A project?" {
+		t.Fatalf("after dismiss want only the other question, got %+v", left)
+	}
+
+	// Unknown id → 404.
+	if rec := do(t, h, http.MethodDelete, "/api/answers/99999", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("dismiss unknown: want 404, got %d", rec.Code)
 	}
 }
 

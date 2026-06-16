@@ -122,7 +122,7 @@ canonical port defeats that safety net — don't.
   with the only generated holes a leashed **opener** (reference one real specific
   thing + a genuine reaction, else a plain intro) and a short **closer**
   (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Brain
-  knowledge** (experience + voice) is *discovered* not pinned (`discover.go`:
+  knowledge** (experience + voice + logistics) is *discovered* not pinned (`discover.go`:
   Haiku over `/map`, fetched via `/doc`, cached in `outreach_sources` (M35);
   fail-loud `ErrNoExperience`) and is the honesty checker's ground truth — a thin
   experience doc makes the writer confabulate, so the real lever is good source
@@ -147,18 +147,30 @@ canonical port defeats that safety net — don't.
   file / choice fields are filtered out and essays kept, with a load-bearing
   `questions_status` (ok|none|unsupported|unreachable). **Generation** is on a
   button (`Engine.GenerateAnswers`, Sonnet): per question it assembles JD +
-  company-fit brief + the **experience bundle** + voice (the same discovered
-  `outreach_sources` the email pipeline uses — no more `PAST_EXPERIENCE_FULL`
-  block), drafts once, then routes through the same outreach **honesty checker**
-  (a false claim to a recruiter is worse than a thin answer); a second honesty
-  fail keeps the answer flagged `needs_review` rather than shipping it. One row
+  company-fit brief + the **experience bundle** + voice + a **logistics/profile
+  bundle** (the same discovered `outreach_sources` the email pipeline uses — no
+  more `PAST_EXPERIENCE_FULL` block), drafts once, then routes through the same
+  outreach **honesty checker** (a false claim to a recruiter is worse than a thin
+  answer); a second honesty fail keeps the answer flagged `needs_review` rather
+  than shipping it. **Biographical/logistics facts** (current location, work
+  authorization, comp, availability, relocation) come ONLY from the **logistics**
+  knowledge need — a soft, brain-discovered bundle that is both a grounded card
+  for the drafter and extra honesty ground truth; with no logistics page the
+  drafter writes a `[fill-in]` placeholder instead of confabulating (e.g. it used
+  to invent a US state), and the honesty checker now vetoes any biographical claim
+  absent from the cards. One row
   per question (`posting_answers`, M32), independently editable/regenerable via
-  the pursuit panel's "Application" section (inline auto-save, per-question
-  Regenerate, "Draft answers" / "Re-detect"). Endpoints mirror outreach
-  (`GET/POST /api/postings/{id}/answers`, `…/redetect`, `PUT /api/answers/{id}`),
-  gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. CLI: `scout
-  questions detect --posting <id> | --all`. **Scout never submits** — it drafts;
-  the user copy-pastes into the ATS.
+  the pursuit panel's "Application" section (inline auto-save). **Generation is
+  per-question** — each card has a Generate (undrafted) / Regenerate (drafted)
+  button as the primary path, with a secondary "Draft all blank" for bulk; both
+  go through the single-row regenerate, honesty-gated identically. **Unwanted
+  questions are removable** (× → `DELETE /api/answers/{id}` → a `dismissed`
+  soft-delete that survives re-detection, since the idempotent upsert leaves it
+  untouched). Endpoints mirror outreach (`GET/POST /api/postings/{id}/answers`,
+  `…/redetect`, `PUT`/`DELETE /api/answers/{id}`), gated on a non-empty
+  experience bundle + `ANTHROPIC_API_KEY`. CLI: `scout questions detect --posting
+  <id> | --all`. **Scout never submits** — it drafts; the user copy-pastes into
+  the ATS.
 
 ## What's next
 

@@ -325,7 +325,7 @@ export const SCOUT_MARKUP = `
       <div id="sources-list"></div>
       <div class="modal-note">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
-        <span>Discovered from your brain by an LLM over the document map: <strong>experience</strong> (required — the honesty checker's ground truth) and <strong>voice</strong> (optional). “Refresh” re-runs discovery when new pages appear; remove a wrong pick with ✕. The pages are fetched whole and cached locally; drafting reads the cache.</span>
+        <span>Discovered from your brain by an LLM over the document map: <strong>experience</strong> (required — the honesty checker's ground truth), <strong>voice</strong> (optional), and <strong>logistics</strong> (optional — current location, work authorization, availability, comp: the only source application answers may state these from; without it those facts fall back to fill-in placeholders). “Refresh” re-runs discovery when new pages appear; remove a wrong pick with ✕. The pages are fetched whole and cached locally; drafting reads the cache.</span>
       </div>
     </div>
     <div class="modal-foot">
@@ -575,7 +575,7 @@ export const SCOUT_MARKUP = `
               </div>
               <div class="sm-node sm-llm">
                 <div class="sm-name">discover</div>
-                <div class="sm-desc">An LLM picks your experience and voice pages off the brain's map; they're fetched whole and cached.</div>
+                <div class="sm-desc">An LLM picks your experience, voice, and logistics pages off the brain's map; they're fetched whole and cached.</div>
               </div>
               <div class="sm-arrow"></div>
               <div class="sm-arrow"></div>
@@ -585,7 +585,7 @@ export const SCOUT_MARKUP = `
               </div>
               <div class="sm-node sm-brainy">
                 <div class="sm-name">outreach knowledge</div>
-                <div class="sm-desc">Your experience + voice — the ground truth every draft is honesty-checked against.</div>
+                <div class="sm-desc">Your experience, voice + logistics — the ground truth every draft is honesty-checked against.</div>
               </div>
               <div class="sm-arrow"><span class="sm-label sm-cfg">+ playbook — how to judge</span></div>
               <div class="sm-arrow"><span class="sm-label sm-cfg">+ email template · pipeline prompts</span></div>

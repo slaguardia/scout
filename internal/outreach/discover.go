@@ -17,16 +17,18 @@ import (
 // the brain pages that answer it; the pages' whole text is the knowledge the
 // fill step and honesty checker reason over.
 type Need struct {
-	Key  string // stored need key: "experience" | "voice"
-	Hard bool   // experience is HARD (empty → drafting blocked); voice degrades
+	Key  string // stored need key: "experience" | "voice" | "logistics"
+	Hard bool   // experience is HARD (empty → drafting blocked); voice/logistics degrade
 	Desc string // what kind of page satisfies this need (for the discovery agent)
 }
 
 // KnowledgeNeeds is the fixed list. Experience is hard because it is the honesty
-// checker's ground truth; voice degrades gracefully (a less-voiced email).
+// checker's ground truth; voice and logistics degrade gracefully (a less-voiced
+// email; biographical facts fall back to fill-in placeholders).
 var KnowledgeNeeds = []Need{
 	{Key: "experience", Hard: true, Desc: "the user's professional experience: roles, durations, projects, team scope, skills, achievements, credentials, clearances"},
 	{Key: "voice", Hard: false, Desc: "the user's writing voice, tone, and style"},
+	{Key: "logistics", Hard: false, Desc: "the user's application logistics / biographical facts: current location (city, state, country), work authorization or visa status, citizenship, availability or start date, salary or compensation expectations, willingness to relocate, and portfolio/profile links"},
 }
 
 // ErrNoExperience is returned by Discover when no brain page is relevant to the
@@ -61,7 +63,7 @@ You are given the page MAP (one line per page: id | title | path) and a list of 
 
 CRITICAL RULE: Walk the whole map. If NO page is genuinely relevant to a need, return an EMPTY list for that need. NEVER pick an off-topic page just to avoid returning empty — a wrong "experience" page silently corrupts every email and defeats the honesty check. Returning [] for a need the knowledge base does not cover is the correct, expected answer.
 
-Return ONLY a JSON object with exactly one key per need, each an array of page ids (possibly empty), e.g. {"experience": ["id1","id2"], "voice": []}.`
+Return ONLY a JSON object with exactly one key per need, each an array of page ids (possibly empty), e.g. {"experience": ["id1","id2"], "voice": [], "logistics": []}.`
 
 // Discover runs the discovery pass: read the brain /map, have the model select
 // pages per need, whole-fetch each selected page via /doc, and cache the result

@@ -107,12 +107,15 @@ type answerContext struct {
 	jd         string
 	brief      string
 	experience string
+	logistics  string
 	voice      string
 }
 
 // answerContext assembles the JD (stored description, or a live fetch like the
 // drafter), the brain company-fit brief (optional — degrades to none), the
-// experience bundle (the honesty ground truth), and the voice bundle.
+// experience bundle (the honesty ground truth), the logistics/profile bundle
+// (biographical facts — optional; empty → those facts fall back to placeholders),
+// and the voice bundle.
 func (e *Engine) answerContext(ctx context.Context, posting *store.Posting, exp string) answerContext {
 	jd := trunc(posting.Description, jdMaxChars)
 	if strings.TrimSpace(jd) == "" {
@@ -131,6 +134,7 @@ func (e *Engine) answerContext(ctx context.Context, posting *store.Posting, exp 
 		jd:         jd,
 		brief:      brief,
 		experience: exp,
+		logistics:  e.knowledge("logistics"),
 		voice:      e.knowledge("voice"),
 	}
 }
@@ -146,7 +150,7 @@ func (e *Engine) draftAnswer(ctx context.Context, ac answerContext, a store.Post
 		if err != nil {
 			return "", store.AnswerFailed, "draft: " + err.Error()
 		}
-		verdict, violations, err := e.honestyCheckText(ctx, ac.experience, text)
+		verdict, violations, err := e.honestyCheckText(ctx, ac.experience, ac.logistics, text)
 		if err != nil {
 			return "", store.AnswerFailed, "honesty check: " + err.Error()
 		}
@@ -177,7 +181,10 @@ func (e *Engine) answerCall(ctx context.Context, ac answerContext, a store.Posti
 	if ac.brief != "" {
 		fmt.Fprintf(&b, "Company-fit brief (the applicant's own values — use ONLY to make \"why this company\" specific and true, never to invent fit):\n%s\n\n", ac.brief)
 	}
-	fmt.Fprintf(&b, "Applicant experience (the ONLY facts you may claim):\n%s\n\n", ac.experience)
+	fmt.Fprintf(&b, "Applicant experience (the applicant's work history — the source for every claim about what they have done):\n%s\n\n", ac.experience)
+	if ac.logistics != "" {
+		fmt.Fprintf(&b, "Applicant profile (biographical & logistics facts — current location, work authorization, availability, comp, links; the ONLY source for any such fact):\n%s\n\n", ac.logistics)
+	}
 	if ac.voice != "" {
 		fmt.Fprintf(&b, "Voice rules (write like this):\n%s\n\n", ac.voice)
 	}
@@ -225,5 +232,7 @@ func answerLengthGuide(maxLen int) string {
 const answerSystem = `You write one applicant's answer to a single job-application essay question, in the applicant's own voice. The applicant is applying for this role; you are filling in their application.
 
 Ground every factual claim in the provided experience card — roles, skills, scope, durations, domains. NEVER invent or inflate experience the card does not support: an honesty reviewer will reject anything beyond it, and a false claim to a recruiter is worse than a thinner answer. The company-fit brief is the applicant's OWN values — use it only to make "why this company" specific and true, never to claim a fit you cannot back up.
+
+Biographical and logistics facts are NOT yours to invent. The applicant's current location (city/state/country), work authorization or visa status, citizenship, salary or compensation expectations, notice period, availability or start date, and willingness to relocate may be stated ONLY when the applicant-profile card states them (the experience card may also carry such a fact). The company-fit brief and the job description may name a company's location, an office, or a location preference — that is about the COMPANY, never where the applicant lives; never read the applicant's location out of the brief, the job description, or thin air. If the question asks for a biographical or logistics fact none of the provided cards contain, do NOT guess a value — write a short bracketed placeholder for the applicant to fill in (e.g. "[current location]", "[work authorization]") and nothing else for that fact.
 
 Answer the question directly and specifically. Plain spoken English, concrete over abstract. No flattery, no filler, no "I am passionate about", no "I am excited to", no superlative you cannot earn with a specific fact. Do not restate the question. Write ONLY the answer text — no preamble, no salutation, no sign-off.`

@@ -157,6 +157,18 @@ The sender did not claim them. Most false flags come from mistaking a sharp
 observation about the company for an invented sender claim; do not make that
 mistake.
 
+BIOGRAPHICAL AND LOGISTICS FACTS are sender claims too, and a common miss. Where
+the sender currently lives or is located (city, state, country), their work
+authorization / visa status / citizenship, salary or compensation expectations,
+notice period, availability or start date, and willingness to relocate are
+SENDER claims — isolate them alongside experience claims. A stated location or
+work-authorization the experience document does not contain is a VIOLATION,
+exactly like invented experience. The sender has NO documented location, work
+authorization, or comp unless the document states one: do not let a company's
+location, an office named in the posting, a location preference, or a number from
+the job description stand in as a fact about the sender. If the text asserts the
+sender lives somewhere and the document does not say so, flag it.
+
 RESOLVE ANAPHORA — a sender claim can be split across two sentences. When a
 sentence asserts something in the abstract (no "I/my/me") and the next sentence
 attaches the sender to it ("that's been my situation", "that's me", "same for
@@ -168,11 +180,13 @@ into the sender claim and verify it against the experience document; do not let 
 capability hide in an unattributed sentence that a later "that's me" silently
 claims.
 
-STEP 2 — check each sender claim against the experience document. Flag it only
-when the sender's experience reaches into a role, domain, project, or scope the
+STEP 2 — check each sender claim against the experience document. Flag it when
+the sender's experience reaches into a role, domain, project, or scope the
 document does NOT describe at all: invented experience, inflated scope ("led the
 program" vs "led a team"), or implied domain expertise the doc doesn't support
-(e.g. healthcare when the doc shows only fintech).
+(e.g. healthcare when the doc shows only fintech). Flag a biographical or
+logistics fact (location, work authorization, citizenship, comp, availability,
+relocation) the same way: a VIOLATION whenever the document does not state it.
 
 A manufactured CONNECTION to the company is the most common miss, and you must
 catch it: a sender claim of having experienced, watched, seen, or lived the

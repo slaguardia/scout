@@ -131,10 +131,11 @@ func (s *Server) handlePostingAnswersRedetect(w http.ResponseWriter, r *http.Req
 	s.writeAnswers(w, http.StatusOK, postingID, scan.Status)
 }
 
-// handleAnswer edits or regenerates one answer:
+// handleAnswer edits, regenerates, or removes one answer:
 //
-//	PUT /api/answers/{id}  {"edited": "..."}        -> inline save (200 + row)
-//	PUT /api/answers/{id}  {"regenerate": true}     -> re-draft this one (202 + row)
+//	PUT    /api/answers/{id}  {"edited": "..."}     -> inline save (200 + row)
+//	PUT    /api/answers/{id}  {"regenerate": true}  -> re-draft this one (202 + row)
+//	DELETE /api/answers/{id}                        -> dismiss the question (204)
 func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/answers/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -142,10 +143,25 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method != http.MethodPut {
+	switch r.Method {
+	case http.MethodDelete:
+		if err := s.DB.DismissAnswer(id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case http.MethodPut:
+		// handled below
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	var body struct {
 		Edited     string `json:"edited"`
 		Regenerate bool   `json:"regenerate"`
@@ -158,6 +174,19 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	if body.Regenerate {
 		if s.Answers == nil {
 			http.Error(w, "answer generation not wired (no engine in this build)", http.StatusServiceUnavailable)
+			return
+		}
+		// Same honesty-gate as the bulk POST: a single-question draft also needs the
+		// experience bundle, so block early with the friendly 412 the panel turns
+		// into a "discover sources" prompt rather than letting the row fail.
+		if exp, err := s.DB.OutreachKnowledge("experience"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if strings.TrimSpace(exp) == "" {
+			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
+				"need":  "experience",
+			})
 			return
 		}
 		a, err := s.DB.RegenerateAnswer(id)

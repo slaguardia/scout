@@ -164,7 +164,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/outreach-prompts", s.handleOutreachPromptsList) // GET the editable pipeline stages (see editor.go)
 	mux.HandleFunc("/api/outreach-prompts/", s.handleOutreachPrompt)     // GET/PUT one stage's prompt + on/off (see editor.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)                   // sources / refresh / drafts (see outreach.go)
-	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate one answer (see answers.go)
+	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate; DELETE {id}: dismiss one answer (see answers.go)
 	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)             // GET open-or-create a (scope,scope_id) thread
 	mux.HandleFunc("/api/chat/", s.handleChat)                           // POST {thread}/message, GET {thread}/stream
 	mux.HandleFunc("/api/stats", s.handleStats)

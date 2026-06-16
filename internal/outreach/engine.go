@@ -271,7 +271,7 @@ func (e *Engine) fillRoute(ctx context.Context, draftID int64, research string, 
 		if e.stageEnabled("honesty") {
 			e.setStage(draftID, stageHonesty)
 			var herr error
-			verdict, violations, herr = e.honestyCheckText(ctx, exp, holesText)
+			verdict, violations, herr = e.honestyCheckText(ctx, exp, "", holesText)
 			if herr != nil {
 				return fmt.Errorf("honesty checker: %w", herr)
 			}
@@ -482,11 +482,17 @@ type honestyViolation struct {
 	Why   string `json:"why"`
 }
 
-// honestyCheckText verifies that `text` makes no claim beyond the experience
-// bundle. It is isolated — it sees only the experience and the text, never the
-// intended hook. Shared by the email fill path and answer generation.
-func (e *Engine) honestyCheckText(ctx context.Context, experience, text string) (string, []honestyViolation, error) {
-	user := fmt.Sprintf("Experience document:\n%s\n\nText to verify:\n%s", experience, text)
+// honestyCheckText verifies that `text` makes no claim beyond the documented
+// ground truth: the experience bundle plus, when present, the logistics/profile
+// bundle (biographical facts the answer path is allowed to state). It is
+// isolated — it sees only those documents and the text, never the intended hook.
+// Shared by the email fill path (logistics empty) and answer generation.
+func (e *Engine) honestyCheckText(ctx context.Context, experience, logistics, text string) (string, []honestyViolation, error) {
+	doc := experience
+	if strings.TrimSpace(logistics) != "" {
+		doc += "\n\n--- Applicant profile (biographical & logistics facts) ---\n" + logistics
+	}
+	user := fmt.Sprintf("Experience document:\n%s\n\nText to verify:\n%s", doc, text)
 	raw, err := e.callJSON(ctx, e.stagePrompt("honesty"), user, stageMaxTokens, nil)
 	if err != nil {
 		return "", nil, err

@@ -1828,8 +1828,10 @@ async function markDraftSent(id) {
 //
 // The "Application" panel section: the essay questions detected on the posting's
 // application form, each with an inline-save drafted answer. Detection happens
-// at capture; generation is on the "Draft answers" button (LLM spend is opt-in,
-// like outreach). Scout never submits — the user copy-pastes into the ATS.
+// at capture; generation is opt-in LLM spend, per question (the "Generate"
+// button on each card) or in bulk ("Draft all blank"). Unwanted questions are
+// removable (× — a sticky dismiss). Scout never submits — the user copy-pastes
+// into the ATS.
 
 // loadAnswers fetches the posting's questions+answers and renders the section,
 // polling while any answer is still generating (the closed panel relies on the
@@ -1853,7 +1855,8 @@ function startAnswersPoll() { if (!pursuit.answersPoll) pursuit.answersPoll = se
 function stopAnswersPoll() { if (pursuit.answersPoll) { clearInterval(pursuit.answersPoll); pursuit.answersPoll = null; } }
 
 // renderAnswersSection draws the detection header, the per-question answer cards,
-// and the footer button (Draft answers / Re-detect), keyed off questions_status.
+// and the footer (a secondary "Draft all blank" + Re-detect), keyed off
+// questions_status.
 function renderAnswersSection() {
   const host = document.getElementById("answers-section");
   if (!host) return;
@@ -1874,9 +1877,11 @@ function renderAnswersSection() {
   const redetect = (txt) => `<button class="btn" id="answers-redetect-btn"${detecting ? " disabled" : ""}>${detecting ? "Detecting…" : txt}</button>`;
   let footer;
   if (status === "ok" && answers.length) {
+    // Per-question Generate is the primary path; the bulk button is a secondary
+    // "draft every blank at once" convenience, shown only when blanks remain.
     const anyBlank = answers.some(a => !answerText(a) && a.status !== "generating");
     footer =
-      `<button class="btn ${anyBlank ? "btn-primary" : ""}" id="answers-start-btn"${startDis}>${generating ? "Drafting…" : "Draft answers"}</button>` +
+      (anyBlank ? `<button class="btn" id="answers-start-btn"${startDis}>${generating ? "Drafting…" : "Draft all blank"}</button>` : "") +
       redetect("Re-detect");
   } else if (status === "" || status === "unreachable") {
     footer =
@@ -1924,7 +1929,9 @@ function answerStatusPill(a) {
 
 // answerCardHTML renders one question: the prompt, the inline-save answer
 // textarea (or a spinner while generating), a status pill, char count vs the
-// declared limit, and a per-question Regenerate.
+// declared limit, a per-question Generate/Regenerate, and a remove (×). The
+// action button reads "Generate" for an undrafted question (the per-question
+// draft is the primary path) and "Regenerate" once there's a draft to replace.
 function answerCardHTML(a) {
   const text = answerText(a);
   const edited = a.edited && a.edited.trim();
@@ -1934,17 +1941,21 @@ function answerCardHTML(a) {
   const counter = a.max_length
     ? `<span class="answer-count${over ? " over" : ""}">${count} / ${a.max_length}</span>`
     : `<span class="answer-count">${count} chars</span>`;
+  const drafted = !!text;
+  const genLabel = drafted ? "Regenerate" : "Generate";
+  const genTitle = drafted ? "re-draft this answer (discards the current text)" : "draft an answer to just this question";
 
   return `<div class="answer-card ac-${a.status}" data-aid="${a.id}">
     <div class="answer-prompt">${escapeHTML(a.prompt)}</div>
     ${busy
       ? `<div class="answer-busy"><span class="spinner"></span><span>drafting…</span></div>`
-      : `<textarea class="ie answer-textarea" id="answer-edit-${a.id}" rows="5" spellcheck="false" placeholder="Draft answers to fill this in, or write your own.">${escapeHTML(text)}</textarea>`}
+      : `<textarea class="ie answer-textarea" id="answer-edit-${a.id}" rows="5" spellcheck="false" placeholder="Generate an answer to this question, or write your own.">${escapeHTML(text)}</textarea>`}
     <div class="answer-foot">
       ${answerStatusPill(a)}
       ${edited ? `<span class="answer-edited" title="your edit wins over the drafted answer">edited</span>` : ""}
       ${busy ? "" : counter}
-      ${busy ? "" : `<button class="btn answer-regen-btn" title="re-draft this answer (discards the current text)">Regenerate</button>`}
+      ${busy ? "" : `<button class="btn ${drafted ? "" : "btn-primary "}answer-regen-btn" title="${genTitle}">${genLabel}</button>`}
+      ${busy ? "" : `<button class="answer-remove-btn" title="remove this question" aria-label="remove question">×</button>`}
     </div>
     ${a.status === "needs_review" ? `<div class="answer-note answer-review">Flagged by the honesty check — confirm it doesn't overstate your experience before sending.</div>` : ""}
     ${a.status === "failed" && a.fail_reason ? `<div class="answer-note answer-fail">${escapeHTML(trimReason(a.fail_reason))}</div>` : ""}
@@ -1975,6 +1986,8 @@ function wireAnswers() {
     }
     const regen = card.querySelector(".answer-regen-btn");
     if (regen) regen.addEventListener("click", () => regenerateAnswer(id));
+    const rm = card.querySelector(".answer-remove-btn");
+    if (rm) rm.addEventListener("click", () => removeAnswer(id));
   });
 }
 
@@ -2061,9 +2074,31 @@ async function regenerateAnswer(id) {
     });
   } catch (e) { toast(`regenerate failed: ${e.message}`); return; }
   if (resp.status === 503) { appendAnswersNote("Answer generation isn't running in this build."); return; }
+  if (resp.status === 412) {
+    let body = {}; try { body = await resp.json(); } catch {}
+    renderAnswersInputGate(body.error);
+    return;
+  }
   if (!resp.ok) {
     const txt = (await resp.text().catch(() => "")).trim();
     toast(`regenerate failed: ${txt || "HTTP " + resp.status}`);
+    return;
+  }
+  await loadAnswers();
+}
+
+// removeAnswer dismisses one detected question. The soft delete is sticky (a
+// re-detect won't bring it back) and discards any answer typed for it, so it is
+// confirmed first.
+async function removeAnswer(id) {
+  if (!confirm("Remove this question? Any answer drafted or written for it is discarded, and re-detecting won't bring it back.")) return;
+  let resp;
+  try {
+    resp = await fetch(`/api/answers/${id}`, { method: "DELETE" });
+  } catch (e) { toast(`remove failed: ${e.message}`); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`remove failed: ${txt || "HTTP " + resp.status}`);
     return;
   }
   await loadAnswers();
@@ -3038,11 +3073,11 @@ function closeEditor() {
 
 // ---- control surface: outreach knowledge sources ----
 //
-// The discovered experience + voice bundle (brain pages, whole-fetched + cached).
-// The modal lists them per need, refreshes discovery, and supports removing a
-// wrong pick. DEFAULT_NEEDS mirrors the server's KnowledgeNeeds for the case
-// where a response (refresh) omits the needs list.
-const DEFAULT_NEEDS = [{ key: "experience", hard: true }, { key: "voice", hard: false }];
+// The discovered experience + voice + logistics bundle (brain pages, whole-fetched
+// + cached). The modal lists them per need, refreshes discovery, and supports
+// removing a wrong pick. DEFAULT_NEEDS mirrors the server's KnowledgeNeeds for the
+// case where a response (refresh) omits the needs list.
+const DEFAULT_NEEDS = [{ key: "experience", hard: true }, { key: "voice", hard: false }, { key: "logistics", hard: false }];
 
 async function openSourcesModal() {
   document.getElementById("sources-scrim").classList.add("open");
@@ -3546,17 +3581,18 @@ function renderCriteria() {
   const srcs = (state.sources && state.sources.sources) || [];
   const expN = srcs.filter(s => s.need === "experience").length;
   const voiceN = srcs.filter(s => s.need === "voice").length;
+  const logN = srcs.filter(s => s.need === "logistics").length;
   let kdot = "off", knote = "not discovered yet — refresh from the brain";
-  if (expN > 0) { kdot = "ok"; knote = `${expN} experience · ${voiceN} voice`; }
+  if (expN > 0) { kdot = "ok"; knote = `${expN} experience · ${voiceN} voice · ${logN} logistics`; }
   else if (srcs.length > 0) { kdot = "warn"; knote = "no experience yet — refresh"; }
   const kname = srcs.length
-    ? '<span class="edit-link" data-act="view-sources" title="view discovered experience + voice">outreach knowledge</span>'
+    ? '<span class="edit-link" data-act="view-sources" title="view discovered experience, voice + logistics">outreach knowledge</span>'
     : 'outreach knowledge';
   const knowledgeCard = critCard({
     icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
-    desc: "Your experience + voice, discovered from the brain to ground outreach.",
+    desc: "Your experience, voice + logistics, discovered from the brain to ground outreach and application answers.",
     act: "refresh-sources", actID: "refresh-sources", actIcon: REFRESH,
-    actTitle: "re-discover experience + voice from the brain", actLabel: "refresh outreach knowledge",
+    actTitle: "re-discover experience, voice + logistics from the brain", actLabel: "refresh outreach knowledge",
   });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
