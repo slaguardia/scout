@@ -538,6 +538,54 @@ func TestPostingNotes(t *testing.T) {
 	}
 }
 
+// DeletePosting removes the posting and its posting-keyed children (outreach
+// drafts, application answers) cascade off job_postings, leaving the company and
+// its other rows untouched. An unknown id is sql.ErrNoRows so the API can 404.
+func TestDeletePostingRemovesEverything(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	// A posting-keyed child in each cascading table.
+	if _, err := db.CreateOutreachDraft(p.ID); err != nil {
+		t.Fatalf("seed draft: %v", err)
+	}
+	if err := db.UpsertDetectedQuestions(p.ID, []DetectedQuestion{{Prompt: "Why us?"}}, "ok"); err != nil {
+		t.Fatalf("seed answer: %v", err)
+	}
+
+	if err := db.DeletePosting(p.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	if got, _ := db.GetPosting(p.ID); got != nil {
+		t.Fatalf("posting %q still present after delete", p.ID)
+	}
+	for _, table := range []string{"outreach_drafts", "posting_answers"} {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(1) FROM `+table+` WHERE posting_id = ?`, p.ID).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if n != 0 {
+			t.Errorf("%s not cascaded: %d remain after delete", table, n)
+		}
+	}
+	// The company is untouched — deleting a posting is not deleting its company.
+	if exists, _ := db.CompanyExists(cid); !exists {
+		t.Errorf("company %q removed by posting delete", cid)
+	}
+
+	// Unknown id → sql.ErrNoRows (the handler maps it to 404).
+	if err := db.DeletePosting("does-not-exist"); err != sql.ErrNoRows {
+		t.Errorf("delete unknown: want sql.ErrNoRows, got %v", err)
+	}
+}
+
 func TestRegenerateOutreachDraft(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})

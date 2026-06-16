@@ -986,6 +986,55 @@ async function onConfirmDeleteCompany() {
   toast(`deleted ${name}`);
 }
 
+// Delete a single job posting — the jobs-view mirror of the company delete. The
+// posting and its outreach drafts + application answers go; the company stays.
+// Gated behind a confirm modal that names the posting so a stray click can't
+// wipe a tracked pursuit.
+let deleteJobTarget = null;
+
+function openDeleteJobModal(j) {
+  deleteJobTarget = j;
+  const label = (j.title || "").trim() || "this posting";
+  const at = j.company ? ` at <strong>${escapeHTML(j.company)}</strong>` : "";
+  const summary = document.getElementById("deljob-summary");
+  if (summary) summary.innerHTML = `Delete <strong>${escapeHTML(label)}</strong>${at}?`;
+  const confirmBtn = document.getElementById("deljob-confirm");
+  if (confirmBtn) confirmBtn.disabled = false;
+  document.getElementById("deljob-scrim").classList.add("open");
+}
+
+function closeDeleteJobModal() {
+  document.getElementById("deljob-scrim").classList.remove("open");
+  deleteJobTarget = null;
+}
+
+async function onConfirmDeleteJob() {
+  const j = deleteJobTarget;
+  if (!j) return;
+  const btn = document.getElementById("deljob-confirm");
+  if (btn) btn.disabled = true;
+  let resp;
+  try {
+    resp = await fetch(`/api/postings/${j.posting_id}`, { method: "DELETE" });
+  } catch (e) {
+    toast(`delete failed: ${e.message}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    toast(`delete failed: HTTP ${resp.status}${txt ? " — " + txt : ""}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const label = (j.title || "").trim() || "posting";
+  closeDeleteJobModal();
+  closePursuit();                              // the panel is now stale
+  loadJobs();                                  // drop the row from the jobs table
+  if (state.openId === j.company_id) openDetail(j.company_id); // refresh the company pane's postings list
+  toast(`deleted ${label}`);
+}
+
 // renderRelinkResults paints the filtered company list. Empty query → all
 // companies (alphabetical); a query ranks prefix matches first, then any
 // substring hit on the name. The current company is shown but not selectable.
@@ -1175,6 +1224,10 @@ function renderPursuit() {
       </h3>
       <div id="answers-section"></div>
     </section>`}
+
+    <div class="pane-danger">
+      <button class="btn-delete" id="job-delete-btn" title="permanently delete this job posting and everything attached to it">Delete job</button>
+    </div>
   `;
 
   wirePipeline();
@@ -1192,6 +1245,8 @@ function renderPursuit() {
   document.querySelectorAll("#role-body [data-k]").forEach(el =>
     wireInlineField(el, (v) => savePostingField(j, el.dataset.k, v),
       { multiline: el.tagName === "TEXTAREA" }));
+  const delBtn = document.getElementById("job-delete-btn");
+  if (delBtn) delBtn.addEventListener("click", () => openDeleteJobModal(j));
   renderOutreachSection();
   renderAnswersSection();
   // Restore scroll on a same-posting refresh (0 on a fresh open), so a run/poll
@@ -3301,6 +3356,8 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("relink-scrim").classList.contains("open")) { closeRelinkModal(); return; }
   // The delete-company confirm sits on top of the company pane — peel it first.
   if (document.getElementById("delcompany-scrim").classList.contains("open")) { closeDeleteCompanyModal(); return; }
+  // The delete-job confirm sits on top of the pursuit panel — peel it first too.
+  if (document.getElementById("deljob-scrim").classList.contains("open")) { closeDeleteJobModal(); return; }
   // The company pane and the pursuit panel can stack either way; peel whichever
   // raisePane() last lifted to the top, falling back to whichever is open.
   const companyOpen = document.getElementById("pane").classList.contains("open");
@@ -3487,6 +3544,13 @@ document.getElementById("delcompany-cancel").onclick = closeDeleteCompanyModal;
 document.getElementById("delcompany-confirm").onclick = onConfirmDeleteCompany;
 document.getElementById("delcompany-scrim").onclick = e => {
   if (e.target.id === "delcompany-scrim") closeDeleteCompanyModal();
+};
+
+// delete-job confirm modal (jobs-view mirror of the company delete)
+document.getElementById("deljob-cancel").onclick = closeDeleteJobModal;
+document.getElementById("deljob-confirm").onclick = onConfirmDeleteJob;
+document.getElementById("deljob-scrim").onclick = e => {
+  if (e.target.id === "deljob-scrim") closeDeleteJobModal();
 };
 
 // relink search modal (move a job to another company)

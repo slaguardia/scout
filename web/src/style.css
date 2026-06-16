@@ -1387,8 +1387,9 @@
   .modal-note-danger { color: var(--no); }
   .modal-note-danger svg { opacity: 0.85; }
 
-  /* danger zone at the foot of the company pane — a quiet, out-of-the-way
-     delete affordance kept clear of the everyday edit controls */
+  /* danger zone at the foot of a detail pane (company pane and jobs pursuit
+     panel) — a quiet, out-of-the-way delete affordance kept clear of the
+     everyday edit controls */
   .pane-danger {
     margin: 22px 0 4px; padding-top: 14px; border-top: 1px solid var(--line);
     display: flex; justify-content: flex-end;

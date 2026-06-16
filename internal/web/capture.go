@@ -258,6 +258,11 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// DELETE /api/postings/{id} permanently removes the posting (mirrors company delete).
+	if r.Method == http.MethodDelete {
+		s.handlePostingDelete(w, r, id)
+		return
+	}
 	if r.Method != http.MethodPut && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -282,6 +287,23 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handlePostingDelete permanently removes one job posting and everything
+// attached to it. DELETE /api/postings/{id} — no body. Its outreach drafts and
+// application answers cascade off job_postings (see store.DeletePosting);
+// irreversible, no soft-delete. 404 for an unknown id. Returns the deleted id
+// so the client can drop it from its caches. Mirrors handleCompanyDelete.
+func (s *Server) handlePostingDelete(w http.ResponseWriter, r *http.Request, id string) {
+	if err := s.DB.DeletePosting(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"posting_id": id, "deleted": true})
 }
 
 // handlePostingDetails edits a posting's hand-editable content: PUT
