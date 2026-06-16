@@ -1383,6 +1383,24 @@
   .btn:hover { border-color: var(--line-2); background: var(--panel-2); }
   .btn-primary { background: var(--link-bg); border-color: var(--link); color: var(--link); }
   .btn-primary:hover { background: rgba(122,169,255,0.2); }
+  /* destructive confirm action — the delete-company modal's Delete button */
+  .btn-danger { background: var(--no-bg); border-color: var(--no); color: var(--no); }
+  .btn-danger:hover { background: var(--no-bg); border-color: var(--no); filter: brightness(1.15); }
+  .modal-note-danger { color: var(--no); }
+  .modal-note-danger svg { opacity: 0.85; }
+
+  /* danger zone at the foot of the company pane — a quiet, out-of-the-way
+     delete affordance kept clear of the everyday edit controls */
+  .pane-danger {
+    margin: 22px 0 4px; padding-top: 14px; border-top: 1px solid var(--line);
+    display: flex; justify-content: flex-end;
+  }
+  .pane-danger .btn-delete {
+    background: none; border: 1px solid transparent; color: var(--fg-dim);
+    border-radius: var(--r-md); padding: 6px 12px; font: inherit; font-size: 12.5px;
+    cursor: pointer; transition: all var(--dur-fast) var(--ease);
+  }
+  .pane-danger .btn-delete:hover { color: var(--no); border-color: var(--no); }
 
   /* ---- the Add dialog ---- */
   .kind-toggle { display: flex; gap: 6px; }

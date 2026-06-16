@@ -427,6 +427,26 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<!-- delete a company — irreversible, spells out what goes with it -->
+<div class="modal-scrim" id="delcompany-scrim">
+  <div class="modal" style="width:460px">
+    <div class="modal-head">
+      <h2>Delete company?</h2>
+    </div>
+    <div class="modal-body">
+      <p id="delcompany-summary" style="margin:0; font-size:14px; line-height:1.5;"></p>
+      <div class="modal-note modal-note-danger">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5 1 14h14L8 1.5z" stroke-linejoin="round"/><path d="M8 6.5v3.5M8 11.8v.4" stroke-linecap="round"/></svg>
+        <span>This permanently removes the company and everything attached to it — its job postings, outreach drafts, application answers, enrichment, verdict, and decision trail. It can't be undone.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="delcompany-cancel">Cancel</button>
+      <button class="btn btn-danger" id="delcompany-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- section help — what each button does, with links into the docs overlay -->
 <div class="modal-scrim" id="help-scrim">
   <div class="modal" style="width:440px">
