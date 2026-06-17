@@ -106,8 +106,8 @@ async function pollJobsDraftStatus() {
 
 // loadStatusVocab fetches the two configurable status vocabularies (application
 // stages + outreach statuses) that drive the jobs-view dropdowns. Cheap; loaded
-// at boot and after the Settings editors save. Re-renders the jobs view + stage
-// filter chips so a vocab change shows immediately.
+// at boot and after the Settings editors save. Re-renders the jobs view + filter
+// dropdowns so a vocab change shows immediately.
 async function loadStatusVocab() {
   await Promise.all([
     fetch("/api/application-stages").then(r => r.ok ? r.json() : null).then(d => {
@@ -117,7 +117,7 @@ async function loadStatusVocab() {
       if (d && Array.isArray(d.statuses) && d.statuses.length) state.outreachStatuses = d.statuses;
     }).catch(() => {}),
   ]);
-  renderStageChips();
+  renderFilterMenus();
   if (state.view === "jobs") renderJobs();
 }
 
@@ -378,26 +378,45 @@ async function updateCompanyRows(ids) {
 }
 
 // ---- jobs view ----
-// The tracker: one row per saved posting, company name + application
-// lifecycle (everything else lives in the side panel). The jobs Filter block
-// is its own — search matches title/company/location/description/contacts,
-// response chips filter on the application lifecycle, and "hide rejected"
-// mirrors the Notion tracker's default view. Picking the "rejected" chip
-// explicitly overrides hide-rejected — an empty table would just confuse.
-const stageFilter = new Set();
-let nextUpOnly = false;    // jobs-view chip: postings queued next up for outreach
-let notReachedOnly = false; // "not reached out" chip: postings with zero outreach yet
-let hideRejected = true;   // "hide rejected" chip — on by default, like the tracker
+// The tracker: one row per saved posting, company name + application lifecycle
+// (everything else lives in the side panel). The jobs Filter block is its own:
+// a search box (matches title/company/location/description/contacts) plus two
+// multi-select dropdowns —
+//   • Application — an explicit-inclusion stage checklist. Default is every
+//     stage except "rejected" (this folds in the old "hide rejected" default).
+//     A posting with no recorded stage always shows — only an explicit stage
+//     can exclude it.
+//   • Outreach — two quick toggles (next up / not reached out) plus a reply-
+//     status checklist where an empty selection means "all".
+let jobStageSel = null;          // Set<stage>; null until the first vocab load seeds it
+let knownStages = null;          // last vocab seen, so new stages can default visible
+let nextUpOnly = false;          // postings queued next up for outreach
+let notReachedOnly = false;      // postings with zero outreach logged yet
+const outreachSel = new Set();   // checked reply statuses ("" = none); empty = all
+
+// reconcileStageSel keeps jobStageSel sensible across vocab changes: seed it to
+// all-but-rejected on first run, then on a vocab edit drop stages that are gone
+// and default genuinely-new stages to visible (a new "rejected" stays hidden).
+function reconcileStageSel() {
+  const all = state.applicationStages;
+  if (jobStageSel === null) {
+    jobStageSel = new Set(all.filter(s => s !== "rejected"));
+  } else {
+    for (const s of [...jobStageSel]) if (!all.includes(s)) jobStageSel.delete(s);
+    if (knownStages) for (const s of all) if (s !== "rejected" && !knownStages.has(s)) jobStageSel.add(s);
+  }
+  knownStages = new Set(all);
+}
 
 function filteredJobs() {
+  reconcileStageSel();
   const q = document.getElementById("jq").value.trim().toLowerCase();
-  const hideRej = hideRejected && !stageFilter.has("rejected");
   return state.jobs.filter(j => {
     const stage = currentStage(j.stage_history);
-    if (hideRej && stage === "rejected") return false;
-    if (stageFilter.size && !stageFilter.has(stage)) return false;
+    if (stage && !jobStageSel.has(stage)) return false;   // no-stage rows always pass
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
+    if (outreachSel.size && !outreachSel.has(j.outreach_status || "")) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.description||"") + " " + (j.contacts||"")).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -406,15 +425,88 @@ function filteredJobs() {
   });
 }
 
-// renderStageChips paints the jobs-view stage filter chips from the configured
-// application stages. Clicks are delegated (see boot wiring); filters for stages
-// no longer configured are pruned so a vocab change doesn't strand a hidden filter.
-function renderStageChips() {
-  const host = document.getElementById("stage-chips");
-  if (!host) return;
-  for (const s of [...stageFilter]) if (!state.applicationStages.includes(s)) stageFilter.delete(s);
-  host.innerHTML = state.applicationStages.map(s =>
-    `<button class="v-chip${stageFilter.has(s) ? " is-on" : ""}" data-stage="${escapeHTML(s)}">${escapeHTML(s)}</button>`).join("");
+// ---- jobs-view filter dropdowns ----
+// fdropItem renders one checklist row: a checkbox, an optional color dot (the
+// per-vocab .sc-N palette), a label, and a count slot filled in by syncFilterCounts.
+function fdropItem(attr, key, label, dot, checked) {
+  return `<button class="fdrop-item${checked ? " is-checked" : ""}" ${attr}="${escapeHTML(key)}" role="menuitemcheckbox" aria-checked="${checked}">`
+    + `<span class="fdrop-check" aria-hidden="true"></span>`
+    + (dot ? `<span class="fdrop-dot ${dot}"></span>` : "")
+    + `<span class="fdrop-label">${escapeHTML(label)}</span>`
+    + `<span class="fdrop-item-count" data-count></span></button>`;
+}
+
+// renderFilterMenus (re)builds both dropdown menus from the configured vocab.
+// Called on vocab load and whenever a structural change (e.g. the footer's
+// "show rejected" link) flips a selection that isn't the one the user clicked.
+function renderFilterMenus() {
+  reconcileStageSel();
+  const appMenu = document.getElementById("fdrop-application-menu");
+  if (appMenu) appMenu.innerHTML = `<div class="fdrop-head">Application stage</div>`
+    + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("");
+  const outMenu = document.getElementById("fdrop-outreach-menu");
+  if (outMenu) outMenu.innerHTML = `<div class="fdrop-head">Quick filters</div>`
+    + fdropItem("data-toggle", "nextup", "★ Next up", "", nextUpOnly)
+    + fdropItem("data-toggle", "notreached", "Not reached out", "", notReachedOnly)
+    + `<div class="fdrop-sep"></div><div class="fdrop-head">Reply status</div>`
+    + [["", "none", ""]].concat(state.outreachStatuses.map(s => [s, s, statusColorClass(s)]))
+        .map(([v, label, dot]) => fdropItem("data-status", v, label, dot, outreachSel.has(v))).join("");
+  syncFilterCounts();
+}
+
+// syncFilterCounts updates the per-item tallies and the two button badges from
+// the full jobs list — cheap, called on every renderJobs so counts track edits.
+function syncFilterCounts() {
+  const stageN = {}, statusN = {};
+  let nextN = 0, notReachedN = 0;
+  for (const j of state.jobs) {
+    const st = currentStage(j.stage_history);
+    if (st) stageN[st] = (stageN[st] | 0) + 1;
+    const os = j.outreach_status || "";
+    statusN[os] = (statusN[os] | 0) + 1;
+    if (j.next_up) nextN++;
+    if (!(j.outreach_count | 0)) notReachedN++;
+  }
+  writeItemCounts("#fdrop-application-menu [data-stage]", "data-stage", stageN);
+  writeItemCounts("#fdrop-outreach-menu [data-status]", "data-status", statusN);
+  setToggleCount('[data-toggle="nextup"]', nextN);
+  setToggleCount('[data-toggle="notreached"]', notReachedN);
+  // Application button is "active" whenever the stage set differs from the
+  // default (all-but-rejected); its badge carries the count of checked stages.
+  const def = state.applicationStages.filter(s => s !== "rejected");
+  const appDefault = jobStageSel && jobStageSel.size === def.length && def.every(s => jobStageSel.has(s));
+  setFilterBadge("fdrop-application-btn", appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0), !appDefault);
+  const outN = (nextUpOnly ? 1 : 0) + (notReachedOnly ? 1 : 0) + outreachSel.size;
+  setFilterBadge("fdrop-outreach-btn", outN, outN > 0);
+}
+function writeItemCounts(sel, attr, counts) {
+  document.querySelectorAll(sel).forEach(el => {
+    const span = el.querySelector("[data-count]");
+    if (span) { const c = counts[el.getAttribute(attr)] | 0; span.textContent = c || ""; }
+  });
+}
+function setToggleCount(sel, n) {
+  const span = document.querySelector(`#fdrop-outreach-menu ${sel} [data-count]`);
+  if (span) span.textContent = n || "";
+}
+function setFilterBadge(btnId, n, active) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.classList.toggle("is-active", active);
+  const b = btn.querySelector(".fdrop-count");
+  if (b) { const show = active && n > 0; b.textContent = show ? n : ""; b.style.display = show ? "" : "none"; }
+}
+// setItemChecked flips a single menu row's checkbox in place (no innerHTML rebuild).
+function setItemChecked(it, on) {
+  it.classList.toggle("is-checked", on);
+  it.setAttribute("aria-checked", String(on));
+}
+function closeAllDropdowns() {
+  document.querySelectorAll(".fdrop.is-open").forEach(d => {
+    d.classList.remove("is-open");
+    const btn = d.querySelector(".fdrop-btn");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  });
 }
 
 const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
@@ -583,33 +675,19 @@ function renderJobs() {
   tbody.innerHTML = "";
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
-  // Say what hide-rejected is suppressing — a silently missing row reads as a
-  // bug. The chip gets a count; the table gets a footer note with the undo.
-  const hiddenRej = (hideRejected && !stageFilter.has("rejected"))
+  // Refresh the dropdown item counts + button badges against the live data.
+  syncFilterCounts();
+  // Say what the rejected-stage default is suppressing — a silently missing row
+  // reads as a bug. The table gets a footer note with a one-click undo.
+  const hiddenRej = (jobStageSel && !jobStageSel.has("rejected"))
     ? state.jobs.filter(j => currentStage(j.stage_history) === "rejected").length : 0;
-  const hn = document.getElementById("hidden-rej-n");
-  hn.textContent = hiddenRej;
-  hn.style.display = hiddenRej ? "" : "none";
-  // The next-up chip carries its queue size, so the to-do list is one glance.
-  const nextUpN = state.jobs.filter(j => j.next_up).length;
-  const nn = document.getElementById("next-up-n");
-  nn.textContent = nextUpN;
-  nn.style.display = nextUpN ? "" : "none";
-  // The "not reached out" chip carries its own count — how many postings still
-  // have zero outreach logged. Respects hide-rejected so the count matches the
-  // table the user is actually looking at.
-  const notReachedN = state.jobs.filter(j =>
-    !(j.outreach_count|0) && !(hideRejected && !stageFilter.has("rejected") && currentStage(j.stage_history) === "rejected")).length;
-  const nrn = document.getElementById("not-reached-n");
-  nrn.textContent = notReachedN;
-  nrn.style.display = notReachedN ? "" : "none";
   const note = document.getElementById("jobs-hidden-note");
   note.style.display = hiddenRej ? "" : "none";
   if (hiddenRej) {
     note.innerHTML = `${hiddenRej} rejected application${hiddenRej > 1 ? "s" : ""} hidden — <a id="show-rejected-link">show</a>`;
     document.getElementById("show-rejected-link").onclick = () => {
-      hideRejected = false;
-      document.getElementById("hide-rejected").classList.remove("is-on");
+      jobStageSel.add("rejected");
+      renderFilterMenus();   // re-check the rejected row in the Application menu
       renderJobs();
     };
   }
@@ -3346,32 +3424,44 @@ document.getElementById("enriched-filter").addEventListener("click", e => {
   e.currentTarget.classList.toggle("is-on", enrichedOnly);
   renderList();
 });
-// Jobs filter block — its own search, response chips, flag, hide-rejected.
+// Jobs filter block — its own search plus the Application / Outreach dropdowns.
 document.getElementById("jq").oninput = renderJobs;
-document.getElementById("hide-rejected").addEventListener("click", e => {
-  hideRejected = !hideRejected;
-  e.currentTarget.classList.toggle("is-on", hideRejected);
+// Each dropdown button toggles its menu; opening one closes the other. A click
+// anywhere else closes them. Clicks inside a menu are multi-select, so they
+// don't close it. The menus' contents are rebuilt by renderFilterMenus, but the
+// containers are static — so item clicks are handled by delegation and survive.
+for (const id of ["fdrop-application", "fdrop-outreach"]) {
+  const drop = document.getElementById(id);
+  const btn = drop.querySelector(".fdrop-btn");
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = drop.classList.contains("is-open");
+    closeAllDropdowns();
+    if (!open) { drop.classList.add("is-open"); btn.setAttribute("aria-expanded", "true"); }
+  });
+  drop.querySelector(".fdrop-menu").addEventListener("click", e => e.stopPropagation());
+}
+document.addEventListener("click", closeAllDropdowns);
+// Application menu: each row is a stage; toggling adds/removes it from the set.
+document.getElementById("fdrop-application-menu").addEventListener("click", e => {
+  const it = e.target.closest(".fdrop-item[data-stage]");
+  if (!it) return;
+  const s = it.getAttribute("data-stage");
+  if (jobStageSel.has(s)) jobStageSel.delete(s); else jobStageSel.add(s);
+  setItemChecked(it, jobStageSel.has(s));
   renderJobs();
 });
-// Stage filter chips are configurable, so they're rendered dynamically into
-// #stage-chips (see renderStageChips) and clicks are handled by delegation —
-// the binding survives a re-render.
-document.getElementById("stage-chips").addEventListener("click", e => {
-  const b = e.target.closest(".v-chip[data-stage]");
-  if (!b) return;
-  const s = b.dataset.stage;
-  if (stageFilter.has(s)) stageFilter.delete(s); else stageFilter.add(s);
-  b.classList.toggle("is-on", stageFilter.has(s));
-  renderJobs();
-});
-document.getElementById("next-up-filter").addEventListener("click", e => {
-  nextUpOnly = !nextUpOnly;
-  e.currentTarget.classList.toggle("is-on", nextUpOnly);
-  renderJobs();
-});
-document.getElementById("not-reached-filter").addEventListener("click", e => {
-  notReachedOnly = !notReachedOnly;
-  e.currentTarget.classList.toggle("is-on", notReachedOnly);
+// Outreach menu: two quick toggles plus the reply-status checklist.
+document.getElementById("fdrop-outreach-menu").addEventListener("click", e => {
+  const it = e.target.closest(".fdrop-item");
+  if (!it) return;
+  if (it.dataset.toggle === "nextup") { nextUpOnly = !nextUpOnly; setItemChecked(it, nextUpOnly); }
+  else if (it.dataset.toggle === "notreached") { notReachedOnly = !notReachedOnly; setItemChecked(it, notReachedOnly); }
+  else if (it.hasAttribute("data-status")) {
+    const v = it.getAttribute("data-status");
+    if (outreachSel.has(v)) outreachSel.delete(v); else outreachSel.add(v);
+    setItemChecked(it, outreachSel.has(v));
+  } else return;
   renderJobs();
 });
 renderColToggles();
@@ -3383,6 +3473,8 @@ document.getElementById("pursuit-close").onclick = closePursuit;
 document.getElementById("pursuit-scrim").onclick = closePursuit;
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  // An open filter dropdown is the topmost lightweight UI — peel it first.
+  if (document.querySelector(".fdrop.is-open")) { closeAllDropdowns(); return; }
   // Chat sits on top of whatever opened it (a pane or the global view) — peel it first.
   if (document.getElementById("chat-pane").classList.contains("open")) { closeChat(); return; }
   if (docsOpen()) { closeDocs(); return; }

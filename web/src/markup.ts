@@ -98,14 +98,24 @@ export const SCOUT_MARKUP = `
       </div>
     </div>
     <div class="filter-row">
-      <div class="verdict-chips" title="application stage — pick any combination; none selected = all">
-        <span id="stage-chips" class="stage-chips"></span>
-        <button class="v-chip" id="next-up-filter" title="show only postings queued next up for outreach">next up <span class="v-count" id="next-up-n" style="display:none"></span></button>
-        <button class="v-chip" id="not-reached-filter" title="show only postings you haven’t reached out to yet (zero outreach logged)">not reached out <span class="v-count" id="not-reached-n" style="display:none"></span></button>
+      <div class="filter-dropdowns">
+        <div class="fdrop" id="fdrop-application">
+          <button class="fdrop-btn" id="fdrop-application-btn" aria-haspopup="true" aria-expanded="false" title="filter by application stage">
+            <span class="fdrop-label-txt">Application</span>
+            <span class="fdrop-count" style="display:none"></span>
+            <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
+          </button>
+          <div class="fdrop-menu" id="fdrop-application-menu" role="menu"></div>
+        </div>
+        <div class="fdrop" id="fdrop-outreach">
+          <button class="fdrop-btn" id="fdrop-outreach-btn" aria-haspopup="true" aria-expanded="false" title="filter by outreach status">
+            <span class="fdrop-label-txt">Outreach</span>
+            <span class="fdrop-count" style="display:none"></span>
+            <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
+          </button>
+          <div class="fdrop-menu" id="fdrop-outreach-menu" role="menu"></div>
+        </div>
       </div>
-    </div>
-    <div class="filter-row">
-      <button class="v-chip is-on" id="hide-rejected" title="mirror of the tracker default — rejected applications stay out of the jobs table">hide rejected <span class="v-count" id="hidden-rej-n" style="display:none"></span></button>
     </div>
   </div>
 
