@@ -122,8 +122,11 @@ async function loadStatusVocab() {
 }
 
 // ---- view tabs ----
-function setView(v) {
+// render:false applies only the visibility toggle (used at boot, to restore the
+// saved tab without wiping the skeleton with an empty-state before data loads).
+function setView(v, { render = true } = {}) {
   state.view = v;
+  try { localStorage.setItem("scout-view", v); } catch {}
   document.getElementById("tab-companies").classList.toggle("active", v === "companies");
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
@@ -132,7 +135,7 @@ function setView(v) {
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
   renderColToggles(); // the Columns block follows the active view
-  if (v === "jobs") renderJobs(); else renderList();
+  if (render) { if (v === "jobs") renderJobs(); else renderList(); }
 }
 
 async function loadStats() {
@@ -4255,6 +4258,11 @@ document.getElementById("chat-input").addEventListener("keydown", (e) => {
 // flashes blank (or its empty state) on a cold load.
 renderSkeleton("#t tbody", COMPANY_SKEL_COLS);
 renderSkeleton("#jt tbody", JOBS_SKEL_COLS);
+
+// Restore the last-used tab across refreshes (defaults to companies). render:false
+// keeps the skeleton until loadList/loadJobs paint real data — no empty-state flash.
+const savedView = (() => { try { return localStorage.getItem("scout-view"); } catch { return null; } })();
+setView(savedView === "jobs" ? "jobs" : "companies", { render: false });
 
 loadList();
 loadJobs();
