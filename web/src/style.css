@@ -440,6 +440,7 @@
   /* mode chips ("hide rejected") light link-blue — a state toggle, not a
      verdict color. */
   #hide-rejected.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
+  #enriched-filter.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
   #next-up-filter.is-on { color: var(--accent); background: rgba(139,109,255,0.14); border-color: transparent; }
   #not-reached-filter.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
 
