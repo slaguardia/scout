@@ -403,18 +403,9 @@
   .flag-bar .fb-state.is-flagged { color: var(--maybe); }
   .flag-bar .fb-actions { display: flex; gap: 8px; flex: none; }
 
-  /* the one count that matters rides the unscored chip as a small badge */
-  .v-chip .v-count {
-    font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;
-    padding: 0 6px; border-radius: 999px;
-    background: var(--panel-3); color: var(--fg-mute);
-  }
-  .v-chip.is-on .v-count { background: rgba(0,0,0,0.25); color: inherit; }
-
-  /* chip toggles — the one small-control vocabulary: verdict filter, flag
-     filter, and column show/hide all share this base. */
-  .col-toggles, .verdict-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .col-chip, .v-chip {
+  /* chip base — now used only by the Add dialog's company|job kind toggle. (Its
+     active state is .kind-toggle .v-chip.is-on, defined with the dialog.) */
+  .v-chip {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 10px; font: inherit; font-size: 11.5px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
@@ -422,28 +413,7 @@
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
                 background var(--dur-fast) var(--ease);
   }
-  .col-chip:hover, .v-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
-
-  /* verdict chips carry their pill color as a dot, so the off state still
-     reads as a clickable filter rather than a disabled control. */
-  .v-chip[data-v]::before { content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none; }
-  .v-chip[data-v="yes"]::before      { background: var(--yes); }
-  .v-chip[data-v="maybe"]::before    { background: var(--maybe); }
-  .v-chip[data-v="no"]::before       { background: var(--no); }
-  .v-chip[data-v="__none__"]::before { background: var(--fg-dim); }
-  .v-chip[data-v]:not(.is-on)::before { opacity: 0.45; }
-  .v-chip.is-on[data-v="yes"]      { color: var(--yes);   background: var(--yes-bg);   border-color: transparent; }
-  .v-chip.is-on[data-v="maybe"]    { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
-  .v-chip.is-on[data-v="no"]       { color: var(--no);    background: var(--no-bg);    border-color: transparent; }
-  .v-chip.is-on[data-v="__none__"] { color: var(--fg);    background: var(--panel-3);  border-color: transparent; }
-  .flag-chip.is-on { color: var(--maybe); background: var(--maybe-bg); border-color: transparent; }
-  /* the companies-view "enriched" mode chip lights link-blue — a state toggle,
-     not a verdict color. */
-  #enriched-filter.is-on { color: var(--link); background: var(--link-bg); border-color: transparent; }
-
-  /* column chips stay quiet — a set-once preference shouldn't outshine the
-     filters. Lit = visible column. */
-  .col-chip.is-on { color: var(--fg-mute); background: var(--panel-3); border-color: transparent; }
+  .v-chip:hover { border-color: var(--line-2); color: var(--fg-mute); }
 
   /* ---- jobs-view filter dropdowns ----
      Two labeled multi-select menus (Application, Outreach) replacing the old
@@ -471,6 +441,10 @@
     min-width: 16px; padding: 0 5px; border-radius: 999px; text-align: center;
     background: var(--link); color: #fff;
   }
+  /* Columns is a set-once preference, not a filter — its hidden-count badge
+     stays quiet (muted, never link-blue) so it doesn't outshine the filters. */
+  .fdrop-count--muted { background: var(--panel-3); color: var(--fg-mute); }
+  .fdrop-lead { width: 12px; height: 12px; flex: none; opacity: 0.7; }
   .fdrop-menu {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
     min-width: 210px; max-width: 280px; padding: 5px;
@@ -502,25 +476,14 @@
     border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
   }
   .fdrop-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-  .fdrop-item .fdrop-dot { background: currentColor; }  /* .sc-N sets color; beat its bg */
+  .fdrop-item .fdrop-dot { background: currentColor; }  /* .sc-N / --yes etc. set color; beat its bg */
+  /* verdict dots carry the semantic signal colors (the old pill palette) */
+  .fdrop-dot--yes   { color: var(--yes); }
+  .fdrop-dot--maybe { color: var(--maybe); }
+  .fdrop-dot--no    { color: var(--no); }
+  .fdrop-dot--none  { color: var(--fg-dim); }
   .fdrop-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fdrop-item-count { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg-dim); }
-
-  /* Columns lives behind a disclosure, styled like the section headers. */
-  .cols-details summary {
-    list-style: none; cursor: pointer;
-    display: flex; align-items: center; gap: 6px;
-    font-size: 10.5px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.12em;
-    color: var(--fg-dim);
-    transition: color var(--dur-fast) var(--ease);
-  }
-  .cols-details summary::-webkit-details-marker { display: none; }
-  .cols-details summary:hover { color: var(--fg-mute); }
-  .cols-details summary svg { width: 12px; height: 12px; opacity: 0.7; flex: none; }
-  .cols-details summary .chev { margin-left: auto; opacity: 0.9; transition: transform var(--dur-fast) var(--ease); }
-  .cols-details[open] summary .chev { transform: rotate(90deg); }
-  .cols-details .col-toggles { margin-top: 12px; }
 
   /* ---- empty state ---- */
   .empty {

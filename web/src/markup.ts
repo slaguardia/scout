@@ -75,13 +75,15 @@ export const SCOUT_MARKUP = `
       </div>
     </div>
     <div class="filter-row">
-      <div class="verdict-chips" id="verdict-chips" title="verdict — pick any combination; none selected = all">
-        <button class="v-chip" data-v="yes">yes</button>
-        <button class="v-chip" data-v="maybe">maybe</button>
-        <button class="v-chip" data-v="no">no</button>
-        <button class="v-chip" data-v="__none__" title="companies awaiting a verdict">unscored <span class="v-count" id="unscored-n">–</span></button>
-        <button class="v-chip" id="enriched-filter" title="show only companies with a clean enrichment fetch">enriched</button>
-        <button class="v-chip flag-chip" id="flag-filter" title="show flagged companies only">⚑ flagged</button>
+      <div class="filter-dropdowns">
+        <div class="fdrop" id="fdrop-verdict">
+          <button class="fdrop-btn" id="fdrop-verdict-btn" aria-haspopup="true" aria-expanded="false" title="filter by verdict, flag, or enrichment">
+            <span class="fdrop-label-txt">Verdict</span>
+            <span class="fdrop-count" style="display:none"></span>
+            <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
+          </button>
+          <div class="fdrop-menu" id="fdrop-verdict-menu" role="menu"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -120,14 +122,17 @@ export const SCOUT_MARKUP = `
   </div>
 
   <div class="block" id="block-columns">
-    <details class="cols-details">
-      <summary>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
-        Columns
-        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>
-      </summary>
-      <div class="col-toggles" id="col-toggles"></div>
-    </details>
+    <div class="filter-dropdowns">
+      <div class="fdrop" id="fdrop-columns">
+        <button class="fdrop-btn" id="fdrop-columns-btn" aria-haspopup="true" aria-expanded="false" title="show or hide table columns">
+          <svg class="fdrop-lead" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3v10M6.5 3v10M10.5 3v10M14 3v10" stroke-linejoin="round"/></svg>
+          <span class="fdrop-label-txt">Columns</span>
+          <span class="fdrop-count fdrop-count--muted" style="display:none"></span>
+          <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
+        </button>
+        <div class="fdrop-menu" id="fdrop-columns-menu" role="menu"></div>
+      </div>
+    </div>
   </div>
 
   <div class="sidebar-bottom">

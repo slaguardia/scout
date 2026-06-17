@@ -134,7 +134,7 @@ function setView(v, { render = true } = {}) {
   // Each view owns its own Filter block — state stays put across switches.
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
-  renderColToggles(); // the Columns block follows the active view
+  renderColumnsMenu(); // the Columns dropdown follows the active view
   if (render) { if (v === "jobs") renderJobs(); else renderList(); }
 }
 
@@ -145,9 +145,7 @@ async function loadStats() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     s = await r.json();
   } catch (e) {
-    const el = document.getElementById("unscored-n");
-    el.textContent = "–";
-    el.title = `stats failed: ${e.message}`;
+    console.warn(`stats failed: ${e.message}`);
     return;
   }
   state.stats = s;
@@ -155,11 +153,8 @@ async function loadStats() {
 }
 
 function renderStats() {
-  const s = state.stats || {};
-  // The only count worth surfacing — riding the unscored filter chip itself.
-  document.getElementById("unscored-n").textContent = s.unscored ?? 0;
-
-  // Criteria block (source + playbook) reads stats too.
+  // Verdict counts now ride the Verdict dropdown (see syncCompanyFilterCounts);
+  // stats only feed the Criteria block (source + playbook) now.
   renderCriteria();
 }
 
@@ -178,16 +173,51 @@ function sortRows(rows) {
   return rows.slice().sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
 }
 
-// Multi-select verdict filter: the set holds the chips currently on
-// ("yes"/"maybe"/"no"/"__none__" for unscored). Empty set = no filter.
-const verdictFilter = new Set();
-let flagOnly = false; // the ⚑ chip: show flagged companies only
-let enrichedOnly = false; // the "enriched" chip: show only cleanly-enriched companies
+// Companies-view filter, surfaced as one "Verdict" dropdown: a verdict checklist
+// (held in verdictFilter; empty = all) plus two quick toggles folded in below.
+const verdictFilter = new Set();   // "yes"/"maybe"/"no"/"__none__" (unscored); empty = no filter
+let flagOnly = false;              // show flagged companies only
+let enrichedOnly = false;          // show only cleanly-enriched companies
 
-function renderVerdictChips() {
-  document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
-    b.classList.toggle("is-on", verdictFilter.has(b.dataset.v));
-  });
+const VERDICT_ITEMS = [
+  ["yes", "yes", "fdrop-dot--yes"],
+  ["maybe", "maybe", "fdrop-dot--maybe"],
+  ["no", "no", "fdrop-dot--no"],
+  ["__none__", "unscored", "fdrop-dot--none"],
+];
+
+// renderVerdictMenu builds the companies Verdict dropdown: the verdict checklist
+// plus a divided Filters section (flagged / enriched). Counts are filled in by
+// syncCompanyFilterCounts on each renderList.
+function renderVerdictMenu() {
+  const menu = document.getElementById("fdrop-verdict-menu");
+  if (!menu) return;
+  menu.innerHTML = `<div class="fdrop-head">Verdict</div>`
+    + VERDICT_ITEMS.map(([v, label, dot]) => fdropItem("data-v", v, label, dot, verdictFilter.has(v))).join("")
+    + `<div class="fdrop-sep"></div><div class="fdrop-head">Filters</div>`
+    + fdropItem("data-toggle", "flagged", "⚑ Flagged", "", flagOnly)
+    + fdropItem("data-toggle", "enriched", "Enriched", "", enrichedOnly);
+  syncCompanyFilterCounts();
+}
+
+// syncCompanyFilterCounts tallies verdicts/flags over the loaded companies and
+// updates the menu item counts + the Verdict button badge.
+function syncCompanyFilterCounts() {
+  const n = { yes: 0, maybe: 0, no: 0, __none__: 0 };
+  let flaggedN = 0, enrichedN = 0;
+  for (const r of state.rows) {
+    const key = r.verdict || "__none__";
+    n[key] = (n[key] | 0) + 1;
+    if (r.flagged) flaggedN++;
+    if (r.enriched) enrichedN++;
+  }
+  writeItemCounts("#fdrop-verdict-menu [data-v]", "data-v", n);
+  const fc = document.querySelector('#fdrop-verdict-menu [data-toggle="flagged"] [data-count]');
+  if (fc) fc.textContent = flaggedN || "";
+  const ec = document.querySelector('#fdrop-verdict-menu [data-toggle="enriched"] [data-count]');
+  if (ec) ec.textContent = enrichedN || "";
+  const active = verdictFilter.size + (flagOnly ? 1 : 0) + (enrichedOnly ? 1 : 0);
+  setFilterBadge("fdrop-verdict-btn", active, active > 0);
 }
 
 function filtered() {
@@ -250,21 +280,23 @@ function applyColumnVisibility() {
   });
 }
 
-function renderColToggles() {
+// renderColumnsMenu paints the active view's column checklist into the Columns
+// dropdown (checked = visible). Clicks are delegated (wired once at boot), so a
+// re-render on view-switch doesn't need to rebind. The button stays visually
+// quiet — a muted count of hidden columns, no lit "filter active" state.
+function renderColumnsMenu() {
   const cs = colState();
-  document.getElementById("col-toggles").innerHTML = cs.cols.map(c =>
-    `<button class="col-chip${cs.hidden.has(c.k) ? "" : " is-on"}" data-col="${c.k}" title="${cs.hidden.has(c.k) ? "show" : "hide"} ${c.label}">${c.label}</button>`
-  ).join("");
-  document.querySelectorAll("#col-toggles .col-chip").forEach(b => {
-    b.addEventListener("click", () => {
-      const cs = colState(); // re-resolve: the view may have changed since render
-      const k = b.dataset.col;
-      if (cs.hidden.has(k)) cs.hidden.delete(k); else cs.hidden.add(k);
-      localStorage.setItem(cs.key, JSON.stringify([...cs.hidden]));
-      renderColToggles();
-      applyColumnVisibility();
-    });
-  });
+  const menu = document.getElementById("fdrop-columns-menu");
+  if (!menu) return;
+  menu.innerHTML = `<div class="fdrop-head">Visible columns</div>`
+    + cs.cols.map(c => fdropItem("data-col", c.k, c.label, "", !cs.hidden.has(c.k))).join("");
+  updateColumnsBadge();
+}
+function updateColumnsBadge() {
+  const cs = colState();
+  const hidden = cs.cols.filter(c => cs.hidden.has(c.k)).length;
+  const b = document.querySelector("#fdrop-columns-btn .fdrop-count");
+  if (b) { b.textContent = hidden || ""; b.style.display = hidden ? "" : "none"; }
 }
 
 // companyRowCells is the single source of truth for a company row's innards,
@@ -333,6 +365,7 @@ function renderList() {
   const tbody = document.querySelector("#t tbody");
   tbody.innerHTML = "";
   const rows = sortRows(filtered());
+  syncCompanyFilterCounts(); // refresh the Verdict dropdown counts + badge
   document.getElementById("empty").style.display = rows.length ? "none" : "block";
   for (const r of rows) {
     const tr = document.createElement("tr");
@@ -3404,33 +3437,41 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
-// Companies filter block — search, verdict chips, flag.
+// Companies filter block — search plus the Verdict dropdown.
 document.getElementById("q").oninput = renderList;
-document.querySelectorAll("#verdict-chips .v-chip[data-v]").forEach(b => {
-  b.addEventListener("click", () => {
-    const v = b.dataset.v;
+// Verdict menu: the verdict checklist plus the flagged / enriched quick toggles.
+document.getElementById("fdrop-verdict-menu").addEventListener("click", e => {
+  const it = e.target.closest(".fdrop-item");
+  if (!it) return;
+  if (it.dataset.toggle === "flagged") { flagOnly = !flagOnly; setItemChecked(it, flagOnly); }
+  else if (it.dataset.toggle === "enriched") { enrichedOnly = !enrichedOnly; setItemChecked(it, enrichedOnly); }
+  else if (it.hasAttribute("data-v")) {
+    const v = it.getAttribute("data-v");
     if (verdictFilter.has(v)) verdictFilter.delete(v); else verdictFilter.add(v);
-    renderVerdictChips();
-    renderList();
-  });
-});
-document.getElementById("flag-filter").addEventListener("click", e => {
-  flagOnly = !flagOnly;
-  e.currentTarget.classList.toggle("is-on", flagOnly);
+    setItemChecked(it, verdictFilter.has(v));
+  } else return;
   renderList();
 });
-document.getElementById("enriched-filter").addEventListener("click", e => {
-  enrichedOnly = !enrichedOnly;
-  e.currentTarget.classList.toggle("is-on", enrichedOnly);
-  renderList();
+// Columns menu: each row is a column; toggling adds/removes it from the active
+// view's hidden set (persisted), then re-applies visibility.
+document.getElementById("fdrop-columns-menu").addEventListener("click", e => {
+  const it = e.target.closest(".fdrop-item[data-col]");
+  if (!it) return;
+  const cs = colState(); // re-resolve: the view may have changed since render
+  const k = it.getAttribute("data-col");
+  if (cs.hidden.has(k)) cs.hidden.delete(k); else cs.hidden.add(k);
+  localStorage.setItem(cs.key, JSON.stringify([...cs.hidden]));
+  setItemChecked(it, !cs.hidden.has(k));
+  applyColumnVisibility();
+  updateColumnsBadge();
 });
 // Jobs filter block — its own search plus the Application / Outreach dropdowns.
 document.getElementById("jq").oninput = renderJobs;
-// Each dropdown button toggles its menu; opening one closes the other. A click
+// Each dropdown button toggles its menu; opening one closes the others. A click
 // anywhere else closes them. Clicks inside a menu are multi-select, so they
-// don't close it. The menus' contents are rebuilt by renderFilterMenus, but the
-// containers are static — so item clicks are handled by delegation and survive.
-for (const id of ["fdrop-application", "fdrop-outreach"]) {
+// don't close it. The menus' contents are rebuilt on demand, but the containers
+// are static — so item clicks are handled by delegation and survive a re-render.
+for (const id of ["fdrop-verdict", "fdrop-columns", "fdrop-application", "fdrop-outreach"]) {
   const drop = document.getElementById(id);
   const btn = drop.querySelector(".fdrop-btn");
   btn.addEventListener("click", e => {
@@ -3464,7 +3505,8 @@ document.getElementById("fdrop-outreach-menu").addEventListener("click", e => {
   } else return;
   renderJobs();
 });
-renderColToggles();
+renderVerdictMenu();
+renderColumnsMenu();
 applyColumnVisibility(); // hide chosen thead cells before the first data load
 
 document.getElementById("pane-close").onclick = closeDetail;
