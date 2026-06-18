@@ -165,7 +165,7 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 	// thing becomes the description (outreach's JD), so we keep more than the
 	// classifier needs. low_content still goes to the extractor: ATS pages are
 	// often JS shells whose residual text (title/meta) carries enough.
-	text, finalURL, status := enrich.FetchPage(ctx, httpc, rawURL, descCapRunes)
+	body, text, finalURL, status := enrich.FetchPageHTML(ctx, httpc, rawURL, descCapRunes)
 	if status != "ok" && status != "low_content" {
 		// The page is unfetchable — a bot challenge, a 403/login wall, a dead
 		// host. For a company the user explicitly pinned we don't need the page
@@ -180,6 +180,16 @@ func (c *Capturer) Run(ctx context.Context, req Request) (*Result, error) {
 			}
 		}
 		return &Result{FetchStatus: status, URL: finalURL}, FetchError{Status: status}
+	}
+
+	// Most job pages embed a schema.org JobPosting in their HTML for Google for
+	// Jobs — exact fields, no LLM. Try it before the model, the same way the ATS
+	// resolvers run before this generic path. Skipped when the user pinned the
+	// link as a company page (they said it isn't a posting).
+	if req.Kind != KindCompany {
+		if jp := parseJobPostingLD(body); jp != nil {
+			return c.runJobPostingLD(ctx, rawURL, finalURL, status, req, jp)
+		}
 	}
 
 	// The model only needs the early signal — hand it a slice, not the full body.
@@ -448,6 +458,70 @@ func (c *Capturer) runATS(ctx context.Context, rawURL string, req Request, job *
 	res.Posting = &p
 	res.PostingUpdated = updated
 	res.Note = "details from the " + job.ATS + " posting API — no LLM pass needed"
+	return res, nil
+}
+
+// runJobPostingLD makes the same writes the generic job path makes, from a
+// page's embedded schema.org JobPosting instead of an LLM extraction. Unlike an
+// ATS host, a careers page identifies its company — so the hiring org's own site
+// (sameAs/url), the pasted host, or the final host resolves a real domain. The
+// JobPosting's location is the role's, not the company HQ, so it seeds the
+// posting, never the company row (HQ stays user-typed). User-typed fields win.
+func (c *Capturer) runJobPostingLD(ctx context.Context, rawURL, finalURL, status string, req Request, jp *jobPostingLD) (*Result, error) {
+	res := &Result{Kind: KindJob, FetchStatus: status, URL: finalURL}
+
+	name := strings.TrimSpace(req.Fields.Name)
+	if name == "" {
+		name = strings.TrimSpace(jp.CompanyName)
+	}
+	domain := resolveCompanyDomain(jp.CompanyURL, rawURL, finalURL)
+	if name == "" && domain == "" {
+		res.Note = "couldn't identify the company behind the page — type a company name and retry"
+		return res, nil
+	}
+	id, created, err := ingest.EnsureCompany(c.DB, ingest.CapturedCompany{
+		Name:         name,
+		Domain:       domain,
+		Location:     strings.TrimSpace(req.Fields.Location), // company HQ — the JobPosting states the role's location, not HQ
+		Vertical:     strings.TrimSpace(req.Fields.Vertical),
+		SourceURL:    finalURL,
+		Headcount:    req.Fields.Headcount,
+		FundingStage: req.Fields.FundingStage,
+	})
+	if err != nil {
+		return res, err
+	}
+	res.CompanyID = id
+	res.CompanyCreated = created
+	if name == "" {
+		name = domain
+	}
+	res.CompanyName = name
+
+	title := strings.TrimSpace(req.Fields.Title)
+	if title == "" {
+		title = jp.Title
+	}
+	p, updated, err := c.DB.UpsertCapturedPosting(store.CapturedPosting{
+		CompanyID:      id,
+		URL:            finalURL,
+		PastedURL:      rawURL,
+		Title:          title,
+		Location:       jp.Location, // the role's location; Fields.Location is the company HQ, set above
+		FetchStatus:    status,
+		PostedAt:       jp.PostedAt,
+		EmploymentType: jp.EmploymentType,
+		WorkplaceType:  jp.WorkplaceType,
+		CompRange:      jp.CompRange,
+		Description:    jp.Description,
+	})
+	if err != nil {
+		return res, fmt.Errorf("store posting: %w", err)
+	}
+	res.Posting = &p
+	res.PostingUpdated = updated
+	res.Note = "details from the page's embedded job-posting data — no LLM pass needed"
+	c.detectAndStore(ctx, p.ID, finalURL)
 	return res, nil
 }
 
