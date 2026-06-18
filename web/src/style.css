@@ -580,13 +580,16 @@
     background: var(--bg-2);
     color: var(--fg);
     border-left: 1px solid var(--line);
-    box-shadow: var(--shadow-lg);
     transform: translateX(100%);
     transition: transform var(--dur-slow) var(--ease);
     z-index: 51;
     display: flex; flex-direction: column;
   }
-  .pane.open { transform: translateX(0); }
+  /* shadow only while open. --shadow-lg casts leftward (-16px 0 48px); a closed
+     pane parks at translateX(100%) with its left edge flush against the viewport
+     edge, so that shadow leaks back onto the screen as a dark band on the right.
+     Apply it only when open (same reasoning as the scrim's backdrop-filter). */
+  .pane.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
   /* The company pane and the pursuit panel can stack either way — open a
      company then a posting (pursuit on top), or open a pursuit then "View
      company" (company on top). raisePane() in app.ts lifts whichever opened
