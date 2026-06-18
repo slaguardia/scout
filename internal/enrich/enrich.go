@@ -22,11 +22,16 @@ import (
 )
 
 const (
-	defaultWorkers  = 8
-	defaultTimeout  = 12 * time.Second
-	maxBodyBytes    = 512 * 1024 // 512 KB read cap
-	maxSummaryRunes = 3000       // chunk handed to the LLM
-	minContentRunes = 200        // below this, flag as 'low_content' (JS-SPA likely)
+	defaultWorkers = 8
+	defaultTimeout = 12 * time.Second
+	// 2 MB read cap. Generous because a page's JSON-LD JobPosting (the capture
+	// flow's keyless field source) is usually emitted right before </body>, past
+	// where a heavy career page's markup can already run beyond 512 KB; the text
+	// summary is truncated to maxRunes regardless, so this only bounds the bytes
+	// scanned, not what's stored.
+	maxBodyBytes    = 2 << 20
+	maxSummaryRunes = 3000 // chunk handed to the LLM
+	minContentRunes = 200  // below this, flag as 'low_content' (JS-SPA likely)
 	userAgent       = "scout/0.1 (+https://github.com/slaguardia/scout)"
 )
 
@@ -104,31 +109,41 @@ func NewHTTPClient(timeout time.Duration) *http.Client {
 // "ok" and "low_content" outcomes only — the other statuses carry no real
 // content worth reading.
 func FetchPage(ctx context.Context, client *http.Client, url string, maxRunes int) (text, finalURL, status string) {
+	_, text, finalURL, status = FetchPageHTML(ctx, client, url, maxRunes)
+	return
+}
+
+// FetchPageHTML is FetchPage that also returns the raw HTML body from the same
+// fetch. Callers that need the markup itself — JSON-LD extraction, which lives
+// in the <script> tags FetchPage's text strip drops — get it without a second
+// request. body is the raw bytes for the "ok"/"low_content" outcomes (nil
+// otherwise); text/finalURL/status are exactly FetchPage's.
+func FetchPageHTML(ctx context.Context, client *http.Client, url string, maxRunes int) (body []byte, text, finalURL, status string) {
 	if client == nil {
 		client = NewHTTPClient(0)
 	}
 	if maxRunes <= 0 {
 		maxRunes = maxSummaryRunes
 	}
-	body, code, finalURL, err := get(ctx, client, url)
+	raw, code, finalURL, err := get(ctx, client, url)
 	if err != nil {
-		return "", finalURL, classifyErr(err)
+		return nil, "", finalURL, classifyErr(err)
 	}
-	if code < 200 || code >= 300 || len(body) == 0 {
-		return "", finalURL, statusForBadCode(code, body)
+	if code < 200 || code >= 300 || len(raw) == 0 {
+		return nil, "", finalURL, statusForBadCode(code, raw)
 	}
-	text = extractText(body)
+	text = extractText(raw)
 	switch {
 	case looksLikeNotFound(text):
-		return "", finalURL, "soft_404"
+		return nil, "", finalURL, "soft_404"
 	case looksLikeChallenge(text):
-		return "", finalURL, "challenge"
+		return nil, "", finalURL, "challenge"
 	case runeCount(text) < minContentRunes:
 		// Keep the residual text — a JS-shell's title/meta can still carry
 		// enough signal for the capture extractor to work with.
-		return truncRunes(text, maxRunes), finalURL, "low_content"
+		return raw, truncRunes(text, maxRunes), finalURL, "low_content"
 	}
-	return truncRunes(text, maxRunes), finalURL, "ok"
+	return raw, truncRunes(text, maxRunes), finalURL, "ok"
 }
 
 // Run enriches every company that needs it. If force, every company with a domain is re-fetched.
