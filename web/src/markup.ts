@@ -64,10 +64,6 @@ export const SCOUT_MARKUP = `
   <!-- Each view owns its filter block — separate search text and separate
        controls, so switching tabs never carries a filter across. -->
   <div class="block" id="block-filter-companies">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
-      Filter
-    </h3>
     <div class="filter-row">
       <div class="search-wrap">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
@@ -76,23 +72,20 @@ export const SCOUT_MARKUP = `
     </div>
     <div class="filter-row">
       <div class="filter-dropdowns">
-        <div class="fdrop" id="fdrop-verdict">
-          <button class="fdrop-btn" id="fdrop-verdict-btn" aria-haspopup="true" aria-expanded="false" title="filter by verdict, flag, or enrichment">
-            <span class="fdrop-label-txt">Verdict</span>
+        <div class="fdrop" id="fdrop-cfilters">
+          <button class="fdrop-btn" id="fdrop-cfilters-btn" aria-haspopup="true" aria-expanded="false" title="filter companies">
+            <svg class="fdrop-lead" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+            <span class="fdrop-label-txt">Filters</span>
             <span class="fdrop-count" style="display:none"></span>
             <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
           </button>
-          <div class="fdrop-menu" id="fdrop-verdict-menu" role="menu"></div>
+          <div class="fdrop-menu" id="fdrop-cfilters-menu" role="menu"></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="block" id="block-filter-jobs" style="display:none">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
-      Filter
-    </h3>
     <div class="filter-row">
       <div class="search-wrap">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14" stroke-linecap="round"/></svg>
@@ -101,21 +94,14 @@ export const SCOUT_MARKUP = `
     </div>
     <div class="filter-row">
       <div class="filter-dropdowns">
-        <div class="fdrop" id="fdrop-application">
-          <button class="fdrop-btn" id="fdrop-application-btn" aria-haspopup="true" aria-expanded="false" title="filter by application stage">
-            <span class="fdrop-label-txt">Application</span>
+        <div class="fdrop" id="fdrop-jfilters">
+          <button class="fdrop-btn" id="fdrop-jfilters-btn" aria-haspopup="true" aria-expanded="false" title="filter jobs">
+            <svg class="fdrop-lead" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+            <span class="fdrop-label-txt">Filters</span>
             <span class="fdrop-count" style="display:none"></span>
             <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
           </button>
-          <div class="fdrop-menu" id="fdrop-application-menu" role="menu"></div>
-        </div>
-        <div class="fdrop" id="fdrop-outreach">
-          <button class="fdrop-btn" id="fdrop-outreach-btn" aria-haspopup="true" aria-expanded="false" title="filter by outreach status">
-            <span class="fdrop-label-txt">Outreach</span>
-            <span class="fdrop-count" style="display:none"></span>
-            <svg class="fdrop-chev" viewBox="0 0 10 6" aria-hidden="true"><path d="M0 0l5 6 5-6z" fill="currentColor"/></svg>
-          </button>
-          <div class="fdrop-menu" id="fdrop-outreach-menu" role="menu"></div>
+          <div class="fdrop-menu" id="fdrop-jfilters-menu" role="menu"></div>
         </div>
       </div>
     </div>

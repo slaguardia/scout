@@ -445,11 +445,14 @@
      stays quiet (muted, never link-blue) so it doesn't outshine the filters. */
   .fdrop-count--muted { background: var(--panel-3); color: var(--fg-mute); }
   .fdrop-lead { width: 12px; height: 12px; flex: none; opacity: 0.7; }
+  /* fixed (not absolute) so the sidebar's overflow:auto can't clip it; left/top/
+     max-height are set in JS from the button rect (see positionMenu). */
   .fdrop-menu {
-    position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
+    position: fixed; z-index: 60;
     min-width: 210px; max-width: 280px; padding: 5px;
     background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-md);
     box-shadow: var(--shadow-lg); display: none;
+    overflow-y: auto; overscroll-behavior: contain;
   }
   .fdrop.is-open .fdrop-menu { display: block; }
   .fdrop-head {

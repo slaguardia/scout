@@ -186,22 +186,22 @@ const VERDICT_ITEMS = [
   ["__none__", "unscored", "fdrop-dot--none"],
 ];
 
-// renderVerdictMenu builds the companies Verdict dropdown: the verdict checklist
-// plus a divided Filters section (flagged / enriched). Counts are filled in by
-// syncCompanyFilterCounts on each renderList.
-function renderVerdictMenu() {
-  const menu = document.getElementById("fdrop-verdict-menu");
+// renderCompanyFilterMenu builds the companies "Filters" dropdown: a Verdict
+// checklist plus a divided Flags section (flagged / enriched). Counts are filled
+// in by syncCompanyFilterCounts on each renderList.
+function renderCompanyFilterMenu() {
+  const menu = document.getElementById("fdrop-cfilters-menu");
   if (!menu) return;
   menu.innerHTML = `<div class="fdrop-head">Verdict</div>`
     + VERDICT_ITEMS.map(([v, label, dot]) => fdropItem("data-v", v, label, dot, verdictFilter.has(v))).join("")
-    + `<div class="fdrop-sep"></div><div class="fdrop-head">Filters</div>`
+    + `<div class="fdrop-sep"></div><div class="fdrop-head">Flags</div>`
     + fdropItem("data-toggle", "flagged", "⚑ Flagged", "", flagOnly)
     + fdropItem("data-toggle", "enriched", "Enriched", "", enrichedOnly);
   syncCompanyFilterCounts();
 }
 
 // syncCompanyFilterCounts tallies verdicts/flags over the loaded companies and
-// updates the menu item counts + the Verdict button badge.
+// updates the menu item counts + the Filters button badge.
 function syncCompanyFilterCounts() {
   const n = { yes: 0, maybe: 0, no: 0, __none__: 0 };
   let flaggedN = 0, enrichedN = 0;
@@ -211,13 +211,13 @@ function syncCompanyFilterCounts() {
     if (r.flagged) flaggedN++;
     if (r.enriched) enrichedN++;
   }
-  writeItemCounts("#fdrop-verdict-menu [data-v]", "data-v", n);
-  const fc = document.querySelector('#fdrop-verdict-menu [data-toggle="flagged"] [data-count]');
+  writeItemCounts("#fdrop-cfilters-menu [data-v]", "data-v", n);
+  const fc = document.querySelector('#fdrop-cfilters-menu [data-toggle="flagged"] [data-count]');
   if (fc) fc.textContent = flaggedN || "";
-  const ec = document.querySelector('#fdrop-verdict-menu [data-toggle="enriched"] [data-count]');
+  const ec = document.querySelector('#fdrop-cfilters-menu [data-toggle="enriched"] [data-count]');
   if (ec) ec.textContent = enrichedN || "";
   const active = verdictFilter.size + (flagOnly ? 1 : 0) + (enrichedOnly ? 1 : 0);
-  setFilterBadge("fdrop-verdict-btn", active, active > 0);
+  setFilterBadge("fdrop-cfilters-btn", active, active > 0);
 }
 
 function filtered() {
@@ -469,16 +469,17 @@ function fdropItem(attr, key, label, dot, checked) {
     + `<span class="fdrop-item-count" data-count></span></button>`;
 }
 
-// renderFilterMenus (re)builds both dropdown menus from the configured vocab.
-// Called on vocab load and whenever a structural change (e.g. the footer's
-// "show rejected" link) flips a selection that isn't the one the user clicked.
+// renderFilterMenus rebuilds the jobs "Filters" menu — application stage, the
+// next-up/not-reached quick toggles, and the reply-status checklist, all in one
+// panel. Called on vocab load and on structural selection changes (e.g. the
+// footer's "show rejected" link flipping a selection the user didn't click).
 function renderFilterMenus() {
   reconcileStageSel();
-  const appMenu = document.getElementById("fdrop-application-menu");
-  if (appMenu) appMenu.innerHTML = `<div class="fdrop-head">Application stage</div>`
-    + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("");
-  const outMenu = document.getElementById("fdrop-outreach-menu");
-  if (outMenu) outMenu.innerHTML = `<div class="fdrop-head">Quick filters</div>`
+  const menu = document.getElementById("fdrop-jfilters-menu");
+  if (!menu) return;
+  menu.innerHTML = `<div class="fdrop-head">Application stage</div>`
+    + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("")
+    + `<div class="fdrop-sep"></div><div class="fdrop-head">Quick filters</div>`
     + fdropItem("data-toggle", "nextup", "★ Next up", "", nextUpOnly)
     + fdropItem("data-toggle", "notreached", "Not reached out", "", notReachedOnly)
     + `<div class="fdrop-sep"></div><div class="fdrop-head">Reply status</div>`
@@ -487,8 +488,8 @@ function renderFilterMenus() {
   syncFilterCounts();
 }
 
-// syncFilterCounts updates the per-item tallies and the two button badges from
-// the full jobs list — cheap, called on every renderJobs so counts track edits.
+// syncFilterCounts updates the per-item tallies and the Filters button badge
+// from the full jobs list — cheap, called on every renderJobs so counts track edits.
 function syncFilterCounts() {
   const stageN = {}, statusN = {};
   let nextN = 0, notReachedN = 0;
@@ -500,17 +501,17 @@ function syncFilterCounts() {
     if (j.next_up) nextN++;
     if (!(j.outreach_count | 0)) notReachedN++;
   }
-  writeItemCounts("#fdrop-application-menu [data-stage]", "data-stage", stageN);
-  writeItemCounts("#fdrop-outreach-menu [data-status]", "data-status", statusN);
-  setToggleCount('[data-toggle="nextup"]', nextN);
-  setToggleCount('[data-toggle="notreached"]', notReachedN);
-  // Application button is "active" whenever the stage set differs from the
-  // default (all-but-rejected); its badge carries the count of checked stages.
+  writeItemCounts("#fdrop-jfilters-menu [data-stage]", "data-stage", stageN);
+  writeItemCounts("#fdrop-jfilters-menu [data-status]", "data-status", statusN);
+  setToggleCount("nextup", nextN);
+  setToggleCount("notreached", notReachedN);
+  // The badge counts every active narrowing in the panel: stages (when changed
+  // from the all-but-rejected default) + the two toggles + reply-status picks.
   const def = state.applicationStages.filter(s => s !== "rejected");
   const appDefault = jobStageSel && jobStageSel.size === def.length && def.every(s => jobStageSel.has(s));
-  setFilterBadge("fdrop-application-btn", appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0), !appDefault);
-  const outN = (nextUpOnly ? 1 : 0) + (notReachedOnly ? 1 : 0) + outreachSel.size;
-  setFilterBadge("fdrop-outreach-btn", outN, outN > 0);
+  const n = (appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0))
+    + (nextUpOnly ? 1 : 0) + (notReachedOnly ? 1 : 0) + outreachSel.size;
+  setFilterBadge("fdrop-jfilters-btn", n, n > 0);
 }
 function writeItemCounts(sel, attr, counts) {
   document.querySelectorAll(sel).forEach(el => {
@@ -518,8 +519,8 @@ function writeItemCounts(sel, attr, counts) {
     if (span) { const c = counts[el.getAttribute(attr)] | 0; span.textContent = c || ""; }
   });
 }
-function setToggleCount(sel, n) {
-  const span = document.querySelector(`#fdrop-outreach-menu ${sel} [data-count]`);
+function setToggleCount(toggle, n) {
+  const span = document.querySelector(`#fdrop-jfilters-menu [data-toggle="${toggle}"] [data-count]`);
   if (span) span.textContent = n || "";
 }
 function setFilterBadge(btnId, n, active) {
@@ -541,6 +542,33 @@ function closeAllDropdowns() {
     if (btn) btn.setAttribute("aria-expanded", "false");
   });
 }
+// The menus are position:fixed so the sidebar's overflow can't clip them. That
+// means JS owns their coordinates: anchor under the button, match its width, and
+// cap the height to the room below (it scrolls if a tall panel won't fit).
+function positionMenu(drop) {
+  const btn = drop.querySelector(".fdrop-btn");
+  const menu = drop.querySelector(".fdrop-menu");
+  if (!btn || !menu) return;
+  const r = btn.getBoundingClientRect();
+  menu.style.left = Math.round(r.left) + "px";
+  menu.style.top = Math.round(r.bottom + 4) + "px";
+  menu.style.minWidth = Math.round(r.width) + "px";
+  menu.style.maxHeight = Math.max(160, Math.round(window.innerHeight - r.bottom - 12)) + "px";
+}
+function openDropdown(drop) {
+  const btn = drop.querySelector(".fdrop-btn");
+  drop.classList.add("is-open");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  positionMenu(drop);
+}
+// Keep an open menu glued to its button when the sidebar (or window) scrolls or
+// resizes. Capture phase so it catches scroll from the overflow:auto sidebar.
+function repositionOpenDropdown() {
+  const drop = document.querySelector(".fdrop.is-open");
+  if (drop) positionMenu(drop);
+}
+window.addEventListener("scroll", repositionOpenDropdown, true);
+window.addEventListener("resize", repositionOpenDropdown);
 
 const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
@@ -3437,10 +3465,10 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
-// Companies filter block — search plus the Verdict dropdown.
+// Companies filter block — search plus the Filters dropdown.
 document.getElementById("q").oninput = renderList;
-// Verdict menu: the verdict checklist plus the flagged / enriched quick toggles.
-document.getElementById("fdrop-verdict-menu").addEventListener("click", e => {
+// Companies Filters menu: the verdict checklist plus the flagged / enriched toggles.
+document.getElementById("fdrop-cfilters-menu").addEventListener("click", e => {
   const it = e.target.closest(".fdrop-item");
   if (!it) return;
   if (it.dataset.toggle === "flagged") { flagOnly = !flagOnly; setItemChecked(it, flagOnly); }
@@ -3465,38 +3493,33 @@ document.getElementById("fdrop-columns-menu").addEventListener("click", e => {
   applyColumnVisibility();
   updateColumnsBadge();
 });
-// Jobs filter block — its own search plus the Application / Outreach dropdowns.
+// Jobs filter block — its own search plus the combined Filters dropdown.
 document.getElementById("jq").oninput = renderJobs;
 // Each dropdown button toggles its menu; opening one closes the others. A click
 // anywhere else closes them. Clicks inside a menu are multi-select, so they
 // don't close it. The menus' contents are rebuilt on demand, but the containers
 // are static — so item clicks are handled by delegation and survive a re-render.
-for (const id of ["fdrop-verdict", "fdrop-columns", "fdrop-application", "fdrop-outreach"]) {
+for (const id of ["fdrop-cfilters", "fdrop-columns", "fdrop-jfilters"]) {
   const drop = document.getElementById(id);
   const btn = drop.querySelector(".fdrop-btn");
   btn.addEventListener("click", e => {
     e.stopPropagation();
     const open = drop.classList.contains("is-open");
     closeAllDropdowns();
-    if (!open) { drop.classList.add("is-open"); btn.setAttribute("aria-expanded", "true"); }
+    if (!open) openDropdown(drop);
   });
   drop.querySelector(".fdrop-menu").addEventListener("click", e => e.stopPropagation());
 }
 document.addEventListener("click", closeAllDropdowns);
-// Application menu: each row is a stage; toggling adds/removes it from the set.
-document.getElementById("fdrop-application-menu").addEventListener("click", e => {
-  const it = e.target.closest(".fdrop-item[data-stage]");
-  if (!it) return;
-  const s = it.getAttribute("data-stage");
-  if (jobStageSel.has(s)) jobStageSel.delete(s); else jobStageSel.add(s);
-  setItemChecked(it, jobStageSel.has(s));
-  renderJobs();
-});
-// Outreach menu: two quick toggles plus the reply-status checklist.
-document.getElementById("fdrop-outreach-menu").addEventListener("click", e => {
+// Jobs Filters menu: stage checklist + next-up/not-reached toggles + reply status.
+document.getElementById("fdrop-jfilters-menu").addEventListener("click", e => {
   const it = e.target.closest(".fdrop-item");
   if (!it) return;
-  if (it.dataset.toggle === "nextup") { nextUpOnly = !nextUpOnly; setItemChecked(it, nextUpOnly); }
+  if (it.hasAttribute("data-stage")) {
+    const s = it.getAttribute("data-stage");
+    if (jobStageSel.has(s)) jobStageSel.delete(s); else jobStageSel.add(s);
+    setItemChecked(it, jobStageSel.has(s));
+  } else if (it.dataset.toggle === "nextup") { nextUpOnly = !nextUpOnly; setItemChecked(it, nextUpOnly); }
   else if (it.dataset.toggle === "notreached") { notReachedOnly = !notReachedOnly; setItemChecked(it, notReachedOnly); }
   else if (it.hasAttribute("data-status")) {
     const v = it.getAttribute("data-status");
@@ -3505,7 +3528,7 @@ document.getElementById("fdrop-outreach-menu").addEventListener("click", e => {
   } else return;
   renderJobs();
 });
-renderVerdictMenu();
+renderCompanyFilterMenu();
 renderColumnsMenu();
 applyColumnVisibility(); // hide chosen thead cells before the first data load
 
