@@ -173,6 +173,15 @@ function sortRows(rows) {
   return rows.slice().sort((a, b) => state.sort.dir * compare(a, b, state.sort.k));
 }
 
+// Reflect the active sort onto its column header so the CSS arrow (data-sort)
+// renders — otherwise a sorted table gives no hint which column drives it.
+function syncSortIndicator(table, attr, sort) {
+  document.querySelectorAll(`#${table} thead th[${attr}]`).forEach(th => {
+    if (th.getAttribute(attr) === sort.k) th.dataset.sort = sort.dir < 0 ? "desc" : "asc";
+    else delete th.dataset.sort;
+  });
+}
+
 // Companies-view filter, surfaced as one "Verdict" dropdown: a verdict checklist
 // (held in verdictFilter; empty = all) plus two quick toggles folded in below.
 const verdictFilter = new Set();   // "yes"/"maybe"/"no"/"__none__" (unscored); empty = no filter
@@ -380,6 +389,7 @@ function renderList() {
     tbody.appendChild(tr);
     bindCompanyRow(tr);
   }
+  syncSortIndicator("t", "data-k", state.sort);
   applyColumnVisibility();
 }
 
@@ -784,6 +794,7 @@ function renderJobs() {
     };
     tbody.appendChild(tr);
   }
+  syncSortIndicator("jt", "data-jk", state.jsort);
   applyColumnVisibility();
   // Row click opens the pursuit panel (role + pipeline + the outreach queue);
   // the external link and the inline tracking controls are guarded out.

@@ -331,6 +331,12 @@
     transition: color var(--dur-fast) var(--ease);
   }
   thead th:hover { color: var(--fg-mute); }
+  /* Active sort column: brighten it and append a direction arrow. */
+  thead th[data-sort] { color: var(--fg-mute); }
+  thead th[data-sort]::after {
+    content: "↑"; margin-left: 5px; font-size: 9px; vertical-align: 1px;
+  }
+  thead th[data-sort="desc"]::after { content: "↓"; }
 
   tbody td {
     padding: 15px 16px;
