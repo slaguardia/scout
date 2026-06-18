@@ -270,6 +270,72 @@ func TestDetectRipplingNoForm(t *testing.T) {
 	}
 }
 
+// --- Dover -------------------------------------------------------------------
+
+// doverQuestionsFixture mirrors the real application_questions shape (Paratus,
+// 2026-06-18): one CUSTOM essay, a CUSTOM yes/no multiple-choice, and the
+// structured RESUME / LINKEDIN_URL / PHONE_NUMBER fields. Only the essay stays.
+const doverQuestionsFixture = `{"id":"job","client_name":"Paratus","title":"Founding Engineer",
+  "application_questions":[
+    {"id":"q-essay","question":"In two sentences, tell us why you want to work at Paratus","input_type":"SHORT_ANSWER","question_type":"CUSTOM","hidden":false},
+    {"id":"q-choice","question":"Are you a U.S. citizen and eligible to obtain a U.S. security clearance?","input_type":"MULTIPLE_CHOICE","question_type":"CUSTOM","multiple_choice_options":["Yes","No"],"hidden":false},
+    {"id":"q-resume","question":"Resume Upload","input_type":"FILE_UPLOAD","question_type":"RESUME","hidden":false},
+    {"id":"q-linkedin","question":"LinkedIn Profile URL","input_type":"SHORT_ANSWER","question_type":"LINKEDIN_URL","hidden":false},
+    {"id":"q-phone","question":"Phone","input_type":"SHORT_ANSWER","question_type":"PHONE_NUMBER","hidden":false},
+    {"id":"q-hidden","question":"Internal hidden question","input_type":"SHORT_ANSWER","question_type":"CUSTOM","hidden":true}
+  ]}`
+
+func TestDetectDoverQuestions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/inbound/application-portal-job/"+ashbyJobID {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(doverQuestionsFixture))
+	}))
+	defer srv.Close()
+	defer swap(&doverAPIBase, srv.URL)()
+
+	scan := DetectQuestions(context.Background(), srv.Client(),
+		"https://app.dover.com/apply/Paratus/"+ashbyJobID)
+	if scan.Status != QuestionsOK || scan.Source != "dover" {
+		t.Fatalf("status=%s source=%s, want ok/dover", scan.Status, scan.Source)
+	}
+	got := prompts(scan)
+	want := []string{"In two sentences, tell us why you want to work at Paratus"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("kept %v, want %v", got, want)
+	}
+	for _, bad := range []string{"Are you a U.S. citizen and eligible to obtain a U.S. security clearance?", "Resume Upload", "LinkedIn Profile URL", "Phone", "Internal hidden question"} {
+		if has(got, bad) {
+			t.Errorf("kept structured/choice/hidden field %q", bad)
+		}
+	}
+	if scan.Questions[0].Key != "q-essay" { // the field id is the stable key
+		t.Errorf("key = %q, want q-essay", scan.Questions[0].Key)
+	}
+}
+
+// A Dover form of only structured fields is a clean "none" — readable form, no
+// essays — not "unsupported".
+func TestDetectDoverNoEssays(t *testing.T) {
+	const body = `{"id":"job","application_questions":[
+	  {"id":"q-resume","question":"Resume Upload","input_type":"FILE_UPLOAD","question_type":"RESUME","hidden":false},
+	  {"id":"q-phone","question":"Phone","input_type":"SHORT_ANSWER","question_type":"PHONE_NUMBER","hidden":false}
+	]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	defer swap(&doverAPIBase, srv.URL)()
+
+	scan := DetectQuestions(context.Background(), srv.Client(),
+		"https://app.dover.com/apply/Paratus/"+ashbyJobID)
+	if scan.Status != QuestionsNone || scan.Source != "dover" {
+		t.Fatalf("status=%s source=%s, want none/dover", scan.Status, scan.Source)
+	}
+}
+
 // --- dispatch ----------------------------------------------------------------
 
 func TestDetectUnsupportedHost(t *testing.T) {

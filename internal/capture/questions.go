@@ -56,9 +56,9 @@ type QuestionScan struct {
 
 // DetectQuestions resolves a posting link's essay questions through the
 // platform's API — no LLM, no page fetch beyond the API call. Recognized ATS
-// hosts (greenhouse, ashby, rippling) resolve; any other link returns "unsupported", so
-// the caller can decide whether to try the HTML+LLM fallback. It dispatches on
-// the same atsTarget that ats.go's capture resolvers use.
+// hosts (greenhouse, ashby, rippling, dover) resolve; any other link returns
+// "unsupported", so the caller can decide whether to try the HTML+LLM fallback.
+// It dispatches on the same atsTarget that ats.go's capture resolvers use.
 func DetectQuestions(ctx context.Context, httpc *http.Client, rawURL string) QuestionScan {
 	t := atsTargetFor(rawURL)
 	if t == nil {
@@ -71,6 +71,8 @@ func DetectQuestions(ctx context.Context, httpc *http.Client, rawURL string) Que
 		return detectAshbyQuestions(ctx, httpc, t.org, t.id)
 	case "rippling":
 		return detectRipplingQuestions(ctx, httpc, t.base, t.org, t.id)
+	case "dover":
+		return detectDoverQuestions(ctx, httpc, t.base, t.id)
 	default:
 		// Lever surfaces no public application-form API — treat it like any
 		// other unread platform; the user applies on the site.
@@ -345,6 +347,61 @@ func ripplingIsEssay(fieldType, title string) bool {
 		return looksLikeQuestion(title)
 	}
 	return false
+}
+
+// --- Dover (public apply-portal API) -----------------------------------------
+
+// detectDoverQuestions reads the application_questions off the same
+// apply-portal endpoint ats.go's resolver uses. Dover tags every field with a
+// question_type: the structured ones (RESUME, LINKEDIN_URL, PHONE_NUMBER, name,
+// email, ...) are isolated from recruiter-authored CUSTOM questions, so an essay
+// is a non-hidden CUSTOM field whose input is free text (SHORT_ANSWER or a
+// long-form type) — MULTIPLE_CHOICE and FILE_UPLOAD CUSTOM fields drop. A
+// missing/empty list is a clean "none"; an unreachable endpoint degrades, never
+// crashes capture.
+func detectDoverQuestions(ctx context.Context, httpc *http.Client, apiBase, jobID string) QuestionScan {
+	var payload struct {
+		ApplicationQuestions []struct {
+			ID           string `json:"id"`
+			Question     string `json:"question"`
+			InputType    string `json:"input_type"`
+			QuestionType string `json:"question_type"`
+			Hidden       bool   `json:"hidden"`
+		} `json:"application_questions"`
+	}
+	url := apiBase + "/api/v1/inbound/application-portal-job/" + neturl.PathEscape(jobID)
+	if err := fetchATSJSON(ctx, httpc, url, &payload); err != nil {
+		return QuestionScan{Status: QuestionsUnreachable, Source: "dover"}
+	}
+
+	var qs []AppQuestion
+	for _, q := range payload.ApplicationQuestions {
+		if q.Hidden || !doverIsEssay(q.InputType, q.QuestionType, q.Question) {
+			continue
+		}
+		if p := cleanPrompt(q.Question); p != "" {
+			qs = append(qs, AppQuestion{Prompt: p, Key: q.ID}) // Dover exposes no length cap
+		}
+	}
+	return scanFrom(qs, "dover")
+}
+
+// doverIsEssay keeps only recruiter-authored free-text questions. Structured
+// fields carry their own question_type (RESUME / LINKEDIN_URL / PHONE_NUMBER /
+// name / email), so only CUSTOM is a candidate; among those, free-text inputs
+// (SHORT_ANSWER, or a paragraph/long-form type) stay while MULTIPLE_CHOICE and
+// FILE_UPLOAD drop. isIdentityLabel is belt-and-suspenders for a CUSTOM field a
+// recruiter titled like an identity prompt.
+func doverIsEssay(inputType, questionType, title string) bool {
+	if strings.ToUpper(strings.TrimSpace(questionType)) != "CUSTOM" {
+		return false
+	}
+	if isIdentityLabel(title) {
+		return false
+	}
+	it := strings.ToUpper(strings.TrimSpace(inputType))
+	return it == "SHORT_ANSWER" || strings.Contains(it, "LONG") ||
+		strings.Contains(it, "PARAGRAPH") || strings.Contains(it, "TEXTAREA")
 }
 
 // --- HTML + LLM fallback -----------------------------------------------------

@@ -585,6 +585,7 @@ var atsHosts = map[string]bool{
 	"greenhouse.com": true, "jazz.co": true, "jazzhr.com": true,
 	"workatastartup.com": true, "ycombinator.com": true, "otta.com": true,
 	"builtin.com": true, "simplify.jobs": true, "hired.com": true,
+	"dover.com": true,
 }
 
 func isATSHost(host string) bool {

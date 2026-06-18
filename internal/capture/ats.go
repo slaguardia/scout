@@ -33,6 +33,9 @@ var (
 	leverAPIBase        = "https://api.lever.co"
 	leverEUAPIBase      = "https://api.eu.lever.co"
 	ripplingAPIBase     = "https://api.rippling.com"
+	// Dover's apply portal and its public API share one origin, so this base
+	// serves both the JSON fetch and the canonical apply URL.
+	doverAPIBase = "https://app.dover.com"
 )
 
 const (
@@ -47,7 +50,7 @@ const (
 // board's name when the API provides one (Greenhouse) and a slug-derived
 // fallback otherwise — user-typed input still wins over both.
 type atsJob struct {
-	ATS            string // "ashby" | "greenhouse" | "lever" | "rippling"
+	ATS            string // "ashby" | "greenhouse" | "lever" | "rippling" | "dover"
 	URL            string // canonical posting URL
 	CompanyName    string
 	Title          string
@@ -65,7 +68,7 @@ var reUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 // atsTarget is a recognized ATS posting URL, routed: which platform, which
 // regional API base, and the org/job identifiers the resolver needs.
 type atsTarget struct {
-	ats     string // "ashby" | "greenhouse" | "lever" | "rippling"
+	ats     string // "ashby" | "greenhouse" | "lever" | "rippling" | "dover"
 	base    string // regional API base
 	org, id string
 }
@@ -90,6 +93,11 @@ func atsTargetFor(rawURL string) *atsTarget {
 		// ats.rippling.com/{org}/jobs/{uuid}
 		if len(segs) >= 3 && segs[1] == "jobs" && reUUID.MatchString(segs[2]) {
 			return &atsTarget{ats: "rippling", base: ripplingAPIBase, org: segs[0], id: segs[2]}
+		}
+	case "app.dover.com":
+		// app.dover.com/apply/{org}/{uuid}
+		if len(segs) >= 3 && segs[0] == "apply" && reUUID.MatchString(segs[2]) {
+			return &atsTarget{ats: "dover", base: doverAPIBase, org: segs[1], id: segs[2]}
 		}
 	case "jobs.lever.co", "jobs.eu.lever.co":
 		if len(segs) >= 2 && reUUID.MatchString(segs[1]) {
@@ -141,6 +149,8 @@ func resolveATS(ctx context.Context, httpc *http.Client, rawURL string) *atsJob 
 		job, err = resolveLever(ctx, httpc, t.base, t.org, t.id)
 	case "rippling":
 		job, err = resolveRippling(ctx, httpc, t.base, t.org, t.id)
+	case "dover":
+		job, err = resolveDover(ctx, httpc, t.base, t.org, t.id)
 	}
 	if err != nil {
 		return nil // resolve failed — the generic capture path still applies
@@ -454,6 +464,91 @@ func resolveRippling(ctx context.Context, httpc *http.Client, apiBase, org, jobI
 		PostedAt:       isoDate(j.CreatedOn),
 		Description:    strings.TrimSpace(desc),
 	}, nil
+}
+
+// --- Dover -------------------------------------------------------------------
+
+// resolveDover reads a single posting off Dover's public apply-portal API — the
+// same JSON the /apply/{org}/{id} page fetches client-side, which is why the
+// generic page-fetch path comes back empty (Dover serves a JS shell). One GET,
+// no LLM. The API states the hiring company directly, so the org slug is only a
+// fallback. Location and workplace type come from the structured locations
+// list; salary and employment type from the compensation block.
+func resolveDover(ctx context.Context, httpc *http.Client, apiBase, org, jobID string) (*atsJob, error) {
+	var j struct {
+		ClientName  string `json:"client_name"`
+		Title       string `json:"title"`
+		Location    string `json:"location"` // usually null; locations[] is the real source
+		Description string `json:"user_provided_description"`
+		Created     string `json:"created"`
+		Locations   []struct {
+			LocationType string `json:"location_type"` // IN_OFFICE | REMOTE | HYBRID
+			Name         string `json:"name"`
+		} `json:"locations"`
+		Compensation struct {
+			LowerBound      float64 `json:"lower_bound"`
+			UpperBound      float64 `json:"upper_bound"`
+			CurrencyCode    string  `json:"currency_code"`
+			SalaryRangeType string  `json:"salary_range_type"` // YEARLY | MONTHLY | HOURLY
+			EmploymentType  string  `json:"employment_type"`   // FULL_TIME | PART_TIME | ...
+		} `json:"compensation"`
+	}
+	url := apiBase + "/api/v1/inbound/application-portal-job/" + neturl.PathEscape(jobID)
+	if err := fetchATSJSON(ctx, httpc, url, &j); err != nil {
+		return nil, err
+	}
+
+	var locs, workplaces []string
+	seenWP := map[string]bool{}
+	for _, l := range j.Locations {
+		if n := strings.TrimSpace(l.Name); n != "" {
+			locs = append(locs, n)
+		}
+		wp := map[string]string{"IN_OFFICE": "On-site", "REMOTE": "Remote", "HYBRID": "Hybrid"}[l.LocationType]
+		if wp != "" && !seenWP[wp] {
+			seenWP[wp] = true
+			workplaces = append(workplaces, wp)
+		}
+	}
+	location := strings.Join(locs, "; ")
+	if location == "" {
+		location = strings.TrimSpace(j.Location)
+	}
+
+	name := strings.TrimSpace(j.ClientName)
+	if name == "" {
+		name = slugName(org)
+	}
+	return &atsJob{
+		ATS:            "dover",
+		URL:            apiBase + "/apply/" + neturl.PathEscape(org) + "/" + jobID,
+		CompanyName:    name,
+		Title:          strings.TrimSpace(j.Title),
+		Location:       location,
+		EmploymentType: doverEmploymentLabel(j.Compensation.EmploymentType),
+		WorkplaceType:  strings.Join(workplaces, " / "),
+		CompRange:      moneyRange(j.Compensation.LowerBound, j.Compensation.UpperBound, j.Compensation.CurrencyCode, j.Compensation.SalaryRangeType),
+		PostedAt:       isoDate(j.Created),
+		Description:    stripHTML(j.Description),
+	}, nil
+}
+
+// doverEmploymentLabel maps Dover's SCREAMING_SNAKE employment enum to the human
+// label; unknown values pass through as-is.
+func doverEmploymentLabel(s string) string {
+	switch s {
+	case "FULL_TIME":
+		return "Full-time"
+	case "PART_TIME":
+		return "Part-time"
+	case "INTERN", "INTERNSHIP":
+		return "Internship"
+	case "CONTRACT":
+		return "Contract"
+	case "TEMPORARY":
+		return "Temporary"
+	}
+	return s
 }
 
 // --- shared helpers ----------------------------------------------------------

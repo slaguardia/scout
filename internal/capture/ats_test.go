@@ -390,6 +390,42 @@ func TestResolveRippling(t *testing.T) {
 	}
 }
 
+func TestResolveDover(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/inbound/application-portal-job/"+ashbyJobID {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"id":%q,"client_name":"Paratus","client_domain":"getparatus.com",
+		  "title":"Founding Engineer","location":null,
+		  "user_provided_description":"<h3><strong>About the Role</strong></h3><p>Build the core platform &amp; ship.</p><ul><li>Go</li><li>SQL</li></ul>",
+		  "created":"2026-05-27T17:21:48.217346Z",
+		  "locations":[{"location_type":"IN_OFFICE","name":"San Francisco, CA"}],
+		  "compensation":{"upper_bound":200000,"lower_bound":140000,"currency_code":"USD","salary_range_type":"YEARLY","employment_type":"FULL_TIME"}}`, ashbyJobID)
+	}))
+	t.Cleanup(srv.Close)
+	job, err := resolveDover(context.Background(), srv.Client(), srv.URL, "Paratus", ashbyJobID)
+	if err != nil {
+		t.Fatalf("resolveDover: %v", err)
+	}
+	if job.CompanyName != "Paratus" { // API-stated, not slug-derived
+		t.Errorf("company = %q", job.CompanyName)
+	}
+	if job.Title != "Founding Engineer" || job.Location != "San Francisco, CA" ||
+		job.WorkplaceType != "On-site" || job.EmploymentType != "Full-time" || job.PostedAt != "2026-05-27" {
+		t.Errorf("fields: %+v", job)
+	}
+	if job.CompRange != "$140K – $200K / year" {
+		t.Errorf("comp = %q", job.CompRange)
+	}
+	if job.URL != srv.URL+"/apply/Paratus/"+ashbyJobID {
+		t.Errorf("url = %q", job.URL)
+	}
+	if want := "About the Role\nBuild the core platform & ship.\n\n- Go\n- SQL"; job.Description != want {
+		t.Errorf("description = %q, want %q", job.Description, want)
+	}
+}
+
 // TestResolveATSRecognition covers the URL gate: which links enter the ATS
 // path at all. Unrecognized shapes must return nil before any network call
 // (httpc is nil — a fetch would panic).
@@ -400,6 +436,9 @@ func TestResolveATSRecognition(t *testing.T) {
 		"https://ats.rippling.com/plenful",               // board index
 		"https://ats.rippling.com/plenful/jobs/not-uuid", // non-uuid id
 		"https://ats.rippling.com/plenful/" + ashbyJobID, // missing /jobs/ segment
+		"https://app.dover.com/apply/Paratus",            // no job id
+		"https://app.dover.com/apply/Paratus/not-a-uuid", // non-uuid id
+		"https://app.dover.com/Paratus/" + ashbyJobID,    // missing /apply/ segment
 		"https://jobs.lever.co/acme",                     // board index
 		"https://boards.greenhouse.io/acme",              // board index
 		"https://boards.greenhouse.io/acme/jobs/notnum",  // non-numeric id
@@ -490,6 +529,8 @@ func TestATSTargetFor(t *testing.T) {
 			"ashby", ashbyAPIBase, "foresight-health", ashbyJobID},
 		{"https://ats.rippling.com/plenful/jobs/" + ashbyJobID,
 			"rippling", ripplingAPIBase, "plenful", ashbyJobID},
+		{"https://app.dover.com/apply/Paratus/" + ashbyJobID,
+			"dover", doverAPIBase, "Paratus", ashbyJobID},
 		{"https://jobs.lever.co/acme/" + ashbyJobID,
 			"lever", leverAPIBase, "acme", ashbyJobID},
 		{"https://jobs.eu.lever.co/acme/" + ashbyJobID,
