@@ -884,11 +884,11 @@ Return the JSON verdict now.</pre>
       </h3>
       <div class="pipeline-grid">
         <div class="pipeline-row pipeline-stage-row">
-          <span class="pl-label">stage</span>
+          <span class="pl-label">application</span>
           <div class="pl-stage-wrap">${ys(e)}</div>
         </div>
         <div class="pipeline-row">
-          <span class="pl-label">reply</span>
+          <span class="pl-label">outreach</span>
           <select class="input pl-ostatus" title="outreach reply status — separate from the application stage">
             ${Zt(e.outreach_status||"").map(([p,m])=>`<option value="${r(p)}"${(e.outreach_status||"")===p?" selected":""}>${r(m)}</option>`).join("")}
           </select>
