@@ -4421,6 +4421,24 @@ renderSkeleton("#jt tbody", JOBS_SKEL_COLS);
 const savedView = (() => { try { return localStorage.getItem("scout-view"); } catch { return null; } })();
 setView(savedView === "jobs" ? "jobs" : "companies", { render: false });
 
+// macOS + Chromium (Arc/Brave/Edge/Chrome) can discard this tab's rasterized GPU
+// tiles when you switch desktop Spaces; on return the main view sometimes paints
+// stale/garbled tiles until something forces a fresh raster (a manual refresh
+// otherwise fixes it). When the tab becomes visible again — or is restored from
+// the bfcache — nudge the compositor to commit a new frame, which re-rasters the
+// missing tiles. We toggle a transform on .layout only: it's a SIBLING of the
+// fixed panes/scrims/FAB (so they never reparent and jump while scrolled) and we
+// never blur focus or move scroll, so an in-progress textarea caret survives.
+// Two rAFs ensure the nudged frame actually paints before we clear it.
+function nudgeRepaint() {
+  const layout = document.querySelector(".layout");
+  if (!layout) return;
+  layout.style.transform = "translateZ(0)";
+  requestAnimationFrame(() => requestAnimationFrame(() => { layout.style.transform = ""; }));
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) nudgeRepaint(); });
+window.addEventListener("pageshow", e => { if (e.persisted) nudgeRepaint(); });
+
 loadList();
 loadJobs();
 loadStats();

@@ -562,13 +562,17 @@
   .scrim {
     position: fixed; inset: 0;
     background: rgba(5, 7, 10, 0.6);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
     opacity: 0; pointer-events: none;
     transition: opacity var(--dur-base) var(--ease);
     z-index: 50;
   }
-  .scrim.open { opacity: 1; pointer-events: auto; }
+  /* backdrop-filter only while open. A closed, full-viewport blur layer left in
+     the DOM is a known trigger for Chromium's garbled-repaint-on-Space-switch
+     bug on macOS, so we don't keep one composited when the scrim is hidden. */
+  .scrim.open {
+    opacity: 1; pointer-events: auto;
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  }
 
   .pane {
     position: fixed; top: 0; right: 0; bottom: 0;
@@ -1292,11 +1296,12 @@
   /* ---- editor modal ---- */
   .modal-scrim {
     position: fixed; inset: 0; background: rgba(5,7,10,0.6);
-    backdrop-filter: blur(2px); z-index: 70;
+    z-index: 70;
     opacity: 0; pointer-events: none; transition: opacity var(--dur-base) var(--ease);
     display: flex; align-items: center; justify-content: center;
   }
-  .modal-scrim.open { opacity: 1; pointer-events: auto; }
+  /* backdrop-filter only while open — see the note on .scrim above. */
+  .modal-scrim.open { opacity: 1; pointer-events: auto; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
   /* Settings is a base modal: editors/viewers opened from it (z 70) stack above. */
   #settings-scrim { z-index: 68; }
 
@@ -1493,11 +1498,12 @@
 
   .docs-scrim {
     position: fixed; inset: 0; background: rgba(5,7,10,0.66);
-    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 80;
+    z-index: 80;
     opacity: 0; pointer-events: none; transition: opacity var(--dur-base) var(--ease);
     display: flex; align-items: center; justify-content: center; padding: 28px;
   }
-  .docs-scrim.open { opacity: 1; pointer-events: auto; }
+  /* backdrop-filter only while open — see the note on .scrim above. */
+  .docs-scrim.open { opacity: 1; pointer-events: auto; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
   .docs {
     width: min(1120px, 96vw); height: min(880px, 92vh);
     background: var(--bg-2); border: 1px solid var(--line-2);
