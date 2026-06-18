@@ -256,10 +256,11 @@ WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 		}
 		return nil, err
 	}
-	// The send completes the "next up" to-do, so the queue mark clears too. The
-	// reply status is left alone — it's a manual, configurable label.
+	// The "next up" queue mark is left alone — it's a manual to-do the user
+	// clears themselves (or via a +1 outreach log). The reply status is also
+	// untouched — it's a manual, configurable label.
 	if _, err := tx.Exec(`UPDATE job_postings SET
-outreach_count = outreach_count + 1, last_outreach_at = DATE('now'), next_up_at = NULL
+outreach_count = outreach_count + 1, last_outreach_at = DATE('now')
 WHERE id = (SELECT posting_id FROM outreach_drafts WHERE id = ?)`, id); err != nil {
 		return nil, err
 	}

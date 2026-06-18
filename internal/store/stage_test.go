@@ -87,6 +87,9 @@ func TestMarkOutreachDraftSentLeavesStatus(t *testing.T) {
 	if _, err := db.UpdatePostingTracking(pid, PostingTracking{OutreachStatus: "initial contact"}); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
+	if _, err := db.SetPostingNextUp(pid, true); err != nil {
+		t.Fatalf("set next_up: %v", err)
+	}
 	d, err := db.CreateOutreachDraft(pid)
 	if err != nil {
 		t.Fatalf("create draft: %v", err)
@@ -100,6 +103,10 @@ func TestMarkOutreachDraftSentLeavesStatus(t *testing.T) {
 	}
 	if p.OutreachCount != 1 || p.LastOutreachAt == "" {
 		t.Fatalf("tracking not bumped: count=%d last=%q", p.OutreachCount, p.LastOutreachAt)
+	}
+	// Mark-sent no longer clears the "next up" queue mark — it's a manual to-do.
+	if !p.NextUp {
+		t.Fatalf("mark-sent cleared next_up (should be left for the user to clear)")
 	}
 }
 
