@@ -1336,11 +1336,11 @@ function renderPursuit() {
       </h3>
       <div class="pipeline-grid">
         <div class="pipeline-row pipeline-stage-row">
-          <span class="pl-label">stage</span>
+          <span class="pl-label">application</span>
           <div class="pl-stage-wrap">${stageTimelineHTML(j)}</div>
         </div>
         <div class="pipeline-row">
-          <span class="pl-label">reply</span>
+          <span class="pl-label">outreach</span>
           <select class="input pl-ostatus" title="outreach reply status — separate from the application stage">
             ${statusOptions(j.outreach_status || "").map(([v, label]) =>
               `<option value="${escapeHTML(v)}"${(j.outreach_status || "") === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
