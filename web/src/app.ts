@@ -1337,7 +1337,7 @@ function renderPursuit() {
         </div>
         <div class="pipeline-row">
           <span class="pl-label">queue</span>
-          <button class="pt-chip pt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "unmark — it also clears itself when the outreach goes out" : "mark this pursuit next up for outreach"}">
+          <button class="pt-chip pt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "unmark — it also clears itself when you log a +1 outreach" : "mark this pursuit next up for outreach"}">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg>
             next up
           </button>
