@@ -266,14 +266,13 @@
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
   .jt-dec, .jt-inc {
-    font: inherit; font-size: 13px; line-height: 1; cursor: pointer;
-    padding: 1px 7px; border-radius: 999px;
-    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
-    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+    font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+    padding: 0; background: none; border: none; color: var(--fg-dim);
+    transition: color var(--dur-fast) var(--ease);
   }
-  .jt-dec:hover, .jt-inc:hover { border-color: var(--line-2); color: var(--fg); }
+  .jt-dec:hover, .jt-inc:hover { color: var(--fg); }
   .jt-dec:disabled { opacity: 0.35; cursor: not-allowed; }
-  .jt-dec:disabled:hover { border-color: var(--line); color: var(--fg-dim); }
+  .jt-dec:disabled:hover { color: var(--fg-dim); }
 
   /* applied toggle — same chip vocabulary as the sidebar filters; lights
      green with its checkmark when on (pursuit panel's pipeline). */
