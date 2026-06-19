@@ -331,11 +331,15 @@
     transition: color var(--dur-fast) var(--ease);
   }
   thead th:hover { color: var(--fg-mute); }
-  /* Active sort column: brighten it and append a direction arrow. */
+  /* Active sort column: brighten it and show a direction arrow. Every sortable
+     header reserves the arrow's slot (opacity 0 until active) so toggling the
+     sort on/off doesn't reflow the header row. */
   thead th[data-sort] { color: var(--fg-mute); }
-  thead th[data-sort]::after {
-    content: "↑"; margin-left: 5px; font-size: 9px; vertical-align: 1px;
+  thead th[data-k]::after,
+  thead th[data-jk]::after {
+    content: "↑"; margin-left: 5px; font-size: 9px; vertical-align: 1px; opacity: 0;
   }
+  thead th[data-sort]::after { opacity: 1; }
   thead th[data-sort="desc"]::after { content: "↓"; }
 
   tbody td {
