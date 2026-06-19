@@ -16,10 +16,13 @@
 // @ts-nocheck
 
 export function initScout(_root) {
+// Baseline order each table falls back to when an active sort is cleared.
+const DEFAULT_SORT = { k: "verdict", dir: 1 };
+const DEFAULT_JSORT = { k: "created_at", dir: 1 };
 const state = {
-  rows: [], sort: { k: "verdict", dir: 1 }, openId: null, stats: null, profile: null,
+  rows: [], sort: { ...DEFAULT_SORT }, openId: null, stats: null, profile: null,
   view: "companies",                       // "companies" | "jobs"
-  jobs: [], jsort: { k: "created_at", dir: 1 }, // jobs view rows + sort
+  jobs: [], jsort: { ...DEFAULT_JSORT }, // jobs view rows + sort
   // Configurable status vocabularies (loaded from the API; defaults until then).
   // applicationStages drives the application-stage pill; outreachStatuses the
   // outreach reply pill. "none" (empty) is always implicit, not in these lists.
@@ -1336,11 +1339,11 @@ function renderPursuit() {
       </h3>
       <div class="pipeline-grid">
         <div class="pipeline-row pipeline-stage-row">
-          <span class="pl-label">stage</span>
+          <span class="pl-label">application</span>
           <div class="pl-stage-wrap">${stageTimelineHTML(j)}</div>
         </div>
         <div class="pipeline-row">
-          <span class="pl-label">reply</span>
+          <span class="pl-label">outreach</span>
           <select class="input pl-ostatus" title="outreach reply status — separate from the application stage">
             ${statusOptions(j.outreach_status || "").map(([v, label]) =>
               `<option value="${escapeHTML(v)}"${(j.outreach_status || "") === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
@@ -3460,17 +3463,23 @@ async function resetEditor() {
 }
 
 // ---- wiring ----
+// Header clicks cycle asc → desc → cleared: a third click on the active column
+// drops back to the table's default order (so the sort can be removed, not just
+// flipped). Object.assign keeps the same state object the render path reads.
+function cycleSort(cur, k, def) {
+  if (cur.k !== k) { cur.k = k; cur.dir = 1; }       // new column → ascending
+  else if (cur.dir === 1) { cur.dir = -1; }          // ascending → descending
+  else Object.assign(cur, def);                       // descending → cleared (default)
+}
 document.querySelectorAll("#t thead th[data-k]").forEach(th => {
   th.onclick = () => {
-    const k = th.dataset.k;
-    if (state.sort.k === k) state.sort.dir *= -1; else { state.sort.k = k; state.sort.dir = 1; }
+    cycleSort(state.sort, th.dataset.k, DEFAULT_SORT);
     renderList();
   };
 });
 document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
   th.onclick = () => {
-    const k = th.dataset.jk;
-    if (state.jsort.k === k) state.jsort.dir *= -1; else { state.jsort.k = k; state.jsort.dir = 1; }
+    cycleSort(state.jsort, th.dataset.jk, DEFAULT_JSORT);
     renderJobs();
   };
 });
