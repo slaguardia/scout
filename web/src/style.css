@@ -253,7 +253,7 @@
      The select takes its natural (widest-option) width so it does NOT resize when
      the value changes — its color comes from the per-value .sc-N palette below. */
   .jt-stage { display: flex; flex-direction: column; align-items: center; gap: 4px; width: fit-content; }
-  .jt-stage-sel {
+  .jt-stage-sel, .jt-ostatus {
     font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
     padding: 2px 9px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--panel); color: var(--fg-dim);
@@ -261,7 +261,7 @@
     text-align: center; text-align-last: center;
     -webkit-appearance: none; appearance: none;
   }
-  .jt-stage-sel:hover { filter: brightness(1.1); border-color: var(--line-2); }
+  .jt-stage-sel:hover, .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
   .jt-stage-date { font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 2px; }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
@@ -1051,20 +1051,11 @@
   /* "follow-up due" badge on the jobs row — a posting awaiting a reply past the
      cadence. Accent "needs action" family, distinct from the amber/blue draft
      states (which share the row's name cell). */
-  /* inline outreach reply-status select (jobs row, stacked under the +N stepper).
-     Compact configurable pill — a separate axis from the application stage. */
-  /* inline-flex shrinks the cell to the stepper's width so the status pill below
-     centers under the stepper rather than stranding at the left edge. */
+  /* inline outreach reply-status select (jobs row, stacked above the +N stepper).
+     Pill styling is shared with the application-stage select (.jt-stage-sel) so
+     the two pills are identical; inline-flex shrinks the cell to the stepper's
+     width so the pill centers over the stepper rather than stranding left. */
   .jt-out { display: inline-flex; flex-direction: column; gap: 5px; align-items: center; }
-  .jt-ostatus {
-    font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
-    padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line);
-    background: var(--panel); color: var(--fg-dim); max-width: 100%;
-    text-transform: lowercase; letter-spacing: 0.01em;
-    text-align: center; text-align-last: center;
-    -webkit-appearance: none; appearance: none;
-  }
-  .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
 
   /* stage pill fallback (an out-of-vocab / removed value, which gets no .sc-N) */
   .pill-stage { background-color: var(--link-bg); color: var(--link); }
