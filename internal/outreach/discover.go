@@ -145,14 +145,47 @@ func Discover(ctx context.Context, brain *brainbot.Client, client *anthropic.Cli
 	return result, nil
 }
 
-// FetchSource whole-fetches one brain page for a need — the manual "add this
-// page" override behind the discovery UI.
-func FetchSource(ctx context.Context, brain *brainbot.Client, need, pageID string) (store.OutreachSource, error) {
-	doc, err := brain.Doc(ctx, pageID)
-	if err != nil {
-		return store.OutreachSource{}, err
+// EnsureKnowledge keeps the cached outreach knowledge in sync with the brain,
+// automatically — the change-aware replacement for the old manual "Refresh
+// sources" button. It asks the brain's cheap GET /changes whether anything moved
+// since the cursor stored at the last discovery and only re-runs the (Haiku)
+// discovery pass when the brain actually changed; an empty cursor reports
+// Changed=true by contract, so a cold cache discovers on the first call.
+//
+// It is best-effort by design: when the brain is unreachable or the cheap check
+// fails it leaves the last-good cache in place and returns nil, so drafting
+// proceeds against whatever is cached (the hard-experience gate is enforced
+// separately, at draft time). It returns a non-nil error only when the brain
+// reported a change but the re-discovery itself failed for an unexpected reason
+// (so a caller — the CLI — can surface it); ErrNoExperience is a successful pass
+// that found no experience page, and still advances the cursor.
+func EnsureKnowledge(ctx context.Context, brain *brainbot.Client, client *anthropic.Client, db *store.DB, model string, log func(string)) error {
+	if brain == nil || !brain.Enabled() {
+		return nil // offline → serve the local cache (taste.md fallback handles a cold one)
 	}
-	return store.OutreachSource{
-		Need: need, PageID: pageID, Title: doc.Title, Content: doc.Text, Version: doc.Version,
-	}, nil
+	logf := func(format string, args ...any) {
+		if log != nil {
+			log(fmt.Sprintf(format, args...))
+		}
+	}
+	cursor, _ := db.GetSetting(store.OutreachCursorSetting)
+	cr, err := brain.Changes(ctx, cursor)
+	if err != nil {
+		logf("outreach: knowledge change-check unreachable (%v); serving cached knowledge", err)
+		return nil
+	}
+	if !cr.Changed {
+		// Nothing moved: re-stamp the cursor (it can advance trivially) and serve
+		// the cache verbatim — no LLM, no refetch.
+		_ = db.SetSetting(store.OutreachCursorSetting, cr.Cursor)
+		return nil
+	}
+	// Changed (or cold) → re-discover whole pages from the brain.
+	if _, derr := Discover(ctx, brain, client, db, model); derr != nil && !errors.Is(derr, ErrNoExperience) {
+		return fmt.Errorf("re-discover outreach knowledge: %w", derr)
+	}
+	// Store the cursor as of this discovery so the next check goes warm.
+	_ = db.SetSetting(store.OutreachCursorSetting, cr.Cursor)
+	logf("outreach: knowledge synced from brain (changed)")
+	return nil
 }

@@ -53,11 +53,16 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else if strings.TrimSpace(exp) == "" {
-			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
-				"need":  "experience",
-			})
-			return
+			// Cold cache: sync from the brain once, then re-check before blocking —
+			// a first-ever draft shouldn't be gated just because nothing's discovered yet.
+			s.ensureOutreachKnowledge(r.Context())
+			if exp2, _ := s.DB.OutreachKnowledge("experience"); strings.TrimSpace(exp2) == "" {
+				writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+					"error": "no experience page found in your brain — add one; scout syncs it automatically",
+					"need":  "experience",
+				})
+				return
+			}
 		}
 		// Voice is soft: drafting proceeds without it (a less-voiced email).
 		degraded := []string{}
@@ -93,10 +98,7 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 
 // handleOutreach routes /api/outreach/*:
 //
-//	GET  /api/outreach/sources           -> the discovered knowledge sources
-//	POST /api/outreach/sources/refresh   -> re-run discovery over the brain map
-//	POST /api/outreach/sources/add       -> manually add {need,page_id}
-//	POST /api/outreach/sources/remove    -> manually remove {need,page_id}
+//	GET  /api/outreach/sources            -> the discovered knowledge sources (read-only)
 //	PUT  /api/outreach/drafts/{id}        -> save the user's edit
 //	POST /api/outreach/drafts/{id}/sent   -> mark sent (bumps posting tracking)
 func (s *Server) handleOutreach(w http.ResponseWriter, r *http.Request) {
@@ -111,77 +113,30 @@ func (s *Server) handleOutreach(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleOutreachSources serves the discovered knowledge sources: list, refresh
-// (re-discover from the brain), and the manual add/remove overrides.
+// handleOutreachSources serves the discovered knowledge sources, read-only — a
+// diagnostic peek at what the brain resolved for each need. There is no refresh
+// or add/remove: the bundle syncs from the brain automatically (see
+// ensureOutreachKnowledge), so the dashboard never edits it.
 func (s *Server) handleOutreachSources(w http.ResponseWriter, r *http.Request, action string) {
-	switch {
-	case action == "" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, s.sourcesPayload())
-
-	case action == "refresh" && r.Method == http.MethodPost:
-		if s.Brainbot == nil || !s.Brainbot.Enabled() {
-			http.Error(w, "brain not configured", http.StatusPreconditionFailed)
-			return
-		}
-		// Resolve + re-key the shared client so a dashboard-stored key works here
-		// with no restart.
-		if s.ensureAnthropicKey() == "" {
-			http.Error(w, "discovery needs an Anthropic API key (set one in Settings, or ANTHROPIC_API_KEY in the server environment)", http.StatusPreconditionFailed)
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-		defer cancel()
-		result, err := outreach.Discover(ctx, s.Brainbot, s.Anthropic, s.DB, "")
-		if err != nil && !errors.Is(err, outreach.ErrNoExperience) {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		out := map[string]any{"result": result, "sources": s.sourcesPayload()["sources"]}
-		if errors.Is(err, outreach.ErrNoExperience) {
-			out["warning"] = err.Error()
-		}
-		writeJSON(w, http.StatusOK, out)
-
-	case (action == "add" || action == "remove") && r.Method == http.MethodPost:
-		var body struct {
-			Need   string `json:"need"`
-			PageID string `json:"page_id"`
-		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if body.Need == "" || body.PageID == "" {
-			http.Error(w, "need and page_id are required", http.StatusBadRequest)
-			return
-		}
-		if action == "remove" {
-			if err := s.DB.DeleteOutreachSource(body.Need, body.PageID); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		} else {
-			if s.Brainbot == nil || !s.Brainbot.Enabled() {
-				http.Error(w, "brain not configured", http.StatusPreconditionFailed)
-				return
-			}
-			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-			defer cancel()
-			src, err := outreach.FetchSource(ctx, s.Brainbot, body.Need, body.PageID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			if err := s.DB.UpsertOutreachSource(src); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-		writeJSON(w, http.StatusOK, s.sourcesPayload())
-
-	default:
+	if action != "" || r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	writeJSON(w, http.StatusOK, s.sourcesPayload())
+}
+
+// ensureOutreachKnowledge runs the change-aware brain sync for the outreach
+// knowledge bundle (best-effort), resolving a dashboard-stored API key first so
+// discovery can run. A no-op when the brain isn't configured; any failure leaves
+// the last-good cache in place (the caller re-checks the cache before gating).
+func (s *Server) ensureOutreachKnowledge(ctx context.Context) {
+	if s.Brainbot == nil || !s.Brainbot.Enabled() {
+		return
+	}
+	s.ensureAnthropicKey() // DB-over-env, so a dashboard-stored key lights up discovery
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	_ = outreach.EnsureKnowledge(ctx, s.Brainbot, s.Anthropic, s.DB, "", nil)
 }
 
 // sourcesPayload lists the cached sources without their (large) content — the

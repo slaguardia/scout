@@ -66,8 +66,11 @@ func (e *Engine) GenerateAnswers(ctx context.Context, postingID string) error {
 		return e.failAnswers(pending, fmt.Errorf("posting %s not found", postingID))
 	}
 
-	// The experience bundle is required — it is the honesty ground truth and the
-	// only facts an answer may claim. Empty fails every answer loud, not silent.
+	// Sync knowledge from the brain first (change-aware), so a freshly-added
+	// experience/logistics page is picked up with no manual step. The experience
+	// bundle is then required — it is the honesty ground truth and the only facts
+	// an answer may claim. Empty fails every answer loud, not silent.
+	e.ensureKnowledge(ctx)
 	exp, err := e.requireExperience()
 	if err != nil {
 		return e.failAnswers(pending, err)

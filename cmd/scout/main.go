@@ -133,7 +133,7 @@ Usage:
                 [--model claude-haiku-4-5] [--workers 4] [--force] [--company id,...] [--db scout.db]
   scout distill [--brainbot URL] [--model claude-sonnet-4-6] [--k N]
   scout outreach sources [--refresh] [--brainbot URL] [--db scout.db]
-  scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--db scout.db]
+  scout outreach draft --posting <id> [--model claude-sonnet-4-6] [--brainbot URL] [--db scout.db]
   scout questions detect (--posting <id> | --all) [--brainbot URL] [--db scout.db]
   scout serve [--addr :8765] [--taste-md taste.md]
               [--source crunchbase] [--brainbot URL] [--db scout.db]
@@ -512,8 +512,10 @@ func cmdServe(args []string) error {
 			fmt.Fprintf(os.Stderr, "answers: failed %d answer(s) orphaned by a restart\n", n)
 		}
 		// One engine satisfies both runners (outreach Draft + answer Generate);
-		// answer generation also reads the brain company-fit brief via Brief.
-		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Log: logLine}
+		// answer generation also reads the brain company-fit brief via Brief, and
+		// every run auto-syncs the knowledge bundle from the brain (bc may be nil
+		// when the brain is disabled — then the engine serves the cache).
+		eng := &outreach.Engine{DB: db, Client: ac, Model: *outreachModel, Brainbot: bc, Log: logLine}
 		eng.Brief = func(ctx context.Context) (string, error) {
 			blk, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -782,9 +784,9 @@ func exit(err error) {
 
 // --- outreach (knowledge sources + drafting) ---
 
-// cmdOutreach manages the outreach pipeline: `sources` lists or refreshes the
-// brain-discovered knowledge bundle (experience + voice), and `draft` runs the
-// full pipeline against one posting.
+// cmdOutreach manages the outreach pipeline: `sources` syncs + prints the
+// brain-discovered knowledge bundle (experience + voice + logistics), and
+// `draft` runs the full pipeline against one posting.
 func cmdOutreach(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("outreach: want a subcommand: sources | draft")
@@ -799,14 +801,15 @@ func cmdOutreach(args []string) error {
 	}
 }
 
-// cmdOutreachSources lists the brain-discovered knowledge sources, or (with
-// --refresh) re-runs discovery over the brain map (Haiku selects experience +
-// voice pages, whole-fetched and cached).
+// cmdOutreachSources prints the brain-discovered knowledge sources after a
+// change-aware sync from the brain (the default — same auto-sync the draft path
+// runs). --refresh forces a full re-discovery, bypassing the cursor check (a
+// debug escape hatch).
 func cmdOutreachSources(args []string) error {
 	fs := flag.NewFlagSet("outreach sources", flag.ExitOnError)
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP)")
-	refresh := fs.Bool("refresh", false, "re-run discovery over the brain map")
+	refresh := fs.Bool("refresh", false, "force a full re-discovery, bypassing the change-aware check")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -816,22 +819,26 @@ func cmdOutreachSources(args []string) error {
 	}
 	defer db.Close()
 
+	ctx, cancel := signalCtx()
+	defer cancel()
+	logLine := func(l string) { fmt.Fprintln(os.Stderr, l) }
 	if *refresh {
-		ctx, cancel := signalCtx()
-		defer cancel()
 		if _, derr := outreach.Discover(ctx, brainbot.New(*brainbotURL), anthropic.New(""), db, ""); derr != nil {
 			if !errors.Is(derr, outreach.ErrNoExperience) {
 				return derr
 			}
 			fmt.Fprintf(os.Stderr, "warning: %v\n", derr)
 		}
+	} else if derr := outreach.EnsureKnowledge(ctx, brainbot.New(*brainbotURL), anthropic.New(""), db, "", logLine); derr != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", derr)
 	}
+
 	srcs, err := db.ListOutreachSources()
 	if err != nil {
 		return err
 	}
 	if len(srcs) == 0 {
-		fmt.Println("(no sources — run `scout outreach sources --refresh`)")
+		fmt.Println("(no sources — add an experience page to your brain; it syncs automatically)")
 		return nil
 	}
 	for _, s := range srcs {
@@ -849,6 +856,7 @@ func cmdOutreachDraft(args []string) error {
 	dbPath := fs.String("db", "scout.db", "sqlite path")
 	posting := fs.String("posting", "", "job_postings.id to draft outreach for")
 	model := fs.String("model", defaultOutreachModel, "Anthropic model for the outreach pipeline (research + fill + honesty + judge)")
+	brainbotURL := fs.String("brainbot", defaultBrainURL, "brain base URL (HTTP); outreach knowledge auto-syncs from here. Empty serves the local cache.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -862,12 +870,22 @@ func cmdOutreachDraft(args []string) error {
 	}
 	defer db.Close()
 
+	ctx, cancel := signalCtx()
+	defer cancel()
+
+	// Auto-sync knowledge from the brain (change-aware) before the experience
+	// gate, so a freshly-added experience page is picked up with no manual step.
+	bc := brainbot.New(*brainbotURL)
+	if err := outreach.EnsureKnowledge(ctx, bc, anthropic.New(""), db, "", func(l string) { fmt.Fprintln(os.Stderr, l) }); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
+
 	// Gate on the experience bundle (the honesty ground truth). The template
 	// always exists (the DB row or the compiled-in default). Voice is soft.
 	if exp, err := db.OutreachKnowledge("experience"); err != nil {
 		return err
 	} else if strings.TrimSpace(exp) == "" {
-		return fmt.Errorf("outreach draft: no experience knowledge — run `scout outreach sources --refresh`")
+		return fmt.Errorf("outreach draft: no experience page found in your brain — add one; scout syncs it automatically")
 	}
 	if v, _ := db.OutreachKnowledge("voice"); strings.TrimSpace(v) == "" {
 		fmt.Fprintln(os.Stderr, "warning: no voice knowledge — drafting a less-voiced email")
@@ -886,13 +904,12 @@ func cmdOutreachDraft(args []string) error {
 	}
 
 	eng := &outreach.Engine{
-		DB:     db,
-		Client: anthropic.New(""),
-		Model:  *model,
-		Log:    func(line string) { fmt.Fprintln(os.Stderr, line) },
+		DB:       db,
+		Client:   anthropic.New(""),
+		Model:    *model,
+		Brainbot: bc,
+		Log:      func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
-	ctx, cancel := signalCtx()
-	defer cancel()
 	if err := eng.Run(ctx, d.ID); err != nil {
 		return fmt.Errorf("outreach draft: %w", err)
 	}

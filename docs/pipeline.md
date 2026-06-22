@@ -250,8 +250,8 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 |---|---|
 | **Input** | a `job_postings` row, the brain (experience + voice, *discovered*), the web (company research), the scout-local **email template**, and the **four pipeline-stage prompts** — each an editable system prompt with a compiled default (researcher · writer · humanizer · honesty). |
 | **Output** | a drafted cold email on the posting, in the review queue. Scout never sends — the jobs panel is the review queue; mark-sent bumps tracking. |
-| **Idempotent** | Re-drafting replaces the draft; a regenerate **reuses the prior draft's research** instead of re-searching. Discovery is cached in `outreach_sources` until `--refresh`. |
-| **Subcommands** | `scout outreach sources [--refresh]` (discover + cache the experience/voice bundle from the brain), `scout outreach draft --posting <id>` (research → draft). |
+| **Idempotent** | Re-drafting replaces the draft; a regenerate **reuses the prior draft's research** instead of re-searching. Knowledge is cached in `outreach_sources` and **auto-synced** from the brain at run start (`EnsureKnowledge`: a change-aware `GET /changes` check, re-discovering only when the brain moved) — no manual refresh. |
+| **Subcommands** | `scout outreach sources [--refresh]` (sync from the brain + print the experience/voice/logistics bundle; `--refresh` forces a full re-discovery), `scout outreach draft --posting <id>` (research → draft). |
 
 **Four editable LLM stages.** Every stage's system prompt has a compiled default
 in `internal/outreach` (registry in `stages.go`) and is overridable per-stage

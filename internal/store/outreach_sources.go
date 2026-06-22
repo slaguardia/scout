@@ -85,8 +85,9 @@ VALUES (?, ?, ?, ?, ?)`
 	return tx.Commit()
 }
 
-// UpsertOutreachSource adds or refreshes one (need, page_id) row — the manual
-// add-a-page override.
+// UpsertOutreachSource adds or refreshes one (need, page_id) row. Used by tests
+// to seed a cached bundle; the live path replaces whole need-sets via discovery
+// (ReplaceOutreachSources).
 func (db *DB) UpsertOutreachSource(s OutreachSource) error {
 	const q = `
 INSERT INTO outreach_sources (need, page_id, title, content, version, resolved_at)
@@ -95,12 +96,5 @@ ON CONFLICT(need, page_id) DO UPDATE SET
     title = excluded.title, content = excluded.content,
     version = excluded.version, resolved_at = CURRENT_TIMESTAMP`
 	_, err := db.Exec(q, s.Need, s.PageID, s.Title, s.Content, s.Version)
-	return err
-}
-
-// DeleteOutreachSource removes one (need, page_id) row — the manual remove
-// override.
-func (db *DB) DeleteOutreachSource(need, pageID string) error {
-	_, err := db.Exec(`DELETE FROM outreach_sources WHERE need = ? AND page_id = ?`, need, pageID)
 	return err
 }

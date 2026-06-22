@@ -5,6 +5,12 @@ import "database/sql"
 // AnthropicKeySetting is the settings key holding the UI-stored Anthropic API key.
 const AnthropicKeySetting = "anthropic_api_key"
 
+// OutreachCursorSetting holds the brain's change cursor as of the last outreach-
+// knowledge discovery. It drives the change-aware auto-sync (outreach.EnsureKnowledge):
+// scout compares it against the brain's current cursor to re-discover only when
+// the brain actually moved — no manual "Refresh sources" step.
+const OutreachCursorSetting = "outreach_knowledge_cursor"
+
 // GetSetting returns the stored value for key, or "" when unset.
 func (db *DB) GetSetting(key string) (string, error) {
 	var v string

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/slaguardia/scout/internal/anthropic"
+	"github.com/slaguardia/scout/internal/brainbot"
 	"github.com/slaguardia/scout/internal/store"
 )
 
@@ -19,12 +20,12 @@ import (
 // row must never be left stuck in `researching`.
 //
 // The pipeline is: research the company (web) → fill the user's email template's
-// holes in one LLM call (per the writing doctrine, using the cached brain
-// knowledge bundle) → honesty-check the filled holes against the user's
-// experience → judge the draft against the doctrine's depth bar → review queue.
-// The engine reads the local cache (template + doctrine + outreach_sources) at
-// draft time, never the brain (discovery/refresh is the only brain access, off
-// the draft path).
+// holes in one LLM call (using the cached brain knowledge bundle) →
+// honesty-check the filled holes against the user's experience → humanize →
+// review queue. At the start of every run the engine first syncs the knowledge
+// bundle from the brain (ensureKnowledge — a cheap change-aware check, no manual
+// Refresh button), then reads the local cache (template + outreach_sources) for
+// the rest of the run.
 type Engine struct {
 	DB     *store.DB
 	Client *anthropic.Client
@@ -34,6 +35,14 @@ type Engine struct {
 	// HTTP is the client for the deterministic JD pre-fetch. Optional; a nil
 	// value uses a default with a sane timeout.
 	HTTP *http.Client
+
+	// Brainbot keeps the outreach knowledge cache in sync with the brain at the
+	// start of every run (change-aware auto-sync — see ensureKnowledge). Optional:
+	// nil/disabled means the engine serves whatever knowledge is already cached.
+	Brainbot *brainbot.Client
+	// DiscoverModel is the cheap model for the knowledge-discovery pass; empty →
+	// anthropic.DefaultModel (Haiku).
+	DiscoverModel string
 
 	// Brief produces the brain's company-fit brief (the same brief the verdict
 	// engine reasons over) for application-answer generation. Optional: nil or an
@@ -111,7 +120,17 @@ func (e *Engine) requireExperience() (string, error) {
 	if exp := e.knowledge("experience"); exp != "" {
 		return exp, nil
 	}
-	return "", fmt.Errorf("no experience knowledge cached — refresh outreach sources so the brain's experience pages are discovered")
+	return "", fmt.Errorf("no experience page found in your brain — add one; scout syncs it automatically")
+}
+
+// ensureKnowledge auto-syncs the outreach knowledge cache from the brain before
+// a run reads it (see EnsureKnowledge). Best-effort: a sync failure is logged
+// and the run proceeds against the last-good cache, with the hard-experience
+// gate (requireExperience) still enforcing an empty bundle.
+func (e *Engine) ensureKnowledge(ctx context.Context) {
+	if err := EnsureKnowledge(ctx, e.Brainbot, e.Client, e.DB, e.DiscoverModel, func(s string) { e.log("%s", s) }); err != nil {
+		e.log("outreach: ensure knowledge: %v", err)
+	}
 }
 
 // Draft satisfies web.OutreachRunner: it runs the pipeline in a goroutine with
@@ -165,8 +184,10 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 	role := strings.TrimSpace(posting.Title)
 	e.log("outreach: draft %d — %s / %q", draftID, company, role)
 
-	// Load the template (DB, or compiled-in default) + the knowledge bundle up
+	// Sync the knowledge bundle from the brain (change-aware, cheap when nothing
+	// moved), then load the template (DB, or compiled-in default) + the bundle up
 	// front so a malformed template fails before spending the research call.
+	e.ensureKnowledge(ctx)
 	tmpl, err := ParseTemplate(TemplateOrDefault(e.DB))
 	if err != nil {
 		return err // already a clear "template: ..." message

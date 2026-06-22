@@ -124,7 +124,13 @@ canonical port defeats that safety net — don't.
   (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Brain
   knowledge** (experience + voice + logistics) is *discovered* not pinned (`discover.go`:
   Haiku over `/map`, fetched via `/doc`, cached in `outreach_sources` (M35);
-  fail-loud `ErrNoExperience`) and is the honesty checker's ground truth — a thin
+  fail-loud `ErrNoExperience`) and **auto-syncs** — there is no manual "Refresh
+  sources" button: every draft/answer run first calls `outreach.EnsureKnowledge`,
+  a change-aware sync that asks the brain `GET /changes` since the cursor stored
+  in settings (`outreach_knowledge_cursor`) and only re-discovers when the brain
+  actually moved (cheap no-op otherwise; serves last-good cache when the brain is
+  down). The UI's "outreach knowledge" entry is a read-only peek. It is the
+  honesty checker's ground truth — a thin
   experience doc makes the writer confabulate, so the real lever is good source
   pages. The **engine** (Sonnet): JD pre-fetch → researcher (`web_search`, ranked
   *referenceable* hooks — never funding/taglines; a regenerate reuses the prior
@@ -174,10 +180,9 @@ canonical port defeats that safety net — don't.
 
 ## What's next
 
-**Outreach go-live:** ingest the experience + voice pages into the brain, then
-**Refresh sources** (Criteria → outreach knowledge; or `scout outreach sources
---refresh`) so discovery caches the experience bundle, and **localize the
-template** (Criteria → email template editor — your real name, sign-off, and
+**Outreach go-live:** ingest the experience + voice pages into the brain (the
+knowledge then auto-syncs on the first draft — no Refresh step), and **localize
+the template** (Criteria → email template editor — your real name, sign-off, and
 any verbatim prose you want in every email; it's a DB row, never committed).
 Then run the first real draft via `scout outreach draft
 --posting <id>`. The same experience bundle also unblocks

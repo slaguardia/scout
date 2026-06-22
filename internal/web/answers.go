@@ -67,11 +67,15 @@ func (s *Server) handlePostingAnswers(w http.ResponseWriter, r *http.Request, po
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else if strings.TrimSpace(exp) == "" {
-			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
-				"need":  "experience",
-			})
-			return
+			// Cold cache: sync from the brain once, then re-check before blocking.
+			s.ensureOutreachKnowledge(r.Context())
+			if exp2, _ := s.DB.OutreachKnowledge("experience"); strings.TrimSpace(exp2) == "" {
+				writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+					"error": "no experience page found in your brain — add one; scout syncs it automatically",
+					"need":  "experience",
+				})
+				return
+			}
 		}
 		// Detect-if-missing: a posting never detected (predates the feature, or a
 		// manual add) gets its questions resolved now, before generation.
@@ -183,11 +187,15 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else if strings.TrimSpace(exp) == "" {
-			writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-				"error": "no experience knowledge — refresh outreach sources so the brain's experience is discovered",
-				"need":  "experience",
-			})
-			return
+			// Cold cache: sync from the brain once, then re-check before blocking.
+			s.ensureOutreachKnowledge(r.Context())
+			if exp2, _ := s.DB.OutreachKnowledge("experience"); strings.TrimSpace(exp2) == "" {
+				writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+					"error": "no experience page found in your brain — add one; scout syncs it automatically",
+					"need":  "experience",
+				})
+				return
+			}
 		}
 		a, err := s.DB.RegenerateAnswer(id)
 		if err != nil {

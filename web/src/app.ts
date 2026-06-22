@@ -2028,7 +2028,7 @@ function renderInputGate(need, error) {
   if (!host) return;
   const acts = host.querySelector(".draft-actions");
   const isTemplate = need === "template";
-  const label = isTemplate ? "Write email template" : "Discover sources";
+  const label = isTemplate ? "Write email template" : "View brain knowledge";
   const gate = document.createElement("div");
   gate.className = "blocks-gate";
   gate.innerHTML = `
@@ -2377,9 +2377,9 @@ function renderAnswersInputGate(error) {
   const gate = document.createElement("div");
   gate.className = "blocks-gate";
   gate.innerHTML = `
-    <div class="draft-note">${escapeHTML(error || "Drafting answers needs your experience discovered.")}</div>
+    <div class="draft-note">${escapeHTML(error || "Drafting answers needs an experience page in your brain.")}</div>
     <div class="answers-actions">
-      <button class="btn btn-primary" id="answers-fix-btn">Discover sources</button>
+      <button class="btn btn-primary" id="answers-fix-btn">View brain knowledge</button>
       <button class="btn" id="answers-retry-btn">Retry</button>
     </div>`;
   if (acts) acts.replaceWith(gate); else host.appendChild(gate);
@@ -3344,12 +3344,13 @@ function closeEditor() {
   editorKind = null;
 }
 
-// ---- control surface: outreach knowledge sources ----
+// ---- control surface: outreach knowledge (read-only) ----
 //
 // The discovered experience + voice + logistics bundle (brain pages, whole-fetched
-// + cached). The modal lists them per need, refreshes discovery, and supports
-// removing a wrong pick. DEFAULT_NEEDS mirrors the server's KnowledgeNeeds for the
-// case where a response (refresh) omits the needs list.
+// + cached) syncs automatically from the brain — there is no refresh or edit. The
+// modal is a read-only peek at what the brain resolved per need, so you can see
+// what's grounding your drafts. DEFAULT_NEEDS mirrors the server's KnowledgeNeeds
+// for the case where the response omits the needs list.
 const DEFAULT_NEEDS = [{ key: "experience", hard: true }, { key: "voice", hard: false }, { key: "logistics", hard: false }];
 
 async function openSourcesModal() {
@@ -3364,7 +3365,7 @@ function closeSourcesModal() {
   document.getElementById("sources-scrim").classList.remove("open");
 }
 // renderSourcesList groups the cached sources by need (experience required,
-// voice optional), each removable. Needs come capitalized from Go's KnowledgeNeeds.
+// voice/logistics optional), read-only. Needs come capitalized from Go's KnowledgeNeeds.
 function renderSourcesList(data) {
   const host = document.getElementById("sources-list");
   if (!host) return;
@@ -3376,41 +3377,12 @@ function renderSourcesList(data) {
   host.innerHTML = needs.map(n => {
     const rows = byNeed[n.key] || [];
     const items = rows.length
-      ? rows.map(s => `<li><span class="src-title">${escapeHTML(s.title || s.page_id)}</span><button class="src-rm" data-need="${escapeHTML(n.key)}" data-id="${escapeHTML(s.page_id)}" title="remove">✕</button></li>`).join("")
-      : `<li class="dim small">${n.hard ? "none yet — required for drafting" : "none (optional)"}</li>`;
+      ? rows.map(s => `<li><span class="src-title">${escapeHTML(s.title || s.page_id)}</span></li>`).join("")
+      : `<li class="dim small">${n.hard ? "none yet — add an experience page to your brain" : "none (optional)"}</li>`;
     return `<div class="src-need">
       <div class="src-need-h">${escapeHTML(n.key)}${n.hard ? ' <span class="dim">required</span>' : ' <span class="dim">optional</span>'}</div>
       <ul class="src-items">${items}</ul></div>`;
   }).join("");
-  host.querySelectorAll(".src-rm").forEach(b => b.addEventListener("click", () => removeSource(b.dataset.need, b.dataset.id)));
-}
-async function refreshSources() {
-  const btn = document.getElementById("sources-refresh-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Discovering…"; }
-  let resp;
-  try {
-    resp = await fetch("/api/outreach/sources/refresh", { method: "POST" });
-  } catch (e) { toast(`refresh failed: ${e.message}`); if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; } return; }
-  if (!resp.ok) {
-    toast(`refresh failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`);
-    if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; }
-    return;
-  }
-  const data = await resp.json();
-  if (data.warning) toast(data.warning); else toast("sources refreshed");
-  renderSourcesList(data);
-  if (btn) { btn.disabled = false; btn.textContent = "Refresh from brain"; }
-}
-async function removeSource(need, pageId) {
-  let resp;
-  try {
-    resp = await fetch("/api/outreach/sources/remove", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ need, page_id: pageId }),
-    });
-  } catch (e) { toast(`remove failed: ${e.message}`); return; }
-  if (!resp.ok) { toast(`remove failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
-  renderSourcesList(await resp.json());
 }
 
 async function saveEditor() {
@@ -3742,7 +3714,6 @@ document.getElementById("sources-close").onclick = closeSourcesModal;
 document.getElementById("sources-scrim").onclick = e => {
   if (e.target.id === "sources-scrim") closeSourcesModal();
 };
-document.getElementById("sources-refresh-btn").onclick = refreshSources;
 
 document.getElementById("key-cancel").onclick = closeKeyModal;
 document.getElementById("key-save").onclick = saveKey;
@@ -3832,11 +3803,16 @@ const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" 
 // wire them by action key — never by id, since the name and the button can share
 // an action (edit cards) and getElementById would only find one. actID is set
 // ONLY on the refresh buttons, which look themselves up by id to spin.
-function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: string; note?: string; act: string; actID?: string; actIcon: string; actTitle: string; actLabel: string; }): string {
+function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: string; note?: string; act?: string; actID?: string; actIcon?: string; actTitle?: string; actLabel?: string; }): string {
   const status = (o.dot || o.note)
     ? `<div class="crit-status">${o.dot ? `<span class="pf-dot ${o.dot}"></span>` : ""}${o.note ? `<span class="crit-note-t">${escapeHTML(o.note)}</span>` : ""}</div>`
     : "";
   const idAttr = o.actID ? ` id="${o.actID}"` : "";
+  // A card without an action (e.g. brain-synced outreach knowledge) renders no
+  // trailing button — it's a passive status row, not a knob.
+  const action = o.act
+    ? `<button class="crit-edit"${idAttr} data-act="${o.act}" title="${o.actTitle}" aria-label="${o.actLabel}">${o.actIcon}</button>`
+    : "";
   return `<div class="settings-item">
     <span class="settings-item-icon">${o.icon}</span>
     <div class="settings-item-main">
@@ -3844,7 +3820,7 @@ function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: strin
       <div class="settings-item-desc">${escapeHTML(o.desc)}</div>
       ${status}
     </div>
-    <button class="crit-edit"${idAttr} data-act="${o.act}" title="${o.actTitle}" aria-label="${o.actLabel}">${o.actIcon}</button>
+    ${action}
   </div>`;
 }
 
@@ -3895,24 +3871,22 @@ function renderCriteria() {
       act: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
     });
   }
-  // Outreach knowledge mirrors the company-fit brief row: a status dot, a
-  // clickable name that opens the discovered sources, a refresh (re-discover),
-  // and a freshness/count note.
+  // Outreach knowledge is a passive, brain-derived status row: a dot, a count
+  // note, and a clickable name that opens the read-only discovered sources. It
+  // syncs automatically from the brain, so there is no refresh action.
   const srcs = (state.sources && state.sources.sources) || [];
   const expN = srcs.filter(s => s.need === "experience").length;
   const voiceN = srcs.filter(s => s.need === "voice").length;
   const logN = srcs.filter(s => s.need === "logistics").length;
-  let kdot = "off", knote = "not discovered yet — refresh from the brain";
-  if (expN > 0) { kdot = "ok"; knote = `${expN} experience · ${voiceN} voice · ${logN} logistics`; }
-  else if (srcs.length > 0) { kdot = "warn"; knote = "no experience yet — refresh"; }
+  let kdot = "off", knote = "syncs from your brain on the next draft";
+  if (expN > 0) { kdot = "ok"; knote = `synced · ${expN} experience · ${voiceN} voice · ${logN} logistics`; }
+  else if (srcs.length > 0) { kdot = "warn"; knote = "no experience page in your brain yet"; }
   const kname = srcs.length
     ? '<span class="edit-link" data-act="view-sources" title="view discovered experience, voice + logistics">outreach knowledge</span>'
     : 'outreach knowledge';
   const knowledgeCard = critCard({
     icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
-    desc: "Your experience, voice + logistics, discovered from the brain to ground outreach and application answers.",
-    act: "refresh-sources", actID: "refresh-sources", actIcon: REFRESH,
-    actTitle: "re-discover experience, voice + logistics from the brain", actLabel: "refresh outreach knowledge",
+    desc: "Your experience, voice + logistics, synced from the brain to ground outreach and application answers.",
   });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
@@ -4023,7 +3997,6 @@ function renderCriteria() {
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
     "view-sources": openSourcesModal,
-    "refresh-sources": refreshSourcesInline,
     "edit-anthropic-key": openKeyModal,
   };
   for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
@@ -4038,27 +4011,6 @@ async function loadSources() {
   try {
     state.sources = await (await fetch("/api/outreach/sources")).json();
   } catch { state.sources = null; }
-  renderCriteria();
-}
-
-// refreshSourcesInline re-runs discovery from the Criteria row (mirrors
-// refreshProfile): spin the icon, POST, adopt the result, re-render.
-async function refreshSourcesInline() {
-  const btn = document.getElementById("refresh-sources");
-  if (btn) { btn.classList.add("spinning"); btn.disabled = true; }
-  let resp;
-  try {
-    resp = await fetch("/api/outreach/sources/refresh", { method: "POST" });
-  } catch (e) { toast(`refresh failed: ${e.message}`); loadSources(); return; }
-  if (!resp.ok) {
-    const t = (await resp.text().catch(() => "")).trim();
-    toast(`refresh failed: ${t || "HTTP " + resp.status}`);
-    loadSources();
-    return;
-  }
-  const data = await resp.json();
-  if (data.warning) toast(data.warning); else toast("outreach knowledge refreshed");
-  state.sources = { sources: data.sources || [], needs: (state.sources && state.sources.needs) || [] };
   renderCriteria();
 }
 

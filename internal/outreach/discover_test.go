@@ -15,14 +15,21 @@ import (
 	"github.com/slaguardia/scout/internal/store"
 )
 
-// fakeBrain serves /map (title+path tree) and /doc (whole document) from an
-// in-memory doc set.
-type fakeBrain struct{ docs map[string]brainbot.Doc }
+// fakeBrain serves /map (title+path tree), /doc (whole document), and /changes
+// (the cursor/changed signal) from an in-memory doc set.
+type fakeBrain struct {
+	docs   map[string]brainbot.Doc
+	cursor string // current change cursor; /changes reports changed when since != cursor
+}
 
 func (f *fakeBrain) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/changes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"cursor": f.cursor, "changed": r.URL.Query().Get("since") != f.cursor,
+			})
 		case "/map":
 			var sources []map[string]any
 			for _, d := range f.docs {
@@ -118,5 +125,62 @@ func TestDiscoverIgnoresHallucinatedIDs(t *testing.T) {
 
 	if _, err := Discover(context.Background(), brain, ac, db, "test-model"); !errors.Is(err, ErrNoExperience) {
 		t.Fatalf("err = %v, want ErrNoExperience (hallucinated id ignored)", err)
+	}
+}
+
+// EnsureKnowledge is change-aware: a cold cache discovers, an unchanged brain
+// serves the cache with no re-discovery, and a moved cursor re-discovers and
+// re-stamps. The fakeAnthropic t.Errorf's on any unscripted call, so an extra
+// discovery is caught as a spurious LLM call.
+func TestEnsureKnowledgeChangeAware(t *testing.T) {
+	fb := &fakeBrain{
+		cursor: "c1",
+		docs: map[string]brainbot.Doc{
+			"exp":   {ID: "exp", Title: "Past Experience", Path: "Career/Past Experience", Version: "v1", Text: "Five years at Globex."},
+			"voice": {ID: "voice", Title: "Voice", Path: "Writing/Voice", Version: "v1", Text: "Plain."},
+		},
+	}
+	brain := brainbot.New(fb.server(t).URL)
+	fa := &fakeAnthropic{replies: []string{
+		`{"experience":["exp"],"voice":["voice"],"logistics":[]}`, // cold discovery
+		`{"experience":["exp"],"voice":["voice"],"logistics":[]}`, // after the change
+	}}
+	asrv := fa.server(t)
+	ac := &anthropic.Client{APIKey: "k", Endpoint: asrv.URL, HTTP: asrv.Client()}
+	db := discoverDB(t)
+	ctx := context.Background()
+
+	// Cold: empty cursor → Changed=true → discover, stamp cursor.
+	if err := EnsureKnowledge(ctx, brain, ac, db, "test-model", nil); err != nil {
+		t.Fatalf("cold EnsureKnowledge: %v", err)
+	}
+	if exp, _ := db.OutreachKnowledge("experience"); !strings.Contains(exp, "Globex") {
+		t.Errorf("experience not cached on cold sync: %q", exp)
+	}
+	if cur, _ := db.GetSetting(store.OutreachCursorSetting); cur != "c1" {
+		t.Errorf("cursor = %q, want c1 after cold discovery", cur)
+	}
+	if fa.calls != 1 {
+		t.Fatalf("cold sync made %d discovery calls, want 1", fa.calls)
+	}
+
+	// Unchanged: cursor matches → serve cache, no re-discovery.
+	if err := EnsureKnowledge(ctx, brain, ac, db, "test-model", nil); err != nil {
+		t.Fatalf("unchanged EnsureKnowledge: %v", err)
+	}
+	if fa.calls != 1 {
+		t.Errorf("unchanged brain re-discovered (%d calls), want still 1", fa.calls)
+	}
+
+	// Changed: brain cursor moves → re-discover, re-stamp.
+	fb.cursor = "c2"
+	if err := EnsureKnowledge(ctx, brain, ac, db, "test-model", nil); err != nil {
+		t.Fatalf("changed EnsureKnowledge: %v", err)
+	}
+	if fa.calls != 2 {
+		t.Errorf("changed brain made %d calls, want 2 (a re-discovery)", fa.calls)
+	}
+	if cur, _ := db.GetSetting(store.OutreachCursorSetting); cur != "c2" {
+		t.Errorf("cursor = %q, want c2 after re-discovery", cur)
 	}
 }
