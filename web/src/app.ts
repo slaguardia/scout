@@ -428,10 +428,10 @@ async function updateCompanyRows(ids) {
 // (everything else lives in the side panel). The jobs Filter block is its own:
 // a search box (matches title/company/location/description/contacts) plus two
 // multi-select dropdowns —
-//   • Application — an explicit-inclusion stage checklist. Default is every
-//     stage except "rejected" (this folds in the old "hide rejected" default).
-//     A posting with no recorded stage always shows — only an explicit stage
-//     can exclude it.
+//   • Application — an explicit-inclusion stage checklist, including a
+//     "not applied" item (the empty stage). Default is every stage except
+//     "rejected", plus "not applied" (this folds in the old "hide rejected"
+//     default while still showing un-applied roles).
 //   • Outreach — two quick toggles (next up / not reached out) plus a reply-
 //     status checklist where an empty selection means "all".
 let jobStageSel = null;          // Set<stage>; null until the first vocab load seeds it
@@ -446,9 +446,10 @@ const outreachSel = new Set();   // checked reply statuses ("" = none); empty = 
 function reconcileStageSel() {
   const all = state.applicationStages;
   if (jobStageSel === null) {
-    jobStageSel = new Set(all.filter(s => s !== "rejected"));
+    // "" is the "not applied" bucket — shown by default (was: no-stage always shows).
+    jobStageSel = new Set(["", ...all.filter(s => s !== "rejected")]);
   } else {
-    for (const s of [...jobStageSel]) if (!all.includes(s)) jobStageSel.delete(s);
+    for (const s of [...jobStageSel]) if (s !== "" && !all.includes(s)) jobStageSel.delete(s);
     if (knownStages) for (const s of all) if (s !== "rejected" && !knownStages.has(s)) jobStageSel.add(s);
   }
   knownStages = new Set(all);
@@ -459,7 +460,7 @@ function filteredJobs() {
   const q = document.getElementById("jq").value.trim().toLowerCase();
   return state.jobs.filter(j => {
     const stage = j.application_status || "";
-    if (stage && !jobStageSel.has(stage)) return false;   // no-stage rows always pass
+    if (!jobStageSel.has(stage)) return false;   // "" = the "not applied" filter item
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
     if (outreachSel.size && !outreachSel.has(j.outreach_status || "")) return false;
@@ -491,6 +492,7 @@ function renderFilterMenus() {
   const menu = document.getElementById("fdrop-jfilters-menu");
   if (!menu) return;
   menu.innerHTML = `<div class="fdrop-head">Application stage</div>`
+    + fdropItem("data-stage", "", "not applied", "", jobStageSel.has(""))
     + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("")
     + `<div class="fdrop-sep"></div><div class="fdrop-head">Quick filters</div>`
     + fdropItem("data-toggle", "nextup", "★ Next up", "", nextUpOnly)
@@ -508,7 +510,7 @@ function syncFilterCounts() {
   let nextN = 0, notReachedN = 0;
   for (const j of state.jobs) {
     const st = j.application_status || "";
-    if (st) stageN[st] = (stageN[st] | 0) + 1;
+    stageN[st] = (stageN[st] | 0) + 1;   // includes "" (not applied)
     const os = j.outreach_status || "";
     statusN[os] = (statusN[os] | 0) + 1;
     if (j.next_up) nextN++;
@@ -520,7 +522,7 @@ function syncFilterCounts() {
   setToggleCount("notreached", notReachedN);
   // The badge counts every active narrowing in the panel: stages (when changed
   // from the all-but-rejected default) + the two toggles + reply-status picks.
-  const def = state.applicationStages.filter(s => s !== "rejected");
+  const def = ["", ...state.applicationStages.filter(s => s !== "rejected")];
   const appDefault = jobStageSel && jobStageSel.size === def.length && def.every(s => jobStageSel.has(s));
   const n = (appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0))
     + (nextUpOnly ? 1 : 0) + (notReachedOnly ? 1 : 0) + outreachSel.size;
