@@ -101,10 +101,11 @@ func TestMarkOutreachDraftSentLeavesStatus(t *testing.T) {
 	if p.OutreachStatus != "initial contact" {
 		t.Fatalf("mark-sent changed the status to %q (should stay manual)", p.OutreachStatus)
 	}
-	if p.OutreachCount != 1 || p.LastOutreachAt == "" {
-		t.Fatalf("tracking not bumped: count=%d last=%q", p.OutreachCount, p.LastOutreachAt)
+	// Mark-sent no longer touches the posting's outreach count (derived from the
+	// per-contact log, M51) or the "next up" queue mark — both stay put.
+	if p.OutreachCount != 0 {
+		t.Fatalf("mark-sent moved the derived count: count=%d", p.OutreachCount)
 	}
-	// Mark-sent no longer clears the "next up" queue mark — it's a manual to-do.
 	if !p.NextUp {
 		t.Fatalf("mark-sent cleared next_up (should be left for the user to clear)")
 	}

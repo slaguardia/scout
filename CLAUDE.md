@@ -77,11 +77,22 @@ canonical port defeats that safety net — don't.
   the fetched text. Unfetchable pages report their honest fetch status and
   write nothing.
 - **The jobs view is the application tracker** (replaced the user's Notion
-  tracker): a lean table — company name + applied date, response
-  (screening/interview/offer/rejected), outreach count, last outreach, and
-  contacts (free-form emails, rendered as mailto links) — with everything else
-  in the slide-in panel, where each posting card has the tracking controls
-  (`PUT /api/postings/{id}`). "Hide rejected" is on by default.
+  tracker): a lean table — company name, application stage (dated history),
+  outreach (a derived send count + a ⏰ follow-ups-due badge), last outreach, and
+  contacts (mailto links) — plus a **"N follow-ups due" banner** that filters to
+  postings owing a follow-up. **Outreach is tracked per contact (M51):** contacts
+  are **company-level** people (one recruiter reused across that company's roles);
+  each send is logged against a contact in `outreach_log` and **auto-arms a
+  follow-up** (default 5 business days, configurable via `/api/followup-interval`),
+  surfaced when due/overdue. The old posting-level `outreach_count` +
+  `last_outreach_at` columns are gone — both are **derived** from the log; the
+  per-posting free-form `contacts` blob was promoted to a `contacts` table
+  (backfilled). Everything else lives in the slide-in panel, where a **contacts
+  manager** handles add/edit/archive + per-contact log + follow-up (snooze / mark
+  followed-up), and the posting card has the application-stage controls
+  (`PUT /api/postings/{id}`). Endpoints: `GET/POST /api/companies/{id}/contacts`,
+  `PUT/DELETE /api/contacts/{id}`, `GET/POST /api/postings/{id}/outreach-log`,
+  `PUT/DELETE /api/outreach-log/{id}`. "Hide rejected" is on by default.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength

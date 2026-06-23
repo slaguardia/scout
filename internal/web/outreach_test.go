@@ -118,7 +118,9 @@ func TestOutreachDraftQueue(t *testing.T) {
 		t.Fatalf("edited draft: %+v", d)
 	}
 
-	// Mark sent: draft flips, posting tracking bumps.
+	// Mark sent: the draft flips. Per-contact outreach tracking (the derived
+	// count/date) is recorded separately via the outreach log, so marking a
+	// draft sent does NOT move the posting's count (M51).
 	rec = do(t, h, http.MethodPost, "/api/outreach/drafts/"+idStr+"/sent", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sent: want 200, got %d (%s)", rec.Code, rec.Body.String())
@@ -133,8 +135,8 @@ func TestOutreachDraftQueue(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("job rows: %v", err)
 	}
-	if rows[0].OutreachCount != 1 || rows[0].LastOutreachAt == "" {
-		t.Fatalf("posting tracking not bumped: %+v", rows[0])
+	if rows[0].OutreachCount != 0 {
+		t.Fatalf("mark-sent should not bump the derived count: %+v", rows[0])
 	}
 	// After terminal status a new draft may start.
 	if rec := do(t, h, http.MethodPost, "/api/postings/"+pid+"/outreach", ""); rec.Code != http.StatusAccepted {

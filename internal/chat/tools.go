@@ -40,15 +40,12 @@ func (e *Engine) registerTools() {
 		{
 			anthropic.ToolDef{
 				Name:        "track_application",
-				Description: "Update a posting's application-tracking fields. Call this when the user reports applying, advancing a stage (heard back / screening / interview / offer / rejected), doing outreach, or adding a contact. Passing `stage` records a dated entry in the posting's application-stage history (the current stage is the latest entry). Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
+				Description: "Update a posting's application-tracking fields. Call this when the user reports applying or advancing a stage (heard back / screening / interview / offer / rejected). Passing `stage` records a dated entry in the posting's application-stage history (the current stage is the latest entry). Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
 				InputSchema: objSchema(map[string]any{
-					"posting_id":       strProp("The posting id (from capture_link or search)."),
-					"stage":            strProp("The application stage just reached (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Appends a dated entry to the stage history; the current stage becomes this."),
-					"stage_date":       strProp("Date the stage was reached, YYYY-MM-DD. Defaults to today when omitted."),
-					"outreach_count":   intProp("Total outreach messages sent for this role."),
-					"last_outreach_at": strProp("Date of the most recent outreach, YYYY-MM-DD."),
-					"contacts":         strProp("Free-form contacts, comma-separated (names/emails)."),
-					"notes":            strProp("Free-form note on this posting."),
+					"posting_id": strProp("The posting id (from capture_link or search)."),
+					"stage":      strProp("The application stage just reached (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Appends a dated entry to the stage history; the current stage becomes this."),
+					"stage_date": strProp("Date the stage was reached, YYYY-MM-DD. Defaults to today when omitted."),
+					"notes":      strProp("Free-form note on this posting."),
 				}, "posting_id"),
 			},
 			e.toolTrackApplication,
@@ -156,13 +153,10 @@ func (e *Engine) toolCaptureLink(ctx context.Context, input json.RawMessage) (st
 
 func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage) (string, error) {
 	var in struct {
-		PostingID      string  `json:"posting_id"`
-		Stage          *string `json:"stage"`
-		StageDate      *string `json:"stage_date"`
-		OutreachCount  *int    `json:"outreach_count"`
-		LastOutreachAt *string `json:"last_outreach_at"`
-		Contacts       *string `json:"contacts"`
-		Notes          *string `json:"notes"`
+		PostingID string  `json:"posting_id"`
+		Stage     *string `json:"stage"`
+		StageDate *string `json:"stage_date"`
+		Notes     *string `json:"notes"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("bad input: %w", err)
@@ -181,20 +175,8 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 	}
 	t := store.PostingTracking{
 		StageHistory:   cur.StageHistory,
-		OutreachCount:  cur.OutreachCount,
-		LastOutreachAt: cur.LastOutreachAt,
 		OutreachStatus: cur.OutreachStatus,
-		Contacts:       cur.Contacts,
 		Notes:          cur.Notes,
-	}
-	if in.OutreachCount != nil {
-		t.OutreachCount = *in.OutreachCount
-	}
-	if in.LastOutreachAt != nil {
-		t.LastOutreachAt = strings.TrimSpace(*in.LastOutreachAt)
-	}
-	if in.Contacts != nil {
-		t.Contacts = *in.Contacts
 	}
 	if in.Notes != nil {
 		t.Notes = *in.Notes
@@ -228,7 +210,6 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 		"stage_history":  store.ParseStageHistory(p.StageHistory),
 		"outreach_count": p.OutreachCount,
 		"last_outreach":  p.LastOutreachAt,
-		"contacts":       p.Contacts,
 	}), nil
 }
 
@@ -342,7 +323,7 @@ func (e *Engine) toolGetPosting(ctx context.Context, input json.RawMessage) (str
 		"department": p.Department, "comp_range": p.CompRange,
 		"description": p.Description,
 		"stage":       store.CurrentStage(p.StageHistory), "stage_history": store.ParseStageHistory(p.StageHistory),
-		"outreach_count": p.OutreachCount, "contacts": p.Contacts, "notes": p.Notes,
+		"outreach_count": p.OutreachCount, "notes": p.Notes,
 	}), nil
 }
 
@@ -411,9 +392,6 @@ func objSchema(props map[string]any, required ...string) map[string]any {
 
 func strProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
-}
-func intProp(desc string) map[string]any {
-	return map[string]any{"type": "integer", "description": desc}
 }
 
 func enumProp(desc string, values ...string) map[string]any {

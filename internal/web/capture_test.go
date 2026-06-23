@@ -285,7 +285,7 @@ func TestPostingTrackingAPI(t *testing.T) {
 
 	// Happy path: tracking lands and the refreshed posting comes back.
 	stages := `[{\"stage\":\"applied\",\"date\":\"2026-05-22\"},{\"stage\":\"screening\",\"date\":\"2026-05-30\"}]`
-	rec := put(p.ID, `{"stage_history":"`+stages+`","outreach_status":"initial contact","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
+	rec := put(p.ID, `{"stage_history":"`+stages+`","outreach_status":"initial contact"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("track: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -297,7 +297,8 @@ func TestPostingTrackingAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if store.CurrentStage(got.StageHistory) != "screening" || got.OutreachStatus != "initial contact" || got.OutreachCount != 2 {
+	// Count is derived from the outreach log (none yet), so it stays 0.
+	if store.CurrentStage(got.StageHistory) != "screening" || got.OutreachStatus != "initial contact" || got.OutreachCount != 0 {
 		t.Errorf("unexpected tracking payload: %+v", got)
 	}
 

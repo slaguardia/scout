@@ -165,6 +165,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/outreach-prompts", s.handleOutreachPromptsList) // GET the editable pipeline stages (see editor.go)
 	mux.HandleFunc("/api/outreach-prompts/", s.handleOutreachPrompt)     // GET/PUT one stage's prompt + on/off (see editor.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)                   // sources / refresh / drafts (see outreach.go)
+	mux.HandleFunc("/api/contacts/", s.handleContact)                    // PUT/DELETE {id}: edit/archive a company contact (see contacts.go)
+	mux.HandleFunc("/api/outreach-log/", s.handleOutreachLog)            // PUT/DELETE {id}: edit/delete a logged send (see contacts.go)
+	mux.HandleFunc("/api/followup-interval", s.handleFollowupInterval)   // GET/PUT the default follow-up interval (see contacts.go)
 	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate; DELETE {id}: dismiss one answer (see answers.go)
 	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)             // GET open-or-create a (scope,scope_id) thread
 	mux.HandleFunc("/api/chat/", s.handleChat)                           // POST {thread}/message, GET {thread}/stream
@@ -369,6 +372,8 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request) {
 		s.handleCompanyDomain(w, r, id)
 	case len(parts) == 2 && parts[1] == "notes":
 		s.handleCompanyNotes(w, r, id)
+	case len(parts) == 2 && parts[1] == "contacts":
+		s.handleCompanyContacts(w, r, id)
 	default:
 		http.NotFound(w, r)
 	}

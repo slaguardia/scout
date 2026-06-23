@@ -121,17 +121,23 @@ job_postings (
     company_id   TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
     url          TEXT NOT NULL,     -- the posting link (final, post-redirect URL)
     title        TEXT,              -- optional label / extracted role title
-    location     TEXT,              -- extracted by capture (M22)
-    summary      TEXT,              -- 1-2 sentence role summary, extracted (M22)
+    location     TEXT,              -- extracted by capture
     source       TEXT,              -- 'manual' | 'capture' (NULL reads as manual)
     fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    captured_at  DATETIME,          -- last agent-pass fill (M22)
-    applied_at       DATE,          -- application lifecycle (M23); NULL = not applied
-    response         TEXT,          -- 'screening' | 'interview' | 'offer' | 'rejected'
-    outreach_count   INTEGER NOT NULL DEFAULT 0,
-    last_outreach_at DATE,
-    contacts         TEXT           -- outreach contacts (M24), free-form comma-separated
+    captured_at  DATETIME,          -- last agent-pass fill
+    -- structured detail (M28), filled by the ATS resolver
+    posted_at TEXT, employment_type TEXT, workplace_type TEXT,
+    department TEXT, comp_range TEXT, description TEXT,
+    -- application lifecycle
+    stage_history    TEXT,          -- M50: JSON [{stage,date}]; current = last entry (replaced applied_at + response)
+    outreach_status  TEXT,          -- M48: reply-axis label (configurable); separate from the stage
+    notes            TEXT,          -- M31: free-form, human-only scratchpad
+    next_up_at       DATETIME,      -- M27: "next up for outreach" to-do; clears when a send is logged
+    questions_status TEXT, questions_at DATETIME  -- M32: application-question detection
+    -- NOTE: outreach_count + last_outreach_at + the free-form contacts blob were
+    -- DROPPED in M51 — outreach is tracked per contact now (see contacts /
+    -- outreach_log below); the posting's count/last are DERIVED from outreach_log.
 )
 ```
 
@@ -149,17 +155,54 @@ is **one-to-many**: a company can have any number of postings, so it gets its
 own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
 deterministic TEXT uuid).
 
-**Application lifecycle (M23).** The jobs view doubles as the user's
-application tracker (it replaced the external Notion one), so each posting
-carries the lifecycle columns: `applied_at` (NULL = not applied; the checkbox
-and its date are one nullable field), `response` (the furthest reply reached),
-the outreach cadence (`outreach_count` + `last_outreach_at`), and `contacts`
-(M24) — a free-form comma-separated list of outreach contacts ("Jane Doe
-<jane@acme.com>, cto@…"; the UI renders email-shaped tokens as mailto links).
-Set as full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`);
-response values are case-folded and validated, dates are bare ISO dates,
-contacts are trimmed only. Outreach *message content* stays out of scout — see
-the non-goals in `north-star.md`. `ListPostings` returns one company's postings newest-first;
+**Application lifecycle.** The jobs view doubles as the user's application
+tracker (it replaced the external Notion one). The **application axis** is
+`stage_history` (M50) — a JSON array of `{stage, date}` whose last entry is the
+current stage; it replaced the old `applied_at` + `response` columns. The
+**reply axis** is `outreach_status` (M48), a configurable label. Both are opaque
+to the backend (the UI owns the shape/vocab) and set as full state via
+`UpdatePostingTracking` (`PUT /api/postings/{id}`), alongside `notes`. Outreach
+*message content* stays out of scout — see the non-goals in `north-star.md`.
+
+**Per-contact outreach + follow-ups (M51).** Outreach is tracked per person, not
+as a posting-level count:
+
+```sql
+contacts (
+    id          TEXT PK,           -- uuid
+    company_id  TEXT NOT NULL FK companies(id) ON DELETE CASCADE,
+    name TEXT, role TEXT, email TEXT,   -- a name or an email is required
+    archived_at DATETIME,          -- soft-delete; NULL = active
+    created_at DATETIME, updated_at DATETIME
+)   -- UNIQUE(company_id, email) WHERE email <> ''  (email is the per-company identity)
+
+outreach_log (
+    id               INTEGER PK,   -- autoincrement
+    contact_id       TEXT NOT NULL FK contacts(id) ON DELETE CASCADE,
+    posting_id       TEXT NOT NULL FK job_postings(id) ON DELETE CASCADE,
+    sent_at          DATE NOT NULL DEFAULT (DATE('now')),
+    note             TEXT,
+    followup_due_at  DATE,         -- NULL = no follow-up wanted
+    followup_done_at DATETIME,     -- NULL = still pending
+    created_at       DATETIME
+)
+```
+
+Contacts are **company-level** (one recruiter reused across that company's
+roles). Each send is one immutable `outreach_log` row; the follow-up rides the
+send — the active follow-up for a (contact, posting) thread is simply the
+**latest** send's, until it's marked done or superseded by a newer send. A send
+auto-arms `followup_due_at` to `sent_at + N business days` (the
+`followup_interval_days` setting, default 5; 0 = off) unless an explicit date or
+`no_followup` is passed. The posting's `outreach_count` / `last_outreach_at`
+(and the jobs view's `followups_due` badge) are **derived** from this table.
+Stores: `internal/store/contacts.go`. Endpoints: `GET/POST
+/api/companies/{id}/contacts`, `PUT/DELETE /api/contacts/{id}`, `GET/POST
+/api/postings/{id}/outreach-log`, `PUT/DELETE /api/outreach-log/{id}`,
+`GET/PUT /api/followup-interval`. The legacy posting-level `contacts` blob (M24)
+was backfilled into this table and dropped.
+
+`ListPostings` returns one company's postings newest-first;
 `ListJobRows` joins every posting with its company's name/verdict/marks plus
 the lifecycle columns for the UI's jobs view.
 

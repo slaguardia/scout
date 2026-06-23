@@ -25,11 +25,12 @@ a "Solutions Engineer" role is on- or off-target depending on whether it's
 context is real (the brain), the pipeline is cheap to re-run, and the output
 feeds the existing workflow instead of replacing it.
 
-**Non-goals.** Not a send/CRM tool — scout *drafts* cold outreach and
-application answers (the outreach pipeline) but **never sends or submits**, and
-it doesn't manage threads, sequences, or a contact CRM. Saved postings carry a
-lean application lifecycle (applied date, response stage, outreach count, contact
-emails; the jobs view replaced the user's external tracker).
+**Non-goals.** Not a send tool — scout *drafts* cold outreach and application
+answers (the outreach pipeline) but **never sends or submits**, and it doesn't
+run email threads or automated sequences. It does track the pursuit: saved
+postings carry a lean application lifecycle (dated stage history + reply status)
+and **per-contact outreach tracking with follow-up reminders** (M51) — the jobs
+view replaced the user's external tracker.
 Not a job-board scraper — scout works on company-level data plus individually
 captured posting links, not bulk listings. Not real-time; it's a batch tool,
 run on a fresh dump. Not auto-applying. Not multi-user — it's the user's tool.

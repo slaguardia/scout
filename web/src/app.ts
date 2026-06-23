@@ -28,6 +28,7 @@ const state = {
   // outreach reply pill. "none" (empty) is always implicit, not in these lists.
   applicationStages: ["applied", "screening", "interview", "offer", "rejected"],
   outreachStatuses: ["initial contact", "no response", "replied", "followed up"],
+  followupInterval: 5,                      // default business days to arm a follow-up (M51)
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
 };
@@ -118,6 +119,9 @@ async function loadStatusVocab() {
     }).catch(() => {}),
     fetch("/api/outreach-statuses").then(r => r.ok ? r.json() : null).then(d => {
       if (d && Array.isArray(d.statuses) && d.statuses.length) state.outreachStatuses = d.statuses;
+    }).catch(() => {}),
+    fetch("/api/followup-interval").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && Number.isInteger(d.days)) state.followupInterval = d.days;
     }).catch(() => {}),
   ]);
   renderFilterMenus();
@@ -438,6 +442,7 @@ let jobStageSel = null;          // Set<stage>; null until the first vocab load 
 let knownStages = null;          // last vocab seen, so new stages can default visible
 let nextUpOnly = false;          // postings queued next up for outreach
 let notReachedOnly = false;      // postings with zero outreach logged yet
+let dueOnly = false;             // postings with a follow-up due today/overdue
 const outreachSel = new Set();   // checked reply statuses ("" = none); empty = all
 
 // reconcileStageSel keeps jobStageSel sensible across vocab changes: seed it to
@@ -462,6 +467,7 @@ function filteredJobs() {
     if (stage && !jobStageSel.has(stage)) return false;   // no-stage rows always pass
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
+    if (dueOnly && !(j.followups_due|0)) return false;
     if (outreachSel.size && !outreachSel.has(j.outreach_status || "")) return false;
     if (q) {
       const hay = (j.title + " " + j.company + " " + (j.location||"") + " " + (j.description||"") + " " + (j.contacts||"")).toLowerCase();
@@ -611,15 +617,6 @@ function parseContacts(s) {
   });
 }
 
-// serializeContacts stores the entries as a JSON array, dropping empty rows;
-// an all-empty list serializes to "" so the column clears cleanly.
-function serializeContacts(entries) {
-  const kept = (entries || [])
-    .map(c => ({ position: (c.position || "").trim(), email: (c.email || "").trim() }))
-    .filter(c => c.position || c.email);
-  return kept.length ? JSON.stringify(kept) : "";
-}
-
 const isoToday = () => new Date().toISOString().slice(0, 10);
 
 // ---- application stage (configurable vocab, dated history) ----
@@ -695,26 +692,6 @@ function contactsHTML(s) {
   }).join('<span class="dim">, </span>');
 }
 
-// contactsEditorHTML renders one row per saved contact — a position field, an
-// email field, and a remove × — under an "+ add contact" button. Rows are wired
-// (and added) in wireOutreach; saves go through a contacts-only path that leaves
-// the panel un-re-rendered so caret/focus survive multi-field entry.
-function contactRowHTML(c) {
-  return `<div class="cc-row">
-      <input class="input cc-pos" value="${escapeHTML(c.position || "")}" placeholder="position" spellcheck="false">
-      <input class="input cc-email" type="email" value="${escapeHTML(c.email || "")}" placeholder="email" spellcheck="false">
-      <button class="cc-del" type="button" title="remove contact" aria-label="remove contact">×</button>
-    </div>`;
-}
-function contactsEditorHTML(stored) {
-  const rowsHTML = parseContacts(stored).map(contactRowHTML).join("");
-  return `<div class="outreach-contacts" id="contacts-editor">
-      <label class="cc-label">contacts</label>
-      <div class="cc-list">${rowsHTML}</div>
-      <button class="btn cc-add" type="button">+ add contact</button>
-    </div>`;
-}
-
 // stageOrder ranks a posting by its current application stage for sorting,
 // using the configured progression order (untracked sinks to the end).
 function stageOrder(j) {
@@ -744,9 +721,32 @@ function compareJobs(a, b, k) {
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
+// renderFollowupBanner shows "N follow-ups due" above the jobs table with a
+// one-click filter to just those postings (M51). Total is over ALL postings (not
+// the current filter); when it drops to zero the banner hides and the due-only
+// filter releases so the table never strands empty.
+function renderFollowupBanner() {
+  const banner = document.getElementById("jobs-followup-banner");
+  if (!banner) return;
+  const due = state.jobs.reduce((n, j) => n + (j.followups_due | 0), 0);
+  if (!due) {
+    banner.style.display = "none";
+    dueOnly = false;
+    return;
+  }
+  banner.style.display = "";
+  banner.classList.toggle("is-filtered", dueOnly);
+  banner.innerHTML =
+    `<span class="fb-icon">⏰</span>`
+    + `<span class="fb-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
+    + `<button class="btn fb-toggle">${dueOnly ? "show all jobs" : "show only these"}</button>`;
+  banner.querySelector(".fb-toggle").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
+}
+
 function renderJobs() {
   const tbody = document.querySelector("#jt tbody");
   tbody.innerHTML = "";
+  renderFollowupBanner();
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
   // Refresh the dropdown item counts + button badges against the live data.
@@ -779,7 +779,7 @@ function renderJobs() {
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage — pick a new stage to record it (dated today)">${stOpts}</select>${stageDate ? `<span class="jt-stage-date" title="when this stage was reached">${escapeHTML(stageDate)}</span>` : ""}</div></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span></div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select><span class="jt-oc${j.outreach_count ? "" : " dim"}" title="${j.outreach_count || 0} outreach send${(j.outreach_count|0) === 1 ? "" : "s"} logged across contacts">${j.outreach_count || 0}</span>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
@@ -789,12 +789,6 @@ function renderJobs() {
     tr.querySelector(".jt-stage-sel").onchange = e => advanceRowStage(j, e.target.value);
     tr.querySelector(".jt-ostatus").onchange = e =>
       saveRowTracking(j, { outreach_status: e.target.value });
-    tr.querySelector(".jt-inc").onclick = () =>
-      saveRowTracking(j, { outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: isoToday() });
-    tr.querySelector(".jt-dec").onclick = () => {
-      const n = Math.max(0, (j.outreach_count || 0) - 1);
-      saveRowTracking(j, { outreach_count: n, ...(n === 0 ? { last_outreach_at: "" } : {}) });
-    };
     tbody.appendChild(tr);
   }
   syncSortIndicator("jt", "data-jk", state.jsort);
@@ -841,7 +835,8 @@ function draftBadgeHTML(status) {
 // the clicked jobs row (it already carries posting + company fields); the
 // outreach queue fetches drafts and polls while one is researching.
 const pursuit = { postingId: null, row: null, drafts: [], poll: null, openHist: false,
-                  answers: [], answersStatus: "", answersPoll: null, detecting: false };
+                  answers: [], answersStatus: "", answersPoll: null, detecting: false,
+                  contacts: [], outreach: [], contactsLoaded: false };
 
 async function openPursuit(postingId) {
   let row = state.jobs.find(j => j.posting_id === postingId);
@@ -859,6 +854,9 @@ async function openPursuit(postingId) {
   pursuit.openHist = false;
   pursuit.answers = [];
   pursuit.detecting = false;
+  pursuit.contacts = [];
+  pursuit.outreach = [];
+  pursuit.contactsLoaded = false;
   // Seed the header from the cached row's detection status so the Application
   // section reads right before the per-posting fetch returns.
   pursuit.answersStatus = row.questions_status || "";
@@ -869,6 +867,26 @@ async function openPursuit(postingId) {
   renderPursuit();
   loadDrafts();
   loadAnswers();
+  loadContactsAndLog();
+}
+
+// loadContactsAndLog fetches the company's contacts and this posting's outreach
+// log together, then re-renders the outreach section. Both feed the per-contact
+// tracking + follow-up controls (M51).
+async function loadContactsAndLog() {
+  const pid = pursuit.postingId, cid = pursuit.row && pursuit.row.company_id;
+  if (!pid || !cid) return;
+  try {
+    const [cs, log] = await Promise.all([
+      fetch(`/api/companies/${cid}/contacts`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/postings/${pid}/outreach-log`).then(r => r.ok ? r.json() : []),
+    ]);
+    if (pursuit.postingId !== pid) return;   // panel moved on while we fetched
+    pursuit.contacts = Array.isArray(cs) ? cs : [];
+    pursuit.outreach = Array.isArray(log) ? log : [];
+  } catch { /* keep whatever we have */ }
+  pursuit.contactsLoaded = true;
+  renderOutreachSection();
 }
 
 // The company pane and the pursuit panel can stack either way — open a company,
@@ -1549,10 +1567,7 @@ async function toggleNextUp(j, refreshPanel) {
 async function savePostingTracking(j, patch) {
   const body = {
     stage_history: j.stage_history || "",
-    outreach_count: j.outreach_count || 0,
-    last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
-    contacts: j.contacts || "",
     notes: j.notes || "",
     ...patch,
   };
@@ -1595,9 +1610,8 @@ async function savePursuitNotes(v) {
   const j = pursuit.row;
   const body = {
     stage_history: j.stage_history || "",
-    outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
-    contacts: j.contacts || "", notes: v,
+    notes: v,
   };
   const resp = await fetch(`/api/postings/${j.posting_id}`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
@@ -1619,16 +1633,6 @@ async function savePursuitTracking(patch) {
   toast("tracking saved");
 }
 
-// saveContacts persists the contacts list (already serialized) without
-// re-rendering the pursuit panel — the editor manages its own rows, and a full
-// re-render mid-entry would steal focus/caret. The table still reflects the
-// change. savePostingTracking folds the fresh value back into pursuit.row.
-async function saveContacts(contacts) {
-  const fresh = await savePostingTracking(pursuit.row, { contacts });
-  if (!fresh) return;
-  renderJobs();
-}
-
 // saveRowTracking saves a change made from an inline jobs-row control. The
 // cached row is the same object the table renders from, so a plain renderJobs()
 // reflects it; the pursuit panel is refreshed only if it's showing this posting.
@@ -1645,21 +1649,9 @@ async function saveRowTracking(j, patch) {
 function renderOutreachSection() {
   const host = document.getElementById("outreach-section");
   if (!host) return;
-  const j = pursuit.row;
   const drafts = pursuit.drafts;
   const current = drafts[0] || null;
   const history = drafts.slice(1);
-
-  const meta = `
-    <div class="outreach-meta">
-      <span><span class="om-count">${j.outreach_count || 0}</span> sent</span>
-      ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
-      <span class="pt-stepper">
-        <button class="btn pt-outreach-dec" title="undo one outreach" ${j.outreach_count ? "" : "disabled"}>−</button>
-        <button class="btn pt-outreach" title="log one outreach sent outside scout — today">+1 outreach</button>
-      </span>
-    </div>
-    ${contactsEditorHTML(j.contacts)}`;
 
   // The outer start button: hidden while a draft is active (it's shown in the
   // card) and while the current draft is failed (its in-card Retry covers it).
@@ -1674,12 +1666,250 @@ function renderOutreachSection() {
       <div id="draft-history-body">${history.map(d => draftCardHTML(d, true)).join("")}</div>
     </details>` : "";
 
-  host.innerHTML = meta +
+  host.innerHTML = contactsManagerHTML() +
+    `<div class="outreach-drafts-head">Drafts</div>` +
     `<div id="draft-current">${current ? draftCardHTML(current, false) : ""}</div>` +
     `<div class="draft-actions">${draftBtn}</div>` +
     histBlock;
 
+  wireContacts();
   wireOutreach();
+}
+
+// ---- per-contact outreach tracking + follow-ups (M51) ----
+
+// addBusinessDaysISO advances an ISO date by n weekdays (skips Sat/Sun), mirroring
+// the server's auto-arm so a hand-set follow-up matches a logged one.
+function addBusinessDaysISO(iso, n) {
+  const d = new Date(iso + "T00:00:00");
+  let added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) added++;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+// contactsManagerHTML renders the company contacts list with per-contact logging
+// + follow-up controls, a derived send count, and the follow-up interval knob.
+function contactsManagerHTML() {
+  const j = pursuit.row;
+  const sent = j.outreach_count || 0;
+  const meta = `<div class="outreach-meta">
+      <span><strong>${sent}</strong> send${sent === 1 ? "" : "s"}</span>
+      ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
+      <span class="om-interval" title="business days after a send to remind you to follow up (0 = off)">follow up after <input class="input fu-interval" type="number" min="0" max="90" value="${state.followupInterval}"> business days</span>
+    </div>`;
+  if (!pursuit.contactsLoaded) {
+    return `<div class="contacts-mgr">${meta}<div class="loading-row"><span class="spinner"></span><span>loading contacts…</span></div></div>`;
+  }
+  const cards = pursuit.contacts.map(contactCardHTML).join("");
+  const empty = pursuit.contacts.length ? ""
+    : `<div class="cc-empty dim">No contacts yet — add the people you're reaching out to at ${escapeHTML(j.company)}.</div>`;
+  return `<div class="contacts-mgr">
+    ${meta}
+    <div class="cc-cards">${cards}${empty}</div>
+    <div class="cc-addwrap">
+      <button class="btn cc-addbtn" type="button">+ add contact</button>
+      <div class="cc-addform" style="display:none">
+        <input class="input cc-f-name" placeholder="name" spellcheck="false">
+        <input class="input cc-f-role" placeholder="role (e.g. recruiter)" spellcheck="false">
+        <input class="input cc-f-email" type="email" placeholder="email" spellcheck="false">
+        <div class="cc-form-actions"><button class="btn btn-primary cc-f-save" type="button">Add</button><button class="btn cc-f-cancel" type="button">Cancel</button></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function contactCardHTML(c) {
+  const entries = pursuit.outreach.filter(e => e.contact_id === c.id); // newest first (API order)
+  const latest = entries[0] || null;
+  const role = c.role ? `<span class="cc-role">${escapeHTML(c.role)}</span>` : "";
+  const mail = c.email ? `<a class="cc-mail" href="mailto:${escapeHTML(c.email)}" title="${escapeHTML(c.email)}">${escapeHTML(c.email)}</a>` : "";
+  return `<div class="contact-card" data-cid="${c.id}">
+    <div class="cc-head">
+      <span class="cc-name">${escapeHTML(c.name || c.email || "contact")}</span>${role}${mail}
+      <span class="cc-acts"><button class="cc-edit" type="button" title="edit contact" aria-label="edit">✎</button><button class="cc-arch" type="button" title="remove contact" aria-label="remove">×</button></span>
+    </div>
+    <div class="cc-editform" style="display:none">
+      <input class="input cc-e-name" value="${escapeHTML(c.name || "")}" placeholder="name" spellcheck="false">
+      <input class="input cc-e-role" value="${escapeHTML(c.role || "")}" placeholder="role" spellcheck="false">
+      <input class="input cc-e-email" type="email" value="${escapeHTML(c.email || "")}" placeholder="email" spellcheck="false">
+      <div class="cc-form-actions"><button class="btn btn-primary cc-e-save" type="button">Save</button><button class="btn cc-e-cancel" type="button">Cancel</button></div>
+    </div>
+    <div class="cc-status">${followupStatusHTML(latest)}</div>
+    <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button></div>
+    <div class="cc-logform" style="display:none">
+      <input class="input cc-l-date" type="date" value="${isoToday()}" title="date sent">
+      <input class="input cc-l-note" placeholder="note (optional)" spellcheck="false">
+      <div class="cc-form-actions"><button class="btn btn-primary cc-l-save" type="button">Log</button><button class="btn cc-l-cancel" type="button">Cancel</button></div>
+    </div>
+    ${entries.length ? `<details class="cc-history"><summary>${entries.length} send${entries.length > 1 ? "s" : ""}</summary><div class="cc-entries">${entries.map(outreachEntryHTML).join("")}</div></details>` : ""}
+  </div>`;
+}
+
+// followupStatusHTML renders the contact's current outreach state from its latest
+// send: last-sent date plus the active follow-up (editable date + "mark done"),
+// or affordances to set one / log the first outreach.
+function followupStatusHTML(latest) {
+  if (!latest) return `<span class="dim">no outreach logged yet</span>`;
+  const last = `last ${escapeHTML(latest.sent_at)}`;
+  if (latest.followup_done_at) return `${last} · <span class="fu-done">followed up ✓</span>`;
+  if (latest.followup_due_at) {
+    const overdue = latest.followup_due_at <= isoToday();
+    return `${last} · <span class="fu-wrap ${overdue ? "fu-overdue" : ""}">${overdue ? "⏰ " : ""}follow up by <input class="input fu-date" data-eid="${latest.id}" type="date" value="${escapeHTML(latest.followup_due_at)}"></span> <button class="btn cc-fu-done" data-eid="${latest.id}" type="button">mark followed up</button>`;
+  }
+  return `${last} · <span class="dim">no follow-up</span> <button class="btn cc-fu-set" data-eid="${latest.id}" type="button">set reminder</button>`;
+}
+
+function outreachEntryHTML(e) {
+  const fu = e.followup_done_at ? `<span class="fu-done">followed up</span>`
+    : e.followup_due_at ? `<span class="fu-mini">↳ follow up ${escapeHTML(e.followup_due_at)}</span>` : "";
+  return `<div class="cc-entry" data-eid="${e.id}">
+      <span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
+      ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
+      ${fu}
+      <button class="cc-e-del" type="button" title="delete this send" aria-label="delete">×</button>
+    </div>`;
+}
+
+// contactApi is a thin fetch wrapper for the contact/outreach-log endpoints:
+// returns the parsed body, or null (with a toast) on failure.
+async function contactApi(method, url, body) {
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return null; }
+  if (!resp.ok) {
+    const t = (await resp.text().catch(() => "")).trim();
+    toast(`save failed: ${t || "HTTP " + resp.status}`);
+    return null;
+  }
+  try { return await resp.json(); } catch { return {}; }
+}
+
+// refreshAfterContactChange re-pulls the jobs table (derived count + due badge,
+// and rebindPursuitRow re-points the open panel) then the panel's contacts/log,
+// so a mutation reflects everywhere at once.
+async function refreshAfterContactChange() {
+  await loadJobs();
+  await loadContactsAndLog();
+}
+
+// wireContacts binds the contacts manager: the interval knob, add/edit/archive,
+// per-contact logging, and follow-up snooze/done/set + entry delete.
+function wireContacts() {
+  const host = document.getElementById("outreach-section");
+  if (!host) return;
+  const pid = pursuit.postingId;
+
+  const interval = host.querySelector(".fu-interval");
+  if (interval) interval.addEventListener("change", async () => {
+    const days = Math.max(0, Math.min(90, parseInt(interval.value, 10) || 0));
+    const r = await contactApi("PUT", "/api/followup-interval", { days });
+    if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
+  });
+
+  // Add contact.
+  const addwrap = host.querySelector(".cc-addwrap");
+  if (addwrap) {
+    const form = addwrap.querySelector(".cc-addform");
+    addwrap.querySelector(".cc-addbtn").addEventListener("click", () => {
+      form.style.display = ""; addwrap.querySelector(".cc-addbtn").style.display = "none";
+      form.querySelector(".cc-f-name").focus();
+    });
+    addwrap.querySelector(".cc-f-cancel").addEventListener("click", () => renderOutreachSection());
+    addwrap.querySelector(".cc-f-save").addEventListener("click", async () => {
+      const body = {
+        name: form.querySelector(".cc-f-name").value,
+        role: form.querySelector(".cc-f-role").value,
+        email: form.querySelector(".cc-f-email").value,
+      };
+      const r = await contactApi("POST", `/api/companies/${pursuit.row.company_id}/contacts`, body);
+      if (r) { toast("contact added"); refreshAfterContactChange(); }
+    });
+  }
+
+  host.querySelectorAll(".contact-card").forEach(card => {
+    const cid = card.dataset.cid;
+
+    // Edit / archive.
+    const editForm = card.querySelector(".cc-editform");
+    card.querySelector(".cc-edit").addEventListener("click", () => {
+      editForm.style.display = editForm.style.display === "none" ? "" : "none";
+      if (editForm.style.display !== "none") editForm.querySelector(".cc-e-name").focus();
+    });
+    const ecancel = card.querySelector(".cc-e-cancel");
+    if (ecancel) ecancel.addEventListener("click", () => { editForm.style.display = "none"; });
+    const esave = card.querySelector(".cc-e-save");
+    if (esave) esave.addEventListener("click", async () => {
+      const body = {
+        name: editForm.querySelector(".cc-e-name").value,
+        role: editForm.querySelector(".cc-e-role").value,
+        email: editForm.querySelector(".cc-e-email").value,
+      };
+      const r = await contactApi("PUT", `/api/contacts/${cid}`, body);
+      if (r) { toast("contact saved"); refreshAfterContactChange(); }
+    });
+    card.querySelector(".cc-arch").addEventListener("click", async () => {
+      const r = await contactApi("DELETE", `/api/contacts/${cid}`);
+      if (r) { toast("contact removed"); refreshAfterContactChange(); }
+    });
+
+    // Log outreach.
+    const logForm = card.querySelector(".cc-logform");
+    card.querySelector(".cc-log").addEventListener("click", () => {
+      logForm.style.display = logForm.style.display === "none" ? "" : "none";
+      if (logForm.style.display !== "none") logForm.querySelector(".cc-l-date").focus();
+    });
+    const lcancel = card.querySelector(".cc-l-cancel");
+    if (lcancel) lcancel.addEventListener("click", () => { logForm.style.display = "none"; });
+    const lsave = card.querySelector(".cc-l-save");
+    if (lsave) lsave.addEventListener("click", async () => {
+      const body = {
+        contact_id: cid,
+        sent_at: logForm.querySelector(".cc-l-date").value || isoToday(),
+        note: logForm.querySelector(".cc-l-note").value,
+      };
+      const r = await contactApi("POST", `/api/postings/${pid}/outreach-log`, body);
+      if (r) { toast("outreach logged"); refreshAfterContactChange(); }
+    });
+
+    // Follow-up: snooze (date change), mark done, set from cleared. The PUT is
+    // full-state, so each carries the entry's current sent_at + note unchanged.
+    const entryEdit = (eid, patch) => {
+      const e = pursuit.outreach.find(x => String(x.id) === String(eid)) || {};
+      return { sent_at: e.sent_at || "", note: e.note || "", followup_due_at: e.followup_due_at || "", done: !!e.followup_done_at, ...patch };
+    };
+    const fuDate = card.querySelector(".fu-date");
+    if (fuDate) fuDate.addEventListener("change", async () => {
+      const r = await contactApi("PUT", `/api/outreach-log/${fuDate.dataset.eid}`, entryEdit(fuDate.dataset.eid, { followup_due_at: fuDate.value, done: false }));
+      if (r) { toast("follow-up updated"); refreshAfterContactChange(); }
+    });
+    const fuDone = card.querySelector(".cc-fu-done");
+    if (fuDone) fuDone.addEventListener("click", async () => {
+      const r = await contactApi("PUT", `/api/outreach-log/${fuDone.dataset.eid}`, entryEdit(fuDone.dataset.eid, { done: true }));
+      if (r) { toast("marked followed up"); refreshAfterContactChange(); }
+    });
+    const fuSet = card.querySelector(".cc-fu-set");
+    if (fuSet) fuSet.addEventListener("click", async () => {
+      const due = addBusinessDaysISO(isoToday(), state.followupInterval || 5);
+      const r = await contactApi("PUT", `/api/outreach-log/${fuSet.dataset.eid}`, entryEdit(fuSet.dataset.eid, { followup_due_at: due, done: false }));
+      if (r) { toast("reminder set"); refreshAfterContactChange(); }
+    });
+
+    // Delete a logged send.
+    card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async () => {
+      const eid = b.closest(".cc-entry").dataset.eid;
+      const r = await contactApi("DELETE", `/api/outreach-log/${eid}`);
+      if (r) { toast("send deleted"); refreshAfterContactChange(); }
+    }));
+  });
 }
 
 function isActiveStatus(st) {
@@ -1884,50 +2114,6 @@ function renderViolations(vioJSON) {
 function wireOutreach() {
   const host = document.getElementById("outreach-section");
   if (!host) return;
-
-  // contacts — a list of {position, email} rows under an "+ add contact" button.
-  // A field's change (blur with a new value) serializes every non-empty row and
-  // saves; "+ add contact" appends a blank row in place; × removes a row and
-  // saves. Saves go through saveContacts (no panel re-render) so focus/caret
-  // survive while filling a row. Enter blurs to commit.
-  const editor = host.querySelector("#contacts-editor");
-  if (editor) {
-    const list = editor.querySelector(".cc-list");
-    const collect = () => serializeContacts(
-      Array.from(list.querySelectorAll(".cc-row")).map(row => ({
-        position: row.querySelector(".cc-pos").value,
-        email: row.querySelector(".cc-email").value,
-      })));
-    const wireRow = row => {
-      row.querySelectorAll(".cc-pos, .cc-email").forEach(inp => {
-        inp.addEventListener("change", () => saveContacts(collect()));
-        inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
-      });
-      row.querySelector(".cc-del").addEventListener("click", () => { row.remove(); saveContacts(collect()); });
-    };
-    list.querySelectorAll(".cc-row").forEach(wireRow);
-    editor.querySelector(".cc-add").addEventListener("click", () => {
-      const tmp = document.createElement("div");
-      tmp.innerHTML = contactRowHTML({ position: "", email: "" });
-      const row = tmp.firstElementChild;
-      list.appendChild(row);
-      wireRow(row);
-      row.querySelector(".cc-pos").focus();
-    });
-  }
-
-  // Manual outreach logger — for messages sent outside scout. The − undoes a
-  // mis-click; at 0 the last-outreach date is cleared (it describes nothing).
-  const today = () => new Date().toISOString().slice(0, 10);
-  const j = pursuit.row;
-  const inc = host.querySelector(".pt-outreach");
-  if (inc) inc.addEventListener("click", () =>
-    savePursuitTracking({ outreach_count: (j.outreach_count || 0) + 1, last_outreach_at: today() }));
-  const dec = host.querySelector(".pt-outreach-dec");
-  if (dec) dec.addEventListener("click", () => {
-    const n = Math.max(0, (j.outreach_count || 0) - 1);
-    savePursuitTracking({ outreach_count: n, ...(n === 0 ? { last_outreach_at: "" } : {}) });
-  });
 
   const start = host.querySelector("#draft-start-btn");
   if (start) start.addEventListener("click", () => startDraft());

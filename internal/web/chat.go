@@ -350,8 +350,8 @@ func (s *Server) postingContext(postingID string) string {
 	if p.CompRange != "" {
 		fmt.Fprintf(&b, "Comp: %s\n", p.CompRange)
 	}
-	fmt.Fprintf(&b, "Application: stage:%s outreach:%d contacts:%s\n",
-		orDash(store.CurrentStage(p.StageHistory)), p.OutreachCount, orDash(p.Contacts))
+	fmt.Fprintf(&b, "Application: stage:%s outreach:%d\n",
+		orDash(store.CurrentStage(p.StageHistory)), p.OutreachCount)
 	if p.URL != "" {
 		fmt.Fprintf(&b, "URL: %s\n", p.URL)
 	}

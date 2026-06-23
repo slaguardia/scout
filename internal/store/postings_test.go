@@ -118,12 +118,17 @@ func TestNextUpClearsWhenOutreachGoesOut(t *testing.T) {
 		t.Fatalf("mark lost on unrelated tracking write: next_up=%v err=%v", p.NextUp, err)
 	}
 
-	// Logging the outreach (+1) completes the to-do — the mark clears.
-	p, err = db.UpdatePostingTracking(p.ID, PostingTracking{
-		OutreachCount: 1, LastOutreachAt: "2026-06-06",
-	})
+	// Logging outreach to a contact completes the to-do — the mark clears.
+	contact, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+	if _, err := db.LogOutreach(p.ID, contact.ID, OutreachInput{}); err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	p, err = db.readPosting(p.ID)
 	if err != nil || p.NextUp {
-		t.Fatalf("mark not cleared by outreach bump: next_up=%v err=%v", p.NextUp, err)
+		t.Fatalf("mark not cleared by logged outreach: next_up=%v err=%v", p.NextUp, err)
 	}
 
 	// Manual unqueue works too.
@@ -317,17 +322,17 @@ func TestUpdatePostingTracking(t *testing.T) {
 	}
 
 	// Full update round-trips (stage_history + outreach_status are opaque labels).
+	// Outreach count/date are derived from outreach_log (M51), not set here;
+	// contacts moved to the company-level contacts table.
 	stages := `[{"stage":"applied","date":"2026-05-22"},{"stage":"interview","date":"2026-06-10"}]`
 	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{
-		StageHistory: stages, OutreachStatus: "initial contact", OutreachCount: 2, LastOutreachAt: "2026-05-30",
-		Contacts: "  Jane Doe <jane@acme.com>, cto@acme.com  ",
+		StageHistory: stages, OutreachStatus: "initial contact",
 	})
 	if err != nil {
 		t.Fatalf("UpdatePostingTracking: %v", err)
 	}
 	if got.StageHistory != stages || got.OutreachStatus != "initial contact" ||
-		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" ||
-		got.Contacts != "Jane Doe <jane@acme.com>, cto@acme.com" { // trimmed
+		got.OutreachCount != 0 || got.LastOutreachAt != "" { // derived, no log yet
 		t.Errorf("unexpected tracking: %+v", got)
 	}
 	if cur := CurrentStage(got.StageHistory); cur != "interview" {
@@ -340,32 +345,26 @@ func TestUpdatePostingTracking(t *testing.T) {
 		t.Fatalf("clear tracking: %v", err)
 	}
 	if got.StageHistory != "" || got.OutreachStatus != "" || got.OutreachCount != 0 ||
-		got.LastOutreachAt != "" || got.Contacts != "" {
+		got.LastOutreachAt != "" {
 		t.Errorf("tracking not cleared: %+v", got)
 	}
 
-	// The jobs view carries the lifecycle columns.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{StageHistory: stages, OutreachStatus: "replied", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
+	// The jobs view carries the lifecycle columns (count/date derived = 0 / "").
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{StageHistory: stages, OutreachStatus: "replied"}); err != nil {
 		t.Fatalf("re-set tracking: %v", err)
 	}
 	rows, err := db.ListJobRows()
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
 	}
-	if r := rows[0]; r.StageHistory != stages || r.OutreachStatus != "replied" || r.OutreachCount != 1 ||
-		r.LastOutreachAt != "2026-06-02" || r.Contacts != "jane@acme.com" {
+	if r := rows[0]; r.StageHistory != stages || r.OutreachStatus != "replied" || r.OutreachCount != 0 ||
+		r.LastOutreachAt != "" {
 		t.Errorf("job row lifecycle mismatch: %+v", r)
 	}
 
-	// Validation: bad date, over-long outreach_status, negative count, unknown posting.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{LastOutreachAt: "May 22"}); err == nil || !strings.HasPrefix(err.Error(), "last_outreach_at ") {
-		t.Errorf("bad date: want last_outreach_at error, got %v", err)
-	}
+	// Validation: over-long outreach_status, unknown posting.
 	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: strings.Repeat("x", 100)}); err == nil || !strings.HasPrefix(err.Error(), "outreach_status ") {
 		t.Errorf("over-long status: want outreach_status error, got %v", err)
-	}
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachCount: -1}); err == nil || !strings.HasPrefix(err.Error(), "outreach_count ") {
-		t.Errorf("negative count: want outreach_count error, got %v", err)
 	}
 	if _, err := db.UpdatePostingTracking("no-such-posting", PostingTracking{}); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("unknown posting: want sql.ErrNoRows, got %v", err)

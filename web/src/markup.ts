@@ -169,6 +169,7 @@ export const SCOUT_MARKUP = `
   </div>
 
   <div class="table-wrap" id="jobs-view" style="display:none">
+    <div id="jobs-followup-banner" class="followup-banner" style="display:none"></div>
     <table id="jt">
       <thead>
         <tr>

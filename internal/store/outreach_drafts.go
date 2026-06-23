@@ -231,18 +231,13 @@ edited = ?, lint = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, edited, lint
 	return mustAffect(res)
 }
 
-// MarkOutreachDraftSent flips a draft to sent and, in the same transaction,
-// bumps the posting's outreach_count and stamps last_outreach_at — the send date
-// is what records the cadence. The outreach reply status stays a manual,
-// configurable label; the send doesn't touch it.
+// MarkOutreachDraftSent flips a draft to sent and stamps sent_at. Per-contact
+// outreach tracking (the count/date the jobs view derives, and the follow-up)
+// is recorded separately via LogOutreach (M51) — a draft is posting-level and
+// doesn't know which contact it went to, so the send here only marks the draft.
+// The outreach reply status stays a manual, configurable label, untouched.
 func (db *DB) MarkOutreachDraftSent(id int64) (*OutreachDraft, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	res, err := tx.Exec(`UPDATE outreach_drafts SET
+	res, err := db.Exec(`UPDATE outreach_drafts SET
 status = ?, sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 	if err != nil {
@@ -251,24 +246,12 @@ WHERE id = ? AND status != ?`, DraftSent, id, DraftSent)
 	if err := mustAffect(res); err != nil {
 		// Idempotent double-send: an already-sent draft returns itself (the
 		// panel's Mark-sent can be double-clicked); only a missing row errors.
-		if d, gErr := scanDraft(tx.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id)); gErr == nil && d.Status == DraftSent {
-			return d, tx.Commit()
+		if d, gErr := scanDraft(db.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id)); gErr == nil && d.Status == DraftSent {
+			return d, nil
 		}
 		return nil, err
 	}
-	// The "next up" queue mark is left alone — it's a manual to-do the user
-	// clears themselves (or via a +1 outreach log). The reply status is also
-	// untouched — it's a manual, configurable label.
-	if _, err := tx.Exec(`UPDATE job_postings SET
-outreach_count = outreach_count + 1, last_outreach_at = DATE('now')
-WHERE id = (SELECT posting_id FROM outreach_drafts WHERE id = ?)`, id); err != nil {
-		return nil, err
-	}
-	d, err := scanDraft(tx.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id))
-	if err != nil {
-		return nil, err
-	}
-	return d, tx.Commit()
+	return scanDraft(db.QueryRow(`SELECT `+draftCols+` FROM outreach_drafts WHERE id = ?`, id))
 }
 
 func mustAffect(res sql.Result) error {

@@ -836,26 +836,98 @@
     color: var(--fg-mute); font-size: 12.5px; margin-bottom: 12px;
   }
   .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
-  .outreach-contacts { margin-bottom: 14px; }
-  .outreach-contacts .cc-label {
-    display: block; margin-bottom: 6px;
+  .outreach-meta strong { color: var(--fg); font-weight: 600; }
+  .om-interval { display: inline-flex; align-items: center; gap: 4px; }
+  .om-interval .fu-interval { width: 52px; padding: 3px 6px; font-size: 12.5px; text-align: center; }
+
+  /* jobs-view "follow-ups due" banner */
+  .followup-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; margin: 0 0 2px;
+    background: color-mix(in srgb, var(--maybe) 12%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--maybe) 35%, var(--line));
+    border-radius: var(--r-md); font-size: 13px;
+  }
+  .followup-banner .fb-icon { font-size: 14px; }
+  .followup-banner .fb-text { color: var(--fg); }
+  .followup-banner .fb-toggle { margin-left: auto; font-size: 12.5px; padding: 4px 10px; }
+  .followup-banner.is-filtered { background: color-mix(in srgb, var(--maybe) 20%, var(--panel)); }
+
+  /* jobs-table follow-up-due badge (outreach cell) */
+  .jt-out { display: flex; align-items: center; gap: 7px; }
+  .jt-out .jt-oc { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .jt-out .jt-oc.dim { color: var(--fg-dim); }
+  .followup-badge {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    color: var(--maybe); background: color-mix(in srgb, var(--maybe) 16%, transparent);
+  }
+
+  /* contacts manager — company contacts with per-contact log + follow-ups */
+  .contacts-mgr { margin-bottom: 16px; }
+  .cc-cards { display: flex; flex-direction: column; gap: 8px; }
+  .cc-empty { font-size: 12.5px; padding: 6px 0; }
+  .contact-card {
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 10px 12px; background: var(--panel);
+  }
+  .cc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cc-name { font-weight: 600; color: var(--fg); }
+  .cc-role { font-size: 12px; color: var(--fg-mute); }
+  .cc-mail { font-size: 12px; color: var(--link); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
+  .cc-mail:hover { text-decoration: underline; }
+  .cc-acts { margin-left: auto; display: inline-flex; gap: 2px; }
+  .cc-edit, .cc-arch {
+    width: 24px; height: 24px; line-height: 1; padding: 0;
+    border: none; background: none; cursor: pointer;
+    color: var(--fg-mute); border-radius: var(--r-sm); font-size: 14px;
+  }
+  .cc-edit:hover, .cc-arch:hover { color: var(--fg); background: var(--line); }
+  .cc-status { font-size: 12.5px; color: var(--fg-mute); margin-top: 7px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .cc-status .fu-wrap { display: inline-flex; align-items: center; gap: 5px; color: var(--fg); }
+  .cc-status .fu-overdue { color: var(--maybe); font-weight: 600; }
+  .cc-status .fu-done { color: var(--yes); }
+  .fu-date { width: 138px; padding: 3px 6px; font-size: 12px; color-scheme: dark; }
+  .cc-rowacts { margin-top: 8px; }
+  .cc-log, .cc-fu-done, .cc-fu-set { font-size: 12px; padding: 3px 9px; }
+  .cc-logform, .cc-editform, .cc-addform {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    padding-top: 8px; border-top: 1px dashed var(--line);
+  }
+  .cc-logform .input, .cc-editform .input, .cc-addform .input { flex: 1 1 120px; min-width: 0; padding: 5px 9px; font-size: 13px; }
+  .cc-logform input[type="date"].input { flex: 0 0 auto; color-scheme: dark; }
+  .cc-form-actions { display: flex; gap: 6px; flex: 1 0 100%; }
+  .cc-addwrap { margin-top: 10px; }
+  .cc-addbtn { font-size: 12.5px; }
+
+  /* per-contact send history */
+  .cc-history { margin-top: 8px; }
+  .cc-history > summary {
+    cursor: pointer; font-size: 12px; color: var(--fg-mute);
+    list-style: none; user-select: none;
+  }
+  .cc-history > summary::-webkit-details-marker { display: none; }
+  .cc-history > summary:hover { color: var(--fg); }
+  .cc-entries { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .cc-entry {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--fg-mute); padding: 3px 0;
+  }
+  .cc-e-date { color: var(--fg); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .cc-e-note { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fu-mini { color: var(--fg-dim); flex: 0 0 auto; }
+  .cc-e-del {
+    margin-left: auto; flex: 0 0 auto; width: 20px; height: 20px; line-height: 1;
+    border: none; background: none; cursor: pointer; color: var(--fg-dim);
+    font-size: 15px; border-radius: var(--r-sm);
+  }
+  .cc-e-del:hover { color: var(--no); background: var(--line); }
+
+  .outreach-drafts-head {
     font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-    color: var(--fg-mute);
+    color: var(--fg-mute); margin: 4px 0 10px; padding-top: 12px;
+    border-top: 1px solid var(--line);
   }
-  /* contacts editor — position + email per row, with a remove × */
-  .cc-row {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-  }
-  .cc-row .cc-pos { flex: 0 0 38%; }
-  .cc-row .cc-email { flex: 1 1 auto; }
-  .cc-row .cc-pos, .cc-row .cc-email { min-width: 0; }
-  .cc-del {
-    flex: 0 0 22px; width: 22px; height: 22px; line-height: 1;
-    border: none; background: none; cursor: pointer; padding: 0;
-    color: var(--fg-mute); font-size: 17px; border-radius: var(--r-sm);
-  }
-  .cc-del:hover { color: var(--fg); background: var(--line); }
-  .cc-add { margin-top: 2px; font-size: 12.5px; }
 
   /* draft card — one pipeline run, by status */
   .draft-card {

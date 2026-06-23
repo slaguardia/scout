@@ -276,11 +276,17 @@ var companyChildTables1to1 = []string{"enrichment", "verdicts"}
 // so both sides' rows coexist and a plain re-point can't conflict.
 var companyChildTablesMany = []string{"verdict_trace", "job_postings", "verdict_override"}
 
+// companyChildTablesUniqueEmail hold many rows per company but carry a partial
+// UNIQUE(company_id, email) index (M51), so a fold must drop oldID's rows whose
+// email already exists at newID before re-pointing, or the re-point collides.
+var companyChildTablesUniqueEmail = []string{"contacts"}
+
 // companyChildTables is every table whose company_id FKs companies(id). A merge
 // must handle ALL of them before the old parent is deleted — a table missing
 // here would have its rows silently CASCADE-deleted (or block the delete).
 // TestCompanyChildTablesMatchSchema guards this against schema drift.
-var companyChildTables = append(append([]string{}, companyChildTables1to1...), companyChildTablesMany...)
+var companyChildTables = append(append(append([]string{},
+	companyChildTables1to1...), companyChildTablesMany...), companyChildTablesUniqueEmail...)
 
 // foldChildren re-points every child row from oldID to newID within tx, then
 // deletes the old parent (children move first so a crash never strands or
@@ -303,6 +309,21 @@ func foldChildren(tx *sql.Tx, oldID, newID string) error {
 		}
 	}
 	for _, table := range companyChildTablesMany {
+		if _, err := tx.Exec(
+			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
+		); err != nil {
+			return fmt.Errorf("repoint %s: %w", table, err)
+		}
+	}
+	// Email-unique children: drop oldID's rows whose email already lives at newID
+	// (its outreach log cascades), then re-point the rest so the unique index holds.
+	for _, table := range companyChildTablesUniqueEmail {
+		if _, err := tx.Exec(
+			`DELETE FROM `+table+` WHERE company_id = ? AND email <> '' AND email IN (SELECT email FROM `+table+` WHERE company_id = ?)`,
+			oldID, newID,
+		); err != nil {
+			return fmt.Errorf("dedup %s: %w", table, err)
+		}
 		if _, err := tx.Exec(
 			`UPDATE `+table+` SET company_id = ? WHERE company_id = ?`, newID, oldID,
 		); err != nil {
