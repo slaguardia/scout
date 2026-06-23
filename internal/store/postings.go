@@ -11,15 +11,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// cleanOutreachStatus trims the outreach reply status. The vocabulary is
-// user-configurable (the outreach_statuses setting) and "none" is empty, so the
-// column is opaque (like contacts/stage_history) — only a length bound is
-// enforced here; the UI constrains the choices. The error is prefixed
-// "outreach_status " so the web layer can map it to a 400.
-func cleanOutreachStatus(s string) (string, error) {
+// cleanStatusLabel trims a configurable status label — the outreach reply status
+// or the application stage. Both vocabularies are user-configurable settings and
+// "none" is empty, so the columns are opaque (like contacts) — only a length
+// bound is enforced here; the UI constrains the choices. The error is prefixed
+// with the field name so the web layer can map it to a 400.
+func cleanStatusLabel(field, s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) > maxStatusLabelLen {
-		return "", fmt.Errorf("outreach_status label is too long")
+		return "", fmt.Errorf("%s label is too long", field)
 	}
 	return s, nil
 }
@@ -63,14 +63,13 @@ type Posting struct {
 	Description    string `json:"description"` // full posting text, plain
 
 	// Application lifecycle — the jobs view doubles as the user's application
-	// tracker. StageHistory (M50) is the application axis: an ordered JSON array
-	// of {stage, date} entries (current stage = last entry), opaque to the
-	// backend like Contacts — the UI owns the shape and the configurable stage
-	// vocabulary. "" / "[]" = untracked. It replaced the old applied_at + response
-	// columns (collapsed into one dated, configurable stage).
-	StageHistory   string `json:"stage_history"`
-	OutreachCount  int    `json:"outreach_count"`
-	LastOutreachAt string `json:"last_outreach_at"`
+	// tracker. ApplicationStatus (M51) is the application axis: a single
+	// configurable label ("" = none), the furthest stage reached. The vocabulary
+	// lives in the application_stages setting. It replaced the M50 dated
+	// stage_history (the dates carried no weight), mirroring OutreachStatus.
+	ApplicationStatus string `json:"application_status"`
+	OutreachCount     int    `json:"outreach_count"`
+	LastOutreachAt    string `json:"last_outreach_at"`
 
 	// OutreachStatus (M48) is the reply state of the outreach — a SEPARATE axis
 	// from the application stage. A configurable label ("" = none); the
@@ -103,7 +102,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        created_at, COALESCE(captured_at, ''),
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
-       COALESCE(stage_history, ''), outreach_count, COALESCE(last_outreach_at, ''),
+       COALESCE(application_status, ''), outreach_count, COALESCE(last_outreach_at, ''),
        COALESCE(outreach_status, ''),
        COALESCE(contacts, ''), COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')`
@@ -115,7 +114,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
-		&p.StageHistory, &p.OutreachCount, &p.LastOutreachAt,
+		&p.ApplicationStatus, &p.OutreachCount, &p.LastOutreachAt,
 		&p.OutreachStatus,
 		&p.Contacts, &p.Notes, &nextUpAt,
 		&p.QuestionsStatus, &p.QuestionsAt)
@@ -287,12 +286,12 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 // the row is set to it. Empty strings clear a field; a negative OutreachCount
 // is rejected.
 type PostingTracking struct {
-	StageHistory   string `json:"stage_history"`    // JSON [{stage,date}]; opaque, UI-owned
-	OutreachCount  int    `json:"outreach_count"`   // >= 0
-	LastOutreachAt string `json:"last_outreach_at"` // "YYYY-MM-DD" or ""
-	OutreachStatus string `json:"outreach_status"`  // configurable label; "" = none
-	Contacts       string `json:"contacts"`         // JSON [{position,email}]; trimmed, opaque
-	Notes          string `json:"notes"`            // free-form, human-only; trimmed
+	ApplicationStatus string `json:"application_status"` // configurable label; "" = none
+	OutreachCount     int    `json:"outreach_count"`     // >= 0
+	LastOutreachAt    string `json:"last_outreach_at"`   // "YYYY-MM-DD" or ""
+	OutreachStatus    string `json:"outreach_status"`    // configurable label; "" = none
+	Contacts          string `json:"contacts"`           // JSON [{position,email}]; trimmed, opaque
+	Notes             string `json:"notes"`              // free-form, human-only; trimmed
 }
 
 // validTrackingDate accepts "" (unset) or a bare ISO date. Validation errors
@@ -316,7 +315,11 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	if err != nil {
 		return Posting{}, err
 	}
-	outreachStatus, err := cleanOutreachStatus(t.OutreachStatus)
+	outreachStatus, err := cleanStatusLabel("outreach_status", t.OutreachStatus)
+	if err != nil {
+		return Posting{}, err
+	}
+	applicationStatus, err := cleanStatusLabel("application_status", t.ApplicationStatus)
 	if err != nil {
 		return Posting{}, err
 	}
@@ -327,15 +330,15 @@ func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, erro
 	// A rising outreach_count means the outreach went out — the "next up"
 	// to-do mark has served its purpose, so it clears in the same write.
 	// (SET expressions see the old row, so the CASE compares old vs new.)
-	// stage_history (the application axis) and outreach_status (the reply axis)
-	// are independent — neither write touches the other. Both are opaque,
-	// UI-owned; empty stores as NULL.
+	// application_status (the application axis) and outreach_status (the reply
+	// axis) are independent — neither write touches the other. Both are
+	// configurable labels; "" stores verbatim (NOT NULL default '').
 	const q = `UPDATE job_postings SET
 	    next_up_at = CASE WHEN ? > outreach_count THEN NULL ELSE next_up_at END,
-	    stage_history = ?, outreach_count = ?, last_outreach_at = ?,
+	    application_status = ?, outreach_count = ?, last_outreach_at = ?,
 	    outreach_status = ?, contacts = ?, notes = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, t.OutreachCount, NullString(strings.TrimSpace(t.StageHistory)), t.OutreachCount, lastOutreach,
+	res, err := db.Exec(q, t.OutreachCount, applicationStatus, t.OutreachCount, lastOutreach,
 		outreachStatus, NullString(strings.TrimSpace(t.Contacts)), NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
@@ -537,13 +540,13 @@ type JobRow struct {
 	Flagged  bool   `json:"flagged"`
 
 	// Application lifecycle — the tracker columns of the jobs view.
-	StageHistory   string `json:"stage_history"` // application axis (M50): JSON [{stage,date}], current = last
-	OutreachCount  int    `json:"outreach_count"`
-	LastOutreachAt string `json:"last_outreach_at"`
-	OutreachStatus string `json:"outreach_status"` // reply axis (M48): configurable label, "" = none
-	Contacts       string `json:"contacts"`        // outreach contacts (M24)
-	Notes          string `json:"notes"`           // free-form, human-only posting notes
-	NextUp         bool   `json:"next_up"`         // queued "next up for outreach" (M27)
+	ApplicationStatus string `json:"application_status"` // application axis (M51): configurable label, "" = none
+	OutreachCount     int    `json:"outreach_count"`
+	LastOutreachAt    string `json:"last_outreach_at"`
+	OutreachStatus    string `json:"outreach_status"` // reply axis (M48): configurable label, "" = none
+	Contacts          string `json:"contacts"`        // outreach contacts (M24)
+	Notes             string `json:"notes"`           // free-form, human-only posting notes
+	NextUp            bool   `json:"next_up"`         // queued "next up for outreach" (M27)
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
 	// posting ("" when none) — drives the jobs-table "draft ready" badge so
@@ -570,7 +573,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.department, ''), COALESCE(p.comp_range, ''), COALESCE(p.description, ''),
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
-       COALESCE(p.stage_history, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
+       COALESCE(p.application_status, ''), p.outreach_count, COALESCE(p.last_outreach_at, ''),
        COALESCE(p.outreach_status, ''),
        COALESCE(p.contacts, ''), COALESCE(p.notes, ''),
        COALESCE((SELECT od.status FROM outreach_drafts od
@@ -596,7 +599,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Department, &r.CompRange, &r.Description,
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
-			&r.StageHistory, &r.OutreachCount, &r.LastOutreachAt,
+			&r.ApplicationStatus, &r.OutreachCount, &r.LastOutreachAt,
 			&r.OutreachStatus,
 			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus); err != nil {
 			return nil, err

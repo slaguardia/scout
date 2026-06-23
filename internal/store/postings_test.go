@@ -312,47 +312,43 @@ func TestUpdatePostingTracking(t *testing.T) {
 	}
 
 	// Fresh posting starts blank.
-	if p.StageHistory != "" || p.OutreachCount != 0 || p.LastOutreachAt != "" || p.OutreachStatus != "" {
+	if p.ApplicationStatus != "" || p.OutreachCount != 0 || p.LastOutreachAt != "" || p.OutreachStatus != "" {
 		t.Errorf("expected blank lifecycle, got %+v", p)
 	}
 
-	// Full update round-trips (stage_history + outreach_status are opaque labels).
-	stages := `[{"stage":"applied","date":"2026-05-22"},{"stage":"interview","date":"2026-06-10"}]`
+	// Full update round-trips (application_status + outreach_status are configurable labels).
 	got, err := db.UpdatePostingTracking(p.ID, PostingTracking{
-		StageHistory: stages, OutreachStatus: "initial contact", OutreachCount: 2, LastOutreachAt: "2026-05-30",
+		ApplicationStatus: "interview", OutreachStatus: "initial contact", OutreachCount: 2, LastOutreachAt: "2026-05-30",
 		Contacts: "  Jane Doe <jane@acme.com>, cto@acme.com  ",
 	})
 	if err != nil {
 		t.Fatalf("UpdatePostingTracking: %v", err)
 	}
-	if got.StageHistory != stages || got.OutreachStatus != "initial contact" ||
+	if got.ApplicationStatus != "interview" || got.OutreachStatus != "initial contact" ||
 		got.OutreachCount != 2 || got.LastOutreachAt != "2026-05-30" ||
 		got.Contacts != "Jane Doe <jane@acme.com>, cto@acme.com" { // trimmed
 		t.Errorf("unexpected tracking: %+v", got)
 	}
-	if cur := CurrentStage(got.StageHistory); cur != "interview" {
-		t.Errorf("current stage = %q, want interview", cur)
-	}
 
-	// Clearing works (stage history + status reset).
+	// Clearing works (application + outreach status reset).
 	got, err = db.UpdatePostingTracking(p.ID, PostingTracking{})
 	if err != nil {
 		t.Fatalf("clear tracking: %v", err)
 	}
-	if got.StageHistory != "" || got.OutreachStatus != "" || got.OutreachCount != 0 ||
+	if got.ApplicationStatus != "" || got.OutreachStatus != "" || got.OutreachCount != 0 ||
 		got.LastOutreachAt != "" || got.Contacts != "" {
 		t.Errorf("tracking not cleared: %+v", got)
 	}
 
 	// The jobs view carries the lifecycle columns.
-	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{StageHistory: stages, OutreachStatus: "replied", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{ApplicationStatus: "interview", OutreachStatus: "replied", OutreachCount: 1, LastOutreachAt: "2026-06-02", Contacts: "jane@acme.com"}); err != nil {
 		t.Fatalf("re-set tracking: %v", err)
 	}
 	rows, err := db.ListJobRows()
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListJobRows: rows=%d err=%v", len(rows), err)
 	}
-	if r := rows[0]; r.StageHistory != stages || r.OutreachStatus != "replied" || r.OutreachCount != 1 ||
+	if r := rows[0]; r.ApplicationStatus != "interview" || r.OutreachStatus != "replied" || r.OutreachCount != 1 ||
 		r.LastOutreachAt != "2026-06-02" || r.Contacts != "jane@acme.com" {
 		t.Errorf("job row lifecycle mismatch: %+v", r)
 	}

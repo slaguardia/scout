@@ -216,7 +216,7 @@ func TestEngineAppliedToLinkFlow(t *testing.T) {
 				return
 			}
 			io.WriteString(w, toolUseSSE("track_application",
-				`{\"posting_id\":\"`+string(m[1])+`\",\"stage\":\"applied\",\"stage_date\":\"2026-06-08\"}`))
+				`{\"posting_id\":\"`+string(m[1])+`\",\"stage\":\"applied\"}`))
 		default:
 			io.WriteString(w, endTurnStream)
 		}
@@ -246,9 +246,8 @@ func TestEngineAppliedToLinkFlow(t *testing.T) {
 	if jobs[0].Company != "Acme" {
 		t.Errorf("company = %q, want Acme", jobs[0].Company)
 	}
-	ev := store.ParseStageHistory(jobs[0].StageHistory)
-	if len(ev) != 1 || ev[0].Stage != "applied" || ev[0].Date != "2026-06-08" {
-		t.Errorf("stage history = %+v, want one 'applied' on 2026-06-08 (track_application didn't run)", ev)
+	if jobs[0].ApplicationStatus != "applied" {
+		t.Errorf("application status = %q, want 'applied' (track_application didn't run)", jobs[0].ApplicationStatus)
 	}
 }
 

@@ -336,7 +336,7 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /api/companies/{id}` | full detail |
 | `GET /api/postings` | every posting joined with its company's name/verdict/marks + application lifecycle (the **jobs view / tracker**) |
 | `POST /api/postings` | **direct posting add** (no fetch, no LLM); company resolved from the typed name and/or the link's host, `400` when neither identifies one |
-| `PUT /api/postings/{id}` | set a posting's application lifecycle (applied date, response, outreach count/date) |
+| `PUT /api/postings/{id}` | set a posting's application lifecycle (application stage, outreach status/count/date) |
 | `PUT /api/postings/{id}/next-up` | queue/unqueue a posting as **next up for outreach**; the mark self-clears when a +1 outreach is logged |
 | `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL; optional pinned `kind` + typed `fields` that win over extraction (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add dialog's pickers) |

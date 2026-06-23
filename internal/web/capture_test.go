@@ -11,7 +11,6 @@ import (
 
 	"github.com/slaguardia/scout/internal/anthropic"
 	"github.com/slaguardia/scout/internal/capture"
-	"github.com/slaguardia/scout/internal/store"
 )
 
 func postCapture(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
@@ -284,20 +283,19 @@ func TestPostingTrackingAPI(t *testing.T) {
 	}
 
 	// Happy path: tracking lands and the refreshed posting comes back.
-	stages := `[{\"stage\":\"applied\",\"date\":\"2026-05-22\"},{\"stage\":\"screening\",\"date\":\"2026-05-30\"}]`
-	rec := put(p.ID, `{"stage_history":"`+stages+`","outreach_status":"initial contact","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
+	rec := put(p.ID, `{"application_status":"screening","outreach_status":"initial contact","outreach_count":2,"last_outreach_at":"2026-05-30"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("track: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		StageHistory   string `json:"stage_history"`
-		OutreachStatus string `json:"outreach_status"`
-		OutreachCount  int    `json:"outreach_count"`
+		ApplicationStatus string `json:"application_status"`
+		OutreachStatus    string `json:"outreach_status"`
+		OutreachCount     int    `json:"outreach_count"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if store.CurrentStage(got.StageHistory) != "screening" || got.OutreachStatus != "initial contact" || got.OutreachCount != 2 {
+	if got.ApplicationStatus != "screening" || got.OutreachStatus != "initial contact" || got.OutreachCount != 2 {
 		t.Errorf("unexpected tracking payload: %+v", got)
 	}
 
@@ -321,14 +319,14 @@ func TestPostingTrackingAPI(t *testing.T) {
 	h.ServeHTTP(jrec, jr)
 	var jobs struct {
 		Rows []struct {
-			StageHistory   string `json:"stage_history"`
-			OutreachStatus string `json:"outreach_status"`
+			ApplicationStatus string `json:"application_status"`
+			OutreachStatus    string `json:"outreach_status"`
 		} `json:"rows"`
 	}
 	if err := json.Unmarshal(jrec.Body.Bytes(), &jobs); err != nil || len(jobs.Rows) != 1 {
 		t.Fatalf("jobs decode: rows=%d err=%v", len(jobs.Rows), err)
 	}
-	if store.CurrentStage(jobs.Rows[0].StageHistory) != "screening" || jobs.Rows[0].OutreachStatus != "initial contact" {
+	if jobs.Rows[0].ApplicationStatus != "screening" || jobs.Rows[0].OutreachStatus != "initial contact" {
 		t.Errorf("jobs view lifecycle mismatch: %+v", jobs.Rows[0])
 	}
 }

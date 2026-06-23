@@ -28,7 +28,7 @@ feeds the existing workflow instead of replacing it.
 **Non-goals.** Not a send/CRM tool — scout *drafts* cold outreach and
 application answers (the outreach pipeline) but **never sends or submits**, and
 it doesn't manage threads, sequences, or a contact CRM. Saved postings carry a
-lean application lifecycle (applied date, response stage, outreach count, contact
+lean application lifecycle (application stage, outreach status/count, contact
 emails; the jobs view replaced the user's external tracker).
 Not a job-board scraper — scout works on company-level data plus individually
 captured posting links, not bulk listings. Not real-time; it's a batch tool,

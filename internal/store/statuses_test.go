@@ -1,9 +1,24 @@
 package store
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 )
+
+// seedPosting creates a company + one posting and returns the posting id.
+func seedPosting(t *testing.T, db *DB) string {
+	t.Helper()
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "Solutions Engineer")
+	if err != nil {
+		t.Fatalf("add posting: %v", err)
+	}
+	return p.ID
+}
 
 func TestStatusListDefaultsAndRoundTrip(t *testing.T) {
 	db := openTestDB(t)
@@ -75,13 +90,13 @@ func TestOutreachStatusLenientAndIndependent(t *testing.T) {
 
 	// Setting a stage doesn't disturb the outreach status (separate axes).
 	got, err = db.UpdatePostingTracking(pid, PostingTracking{
-		OutreachStatus: "followed up",
-		StageHistory:   `[{"stage":"interview","date":"2026-06-10"}]`,
+		OutreachStatus:    "followed up",
+		ApplicationStatus: "interview",
 	})
 	if err != nil {
 		t.Fatalf("set stage: %v", err)
 	}
-	if got.OutreachStatus != "followed up" || CurrentStage(got.StageHistory) != "interview" {
-		t.Fatalf("axes interfered: status=%q stage=%q", got.OutreachStatus, CurrentStage(got.StageHistory))
+	if got.OutreachStatus != "followed up" || got.ApplicationStatus != "interview" {
+		t.Fatalf("axes interfered: status=%q stage=%q", got.OutreachStatus, got.ApplicationStatus)
 	}
 }

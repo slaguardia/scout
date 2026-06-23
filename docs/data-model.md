@@ -127,8 +127,8 @@ job_postings (
     fetch_status TEXT,              -- capture fetch taxonomy; NULL for manual adds
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     captured_at  DATETIME,          -- last agent-pass fill (M22)
-    applied_at       DATE,          -- application lifecycle (M23); NULL = not applied
-    response         TEXT,          -- 'screening' | 'interview' | 'offer' | 'rejected'
+    application_status TEXT NOT NULL DEFAULT '', -- application axis (M51): configurable stage label; '' = none
+    outreach_status    TEXT NOT NULL DEFAULT '', -- reply axis (M48): configurable label; '' = none
     outreach_count   INTEGER NOT NULL DEFAULT 0,
     last_outreach_at DATE,
     contacts         TEXT           -- outreach contacts (M24), free-form comma-separated
@@ -149,16 +149,18 @@ is **one-to-many**: a company can have any number of postings, so it gets its
 own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
 deterministic TEXT uuid).
 
-**Application lifecycle (M23).** The jobs view doubles as the user's
+**Application lifecycle.** The jobs view doubles as the user's
 application tracker (it replaced the external Notion one), so each posting
-carries the lifecycle columns: `applied_at` (NULL = not applied; the checkbox
-and its date are one nullable field), `response` (the furthest reply reached),
-the outreach cadence (`outreach_count` + `last_outreach_at`), and `contacts`
-(M24) — a free-form comma-separated list of outreach contacts ("Jane Doe
-<jane@acme.com>, cto@…"; the UI renders email-shaped tokens as mailto links).
-Set as full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`);
-response values are case-folded and validated, dates are bare ISO dates,
-contacts are trimmed only. Outreach *message content* stays out of scout — see
+carries two independent single-label axes — `application_status` (M51, the
+furthest application stage reached) and `outreach_status` (M48, the reply
+state) — each a configurable label ('' = none; vocabularies in the
+`application_stages` / `outreach_statuses` settings), plus the outreach cadence
+(`outreach_count` + `last_outreach_at`) and `contacts` (M24) — a free-form
+comma-separated list of outreach contacts ("Jane Doe <jane@acme.com>, cto@…";
+the UI renders email-shaped tokens as mailto links). Set as full state via
+`UpdatePostingTracking` (`PUT /api/postings/{id}`); status labels are
+length-bounded and trimmed, dates are bare ISO dates, contacts are trimmed
+only. Outreach *message content* stays out of scout — see
 the non-goals in `north-star.md`. `ListPostings` returns one company's postings newest-first;
 `ListJobRows` joins every posting with its company's name/verdict/marks plus
 the lifecycle columns for the UI's jobs view.

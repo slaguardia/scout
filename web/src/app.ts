@@ -458,7 +458,7 @@ function filteredJobs() {
   reconcileStageSel();
   const q = document.getElementById("jq").value.trim().toLowerCase();
   return state.jobs.filter(j => {
-    const stage = currentStage(j.stage_history);
+    const stage = j.application_status || "";
     if (stage && !jobStageSel.has(stage)) return false;   // no-stage rows always pass
     if (nextUpOnly && !j.next_up) return false;
     if (notReachedOnly && (j.outreach_count|0) > 0) return false;
@@ -507,7 +507,7 @@ function syncFilterCounts() {
   const stageN = {}, statusN = {};
   let nextN = 0, notReachedN = 0;
   for (const j of state.jobs) {
-    const st = currentStage(j.stage_history);
+    const st = j.application_status || "";
     if (st) stageN[st] = (stageN[st] | 0) + 1;
     const os = j.outreach_status || "";
     statusN[os] = (statusN[os] | 0) + 1;
@@ -622,38 +622,9 @@ function serializeContacts(entries) {
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
 
-// ---- application stage (configurable vocab, dated history) ----
-// stage_history is a JSON array of {stage, date}; the current stage is the last
-// entry. Opaque to the backend (like contacts) — the UI owns the shape.
-function parseStages(s) {
-  s = String(s || "").trim();
-  if (!s) return [];
-  try {
-    const a = JSON.parse(s);
-    if (Array.isArray(a)) return a
-      .map(e => ({ stage: String(e?.stage || "").trim(), date: String(e?.date || "").trim() }))
-      .filter(e => e.stage);
-  } catch { /* malformed → no stages */ }
-  return [];
-}
-function serializeStages(entries) {
-  const kept = (entries || [])
-    .map(e => ({ stage: (e.stage || "").trim(), date: (e.date || "").trim() }))
-    .filter(e => e.stage);
-  // Keep the history chronological so the current stage (last entry) is always
-  // the latest-dated one — even when an earlier stage is backfilled. Dateless
-  // entries sort last (stay "current").
-  kept.sort((a, b) => (a.date || "9999-99-99").localeCompare(b.date || "9999-99-99"));
-  return kept.length ? JSON.stringify(kept) : "";
-}
-function currentStage(stageHistory) {
-  const ev = parseStages(stageHistory);
-  return ev.length ? ev[ev.length - 1].stage : "";
-}
-function currentStageDate(stageHistory) {
-  const ev = parseStages(stageHistory);
-  return ev.length ? ev[ev.length - 1].date : "";
-}
+// ---- application stage (configurable vocab, single label) ----
+// application_status is one configurable label (the current stage), mirroring
+// outreach_status. "" = none.
 // stageOptions builds the <select> options for a stage control: "none" plus the
 // configured stages, and the posting's current stage even if it's no longer in
 // the configured list (so a vocab change never silently drops a stored value).
@@ -718,7 +689,7 @@ function contactsEditorHTML(stored) {
 // stageOrder ranks a posting by its current application stage for sorting,
 // using the configured progression order (untracked sinks to the end).
 function stageOrder(j) {
-  const s = currentStage(j.stage_history);
+  const s = j.application_status || "";
   if (!s) return state.applicationStages.length + 1;
   const i = state.applicationStages.indexOf(s);
   return i < 0 ? state.applicationStages.length : i;
@@ -754,7 +725,7 @@ function renderJobs() {
   // Say what the rejected-stage default is suppressing — a silently missing row
   // reads as a bug. The table gets a footer note with a one-click undo.
   const hiddenRej = (jobStageSel && !jobStageSel.has("rejected"))
-    ? state.jobs.filter(j => currentStage(j.stage_history) === "rejected").length : 0;
+    ? state.jobs.filter(j => (j.application_status || "") === "rejected").length : 0;
   const note = document.getElementById("jobs-hidden-note");
   note.style.display = hiddenRej ? "" : "none";
   if (hiddenRej) {
@@ -766,7 +737,7 @@ function renderJobs() {
     };
   }
   for (const j of rows) {
-    const stage = currentStage(j.stage_history), stageDate = currentStageDate(j.stage_history);
+    const stage = j.application_status || "";
     const tr = document.createElement("tr");
     tr.dataset.id = j.posting_id;        // the pursuit panel keys on the posting
     // The application-stage and outreach cells carry inline controls so the
@@ -778,7 +749,7 @@ function renderJobs() {
       `<option value="${escapeHTML(v)}"${ostatus === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
-      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage — pick a new stage to record it (dated today)">${stOpts}</select>${stageDate ? `<span class="jt-stage-date" title="when this stage was reached">${escapeHTML(stageDate)}</span>` : ""}</div></td>
+      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
       <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select><span class="jt-stepper"><button class="jt-dec" title="undo one outreach"${j.outreach_count ? "" : " disabled"}>−</button><span class="jt-oc${j.outreach_count ? "" : " dim"}">${j.outreach_count || 0}</span><button class="jt-inc" title="log one outreach (today)">+</button></span></div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
@@ -786,7 +757,7 @@ function renderJobs() {
     `;
     // Wire the inline controls to the cached row (the table re-renders from it).
     tr.querySelector(".jt-nextup").onclick = () => toggleNextUp(j, false);
-    tr.querySelector(".jt-stage-sel").onchange = e => advanceRowStage(j, e.target.value);
+    tr.querySelector(".jt-stage-sel").onchange = e => saveRowTracking(j, { application_status: e.target.value });
     tr.querySelector(".jt-ostatus").onchange = e =>
       saveRowTracking(j, { outreach_status: e.target.value });
     tr.querySelector(".jt-inc").onclick = () =>
@@ -807,18 +778,6 @@ function renderJobs() {
       openPursuit(tr.dataset.id);
     });
   });
-}
-
-// advanceRowStage records a new application stage (dated today) from the inline
-// jobs-row select. Picking the current stage or "none" is a no-op (re-render
-// resets the control) — stage history is only edited additively from the row;
-// fix dates / remove entries in the pursuit panel.
-function advanceRowStage(j, newStage) {
-  newStage = (newStage || "").trim();
-  if (!newStage || newStage === currentStage(j.stage_history)) { renderJobs(); return; }
-  const ev = parseStages(j.stage_history);
-  ev.push({ stage: newStage, date: isoToday() });
-  saveRowTracking(j, { stage_history: serializeStages(ev) });
 }
 
 // draftBadgeHTML marks a row whose latest draft is sitting in the review queue
@@ -1318,7 +1277,7 @@ function renderPursuit() {
   const prevScroll = samePosting && pbody ? pbody.scrollTop : 0;
   document.getElementById("pursuit-title").innerHTML =
     `<input class="ie ie-title" id="pursuit-title-input" placeholder="role name" value="${escapeHTML(j.title || "")}">`;
-  const stage = currentStage(j.stage_history);
+  const stage = j.application_status || "";
   document.getElementById("pursuit-pills").innerHTML =
     `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>` +
     (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
@@ -1338,9 +1297,12 @@ function renderPursuit() {
         Pipeline
       </h3>
       <div class="pipeline-grid">
-        <div class="pipeline-row pipeline-stage-row">
+        <div class="pipeline-row">
           <span class="pl-label">application</span>
-          <div class="pl-stage-wrap">${stageTimelineHTML(j)}</div>
+          <select class="input pl-appstatus" title="application stage">
+            ${stageOptions(j.application_status || "").map(([v, label]) =>
+              `<option value="${escapeHTML(v)}"${(j.application_status || "") === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
+          </select>
         </div>
         <div class="pipeline-row">
           <span class="pl-label">outreach</span>
@@ -1373,7 +1335,7 @@ function renderPursuit() {
       <div id="outreach-section"></div>
     </section>
 
-    ${currentStage(j.stage_history) ? "" : `
+    ${(j.application_status || "") ? "" : `
     <section class="pane-section">
       <h3>
         Application
@@ -1456,60 +1418,13 @@ function roleEditHTML(j) {
     </div>`;
 }
 
-// wirePipeline binds the relocated tracker controls; they PUT the posting and
-// keep state.jobs + the table in sync via savePursuitTracking.
-// stageTimelineHTML renders the application-stage history (one editable {stage,
-// date} row each, current = last) plus an "add stage" control. Wired in
-// wirePipeline; every edit re-serializes the array and saves through the
-// tracking PUT.
-function stageTimelineHTML(j) {
-  const ev = parseStages(j.stage_history);
-  const rows = ev.map((e, i) => `
-    <div class="stage-entry" data-i="${i}">
-      <span class="stage-name${i === ev.length - 1 ? " is-current" : ""}">${escapeHTML(e.stage)}</span>
-      <input type="date" class="input stage-date" value="${escapeHTML(e.date)}" title="when this stage was reached">
-      <button class="stage-del" type="button" title="remove this stage" aria-label="remove">×</button>
-    </div>`).join("");
-  const addOpts = ['<option value="">+ add stage…</option>']
-    .concat(state.applicationStages.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`)).join("");
-  return `
-    <div class="stage-timeline">${rows || '<div class="stage-empty dim">no stage yet</div>'}</div>
-    <div class="stage-add">
-      <select class="input stage-add-sel">${addOpts}</select>
-      <input type="date" class="input stage-add-date" value="${isoToday()}" title="date for the new stage">
-      <button class="btn stage-add-btn" type="button">add</button>
-    </div>`;
-}
-
+// wirePipeline binds the tracker controls; they PUT the posting and keep
+// state.jobs + the table in sync via savePursuitTracking. The application stage
+// and outreach reply status are independent single-label dropdowns.
 function wirePipeline() {
-  const j = pursuit.row;
-  // Stage timeline: edit a date, remove an entry, or add a stage — each rebuilds
-  // the array and saves. parseStages reads the current stored state each time.
-  document.querySelectorAll("#pursuit-body .stage-entry .stage-date").forEach(inp => {
-    inp.addEventListener("change", e => {
-      const i = +e.target.closest(".stage-entry").dataset.i;
-      const ev = parseStages(j.stage_history);
-      if (ev[i]) { ev[i].date = e.target.value; savePursuitTracking({ stage_history: serializeStages(ev) }); }
-    });
-  });
-  document.querySelectorAll("#pursuit-body .stage-entry .stage-del").forEach(btn => {
-    btn.addEventListener("click", e => {
-      const i = +e.target.closest(".stage-entry").dataset.i;
-      const ev = parseStages(j.stage_history);
-      ev.splice(i, 1);
-      savePursuitTracking({ stage_history: serializeStages(ev) });
-    });
-  });
-  const addBtn = document.querySelector("#pursuit-body .stage-add-btn");
-  if (addBtn) addBtn.addEventListener("click", () => {
-    const sel = document.querySelector("#pursuit-body .stage-add-sel");
-    const dateInp = document.querySelector("#pursuit-body .stage-add-date");
-    const stage = (sel.value || "").trim();
-    if (!stage) return;
-    const ev = parseStages(j.stage_history);
-    ev.push({ stage, date: dateInp.value || isoToday() });
-    savePursuitTracking({ stage_history: serializeStages(ev) });
-  });
+  const appstatus = document.querySelector("#pursuit-body .pl-appstatus");
+  if (appstatus) appstatus.addEventListener("change", e =>
+    savePursuitTracking({ application_status: e.target.value }));
   const ostatus = document.querySelector("#pursuit-body .pl-ostatus");
   if (ostatus) ostatus.addEventListener("change", e =>
     savePursuitTracking({ outreach_status: e.target.value }));
@@ -1548,7 +1463,7 @@ async function toggleNextUp(j, refreshPanel) {
 // the fresh row (or null on failure) so callers can decide what to re-render.
 async function savePostingTracking(j, patch) {
   const body = {
-    stage_history: j.stage_history || "",
+    application_status: j.application_status || "",
     outreach_count: j.outreach_count || 0,
     last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
@@ -1573,14 +1488,14 @@ async function savePostingTracking(j, patch) {
   // next_up rides along so the server-side auto-clear (+1 outreach completes
   // the queued to-do) reflects immediately.
   Object.assign(j, {
-    stage_history: fresh.stage_history,
+    application_status: fresh.application_status,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     outreach_status: fresh.outreach_status,
     contacts: fresh.contacts, notes: fresh.notes,
     next_up: fresh.next_up,
   });
   syncCompanyPosting(j.posting_id, {   // the company pane card shows the lifecycle too
-    stage_history: fresh.stage_history,
+    application_status: fresh.application_status,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     next_up: fresh.next_up,
   });
@@ -1594,7 +1509,7 @@ async function savePostingTracking(j, patch) {
 async function savePursuitNotes(v) {
   const j = pursuit.row;
   const body = {
-    stage_history: j.stage_history || "",
+    application_status: j.application_status || "",
     outreach_count: j.outreach_count || 0, last_outreach_at: j.last_outreach_at || "",
     outreach_status: j.outreach_status || "",
     contacts: j.contacts || "", notes: v,
@@ -2783,11 +2698,11 @@ function postingsListHTML(d) {
       p.source === "capture" ? "captured" : "added",
       (p.created_at || "").slice(0, 10),
     ].filter(Boolean).map(escapeHTML).join(" · ");
-    const stage = currentStage(p.stage_history), stageDate = currentStageDate(p.stage_history);
+    const stage = p.application_status || "";
     const status = [
       p.next_up ? '<span class="draft-badge db-next" style="margin-left:0" title="queued next up for outreach">next up</span>' : "",
       `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>`,
-      `<span class="pt-meta">${stage ? (stageDate ? escapeHTML(stageDate) : "tracked") : "not applied"}</span>`,
+      `<span class="pt-meta">${stage ? "tracked" : "not applied"}</span>`,
       `<span class="pt-meta">${p.outreach_count ? `${p.outreach_count} sent · last ${escapeHTML(p.last_outreach_at || "?")}` : "no outreach yet"}</span>`,
     ].filter(Boolean).join("");
     return `

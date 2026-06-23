@@ -262,7 +262,6 @@
     -webkit-appearance: none; appearance: none;
   }
   .jt-stage-sel:hover, .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
-  .jt-stage-date { font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 2px; }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
   .jt-dec, .jt-inc {
@@ -1072,27 +1071,6 @@
   .sc-5 { color: #2dd4bf; background: rgba(45,212,191,0.16);  border-color: transparent; }
   .sc-6 { color: #f472b6; background: rgba(244,114,182,0.16); border-color: transparent; }
   .sc-7 { color: #a3a3a3; background: rgba(163,163,163,0.16); border-color: transparent; }
-
-  /* ---- application-stage timeline (pursuit Pipeline) ---- */
-  .pipeline-stage-row { align-items: flex-start; }
-  .pl-stage-wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
-  .stage-timeline { display: flex; flex-direction: column; gap: 5px; }
-  .stage-entry { display: flex; align-items: center; gap: 8px; }
-  .stage-name {
-    font-size: 12px; font-weight: 600; min-width: 88px;
-    color: var(--fg-mute); text-transform: lowercase;
-  }
-  .stage-name.is-current { color: var(--link); }
-  .stage-entry .stage-date { width: 140px; }
-  .stage-del {
-    font-size: 15px; line-height: 1; cursor: pointer; padding: 0 5px;
-    background: none; border: none; color: var(--fg-faint);
-  }
-  .stage-del:hover { color: var(--no); }
-  .stage-empty { font-size: 12px; padding: 2px 0; }
-  .stage-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .stage-add .stage-add-date { width: 140px; }
-  .stage-add .btn { font-size: 12px; padding: 3px 10px; }
 
   /* ---- outreach progress bar (researching draft card) ---- */
   .draft-progress { margin-bottom: 12px; }
