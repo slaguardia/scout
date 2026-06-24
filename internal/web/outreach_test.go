@@ -19,7 +19,7 @@ import (
 // fakeOutreachRunner records draft ids without running anything.
 type fakeOutreachRunner struct{ started []int64 }
 
-func (f *fakeOutreachRunner) Draft(id int64) { f.started = append(f.started, id) }
+func (f *fakeOutreachRunner) Draft(id int64, _ bool) { f.started = append(f.started, id) }
 
 const seedTemplate = "Subject: [Name] | intro — {{role}}\n\nHi [Name],\n\n" +
 	"{{hook: one true thing about {{company}}}}\n\nI spent five years at Globex.\n\nThanks,\nAlex"
