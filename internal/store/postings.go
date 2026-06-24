@@ -10,15 +10,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// cleanOutreachStatus trims the outreach reply status. The vocabulary is
-// user-configurable (the outreach_statuses setting) and "none" is empty, so the
-// column is opaque (like contacts/stage_history) — only a length bound is
-// enforced here; the UI constrains the choices. The error is prefixed
-// "outreach_status " so the web layer can map it to a 400.
-func cleanOutreachStatus(s string) (string, error) {
+// cleanStatusLabel trims a configurable status label — the outreach reply status
+// or the application stage. Both vocabularies are user-configurable settings and
+// "none" is empty, so the columns are opaque (like contacts) — only a length
+// bound is enforced here; the UI constrains the choices. The error is prefixed
+// with the field name so the web layer can map it to a 400.
+func cleanStatusLabel(field, s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) > maxStatusLabelLen {
-		return "", fmt.Errorf("outreach_status label is too long")
+		return "", fmt.Errorf("%s label is too long", field)
 	}
 	return s, nil
 }
@@ -62,16 +62,15 @@ type Posting struct {
 	Description    string `json:"description"` // full posting text, plain
 
 	// Application lifecycle — the jobs view doubles as the user's application
-	// tracker. StageHistory (M50) is the application axis: an ordered JSON array
-	// of {stage, date} entries (current stage = last entry), opaque to the
-	// backend like Contacts — the UI owns the shape and the configurable stage
-	// vocabulary. "" / "[]" = untracked. It replaced the old applied_at + response
-	// columns (collapsed into one dated, configurable stage).
-	StageHistory string `json:"stage_history"`
+	// tracker. ApplicationStatus (M51) is the application axis: a single
+	// configurable label ("" = none), the furthest stage reached. The vocabulary
+	// lives in the application_stages setting. It replaced the M50 dated
+	// stage_history (the dates carried no weight), mirroring OutreachStatus.
+	ApplicationStatus string `json:"application_status"`
 
 	// OutreachCount / LastOutreachAt are DERIVED (read-only) from outreach_log
-	// (M51) — the per-contact send is the source of truth. Count = number of
-	// logged sends; LastOutreachAt = the most recent send date ("" when none).
+	// (M51 contact tracking) — the per-contact send is the source of truth. Count
+	// = number of logged sends; LastOutreachAt = the most recent send date.
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
@@ -101,7 +100,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        created_at, COALESCE(captured_at, ''),
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
-       COALESCE(stage_history, ''),
+       COALESCE(application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = job_postings.id),
        COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
        COALESCE(outreach_status, ''),
@@ -115,7 +114,7 @@ func scanPosting(row interface{ Scan(...any) error }) (Posting, error) {
 		&p.Source, &p.FetchStatus, &p.CreatedAt, &p.CapturedAt,
 		&p.PostedAt, &p.EmploymentType, &p.WorkplaceType,
 		&p.Department, &p.CompRange, &p.Description,
-		&p.StageHistory, &p.OutreachCount, &p.LastOutreachAt,
+		&p.ApplicationStatus, &p.OutreachCount, &p.LastOutreachAt,
 		&p.OutreachStatus,
 		&p.Notes, &nextUpAt,
 		&p.QuestionsStatus, &p.QuestionsAt)
@@ -284,31 +283,37 @@ func (db *DB) UpsertCapturedPosting(p CapturedPosting) (Posting, bool, error) {
 
 // PostingTracking is the application-lifecycle payload for one posting. All
 // fields are full-state (not deltas): the UI sends the complete picture and
-// the row is set to it. Empty strings clear a field.
+// the row is set to it. Empty strings clear a field. Outreach count/date are
+// derived from outreach_log (M51) and contacts live in the contacts table, so
+// neither is set here.
 type PostingTracking struct {
-	StageHistory   string `json:"stage_history"`   // JSON [{stage,date}]; opaque, UI-owned
-	OutreachStatus string `json:"outreach_status"` // configurable label; "" = none
-	Notes          string `json:"notes"`           // free-form, human-only; trimmed
+	ApplicationStatus string `json:"application_status"` // configurable label; "" = none
+	OutreachStatus    string `json:"outreach_status"`    // configurable label; "" = none
+	Notes             string `json:"notes"`              // free-form, human-only; trimmed
 }
 
 // UpdatePostingTracking sets a posting's application-lifecycle fields and
 // returns the refreshed row. Returns sql.ErrNoRows for an unknown posting;
 // validation errors carry the offending field's name as a prefix.
 func (db *DB) UpdatePostingTracking(id string, t PostingTracking) (Posting, error) {
-	outreachStatus, err := cleanOutreachStatus(t.OutreachStatus)
+	outreachStatus, err := cleanStatusLabel("outreach_status", t.OutreachStatus)
+	if err != nil {
+		return Posting{}, err
+	}
+	applicationStatus, err := cleanStatusLabel("application_status", t.ApplicationStatus)
 	if err != nil {
 		return Posting{}, err
 	}
 
-	// stage_history (the application axis) and outreach_status (the reply axis)
-	// are independent — neither write touches the other. Both are opaque,
-	// UI-owned; empty stores as NULL. Outreach count/date are derived from
-	// outreach_log (M51), not set here; "next up" clears when a send is logged.
+	// application_status (the application axis) and outreach_status (the reply
+	// axis) are independent — neither write touches the other. Both are
+	// configurable labels; "" stores verbatim (NOT NULL default ''). Outreach
+	// count/date are derived from outreach_log (M51), not set here; "next up"
+	// clears when a send is logged (see LogOutreach).
 	const q = `UPDATE job_postings SET
-	    stage_history = ?, outreach_status = ?, notes = ?
+	    application_status = ?, outreach_status = ?, notes = ?
 	 WHERE id = ?`
-	res, err := db.Exec(q, NullString(strings.TrimSpace(t.StageHistory)),
-		outreachStatus, NullString(strings.TrimSpace(t.Notes)), id)
+	res, err := db.Exec(q, applicationStatus, outreachStatus, NullString(strings.TrimSpace(t.Notes)), id)
 	if err != nil {
 		return Posting{}, fmt.Errorf("update posting tracking %s: %w", id, err)
 	}
@@ -405,8 +410,8 @@ func (db *DB) UpdatePostingCompany(id, companyID string) (Posting, error) {
 
 // SetPostingNextUp queues (next_up_at = now) or unqueues (NULL) a posting as
 // "next up for outreach", returning the refreshed row. The mark also clears on
-// its own when outreach_count bumps — see UpdatePostingTracking and
-// MarkOutreachDraftSent. Returns sql.ErrNoRows for an unknown posting.
+// its own when an outreach send is logged — see LogOutreach. Returns
+// sql.ErrNoRows for an unknown posting.
 func (db *DB) SetPostingNextUp(id string, nextUp bool) (Posting, error) {
 	q := `UPDATE job_postings SET next_up_at = NULL WHERE id = ?`
 	if nextUp {
@@ -509,17 +514,17 @@ type JobRow struct {
 	Flagged  bool   `json:"flagged"`
 
 	// Application lifecycle — the tracker columns of the jobs view.
-	StageHistory   string `json:"stage_history"`    // application axis (M50): JSON [{stage,date}], current = last
-	OutreachCount  int    `json:"outreach_count"`   // derived from outreach_log (M51): number of logged sends
-	LastOutreachAt string `json:"last_outreach_at"` // derived: most recent send date, "" when none
-	OutreachStatus string `json:"outreach_status"`  // reply axis (M48): configurable label, "" = none
-	Contacts       string `json:"contacts"`         // derived (M51): the company's contacts as JSON [{position,email}] for the table's mailto links
-	Notes          string `json:"notes"`            // free-form, human-only posting notes
-	NextUp         bool   `json:"next_up"`          // queued "next up for outreach" (M27)
+	ApplicationStatus string `json:"application_status"` // application axis (M51): configurable label, "" = none
+	OutreachCount     int    `json:"outreach_count"`     // derived from outreach_log: number of logged sends
+	LastOutreachAt    string `json:"last_outreach_at"`   // derived: most recent send date, "" when none
+	OutreachStatus    string `json:"outreach_status"`    // reply axis (M48): configurable label, "" = none
+	Contacts          string `json:"contacts"`           // derived (M51): the company's contacts as JSON [{position,email}] for the table's mailto links
+	Notes             string `json:"notes"`              // free-form, human-only posting notes
+	NextUp            bool   `json:"next_up"`            // queued "next up for outreach" (M27)
 
 	// FollowupsDue (M51) is the number of contact threads on this posting whose
-	// latest send has a pending follow-up that's due today or overdue — drives
-	// the jobs-view "follow-ups due" banner + filter.
+	// latest send has a pending follow-up due today or overdue — drives the
+	// jobs-view "follow-ups due" banner + filter.
 	FollowupsDue int `json:"followups_due"`
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
@@ -547,7 +552,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.department, ''), COALESCE(p.comp_range, ''), COALESCE(p.description, ''),
        COALESCE(v.verdict, ''), COALESCE(v.reason, ''),
        c.reviewed_at, c.flagged_at, p.next_up_at,
-       COALESCE(p.stage_history, ''),
+       COALESCE(p.application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = p.id),
        COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
        COALESCE(p.outreach_status, ''),
@@ -586,7 +591,7 @@ ORDER BY p.created_at DESC, p.rowid DESC`
 			&r.Department, &r.CompRange, &r.Description,
 			&r.Verdict, &r.Reason,
 			&reviewedAt, &flaggedAt, &nextUpAt,
-			&r.StageHistory, &r.OutreachCount, &r.LastOutreachAt,
+			&r.ApplicationStatus, &r.OutreachCount, &r.LastOutreachAt,
 			&r.OutreachStatus,
 			&r.Contacts, &r.Notes, &r.OutreachDraftStatus, &r.QuestionsStatus,
 			&r.FollowupsDue); err != nil {

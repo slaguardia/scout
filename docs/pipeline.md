@@ -336,7 +336,7 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET /api/companies/{id}` | full detail |
 | `GET /api/postings` | every posting joined with its company's name/verdict/marks + application lifecycle (the **jobs view / tracker**) |
 | `POST /api/postings` | **direct posting add** (no fetch, no LLM); company resolved from the typed name and/or the link's host, `400` when neither identifies one |
-| `PUT /api/postings/{id}` | set a posting's application lifecycle (stage history, reply status, notes); outreach count/date are derived, not set here |
+| `PUT /api/postings/{id}` | set a posting's application lifecycle (application stage, reply status, notes); outreach count/date are derived, not set here |
 | `PUT /api/postings/{id}/next-up` | queue/unqueue a posting as **next up for outreach**; the mark self-clears when an outreach send is logged |
 | `GET/POST /api/companies/{id}/contacts` | list / add a company's outreach contacts (M51) |
 | `PUT/DELETE /api/contacts/{id}` | edit / archive one contact |

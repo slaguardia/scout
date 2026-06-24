@@ -130,14 +130,14 @@ job_postings (
     posted_at TEXT, employment_type TEXT, workplace_type TEXT,
     department TEXT, comp_range TEXT, description TEXT,
     -- application lifecycle
-    stage_history    TEXT,          -- M50: JSON [{stage,date}]; current = last entry (replaced applied_at + response)
-    outreach_status  TEXT,          -- M48: reply-axis label (configurable); separate from the stage
+    application_status TEXT NOT NULL DEFAULT '', -- application axis (M51): configurable stage label; '' = none (replaced the M50 dated stage_history)
+    outreach_status    TEXT NOT NULL DEFAULT '', -- reply axis (M48): configurable label; '' = none
     notes            TEXT,          -- M31: free-form, human-only scratchpad
     next_up_at       DATETIME,      -- M27: "next up for outreach" to-do; clears when a send is logged
     questions_status TEXT, questions_at DATETIME  -- M32: application-question detection
     -- NOTE: outreach_count + last_outreach_at + the free-form contacts blob were
-    -- DROPPED in M51 — outreach is tracked per contact now (see contacts /
-    -- outreach_log below); the posting's count/last are DERIVED from outreach_log.
+    -- DROPPED in M51 (contact-tracking) — outreach is tracked per contact now (see
+    -- contacts / outreach_log below); the posting's count/last are DERIVED from outreach_log.
 )
 ```
 
@@ -156,13 +156,14 @@ own uuid `id` PK (like `runs`) plus an index on `company_id` (the company's
 deterministic TEXT uuid).
 
 **Application lifecycle.** The jobs view doubles as the user's application
-tracker (it replaced the external Notion one). The **application axis** is
-`stage_history` (M50) — a JSON array of `{stage, date}` whose last entry is the
-current stage; it replaced the old `applied_at` + `response` columns. The
-**reply axis** is `outreach_status` (M48), a configurable label. Both are opaque
-to the backend (the UI owns the shape/vocab) and set as full state via
-`UpdatePostingTracking` (`PUT /api/postings/{id}`), alongside `notes`. Outreach
-*message content* stays out of scout — see the non-goals in `north-star.md`.
+tracker (it replaced the external Notion one), so each posting carries two
+independent single-label axes — `application_status` (M51, the furthest
+application stage reached; it replaced the M50 dated `stage_history`) and
+`outreach_status` (M48, the reply state) — each a configurable label ('' = none;
+vocabularies in the `application_stages` / `outreach_statuses` settings). Set as
+full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`), alongside
+`notes`. Outreach *message content* stays out of scout — see the non-goals in
+`north-star.md`.
 
 **Per-contact outreach + follow-ups (M51).** Outreach is tracked per person, not
 as a posting-level count:

@@ -329,7 +329,7 @@ func (s *Server) companyContext(companyID string) string {
 		b.WriteString("Postings:\n")
 		for _, p := range d.Postings {
 			fmt.Fprintf(&b, "  - %s (posting_id: %s) stage:%s\n",
-				orDash(p.Title), p.ID, orDash(store.CurrentStage(p.StageHistory)))
+				orDash(p.Title), p.ID, orDash(p.ApplicationStatus))
 		}
 	}
 	return b.String()
@@ -351,7 +351,7 @@ func (s *Server) postingContext(postingID string) string {
 		fmt.Fprintf(&b, "Comp: %s\n", p.CompRange)
 	}
 	fmt.Fprintf(&b, "Application: stage:%s outreach:%d\n",
-		orDash(store.CurrentStage(p.StageHistory)), p.OutreachCount)
+		orDash(p.ApplicationStatus), p.OutreachCount)
 	if p.URL != "" {
 		fmt.Fprintf(&b, "URL: %s\n", p.URL)
 	}

@@ -207,7 +207,7 @@ func (s *Server) handleAddPosting(w http.ResponseWriter, r *http.Request) {
 
 // handlePosting updates one posting's application-lifecycle fields — the
 // tracker half of the jobs view. PUT /api/postings/{id} with the full
-// tracking state {stage_history, outreach_status, contacts, notes}; returns the
+// tracking state {application_status, outreach_status, notes}; returns the
 // refreshed posting (outreach count/date are derived from outreach_log, not set
 // here). Like the company marks, a direct write with no Runner involved.
 func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
@@ -282,7 +282,8 @@ func (s *Server) handlePosting(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			http.NotFound(w, r)
-		case strings.HasPrefix(err.Error(), "outreach_status "):
+		case strings.HasPrefix(err.Error(), "outreach_status "),
+			strings.HasPrefix(err.Error(), "application_status "):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)

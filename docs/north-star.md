@@ -28,7 +28,7 @@ feeds the existing workflow instead of replacing it.
 **Non-goals.** Not a send tool — scout *drafts* cold outreach and application
 answers (the outreach pipeline) but **never sends or submits**, and it doesn't
 run email threads or automated sequences. It does track the pursuit: saved
-postings carry a lean application lifecycle (dated stage history + reply status)
+postings carry a lean application lifecycle (application stage + reply status)
 and **per-contact outreach tracking with follow-up reminders** (M51) — the jobs
 view replaced the user's external tracker.
 Not a job-board scraper — scout works on company-level data plus individually

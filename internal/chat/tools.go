@@ -30,7 +30,7 @@ func (e *Engine) registerTools() {
 		{
 			anthropic.ToolDef{
 				Name:        "capture_link",
-				Description: "Add a job posting or company to scout from a pasted URL. Call this FIRST whenever the user says they applied to, found, or is looking at a job/company with a link — it resolves the company and posting (idempotent by URL) and returns their ids. After capturing an application, follow up with track_application to set the applied date.",
+				Description: "Add a job posting or company to scout from a pasted URL. Call this FIRST whenever the user says they applied to, found, or is looking at a job/company with a link — it resolves the company and posting (idempotent by URL) and returns their ids. After capturing an application, follow up with track_application to set the application stage.",
 				InputSchema: objSchema(map[string]any{
 					"url": strProp("The job posting or company URL the user pasted."),
 				}, "url"),
@@ -40,11 +40,10 @@ func (e *Engine) registerTools() {
 		{
 			anthropic.ToolDef{
 				Name:        "track_application",
-				Description: "Update a posting's application-tracking fields. Call this when the user reports applying or advancing a stage (heard back / screening / interview / offer / rejected). Passing `stage` records a dated entry in the posting's application-stage history (the current stage is the latest entry). Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
+				Description: "Update a posting's application-tracking fields. Call this when the user reports applying or advancing a stage (heard back / screening / interview / offer / rejected). Passing `stage` sets the posting's current application stage. Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
 				InputSchema: objSchema(map[string]any{
 					"posting_id": strProp("The posting id (from capture_link or search)."),
-					"stage":      strProp("The application stage just reached (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Appends a dated entry to the stage history; the current stage becomes this."),
-					"stage_date": strProp("Date the stage was reached, YYYY-MM-DD. Defaults to today when omitted."),
+					"stage":      strProp("The current application stage (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Set \"\" to clear it."),
 					"notes":      strProp("Free-form note on this posting."),
 				}, "posting_id"),
 			},
@@ -155,7 +154,6 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 	var in struct {
 		PostingID string  `json:"posting_id"`
 		Stage     *string `json:"stage"`
-		StageDate *string `json:"stage_date"`
 		Notes     *string `json:"notes"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -174,9 +172,12 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 		return "", fmt.Errorf("no posting with id %q (use search to find it)", in.PostingID)
 	}
 	t := store.PostingTracking{
-		StageHistory:   cur.StageHistory,
-		OutreachStatus: cur.OutreachStatus,
-		Notes:          cur.Notes,
+		ApplicationStatus: cur.ApplicationStatus,
+		OutreachStatus:    cur.OutreachStatus,
+		Notes:             cur.Notes,
+	}
+	if in.Stage != nil {
+		t.ApplicationStatus = strings.TrimSpace(*in.Stage)
 	}
 	if in.Notes != nil {
 		t.Notes = *in.Notes
@@ -188,26 +189,10 @@ func (e *Engine) toolTrackApplication(ctx context.Context, input json.RawMessage
 		}
 		return "", err // validation errors surface to the model
 	}
-	// A stage advances the application history (a dated entry), handled
-	// separately since it's append-only, not full-state.
-	if in.Stage != nil && strings.TrimSpace(*in.Stage) != "" {
-		date := ""
-		if in.StageDate != nil {
-			date = *in.StageDate
-		}
-		p, err = e.DB.AppendStageEvent(in.PostingID, *in.Stage, date)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return "", fmt.Errorf("no posting with id %q", in.PostingID)
-			}
-			return "", err
-		}
-	}
 	return jsonString(map[string]any{
 		"posting_id":     p.ID,
 		"title":          p.Title,
-		"stage":          store.CurrentStage(p.StageHistory),
-		"stage_history":  store.ParseStageHistory(p.StageHistory),
+		"stage":          p.ApplicationStatus,
 		"outreach_count": p.OutreachCount,
 		"last_outreach":  p.LastOutreachAt,
 	}), nil
@@ -261,7 +246,7 @@ func (e *Engine) toolSearch(ctx context.Context, input json.RawMessage) (string,
 				"company_id": j.CompanyID,
 				"company":    j.Company,
 				"title":      j.Title,
-				"stage":      store.CurrentStage(j.StageHistory),
+				"stage":      j.ApplicationStatus,
 			})
 		}
 	}
@@ -290,7 +275,7 @@ func (e *Engine) toolGetCompany(ctx context.Context, input json.RawMessage) (str
 	for _, p := range d.Postings {
 		postings = append(postings, map[string]any{
 			"posting_id": p.ID, "title": p.Title, "url": p.URL,
-			"stage": store.CurrentStage(p.StageHistory),
+			"stage": p.ApplicationStatus,
 		})
 	}
 	return jsonString(map[string]any{
@@ -321,8 +306,8 @@ func (e *Engine) toolGetPosting(ctx context.Context, input json.RawMessage) (str
 		"title": p.Title, "url": p.URL, "location": p.Location,
 		"employment_type": p.EmploymentType, "workplace_type": p.WorkplaceType,
 		"department": p.Department, "comp_range": p.CompRange,
-		"description": p.Description,
-		"stage":       store.CurrentStage(p.StageHistory), "stage_history": store.ParseStageHistory(p.StageHistory),
+		"description":    p.Description,
+		"stage":          p.ApplicationStatus,
 		"outreach_count": p.OutreachCount, "notes": p.Notes,
 	}), nil
 }
