@@ -264,6 +264,7 @@ export const SCOUT_MARKUP = `
     <button id="drawer-close" style="display:none">close</button>
   </div>
   <div class="drawer-log" id="drawer-log"></div>
+  <div class="drawer-summary" id="drawer-summary" hidden></div>
 </div>
 
 <!-- editor modal -->
