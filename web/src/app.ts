@@ -332,7 +332,7 @@ function companyRowCells(r) {
       <td data-col="hc">${r.headcount || ""}</td>
       <td data-col="stage">${escapeHTML(r.stage || "")}</td>
       <td data-col="reviewed" class="muted" title="${escapeHTML(r.reviewed_at || "never reviewed")}">${r.reviewed_at ? escapeHTML(r.reviewed_at.slice(0, 10)) : "—"}</td>
-      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
+      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener" title="open website" aria-label="open website">↗</a>` : ""}</td>
     `;
 }
 
@@ -391,7 +391,7 @@ function renderList() {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
     tr.innerHTML = companyRowCells(r);
-    // The whole row opens the detail pane; clicks on the "about ↗" link or the
+    // The whole row opens the detail pane; clicks on the site ↗ link or the
     // flag button do their own thing instead (closest() guards them).
     tr.addEventListener("click", e => {
       if (e.target.closest("a, .flag-btn")) return;
