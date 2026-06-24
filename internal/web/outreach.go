@@ -20,7 +20,7 @@ import (
 // retries, and the no-send route; the web layer owns the queue discipline (one
 // active draft per posting) and the inputs-present gate.
 type OutreachRunner interface {
-	Draft(draftID int64)
+	Draft(draftID int64, skipResearch bool)
 }
 
 // handlePostingOutreach is the draft queue on one posting:
@@ -88,7 +88,9 @@ func (s *Server) handlePostingOutreach(w http.ResponseWriter, r *http.Request, p
 			}
 			return
 		}
-		s.Outreach.Draft(d.ID)
+		// ?research=0 skips the web-research stage for this draft (write straight
+		// from the template — no hooks); default runs the researcher.
+		s.Outreach.Draft(d.ID, r.URL.Query().Get("research") == "0")
 		writeJSON(w, http.StatusAccepted, map[string]any{"draft": d, "degraded": degraded})
 
 	default:

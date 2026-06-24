@@ -1580,7 +1580,8 @@ function renderOutreachSection() {
   const suppressStart = current && (isActiveStatus(current.status) || current.status === "failed");
   const draftBtn = suppressStart
     ? ""
-    : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>`;
+    : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>` +
+      `<label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`;
 
   const histBlock = history.length ? `
     <details class="draft-history" ${pursuit.openHist ? "open" : ""}>
@@ -2076,7 +2077,7 @@ function wireOutreach() {
   if (!host) return;
 
   const start = host.querySelector("#draft-start-btn");
-  if (start) start.addEventListener("click", () => startDraft());
+  if (start) start.addEventListener("click", () => startDraft(false, skipResearchChecked()));
 
   host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", () => startDraft()));
 
@@ -2107,18 +2108,29 @@ function wireOutreach() {
   if (hist) hist.addEventListener("toggle", () => { pursuit.openHist = hist.open; });
 }
 
+// skipResearchChecked reads the "skip research" box next to the start button —
+// when ticked, the draft skips the web-research stage (?research=0).
+function skipResearchChecked(): boolean {
+  const cb = document.getElementById("draft-skip-research") as HTMLInputElement | null;
+  return !!(cb && cb.checked);
+}
+
 // startDraft POSTs the draft pipeline. 202 -> show researching + poll;
 // 412 -> the missing-blocks gate with a Sync button; 503 -> quiet dev notice;
 // 409 -> reload (the active draft already exists, surface it). With
 // regenerate=true it retires the current awaiting_review/needs_work/no_hook
 // draft (kept in history) and re-runs — the way to re-draft after backfilling.
-async function startDraft(regenerate = false) {
+// skipResearch=true skips the web-research stage (?research=0).
+async function startDraft(regenerate = false, skipResearch = false) {
   const host = document.getElementById("outreach-section");
   const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn") || host.querySelector(".draft-regen-btn"));
   if (btn) btn.disabled = true;
   let resp;
   try {
-    const qs = regenerate ? "?regenerate=1" : "";
+    const params = new URLSearchParams();
+    if (regenerate) params.set("regenerate", "1");
+    if (skipResearch) params.set("research", "0");
+    const qs = params.toString() ? `?${params.toString()}` : "";
     resp = await fetch(`/api/postings/${pursuit.postingId}/outreach${qs}`, { method: "POST" });
   } catch (e) {
     toast(`draft failed: ${e.message}`);
@@ -3944,7 +3956,6 @@ const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" s
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
 const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
-const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
@@ -4021,23 +4032,6 @@ function renderCriteria() {
       act: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
     });
   }
-  // Outreach knowledge is a passive, brain-derived status row: a dot, a count
-  // note, and a clickable name that opens the read-only discovered sources. It
-  // syncs automatically from the brain, so there is no refresh action.
-  const srcs = (state.sources && state.sources.sources) || [];
-  const expN = srcs.filter(s => s.need === "experience").length;
-  const voiceN = srcs.filter(s => s.need === "voice").length;
-  const logN = srcs.filter(s => s.need === "logistics").length;
-  let kdot = "off", knote = "syncs from your brain on the next draft";
-  if (expN > 0) { kdot = "ok"; knote = `synced · ${expN} experience · ${voiceN} voice · ${logN} logistics`; }
-  else if (srcs.length > 0) { kdot = "warn"; knote = "no experience page in your brain yet"; }
-  const kname = srcs.length
-    ? '<span class="edit-link" data-act="view-sources" title="view discovered experience, voice + logistics">outreach knowledge</span>'
-    : 'outreach knowledge';
-  const knowledgeCard = critCard({
-    icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
-    desc: "Your experience, voice + logistics, synced from the brain to ground outreach and application answers.",
-  });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
   // verdict; template + pipeline prompts shape outreach).
@@ -4128,7 +4122,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${knowledgeCard}${templateCard}${followupTemplateCard}
+       ${templateCard}${followupTemplateCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4153,7 +4147,6 @@ function renderCriteria() {
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
     "edit-followup-template": () => openEditor("followup-template"),
-    "view-sources": openSourcesModal,
     "edit-anthropic-key": openKeyModal,
   };
   for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
@@ -4163,13 +4156,6 @@ function renderCriteria() {
   });
 }
 
-// loadSources fetches the discovered knowledge into state for the Criteria row.
-async function loadSources() {
-  try {
-    state.sources = await (await fetch("/api/outreach/sources")).json();
-  } catch { state.sources = null; }
-  renderCriteria();
-}
 
 // ---- Anthropic API key (Integrations card + modal) ----
 //
@@ -4574,7 +4560,6 @@ loadStats();
 loadMeta();
 loadRuns();
 loadProfile();
-loadSources();
 loadKeyState();
 loadStatusVocab(); // the configurable stage/status vocabularies drive the jobs dropdowns + filter chips
 }

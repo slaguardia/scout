@@ -135,12 +135,13 @@ func (e *Engine) ensureKnowledge(ctx context.Context) {
 
 // Draft satisfies web.OutreachRunner: it runs the pipeline in a goroutine with
 // its own background context + timeout, and returns immediately. The panel sees
-// progress by polling the draft row.
-func (e *Engine) Draft(draftID int64) {
+// progress by polling the draft row. skipResearch skips the web-research stage
+// for this one draft (the writer works from the role + experience alone).
+func (e *Engine) Draft(draftID int64, skipResearch bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), draftTimeout)
 		defer cancel()
-		if err := e.Run(ctx, draftID); err != nil {
+		if err := e.Run(ctx, draftID, skipResearch); err != nil {
 			e.log("outreach: draft %d failed: %v", draftID, err)
 		}
 	}()
@@ -149,7 +150,7 @@ func (e *Engine) Draft(draftID int64) {
 // Run executes the whole pipeline synchronously. It always leaves the draft in
 // a terminal-or-review status: a deferred catch-all flips a still-`researching`
 // row to `failed` on any early return or panic, so a crash never strands a row.
-func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
+func (e *Engine) Run(ctx context.Context, draftID int64, skipResearch bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -214,11 +215,12 @@ func (e *Engine) Run(ctx context.Context, draftID int64) (err error) {
 		}
 		e.log("outreach: draft %d JD: %s (%d chars)", draftID, jd.Status, len(jd.Text))
 
-		// web_search. Skippable: when the stage is off, the writer works from the
-		// JD + experience alone (weaker hooks, but no crash).
+		// web_search. Skippable — globally (the stage toggle) or per-draft
+		// (skipResearch, the panel's "skip research" box): the writer then works
+		// from the JD + experience alone (weaker hooks, but no crash).
 		e.setStage(draftID, stageResearch)
-		research = `{"note":"researcher stage disabled — no web research"}`
-		if e.stageEnabled("researcher") {
+		research = `{"note":"researcher skipped — no web research"}`
+		if e.stageEnabled("researcher") && !skipResearch {
 			r, rErr := e.research(ctx, company, posting.URL, jd)
 			if rErr != nil {
 				return fmt.Errorf("researcher: %w", rErr)
