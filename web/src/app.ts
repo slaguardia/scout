@@ -1683,7 +1683,6 @@ function contactCardHTML(c) {
     <div class="cc-logform" style="display:none">
       <input class="input cc-l-date" type="date" value="${isoToday()}" title="date sent">
       <textarea class="input cc-l-body" rows="5" placeholder="email body — what you sent (optional)" spellcheck="false"></textarea>
-      <input class="input cc-l-note" placeholder="note (optional)" spellcheck="false">
       <div class="cc-form-actions"><button class="btn btn-primary cc-l-save" type="button">Log</button><button class="btn cc-l-cancel" type="button">Cancel</button></div>
     </div>
     ${entries.length ? `<details class="cc-history"><summary>${entries.length} send${entries.length > 1 ? "s" : ""}</summary><div class="cc-entries">${entries.map(outreachEntryHTML).join("")}</div></details>` : ""}
@@ -1821,7 +1820,6 @@ function wireContacts() {
         contact_id: cid,
         sent_at: logForm.querySelector(".cc-l-date").value || isoToday(),
         body: logForm.querySelector(".cc-l-body").value,
-        note: logForm.querySelector(".cc-l-note").value,
       };
       const r = await contactApi("POST", `/api/postings/${pid}/outreach-log`, body);
       if (r) { toast("outreach logged"); refreshAfterContactChange(); }
