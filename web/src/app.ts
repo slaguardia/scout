@@ -332,7 +332,7 @@ function companyRowCells(r) {
       <td data-col="hc">${r.headcount || ""}</td>
       <td data-col="stage">${escapeHTML(r.stage || "")}</td>
       <td data-col="reviewed" class="muted" title="${escapeHTML(r.reviewed_at || "never reviewed")}">${r.reviewed_at ? escapeHTML(r.reviewed_at.slice(0, 10)) : "—"}</td>
-      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener">about ↗</a>` : ""}</td>
+      <td data-col="site">${r.website_url ? `<a href="${safeHref(r.website_url)}" target="_blank" rel="noopener" title="open website" aria-label="open website">↗</a>` : ""}</td>
     `;
 }
 
@@ -391,7 +391,7 @@ function renderList() {
     const tr = document.createElement("tr");
     tr.dataset.id = r.company_id;
     tr.innerHTML = companyRowCells(r);
-    // The whole row opens the detail pane; clicks on the "about ↗" link or the
+    // The whole row opens the detail pane; clicks on the site ↗ link or the
     // flag button do their own thing instead (closest() guards them).
     tr.addEventListener("click", e => {
       if (e.target.closest("a, .flag-btn")) return;
@@ -759,7 +759,7 @@ function renderJobs() {
       <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
-      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
+      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open posting" aria-label="open posting">↗</a></td>
     `;
     // Wire the inline controls to the cached row (the table re-renders from it).
     tr.querySelector(".jt-nextup").onclick = () => toggleNextUp(j, false);
