@@ -182,6 +182,7 @@ outreach_log (
     contact_id       TEXT NOT NULL FK contacts(id) ON DELETE CASCADE,
     posting_id       TEXT NOT NULL FK job_postings(id) ON DELETE CASCADE,
     sent_at          DATE NOT NULL DEFAULT (DATE('now')),
+    body             TEXT,         -- M53: the actual email sent (for the history + {{last_message}})
     note             TEXT,
     followup_due_at  DATE,         -- NULL = no follow-up wanted
     followup_done_at DATETIME,     -- NULL = still pending
@@ -202,6 +203,14 @@ Stores: `internal/store/contacts.go`. Endpoints: `GET/POST
 /api/postings/{id}/outreach-log`, `PUT/DELETE /api/outreach-log/{id}`,
 `GET/PUT /api/followup-interval`. The legacy posting-level `contacts` blob (M24)
 was backfilled into this table and dropped.
+
+**Follow-up template (M53).** A second singleton row in `outreach_template`
+(key `followup`, alongside the email template's `default`), compiled-in default
+`outreach.DefaultFollowupTemplate`. Pure `{{var}}` substitution (no LLM holes) —
+`{{contact_name}}`, `{{contact_role}}`, `{{role}}` (job title), `{{company}}`,
+`{{last_sent}}`, `{{last_message}}` (the last send's body) — rendered client-side
+for the per-contact "Follow up" copy-paste. Edited via `GET/PUT
+/api/followup-template`.
 
 `ListPostings` returns one company's postings newest-first;
 `ListJobRows` joins every posting with its company's name/verdict/marks plus

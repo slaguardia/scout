@@ -96,9 +96,17 @@ canonical port defeats that safety net — don't.
   a `contacts` table (backfilled). Everything else lives in the slide-in panel, where a **contacts
   manager** handles add/edit/archive + per-contact log + follow-up (snooze / mark
   followed-up), and the posting card has the application-stage controls
-  (`PUT /api/postings/{id}`). Endpoints: `GET/POST /api/companies/{id}/contacts`,
-  `PUT/DELETE /api/contacts/{id}`, `GET/POST /api/postings/{id}/outreach-log`,
-  `PUT/DELETE /api/outreach-log/{id}`. "Hide rejected" is on by default.
+  (`PUT /api/postings/{id}`). Each logged send records the **actual email body**
+  (`outreach_log.body`, M53), shown per-entry in the history. A **follow-up
+  template** (M53; a second singleton in `outreach_template`, default in
+  `outreach.DefaultFollowupTemplate`, edited in Settings → "follow-up template")
+  is pure `{{var}}` substitution — `{{contact_name}}`, `{{contact_role}}`,
+  `{{role}}`, `{{company}}`, `{{last_sent}}`, `{{last_message}}` (the last send's
+  body) — rendered client-side: each contacted contact's **"Follow up"** button
+  copies the filled template to the clipboard and pre-fills the log. Endpoints:
+  `GET/POST /api/companies/{id}/contacts`, `PUT/DELETE /api/contacts/{id}`,
+  `GET/POST /api/postings/{id}/outreach-log`, `PUT/DELETE /api/outreach-log/{id}`,
+  `GET/PUT /api/followup-template`. "Hide rejected" is on by default.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength

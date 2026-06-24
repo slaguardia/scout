@@ -41,6 +41,24 @@ Hi [Recipient],
 Thanks,
 Your Name`
 
+// DefaultFollowupTemplate is the compiled-in starting follow-up template (M53).
+// Unlike DefaultTemplate it has no LLM holes — it's pure variable substitution
+// the user copy-pastes when a follow-up is due. Variables: {{company}}, {{role}}
+// (the job title), {{contact_name}}, {{contact_role}}, {{last_sent}} (the date of
+// the last email to this contact) and {{last_message}} (that email's body, for
+// quoting). "Your Name" stays a placeholder the user localizes.
+const DefaultFollowupTemplate = `Subject: Following up — {{role}} at {{company}}
+
+Hi {{contact_name}},
+
+Wanted to gently follow up on my note below about the {{role}} role at {{company}} — still very interested and happy to share anything that would help. Would a quick call make sense?
+
+Thanks,
+Your Name
+
+--- my earlier note ({{last_sent}}) ---
+{{last_message}}`
+
 // TemplateOrDefault returns the user's saved template, or the compiled-in default
 // when none is saved (or on a read error — a draft never blocks on this).
 func TemplateOrDefault(db *store.DB) string {

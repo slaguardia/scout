@@ -162,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/application-stages", s.handleApplicationStages) // GET/PUT the configurable application-stage vocabulary
 	mux.HandleFunc("/api/capture", s.handleCapture)                      // POST: link-capture agent pass
 	mux.HandleFunc("/api/outreach-template", s.handleOutreachTemplate)   // GET/PUT the scout-local email template (see editor.go)
+	mux.HandleFunc("/api/followup-template", s.handleFollowupTemplate)   // GET/PUT the scout-local follow-up template (see editor.go)
 	mux.HandleFunc("/api/outreach-prompts", s.handleOutreachPromptsList) // GET the editable pipeline stages (see editor.go)
 	mux.HandleFunc("/api/outreach-prompts/", s.handleOutreachPrompt)     // GET/PUT one stage's prompt + on/off (see editor.go)
 	mux.HandleFunc("/api/outreach/", s.handleOutreach)                   // sources / refresh / drafts (see outreach.go)

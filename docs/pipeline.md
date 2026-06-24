@@ -343,6 +343,7 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET/POST /api/postings/{id}/outreach-log` | list / log per-contact outreach sends (a send auto-arms a follow-up) |
 | `PUT/DELETE /api/outreach-log/{id}` | edit (snooze / mark followed-up) / delete a logged send |
 | `GET/PUT /api/followup-interval` | the default follow-up interval in business days (0 = off) |
+| `GET/PUT /api/followup-template` | the copy-paste follow-up template (M53; `{{var}}` substitution) |
 | `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL; optional pinned `kind` + typed `fields` that win over extraction (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add dialog's pickers) |
 | `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |

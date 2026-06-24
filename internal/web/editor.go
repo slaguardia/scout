@@ -112,6 +112,42 @@ func (s *Server) handleOutreachTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// handleFollowupTemplate edits the follow-up template (M53), a second singleton
+// row alongside the email template. Pure variable substitution (no LLM holes) —
+// rendered client-side when a follow-up is due. GET returns the saved template
+// or the compiled-in default.
+func (s *Server) handleFollowupTemplate(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		content, err := s.DB.GetFollowupTemplate()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if content == "" {
+			content = outreach.DefaultFollowupTemplate
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "followup-template", "content": content})
+
+	case http.MethodPut:
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.DB.PutFollowupTemplate(body.Content); err != nil {
+			http.Error(w, "save follow-up template: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "followup-template", "content": body.Content})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // handleOutreachPromptsList lists the editable outreach pipeline stages (titles,
 // one-line descriptions, on/off + override status) for the dashboard's Pipeline
 // view. Content is fetched per-stage via handleOutreachPrompt.

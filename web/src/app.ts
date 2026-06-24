@@ -29,6 +29,7 @@ const state = {
   applicationStages: ["applied", "screening", "interview", "offer", "rejected"],
   outreachStatuses: ["initial contact", "no response", "replied", "followed up"],
   followupInterval: 5,                      // default business days to arm a follow-up (M51)
+  followupTemplate: "",                     // the follow-up email template (M53; loaded at boot, default applied server-side)
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
 };
@@ -122,6 +123,9 @@ async function loadStatusVocab() {
     }).catch(() => {}),
     fetch("/api/followup-interval").then(r => r.ok ? r.json() : null).then(d => {
       if (d && Number.isInteger(d.days)) state.followupInterval = d.days;
+    }).catch(() => {}),
+    fetch("/api/followup-template").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && typeof d.content === "string") state.followupTemplate = d.content;
     }).catch(() => {}),
   ]);
   renderFilterMenus();
@@ -1609,6 +1613,25 @@ function addBusinessDaysISO(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// renderFollowupTemplate fills the user's follow-up template with this contact +
+// the last send's variables ({{company}}, {{role}}, {{contact_name}},
+// {{contact_role}}, {{last_sent}}, {{last_message}}). Mirrors the server's bareVarRE;
+// an unknown {{token}} is left as-is so a typo stays visible.
+function renderFollowupTemplate(contact, latest) {
+  const j = pursuit.row || {};
+  const vars = {
+    company: j.company || "",
+    role: j.title || "",
+    contact_name: (contact && contact.name) || "",
+    contact_role: (contact && contact.role) || "",
+    last_sent: (latest && latest.sent_at) || "",
+    last_message: (latest && latest.body) || "",
+  };
+  return (state.followupTemplate || "").replace(
+    /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g,
+    (m, k) => (k in vars ? vars[k] : m));
+}
+
 // contactsManagerHTML renders the company contacts list with per-contact logging
 // + follow-up controls, a derived send count, and the follow-up interval knob.
 function contactsManagerHTML() {
@@ -1655,9 +1678,10 @@ function contactCardHTML(c) {
       <div class="cc-form-actions"><button class="btn btn-primary cc-e-save" type="button">Save</button><button class="btn cc-e-cancel" type="button">Cancel</button></div>
     </div>
     <div class="cc-status">${followupStatusHTML(latest)}</div>
-    <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button></div>
+    <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button>${latest ? `<button class="btn cc-followup" type="button" title="copy a follow-up email from your template and pre-fill the log">Follow up ⧉</button>` : ""}</div>
     <div class="cc-logform" style="display:none">
       <input class="input cc-l-date" type="date" value="${isoToday()}" title="date sent">
+      <textarea class="input cc-l-body" rows="5" placeholder="email body — what you sent (optional)" spellcheck="false"></textarea>
       <input class="input cc-l-note" placeholder="note (optional)" spellcheck="false">
       <div class="cc-form-actions"><button class="btn btn-primary cc-l-save" type="button">Log</button><button class="btn cc-l-cancel" type="button">Cancel</button></div>
     </div>
@@ -1682,11 +1706,16 @@ function followupStatusHTML(latest) {
 function outreachEntryHTML(e) {
   const fu = e.followup_done_at ? `<span class="fu-done">followed up</span>`
     : e.followup_due_at ? `<span class="fu-mini">↳ follow up ${escapeHTML(e.followup_due_at)}</span>` : "";
-  return `<div class="cc-entry" data-eid="${e.id}">
-      <span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
-      ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
-      ${fu}
-      <button class="cc-e-del" type="button" title="delete this send" aria-label="delete">×</button>
+  const body = e.body
+    ? `<details class="cc-e-body"><summary>email sent</summary><pre>${escapeHTML(e.body)}</pre></details>` : "";
+  return `<div class="cc-entry-wrap">
+      <div class="cc-entry" data-eid="${e.id}">
+        <span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
+        ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
+        ${fu}
+        <button class="cc-e-del" type="button" title="delete this send" aria-label="delete">×</button>
+      </div>
+      ${body}
     </div>`;
 }
 
@@ -1777,7 +1806,7 @@ function wireContacts() {
       if (r) { toast("contact removed"); refreshAfterContactChange(); }
     });
 
-    // Log outreach.
+    // Log outreach (the body field records the actual email sent).
     const logForm = card.querySelector(".cc-logform");
     card.querySelector(".cc-log").addEventListener("click", () => {
       logForm.style.display = logForm.style.display === "none" ? "" : "none";
@@ -1790,17 +1819,32 @@ function wireContacts() {
       const body = {
         contact_id: cid,
         sent_at: logForm.querySelector(".cc-l-date").value || isoToday(),
+        body: logForm.querySelector(".cc-l-body").value,
         note: logForm.querySelector(".cc-l-note").value,
       };
       const r = await contactApi("POST", `/api/postings/${pid}/outreach-log`, body);
       if (r) { toast("outreach logged"); refreshAfterContactChange(); }
     });
 
+    // Follow up: render the template (filled from this contact + the last send),
+    // copy it to the clipboard, and pre-fill the log form so sending then logging
+    // is one more click. Nothing is recorded until they hit Log.
+    const fuBtn = card.querySelector(".cc-followup");
+    if (fuBtn) fuBtn.addEventListener("click", () => {
+      const c = pursuit.contacts.find(x => x.id === cid);
+      const latest = pursuit.outreach.filter(e => e.contact_id === cid)[0] || null;
+      const text = renderFollowupTemplate(c, latest);
+      copyToClipboard(text, "follow-up copied — paste into your email");
+      logForm.style.display = "";
+      logForm.querySelector(".cc-l-body").value = text;
+      logForm.querySelector(".cc-l-date").value = isoToday();
+    });
+
     // Follow-up: snooze (date change), mark done, set from cleared. The PUT is
-    // full-state, so each carries the entry's current sent_at + note unchanged.
+    // full-state, so each carries the entry's current body + sent_at + note unchanged.
     const entryEdit = (eid, patch) => {
       const e = pursuit.outreach.find(x => String(x.id) === String(eid)) || {};
-      return { sent_at: e.sent_at || "", note: e.note || "", followup_due_at: e.followup_due_at || "", done: !!e.followup_done_at, ...patch };
+      return { sent_at: e.sent_at || "", body: e.body || "", note: e.note || "", followup_due_at: e.followup_due_at || "", done: !!e.followup_done_at, ...patch };
     };
     const fuDate = card.querySelector(".fu-date");
     if (fuDate) fuDate.addEventListener("change", async () => {
@@ -3391,6 +3435,7 @@ function isStatusListKind(kind) {
 }
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
+  if (kind === "followup-template") return "follow-up template";
   if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
@@ -3513,6 +3558,9 @@ async function saveEditor() {
   const d = await resp.json();
   if (d.taste_version) document.getElementById("editor-ver").textContent = "version " + d.taste_version;
   const wasStatusList = isStatusListKind(editorKind);
+  // Keep the in-memory follow-up template current so the per-contact "Follow up"
+  // button renders the new text without a reload.
+  if (editorKind === "followup-template") state.followupTemplate = text;
   toast(`${editorLabel(editorKind)} saved`);
   closeEditor();
   if (wasStatusList) loadStatusVocab(); // refresh the jobs-view dropdowns + filter chips
@@ -4005,6 +4053,12 @@ function renderCriteria() {
     desc: "The outreach email format — verbatim prose with fill-in holes.",
     act: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
   });
+  const followupTemplateCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" data-act="edit-followup-template" title="edit the follow-up template">follow-up template</span>',
+    desc: "Copy-paste follow-up — variables {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.",
+    act: "edit-followup-template", actIcon: PENCIL, actTitle: "edit the follow-up template", actLabel: "edit follow-up template",
+  });
   // The outreach pipeline: each stage is an editable LLM prompt (open to edit,
   // toggle on/off, or reset to default). The Writer can't be turned off.
   const PIPELINE_STAGES: [string, string, string][] = [
@@ -4074,7 +4128,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${knowledgeCard}${templateCard}
+       ${knowledgeCard}${templateCard}${followupTemplateCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4098,6 +4152,7 @@ function renderCriteria() {
     "edit-outreach-statuses": () => openEditor("outreach-statuses"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
+    "edit-followup-template": () => openEditor("followup-template"),
     "view-sources": openSourcesModal,
     "edit-anthropic-key": openKeyModal,
   };

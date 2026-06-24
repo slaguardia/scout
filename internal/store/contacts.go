@@ -224,26 +224,29 @@ type OutreachEntry struct {
 	ContactID      string `json:"contact_id"`
 	PostingID      string `json:"posting_id"`
 	SentAt         string `json:"sent_at"`
+	Body           string `json:"body"` // the actual email sent (M53); "" when not recorded
 	Note           string `json:"note"`
 	FollowupDueAt  string `json:"followup_due_at"`
 	FollowupDoneAt string `json:"followup_done_at"`
 }
 
 // OutreachInput logs a send. SentAt defaults to today. FollowupDueAt empty
-// auto-arms from the configured interval unless NoFollowup is set.
+// auto-arms from the configured interval unless NoFollowup is set. Body is the
+// email text sent (optional).
 type OutreachInput struct {
 	SentAt        string `json:"sent_at"`
+	Body          string `json:"body"`
 	Note          string `json:"note"`
 	FollowupDueAt string `json:"followup_due_at"`
 	NoFollowup    bool   `json:"no_followup"`
 }
 
-const outreachLogCols = `id, contact_id, posting_id, sent_at,
+const outreachLogCols = `id, contact_id, posting_id, sent_at, COALESCE(body, ''),
 	COALESCE(note, ''), COALESCE(followup_due_at, ''), COALESCE(followup_done_at, '')`
 
 func scanOutreachEntry(row interface{ Scan(...any) error }) (OutreachEntry, error) {
 	var e OutreachEntry
-	err := row.Scan(&e.ID, &e.ContactID, &e.PostingID, &e.SentAt, &e.Note, &e.FollowupDueAt, &e.FollowupDoneAt)
+	err := row.Scan(&e.ID, &e.ContactID, &e.PostingID, &e.SentAt, &e.Body, &e.Note, &e.FollowupDueAt, &e.FollowupDoneAt)
 	return e, err
 }
 
@@ -320,8 +323,8 @@ func (db *DB) LogOutreach(postingID, contactID string, in OutreachInput) (Outrea
 		return OutreachEntry{}, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO outreach_log (contact_id, posting_id, sent_at, note, followup_due_at)
-	 VALUES (?, ?, ?, ?, ?)`, contactID, postingID, sent, strings.TrimSpace(in.Note), dueVal)
+	res, err := tx.Exec(`INSERT INTO outreach_log (contact_id, posting_id, sent_at, body, note, followup_due_at)
+	 VALUES (?, ?, ?, ?, ?, ?)`, contactID, postingID, sent, strings.TrimSpace(in.Body), strings.TrimSpace(in.Note), dueVal)
 	if err != nil {
 		return OutreachEntry{}, fmt.Errorf("log outreach: %w", err)
 	}
@@ -367,6 +370,7 @@ func (db *DB) ListOutreachForPosting(postingID string) ([]OutreachEntry, error) 
 // (a newly-done entry is stamped now; reopening clears the stamp).
 type OutreachEntryEdit struct {
 	SentAt        string `json:"sent_at"`
+	Body          string `json:"body"`
 	Note          string `json:"note"`
 	FollowupDueAt string `json:"followup_due_at"`
 	Done          bool   `json:"done"`
@@ -391,8 +395,8 @@ func (db *DB) UpdateOutreachEntry(id int64, e OutreachEntryEdit) (OutreachEntry,
 	if e.Done {
 		doneExpr = "COALESCE(followup_done_at, CURRENT_TIMESTAMP)"
 	}
-	args := []any{strings.TrimSpace(e.Note), dueVal}
-	q := `UPDATE outreach_log SET note = ?, followup_due_at = ?, followup_done_at = ` + doneExpr
+	args := []any{strings.TrimSpace(e.Body), strings.TrimSpace(e.Note), dueVal}
+	q := `UPDATE outreach_log SET body = ?, note = ?, followup_due_at = ?, followup_done_at = ` + doneExpr
 	if sent != "" {
 		q += `, sent_at = ?`
 		args = append(args, sent)

@@ -270,3 +270,60 @@ func TestFollowupAlertsGatedByStatus(t *testing.T) {
 		t.Errorf("back to awaiting: followups_due = %d, want 1", due())
 	}
 }
+
+func TestOutreachBodyPersists(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+
+	// The sent email body is recorded and round-trips through the list.
+	e, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{Body: "Hi Jane, intro re SE", Note: "first touch"})
+	if err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	if e.Body != "Hi Jane, intro re SE" {
+		t.Fatalf("body not stored: %q", e.Body)
+	}
+	if entries, _ := db.ListOutreachForPosting(p.ID); len(entries) != 1 || entries[0].Body != "Hi Jane, intro re SE" {
+		t.Fatalf("body not in list: %+v", entries)
+	}
+
+	// A follow-up date edit carries the body unchanged (full-state edit).
+	upd, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{Body: e.Body, Note: e.Note, FollowupDueAt: e.FollowupDueAt})
+	if err != nil {
+		t.Fatalf("UpdateOutreachEntry: %v", err)
+	}
+	if upd.Body != "Hi Jane, intro re SE" {
+		t.Errorf("body wiped on edit: %q", upd.Body)
+	}
+}
+
+func TestFollowupTemplateSingleton(t *testing.T) {
+	db := openTestDB(t)
+	if c, _ := db.GetFollowupTemplate(); c != "" {
+		t.Errorf("fresh follow-up template should be empty (default applied by handler), got %q", c)
+	}
+	if err := db.PutFollowupTemplate("Hi {{contact_name}}"); err != nil {
+		t.Fatalf("PutFollowupTemplate: %v", err)
+	}
+	// Keyed apart from the email template — neither clobbers the other.
+	if err := db.PutOutreachTemplate("email body"); err != nil {
+		t.Fatalf("PutOutreachTemplate: %v", err)
+	}
+	if c, _ := db.GetFollowupTemplate(); c != "Hi {{contact_name}}" {
+		t.Errorf("follow-up template clobbered: %q", c)
+	}
+	if c, _ := db.GetOutreachTemplate(); c != "email body" {
+		t.Errorf("email template wrong: %q", c)
+	}
+}
