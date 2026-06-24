@@ -20,28 +20,42 @@ import (
 //go:embed taste_default.toml
 var DefaultTasteTOML string
 
-// Taste is the structured pre-filter rule set (parsed from the singleton's TOML).
+// Taste is the structured pre-filter rule set (parsed from the singleton's
+// TOML). The JSON tags expose the same shape to the dashboard's form editor —
+// GET returns the parsed rules, PUT accepts them and re-encodes to TOML.
 type Taste struct {
 	Location struct {
-		Allowed  []string `toml:"allowed"`
-		RemoteOK bool     `toml:"remote_ok"`
-	} `toml:"location"`
+		Allowed  []string `toml:"allowed" json:"allowed"`
+		RemoteOK bool     `toml:"remote_ok" json:"remote_ok"`
+	} `toml:"location" json:"location"`
 	Headcount struct {
-		Min int64 `toml:"min"`
-		Max int64 `toml:"max"`
-	} `toml:"headcount"`
+		Min int64 `toml:"min" json:"min"`
+		Max int64 `toml:"max" json:"max"`
+	} `toml:"headcount" json:"headcount"`
 	Verticals struct {
-		Allowed  []string `toml:"allowed"`
-		Excluded []string `toml:"excluded"`
-	} `toml:"verticals"`
+		Allowed  []string `toml:"allowed" json:"allowed"`
+		Excluded []string `toml:"excluded" json:"excluded"`
+	} `toml:"verticals" json:"verticals"`
 	FundingStage struct {
-		Allowed []string `toml:"allowed"`
-	} `toml:"funding_stage"`
+		Allowed []string `toml:"allowed" json:"allowed"`
+	} `toml:"funding_stage" json:"funding_stage"`
 
 	// Enabled is the master on/off switch, set from the DB (not the TOML) — a
 	// disabled filter passes every company. Defaults to true so a directly
 	// parsed rule set behaves like an active filter.
-	Enabled bool `toml:"-"`
+	Enabled bool `toml:"-" json:"-"`
+}
+
+// EncodeTOML serializes the rule set back to TOML — the storage format used by
+// the singleton row and the compiled-in default. The form editor uses it to
+// turn structured input back into the canonical on-disk shape. Enabled is
+// excluded (toml:"-"); the master switch is stored separately in the DB.
+func (t *Taste) EncodeTOML() (string, error) {
+	var buf strings.Builder
+	if err := toml.NewEncoder(&buf).Encode(t); err != nil {
+		return "", fmt.Errorf("encode taste: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // ParseTaste parses pre-filter rules from raw TOML text. A blank string yields

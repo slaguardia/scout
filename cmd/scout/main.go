@@ -910,7 +910,7 @@ func cmdOutreachDraft(args []string) error {
 		Brainbot: bc,
 		Log:      func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
-	if err := eng.Run(ctx, d.ID); err != nil {
+	if err := eng.Run(ctx, d.ID, false); err != nil {
 		return fmt.Errorf("outreach draft: %w", err)
 	}
 

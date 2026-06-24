@@ -242,14 +242,16 @@ func (s *Server) handleOutreachPrompt(w http.ResponseWriter, r *http.Request) {
 
 // handleTasteFilter edits the structured pre-filter rules (the old taste.toml),
 // stored in the DB (a singleton row) — a dashboard save can't clobber it and
-// git never touches it. The value is raw TOML. GET returns the saved rules or
-// the compiled-in default; PUT validates the TOML parses before saving (a
-// broken filter would silently drop every company from verdict runs) and
-// rejects it 400 otherwise. The verdict job re-reads at run time, so there is
-// no reload and no taste_version — the pre-filter is a mechanical gate, not a
-// criterion the verdict provenance hash tracks. The `enabled` flag is the
-// master on/off switch (disabled → a bulk run scores everything); the rules are
-// preserved while it's off.
+// git never touches it. Storage is TOML; the dashboard's form editor works in
+// structured JSON. GET returns both the parsed `rules` (what the form binds to)
+// and the raw `content` (the TOML), plus the master switch; PUT accepts either
+// `rules` (the form path — re-encoded to TOML) or raw `content` (legacy), and
+// validates the TOML parses before saving (a broken filter would silently drop
+// every company from verdict runs), rejecting it 400 otherwise. The verdict job
+// re-reads at run time, so there is no reload and no taste_version — the
+// pre-filter is a mechanical gate, not a criterion the verdict provenance hash
+// tracks. The `enabled` flag is the master on/off switch (disabled → a bulk run
+// scores everything); the rules are preserved while it's off.
 func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -258,21 +260,42 @@ func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if content == "" {
+		// ?default=1 serves the compiled-in default rules (for the form's
+		// Reset-to-default) without touching the saved row — nothing is
+		// overwritten until the client saves. The master switch is unaffected.
+		if content == "" || r.URL.Query().Get("default") == "1" {
 			content = filter.DefaultTasteTOML
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content, "enabled": enabled})
+		// Parse to the structured shape the form binds to. A parse failure here
+		// would mean a corrupt saved row; surface it rather than serving blanks.
+		rules, err := filter.ParseTaste(content)
+		if err != nil {
+			http.Error(w, "parse saved pre-filter: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled})
 
 	case http.MethodPut:
 		var body struct {
-			Content string `json:"content"`
-			Enabled *bool  `json:"enabled"` // pointer: omitted means "preserve current"
+			Content string        `json:"content"`         // legacy raw-TOML path
+			Rules   *filter.Taste `json:"rules,omitempty"` // form path (preferred)
+			Enabled *bool         `json:"enabled"`         // pointer: omitted means "preserve current"
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEditorBytes)).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if _, err := filter.ParseTaste(body.Content); err != nil {
+		// The form sends structured rules; re-encode them to the canonical TOML.
+		content := body.Content
+		if body.Rules != nil {
+			toml, err := body.Rules.EncodeTOML()
+			if err != nil {
+				http.Error(w, "encode pre-filter: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			content = toml
+		}
+		if _, err := filter.ParseTaste(content); err != nil {
 			http.Error(w, "invalid pre-filter TOML: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -284,11 +307,12 @@ func (s *Server) handleTasteFilter(w http.ResponseWriter, r *http.Request) {
 		if body.Enabled != nil {
 			enabled = *body.Enabled
 		}
-		if err := s.DB.PutTasteFilter(body.Content, enabled); err != nil {
+		if err := s.DB.PutTasteFilter(content, enabled); err != nil {
 			http.Error(w, "save pre-filter: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": body.Content, "enabled": enabled})
+		rules, _ := filter.ParseTaste(content)
+		writeJSON(w, http.StatusOK, map[string]any{"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

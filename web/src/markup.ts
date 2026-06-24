@@ -123,7 +123,7 @@ export const SCOUT_MARKUP = `
 
   <div class="sidebar-bottom">
     <div class="sidebar-foot">
-      <button class="doc-btn foot-btn" id="open-settings" title="Settings — criteria, playbook, email template, outreach knowledge" aria-label="settings">
+      <button class="doc-btn foot-btn" id="open-settings" title="Settings — criteria, playbook, email template" aria-label="settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
@@ -292,6 +292,75 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<!-- pre-filter rules — the structured form editor for the mechanical gate -->
+<div class="modal-scrim" id="prefilter-scrim">
+  <div class="modal modal-prefilter">
+    <div class="modal-head">
+      <div class="modal-head-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h12M4 8h8M6.5 12.5h3"/></svg>
+      </div>
+      <div class="modal-head-text">
+        <h2>Pre-filter</h2>
+        <div class="modal-head-sub">A cheap, no-LLM gate that runs <strong>before</strong> a bulk verdict run, so the paid model only scores companies worth a closer look.</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <label class="pf-master">
+        <input type="checkbox" id="pf-enabled" />
+        <span class="pf-master-text">
+          <strong>Run the pre-filter on bulk runs</strong>
+          <span class="pf-master-sub">Off → a bulk run scores every company (the rules below are kept either way).</span>
+        </span>
+      </label>
+
+      <div class="modal-note pf-intro">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>These rules only narrow <strong>bulk</strong> verdict runs. Re-scoring one company by hand always runs the LLM and ignores them. The pre-filter never deletes, hides, or stops fetching anything — it only decides who a bulk run pays the model to judge.</span>
+      </div>
+
+      <section class="pf-sec">
+        <h3 class="pf-h">Location</h3>
+        <p class="pf-help">A company passes if its location contains any of these. Add cities, regions, or “remote”.</p>
+        <div class="pf-chips" data-field="location.allowed"></div>
+        <label class="pf-check">
+          <input type="checkbox" id="pf-remote-ok" />
+          <span>Also pass companies with no location listed, or marked remote.</span>
+        </label>
+      </section>
+
+      <section class="pf-sec">
+        <h3 class="pf-h">Headcount</h3>
+        <p class="pf-help">Pass only companies within this size range. Set a bound to <strong>0</strong> for no limit; companies with no headcount data always pass.</p>
+        <div class="pf-range">
+          <label>min <input type="number" id="pf-hc-min" class="input" min="0" step="1" /></label>
+          <span class="pf-range-dash">–</span>
+          <label>max <input type="number" id="pf-hc-max" class="input" min="0" step="1" /></label>
+        </div>
+      </section>
+
+      <section class="pf-sec">
+        <h3 class="pf-h">Industry / vertical</h3>
+        <p class="pf-help">Drop companies in verticals you never want. Matching is by substring, so keep terms specific — “law” also matches “Law&nbsp;Enforcement”.</p>
+        <div class="pf-sublabel">Exclude these verticals</div>
+        <div class="pf-chips" data-field="verticals.excluded"></div>
+        <div class="pf-sublabel">Allow only these <span class="pf-sublabel-note">(leave empty to allow all)</span></div>
+        <div class="pf-chips" data-field="verticals.allowed"></div>
+      </section>
+
+      <section class="pf-sec">
+        <h3 class="pf-h">Funding stage</h3>
+        <p class="pf-help">If you list any, only companies at these stages pass. Leave empty to allow all.</p>
+        <div class="pf-chips" data-field="funding_stage.allowed"></div>
+      </section>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="pf-reset" title="discard your edits and restore the built-in default rules">Reset to default</button>
+      <button class="btn" id="pf-cancel">Cancel</button>
+      <button class="btn btn-primary" id="pf-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Anthropic API key (dashboard-configurable; stored in scout, never echoed back) -->
 <div class="modal-scrim" id="key-scrim">
   <div class="modal">
@@ -337,7 +406,7 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
-<!-- settings: criteria, playbook, email template, outreach knowledge -->
+<!-- settings: criteria, playbook, email template -->
 <div class="modal-scrim" id="settings-scrim">
   <div class="modal modal-settings">
     <div class="modal-head">

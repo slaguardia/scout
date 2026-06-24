@@ -759,7 +759,7 @@ function renderJobs() {
       <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
-      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
+      <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open posting" aria-label="open posting">↗</a></td>
     `;
     // Wire the inline controls to the cached row (the table re-renders from it).
     tr.querySelector(".jt-nextup").onclick = () => toggleNextUp(j, false);
@@ -1580,7 +1580,8 @@ function renderOutreachSection() {
   const suppressStart = current && (isActiveStatus(current.status) || current.status === "failed");
   const draftBtn = suppressStart
     ? ""
-    : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>`;
+    : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>` +
+      `<label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`;
 
   const histBlock = history.length ? `
     <details class="draft-history" ${pursuit.openHist ? "open" : ""}>
@@ -2076,7 +2077,7 @@ function wireOutreach() {
   if (!host) return;
 
   const start = host.querySelector("#draft-start-btn");
-  if (start) start.addEventListener("click", () => startDraft());
+  if (start) start.addEventListener("click", () => startDraft(false, skipResearchChecked()));
 
   host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", () => startDraft()));
 
@@ -2107,18 +2108,29 @@ function wireOutreach() {
   if (hist) hist.addEventListener("toggle", () => { pursuit.openHist = hist.open; });
 }
 
+// skipResearchChecked reads the "skip research" box next to the start button —
+// when ticked, the draft skips the web-research stage (?research=0).
+function skipResearchChecked(): boolean {
+  const cb = document.getElementById("draft-skip-research") as HTMLInputElement | null;
+  return !!(cb && cb.checked);
+}
+
 // startDraft POSTs the draft pipeline. 202 -> show researching + poll;
 // 412 -> the missing-blocks gate with a Sync button; 503 -> quiet dev notice;
 // 409 -> reload (the active draft already exists, surface it). With
 // regenerate=true it retires the current awaiting_review/needs_work/no_hook
 // draft (kept in history) and re-runs — the way to re-draft after backfilling.
-async function startDraft(regenerate = false) {
+// skipResearch=true skips the web-research stage (?research=0).
+async function startDraft(regenerate = false, skipResearch = false) {
   const host = document.getElementById("outreach-section");
   const btn = host && (host.querySelector("#draft-start-btn") || host.querySelector(".draft-retry-btn") || host.querySelector(".draft-regen-btn"));
   if (btn) btn.disabled = true;
   let resp;
   try {
-    const qs = regenerate ? "?regenerate=1" : "";
+    const params = new URLSearchParams();
+    if (regenerate) params.set("regenerate", "1");
+    if (skipResearch) params.set("research", "0");
+    const qs = params.toString() ? `?${params.toString()}` : "";
     resp = await fetch(`/api/postings/${pursuit.postingId}/outreach${qs}`, { method: "POST" });
   } catch (e) {
     toast(`draft failed: ${e.message}`);
@@ -3436,7 +3448,6 @@ function isStatusListKind(kind) {
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
   if (kind === "followup-template") return "follow-up template";
-  if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
   if (kind === "outreach-statuses") return "outreach statuses";
@@ -3453,16 +3464,16 @@ async function openEditor(kind) {
   document.getElementById("editor-title").textContent = "edit " + editorLabel(kind);
   document.getElementById("editor-text").value = "loading…";
   document.getElementById("editor-ver").textContent = "";
-  // The enable toggle shows for the pre-filter and for skippable pipeline stages
-  // (every stage but the Writer/fill). The reset button shows for pipeline stages.
+  // The enable toggle shows for skippable pipeline stages (every stage but the
+  // Writer/fill). The reset button shows for pipeline stages. (The pre-filter
+  // has its own form modal — openPrefilter — not this generic text editor.)
   const isPipeline = !!kind && kind.startsWith("outreach-prompts/");
   const pipelineStage = isPipeline ? kind.slice("outreach-prompts/".length) : "";
-  const showToggle = kind === "taste-filter" || (isPipeline && pipelineStage !== "fill");
+  const showToggle = isPipeline && pipelineStage !== "fill";
   document.getElementById("editor-toggle-row").style.display = showToggle ? "" : "none";
   document.getElementById("editor-reset").style.display = isPipeline ? "" : "none";
-  if (showToggle) document.getElementById("editor-toggle-label").textContent = kind === "taste-filter"
-    ? "Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)"
-    : "Run this stage (off → it is skipped in the pipeline)";
+  if (showToggle) document.getElementById("editor-toggle-label").textContent =
+    "Run this stage (off → it is skipped in the pipeline)";
   scrim.classList.add("open");
   try {
     const r = await fetch(`/api/${kind}`);
@@ -3489,6 +3500,98 @@ async function openEditor(kind) {
 function closeEditor() {
   document.getElementById("editor-scrim").classList.remove("open");
   editorKind = null;
+}
+
+// ---- control surface: pre-filter form ----
+//
+// The mechanical pre-filter (location / headcount / vertical / stage) is edited
+// as a structured form, not raw TOML — clearer, and it can spell out why the
+// gate exists. We hold the rules in pfRules, bind the scalar fields (remote-ok,
+// headcount) directly, and render the list fields as removable chips. Save sends
+// PUT {rules, enabled}; the server re-encodes to the canonical TOML.
+let pfRules: any = null;
+// The four substring lists, each rendered as a chip input keyed by "section.key".
+const PF_LIST_FIELDS = ["location.allowed", "verticals.excluded", "verticals.allowed", "funding_stage.allowed"];
+
+function pfList(field) {
+  const [a, b] = field.split(".");
+  return (pfRules[a] && pfRules[a][b]) || [];
+}
+function pfSetList(field, vals) {
+  const [a, b] = field.split(".");
+  (pfRules[a] = pfRules[a] || {})[b] = vals;
+}
+function renderPfChips() {
+  PF_LIST_FIELDS.forEach(field => {
+    const host = document.querySelector(`.pf-chips[data-field="${field}"]`);
+    if (!host) return;
+    host.innerHTML =
+      pfList(field).map((v, i) =>
+        `<span class="pf-chip">${escapeHTML(v)}<button class="pf-chip-x" data-field="${field}" data-i="${i}" title="remove" aria-label="remove ${escapeHTML(v)}">×</button></span>`).join("") +
+      `<input class="pf-chip-input" data-field="${field}" type="text" placeholder="type &amp; Enter…" spellcheck="false" />`;
+  });
+}
+function pfAddChip(field, raw) {
+  const v = (raw || "").trim().toLowerCase();
+  if (v) {
+    const list = pfList(field);
+    if (!list.includes(v)) pfSetList(field, [...list, v]);
+  }
+  renderPfChips();
+  (document.querySelector(`.pf-chip-input[data-field="${field}"]`) as HTMLInputElement)?.focus();
+}
+function pfRemoveChip(field, i) {
+  const vals = pfList(field).slice();
+  vals.splice(i, 1);
+  pfSetList(field, vals);
+  renderPfChips();
+}
+function pfBlank() {
+  return { location: { allowed: [], remote_ok: true }, headcount: { min: 0, max: 0 }, verticals: { allowed: [], excluded: [] }, funding_stage: { allowed: [] } };
+}
+async function openPrefilter(useDefault = false) {
+  document.getElementById("prefilter-scrim").classList.add("open");
+  try {
+    const d = await (await fetch("/api/taste-filter" + (useDefault ? "?default=1" : ""))).json();
+    pfRules = Object.assign(pfBlank(), d.rules || {});
+    pfRules.location = Object.assign({ allowed: [], remote_ok: true }, pfRules.location);
+    pfRules.headcount = Object.assign({ min: 0, max: 0 }, pfRules.headcount);
+    pfRules.verticals = Object.assign({ allowed: [], excluded: [] }, pfRules.verticals);
+    pfRules.funding_stage = Object.assign({ allowed: [] }, pfRules.funding_stage);
+    // Reset reloads only the rules; it must not silently flip the master switch.
+    if (!useDefault) (document.getElementById("pf-enabled") as HTMLInputElement).checked = d.enabled !== false;
+    (document.getElementById("pf-remote-ok") as HTMLInputElement).checked = !!pfRules.location.remote_ok;
+    (document.getElementById("pf-hc-min") as HTMLInputElement).value = String(pfRules.headcount.min || 0);
+    (document.getElementById("pf-hc-max") as HTMLInputElement).value = String(pfRules.headcount.max || 0);
+    renderPfChips();
+  } catch (e) { toast(`failed to load pre-filter: ${e.message}`); }
+}
+function closePrefilter() {
+  document.getElementById("prefilter-scrim").classList.remove("open");
+  pfRules = null;
+}
+async function savePrefilter() {
+  if (!pfRules) return;
+  pfRules.location.remote_ok = (document.getElementById("pf-remote-ok") as HTMLInputElement).checked;
+  pfRules.headcount.min = Math.max(0, parseInt((document.getElementById("pf-hc-min") as HTMLInputElement).value, 10) || 0);
+  pfRules.headcount.max = Math.max(0, parseInt((document.getElementById("pf-hc-max") as HTMLInputElement).value, 10) || 0);
+  // Fold any text left typed-but-not-entered in a chip input into its list.
+  document.querySelectorAll(".pf-chip-input").forEach((inp: any) => {
+    const v = inp.value.trim().toLowerCase();
+    if (v && !pfList(inp.dataset.field).includes(v)) pfSetList(inp.dataset.field, [...pfList(inp.dataset.field), v]);
+  });
+  const enabled = (document.getElementById("pf-enabled") as HTMLInputElement).checked;
+  let resp;
+  try {
+    resp = await fetch("/api/taste-filter", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules: pfRules, enabled }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
+  toast("pre-filter saved");
+  closePrefilter();
+  loadStats(); // refresh the criteria card's active/disabled note
 }
 
 // ---- control surface: outreach knowledge (read-only) ----
@@ -3544,7 +3647,7 @@ async function saveEditor() {
   } else {
     body = { content: text };
     const isPipelineStage = editorKind.startsWith("outreach-prompts/") && editorKind !== "outreach-prompts/fill";
-    if (editorKind === "taste-filter" || isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
+    if (isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
   }
   let resp;
   try {
@@ -3707,6 +3810,7 @@ document.addEventListener("keydown", e => {
   }
   if (document.getElementById("key-scrim").classList.contains("open")) { closeKeyModal(); return; }
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
+  if (document.getElementById("prefilter-scrim").classList.contains("open")) { closePrefilter(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
   if (document.getElementById("settings-scrim").classList.contains("open")) { closeSettings(); return; }
 });
@@ -3865,6 +3969,28 @@ document.getElementById("sources-scrim").onclick = e => {
   if (e.target.id === "sources-scrim") closeSourcesModal();
 };
 
+// pre-filter form modal: buttons + delegated chip interactions (chips re-render,
+// so add/remove are delegated on the scrim rather than bound per element).
+document.getElementById("pf-cancel").onclick = closePrefilter;
+document.getElementById("pf-save").onclick = savePrefilter;
+document.getElementById("pf-reset").onclick = () => openPrefilter(true);
+document.getElementById("prefilter-scrim").addEventListener("click", (e: any) => {
+  if (e.target.id === "prefilter-scrim") { closePrefilter(); return; }
+  const x = e.target.closest(".pf-chip-x");
+  if (x) { pfRemoveChip(x.dataset.field, parseInt(x.dataset.i, 10)); return; }
+  const chips = e.target.closest(".pf-chips"); // click bare chip area → focus its input
+  if (chips && e.target === chips) (chips.querySelector(".pf-chip-input") as HTMLInputElement)?.focus();
+});
+document.getElementById("prefilter-scrim").addEventListener("keydown", (e: any) => {
+  const inp = e.target.closest(".pf-chip-input");
+  if (!inp) return;
+  if (e.key === "Enter" || e.key === ",") { e.preventDefault(); pfAddChip(inp.dataset.field, inp.value); }
+  else if (e.key === "Backspace" && !inp.value) {
+    const list = pfList(inp.dataset.field);
+    if (list.length) pfRemoveChip(inp.dataset.field, list.length - 1);
+  }
+});
+
 document.getElementById("key-cancel").onclick = closeKeyModal;
 document.getElementById("key-save").onclick = saveKey;
 document.getElementById("key-remove").onclick = removeKey;
@@ -3944,7 +4070,6 @@ const ICON_BRIEF = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" s
 const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.2h7.2a1.6 1.6 0 0 1 1.6 1.6v8H4.6A1.6 1.6 0 0 1 3 11.2z"/><path d="M11.8 12.8h1.4v-9A1.6 1.6 0 0 0 11.6 2.4H5.4"/><path d="M5.4 5.8h3.6M5.4 8.2h3.6"/></svg>';
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
 const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
-const ICON_KNOWLEDGE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6v2M8 12.4v2M14.4 8h-2M3.6 8h-2M12.5 3.5 11 5M5 11l-1.5 1.5M12.5 12.5 11 11M5 5 3.5 3.5"/><circle cx="8" cy="8" r="2.2"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
@@ -4021,23 +4146,6 @@ function renderCriteria() {
       act: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
     });
   }
-  // Outreach knowledge is a passive, brain-derived status row: a dot, a count
-  // note, and a clickable name that opens the read-only discovered sources. It
-  // syncs automatically from the brain, so there is no refresh action.
-  const srcs = (state.sources && state.sources.sources) || [];
-  const expN = srcs.filter(s => s.need === "experience").length;
-  const voiceN = srcs.filter(s => s.need === "voice").length;
-  const logN = srcs.filter(s => s.need === "logistics").length;
-  let kdot = "off", knote = "syncs from your brain on the next draft";
-  if (expN > 0) { kdot = "ok"; knote = `synced · ${expN} experience · ${voiceN} voice · ${logN} logistics`; }
-  else if (srcs.length > 0) { kdot = "warn"; knote = "no experience page in your brain yet"; }
-  const kname = srcs.length
-    ? '<span class="edit-link" data-act="view-sources" title="view discovered experience, voice + logistics">outreach knowledge</span>'
-    : 'outreach knowledge';
-  const knowledgeCard = critCard({
-    icon: ICON_KNOWLEDGE, nameHTML: kname, dot: kdot, note: knote,
-    desc: "Your experience, voice + logistics, synced from the brain to ground outreach and application answers.",
-  });
 
   // Locally-authored configs, edited in place (playbook + pre-filter shape the
   // verdict; template + pipeline prompts shape outreach).
@@ -4077,7 +4185,7 @@ function renderCriteria() {
   const prefilterCard = critCard({
     icon: ICON_FILTER,
     nameHTML: '<span class="edit-link" data-act="edit-taste-filter" title="edit the pre-filter rules">pre-filter</span>',
-    desc: "Cheap mechanical gate before the LLM verdict — location, headcount, vertical, stage. Toggle it off in the editor to score every company.",
+    desc: "Cheap mechanical gate that narrows bulk verdict runs before the paid LLM — location, headcount, vertical, stage. Re-scoring one company by hand ignores it.",
     dot: pfOn ? "ok" : "off", note: pfOn ? "active" : "disabled — scoring everything",
     act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
   });
@@ -4128,7 +4236,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${knowledgeCard}${templateCard}${followupTemplateCard}
+       ${templateCard}${followupTemplateCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4147,13 +4255,12 @@ function renderCriteria() {
     "view-profile": () => openProfileModal(state.profile),
     "refresh-profile": refreshProfile,
     "edit-taste": () => openEditor("taste"),
-    "edit-taste-filter": () => openEditor("taste-filter"),
+    "edit-taste-filter": () => openPrefilter(),
     "edit-application-stages": () => openEditor("application-stages"),
     "edit-outreach-statuses": () => openEditor("outreach-statuses"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
     "edit-followup-template": () => openEditor("followup-template"),
-    "view-sources": openSourcesModal,
     "edit-anthropic-key": openKeyModal,
   };
   for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
@@ -4163,13 +4270,6 @@ function renderCriteria() {
   });
 }
 
-// loadSources fetches the discovered knowledge into state for the Criteria row.
-async function loadSources() {
-  try {
-    state.sources = await (await fetch("/api/outreach/sources")).json();
-  } catch { state.sources = null; }
-  renderCriteria();
-}
 
 // ---- Anthropic API key (Integrations card + modal) ----
 //
@@ -4574,7 +4674,6 @@ loadStats();
 loadMeta();
 loadRuns();
 loadProfile();
-loadSources();
 loadKeyState();
 loadStatusVocab(); // the configurable stage/status vocabularies drive the jobs dropdowns + filter chips
 }

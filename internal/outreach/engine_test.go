@@ -146,7 +146,7 @@ func TestRunHappyPath(t *testing.T) {
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -176,7 +176,7 @@ func TestRunNoSendMeansNoEmail(t *testing.T) {
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -201,7 +201,7 @@ func TestRunHonestyRetryPasses(t *testing.T) {
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -228,7 +228,7 @@ func TestRunHonestyTwiceFails(t *testing.T) {
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -259,7 +259,7 @@ func TestRunUsesSavedStagePrompts(t *testing.T) {
 		t.Fatalf("save humanizer override: %v", err)
 	}
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !strings.Contains(fake.reqs[1], fillMarker) {
@@ -281,7 +281,7 @@ func TestRunNoHolesShortCircuit(t *testing.T) {
 	seedExperience(t, db)
 	id := seedPostingDraft(t, db)
 
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -309,7 +309,7 @@ func TestRunFailsWithoutExperience(t *testing.T) {
 	eng, db := newEngine(t, fake)
 	id := seedPostingDraft(t, db) // no seedExperience
 
-	if err := eng.Run(context.Background(), id); err == nil {
+	if err := eng.Run(context.Background(), id, false); err == nil {
 		t.Fatal("Run: want error when no experience is cached")
 	}
 	d, _ := db.GetOutreachDraft(id)
@@ -340,7 +340,7 @@ func TestRunUsesStoredDescription(t *testing.T) {
 
 	var logs []string
 	eng.Log = func(s string) { logs = append(logs, s) }
-	if err := eng.Run(context.Background(), id); err != nil {
+	if err := eng.Run(context.Background(), id, false); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if got, _ := db.GetOutreachDraft(id); got.Status != store.DraftAwaitingReview {
