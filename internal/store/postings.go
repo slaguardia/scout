@@ -524,7 +524,9 @@ type JobRow struct {
 
 	// FollowupsDue (M51) is the number of contact threads on this posting whose
 	// latest send has a pending follow-up due today or overdue — drives the
-	// jobs-view "follow-ups due" banner + filter.
+	// jobs-view "follow-ups due" banner + filter. Gated to the awaiting phase:
+	// counts only while outreach_status is blank or the first configured label
+	// ("initial contact"); a reply/close-out silences the alerts (see ListJobRows).
 	FollowupsDue int `json:"followups_due"`
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
@@ -541,6 +543,15 @@ type JobRow struct {
 // ListJobRows returns every posting across all companies, newest first, for
 // the jobs view. Returns an empty (non-nil) slice when there are none.
 func (db *DB) ListJobRows() ([]JobRow, error) {
+	// Follow-up alerts (followups_due) only fire while a posting is still awaiting
+	// a reply — its outreach_status is blank or the first configured label
+	// ("initial contact"). Once it moves off that (a reply came in, or it was
+	// closed out), the ⏰ alerts go quiet. The detail panel still shows every
+	// contact's follow-up for management; this gate is only on the alert count.
+	firstStatus := ""
+	if labels, lerr := db.OutreachStatuses(); lerr == nil && len(labels) > 0 {
+		firstStatus = labels[0]
+	}
 	// The latest-draft status rides a correlated subquery (newest by id) rather
 	// than a JOIN so the existing verdicts LEFT JOIN keeps its one-row-per-posting
 	// shape — it feeds the jobs-table "draft ready" badge, nothing more.
@@ -567,6 +578,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.questions_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol
          WHERE ol.posting_id = p.id
+           AND COALESCE(p.outreach_status, '') IN ('', ?)
            AND ol.followup_due_at IS NOT NULL AND ol.followup_done_at IS NULL
            AND ol.followup_due_at <= DATE('now')
            AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
@@ -575,7 +587,7 @@ FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
 ORDER BY p.created_at DESC, p.rowid DESC`
-	rows, err := db.Query(q)
+	rows, err := db.Query(q, firstStatus)
 	if err != nil {
 		return nil, fmt.Errorf("list job rows: %w", err)
 	}

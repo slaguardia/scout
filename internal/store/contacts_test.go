@@ -183,3 +183,90 @@ func TestContactsBackfill(t *testing.T) {
 		t.Errorf("backfill not idempotent: %d contacts", len(cs))
 	}
 }
+
+func TestLogOutreachSeedsReplyStatus(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+
+	// The first logged send seeds the reply status to the first configured label.
+	if _, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{}); err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	got, err := db.readPosting(p.ID)
+	if err != nil {
+		t.Fatalf("readPosting: %v", err)
+	}
+	if got.OutreachStatus != DefaultOutreachStatuses[0] {
+		t.Fatalf("reply status not seeded: got %q, want %q", got.OutreachStatus, DefaultOutreachStatuses[0])
+	}
+
+	// A hand-set status is never overwritten by a later send.
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: "replied"}); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if _, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{}); err != nil {
+		t.Fatalf("LogOutreach 2: %v", err)
+	}
+	if got, _ = db.readPosting(p.ID); got.OutreachStatus != "replied" {
+		t.Errorf("hand-set status overwritten by a send: got %q", got.OutreachStatus)
+	}
+}
+
+func TestFollowupAlertsGatedByStatus(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+	due := func() int {
+		rows, err := db.ListJobRows()
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("ListJobRows: n=%d err=%v", len(rows), err)
+		}
+		return rows[0].FollowupsDue
+	}
+
+	// An overdue follow-up while awaiting (auto-seeded "initial contact") alerts.
+	past := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
+	if _, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{SentAt: past, FollowupDueAt: past}); err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	if due() != 1 {
+		t.Fatalf("awaiting: followups_due = %d, want 1", due())
+	}
+
+	// A reply silences the alert (status moves off the awaiting phase).
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: "replied"}); err != nil {
+		t.Fatalf("set replied: %v", err)
+	}
+	if due() != 0 {
+		t.Errorf("after reply: followups_due = %d, want 0 (alerts silenced)", due())
+	}
+
+	// Back to the awaiting phase → the alert returns.
+	if _, err := db.UpdatePostingTracking(p.ID, PostingTracking{OutreachStatus: DefaultOutreachStatuses[0]}); err != nil {
+		t.Fatalf("reset status: %v", err)
+	}
+	if due() != 1 {
+		t.Errorf("back to awaiting: followups_due = %d, want 1", due())
+	}
+}

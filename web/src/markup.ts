@@ -175,7 +175,7 @@ export const SCOUT_MARKUP = `
         <tr>
           <th data-jk="company">role · company</th>
           <th data-jk="application" data-col="application">application</th>
-          <th data-jk="outreach_count" data-col="outreach">outreach</th>
+          <th data-jk="followups_due" data-col="outreach">outreach</th>
           <th data-jk="last_outreach_at" data-col="last_outreach">last outreach</th>
           <th data-jk="contacts" data-col="contacts">contacts</th>
           <th data-col="link">link</th>

@@ -77,17 +77,23 @@ canonical port defeats that safety net — don't.
   the fetched text. Unfetchable pages report their honest fetch status and
   write nothing.
 - **The jobs view is the application tracker** (replaced the user's Notion
-  tracker): a lean table — company name, application stage (dated history),
-  outreach (a derived send count + a ⏰ follow-ups-due badge), last outreach, and
-  contacts (mailto links) — plus a **"N follow-ups due" banner** that filters to
-  postings owing a follow-up. **Outreach is tracked per contact (M51):** contacts
-  are **company-level** people (one recruiter reused across that company's roles);
+  tracker): a lean table — company name, application stage, outreach (the reply
+  status + a ⏰ follow-ups-due badge), last outreach, and contacts (mailto links)
+  — plus a **"N follow-ups due" banner** that filters to postings owing a
+  follow-up. **Outreach is tracked per contact (M51):** contacts are
+  **company-level** people (one recruiter reused across that company's roles);
   each send is logged against a contact in `outreach_log` and **auto-arms a
-  follow-up** (default 5 business days, configurable via `/api/followup-interval`),
-  surfaced when due/overdue. The old posting-level `outreach_count` +
-  `last_outreach_at` columns are gone — both are **derived** from the log; the
-  per-posting free-form `contacts` blob was promoted to a `contacts` table
-  (backfilled). Everything else lives in the slide-in panel, where a **contacts
+  follow-up** (default 5 business days ≈ a calendar week, configurable via
+  `/api/followup-interval`), surfaced when due/overdue. **The reply status
+  (`outreach_status`) drives the lifecycle:** the first logged send auto-seeds it
+  to the first configured label ("initial contact") when blank, and it **gates
+  the alerts** — follow-ups only nag while the posting is in that awaiting phase
+  (status blank or the first label); moving it off (a reply came, or it's closed
+  out) silences the ⏰ alerts (the detail panel still shows every follow-up). The
+  old posting-level `outreach_count` + `last_outreach_at` columns are gone —
+  derived from the log (count powers the "not reached out" filter; the visible
+  number was dropped); the per-posting free-form `contacts` blob was promoted to
+  a `contacts` table (backfilled). Everything else lives in the slide-in panel, where a **contacts
   manager** handles add/edit/archive + per-contact log + follow-up (snooze / mark
   followed-up), and the posting card has the application-stage controls
   (`PUT /api/postings/{id}`). Endpoints: `GET/POST /api/companies/{id}/contacts`,

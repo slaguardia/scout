@@ -681,8 +681,8 @@ function compareJobs(a, b, k) {
   }
   if (k === "application")
     return stageOrder(a) - stageOrder(b);
-  if (k === "outreach_count")
-    return (b.outreach_count|0) - (a.outreach_count|0); // most-contacted first
+  if (k === "followups_due")
+    return (b.followups_due|0) - (a.followups_due|0); // most follow-ups due first
   if (k === "created_at" || k === "last_outreach_at") {
     // Newest first on the first click; blanks sink regardless of direction.
     const av = a[k] || "", bv = b[k] || "";
@@ -752,7 +752,7 @@ function renderJobs() {
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select><span class="jt-oc${j.outreach_count ? "" : " dim"}" title="${j.outreach_count || 0} outreach send${(j.outreach_count|0) === 1 ? "" : "s"} logged across contacts">${j.outreach_count || 0}</span>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener">open ↗</a></td>
@@ -1613,10 +1613,8 @@ function addBusinessDaysISO(iso, n) {
 // + follow-up controls, a derived send count, and the follow-up interval knob.
 function contactsManagerHTML() {
   const j = pursuit.row;
-  const sent = j.outreach_count || 0;
   const meta = `<div class="outreach-meta">
-      <span><strong>${sent}</strong> send${sent === 1 ? "" : "s"}</span>
-      ${j.last_outreach_at ? `<span>· last ${escapeHTML(j.last_outreach_at)}</span>` : ""}
+      ${j.last_outreach_at ? `<span>last outreach ${escapeHTML(j.last_outreach_at)}</span>` : ""}
       <span class="om-interval" title="business days after a send to remind you to follow up (0 = off)">follow up after <input class="input fu-interval" type="number" min="0" max="90" value="${state.followupInterval}"> business days</span>
     </div>`;
   if (!pursuit.contactsLoaded) {

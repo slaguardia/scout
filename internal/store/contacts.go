@@ -290,6 +290,17 @@ func (db *DB) LogOutreach(postingID, contactID string, in OutreachInput) (Outrea
 	if sent == "" {
 		sent = time.Now().Format("2006-01-02")
 	}
+
+	// Bubble the reply status up the front of its axis: logging a send seeds the
+	// posting's outreach_status to the first configured label (e.g. "initial
+	// contact") when it's still blank — never overwriting a hand-set value. The
+	// later reply states (replied / no response) stay manual; scout can't observe
+	// them. Resolved before the tx so a settings read isn't inside it.
+	firstStatus := ""
+	if labels, lerr := db.OutreachStatuses(); lerr == nil && len(labels) > 0 {
+		firstStatus = labels[0]
+	}
+
 	var dueVal sql.NullString
 	switch {
 	case in.NoFollowup:
@@ -317,6 +328,12 @@ func (db *DB) LogOutreach(postingID, contactID string, in OutreachInput) (Outrea
 	id, _ := res.LastInsertId()
 	if _, err := tx.Exec(`UPDATE job_postings SET next_up_at = NULL WHERE id = ?`, postingID); err != nil {
 		return OutreachEntry{}, err
+	}
+	if firstStatus != "" {
+		if _, err := tx.Exec(`UPDATE job_postings SET outreach_status = ?
+		 WHERE id = ? AND COALESCE(outreach_status, '') = ''`, firstStatus, postingID); err != nil {
+			return OutreachEntry{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return OutreachEntry{}, err
