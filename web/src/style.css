@@ -1369,6 +1369,30 @@
   .drawer-log .ln-warn {
     color: var(--maybe); background: rgba(245,185,66,0.08); border-left-color: var(--maybe);
   }
+  /* the run's opening line ("scoring N companies…") reads as a section header */
+  .drawer-log .ln-head {
+    color: var(--fg); font-weight: 600; letter-spacing: 0.01em;
+    padding: 2px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
+  /* a worker picking up a company — dim, it's superseded by the result line */
+  .drawer-log .ln-pick { color: var(--fg-dim); font-style: italic; }
+  /* a scored company: pill + name + reason, mirroring the table's verdict cell */
+  .drawer-log .ln-verdict {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 3px 6px; margin: 1px -6px; border-radius: var(--r-sm);
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .drawer-log .ln-verdict:hover { background: var(--panel-3); }
+  .drawer-log .ln-verdict .pill { flex: none; }
+  .drawer-log .lv-text { flex: 1 1 auto; min-width: 0; }
+  .drawer-log .lv-name { color: var(--fg); font-weight: 500; }
+  .drawer-log .lv-reason { color: var(--fg-mute); }
+  /* end-of-run tally footer */
+  .drawer-summary {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    padding: 10px 14px; border-top: 1px solid var(--line);
+  }
+  .drawer-summary[hidden] { display: none; }
 
   /* ---- editor modal ---- */
   .modal-scrim {

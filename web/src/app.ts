@@ -3079,6 +3079,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
+// The run drawer (bottom-right) auto-dismisses a finished run after this TTL so
+// completed panels don't linger. Only the stream's "end" arms it — a running
+// job never auto-closes — and hovering the drawer pauses the countdown so the
+// log stays readable (re-armed on mouse-leave, wired once below).
+let drawerCloseTimer;
+const DRAWER_TTL_MS = 6000;
+function clearDrawerTTL() { clearTimeout(drawerCloseTimer); drawerCloseTimer = undefined; }
+function closeDrawer() { clearDrawerTTL(); document.getElementById("drawer").classList.remove("open"); }
+function armDrawerTTL() { clearDrawerTTL(); drawerCloseTimer = setTimeout(closeDrawer, DRAWER_TTL_MS); }
+
 // copyToClipboard writes text to the clipboard and toasts the outcome. Uses the
 // async Clipboard API (available on localhost/https) with an execCommand
 // fallback for the rare insecure context.
@@ -3377,6 +3387,7 @@ async function submitAdd() {
 
 function streamJob(stage, jobId, opts) {
   activeJob = jobId;
+  clearDrawerTTL(); // a fresh running job cancels any pending auto-close
   const drawer = document.getElementById("drawer");
   const log = document.getElementById("drawer-log");
   document.getElementById("drawer-title").textContent = stage;
@@ -3384,17 +3395,55 @@ function streamJob(stage, jobId, opts) {
   document.getElementById("drawer-cancel").style.display = "";
   document.getElementById("drawer-close").style.display = "none";
   log.innerHTML = "";
+  const summaryEl = document.getElementById("drawer-summary");
+  summaryEl.hidden = true; summaryEl.innerHTML = "";
   drawer.classList.add("open");
   loadRuns(); // reflect the new running row
 
+  // Tally of verdict lines seen this run, rendered as a footer when it ends.
+  const tally = { yes: 0, maybe: 0, no: 0 };
+  // A verdict line: "Company → yes — reason" (the run's substantive output).
+  const VERDICT_RE = /^(.+?)\s*→\s*(yes|maybe|no)\s*—\s*([\s\S]*)$/i;
   const es = new EventSource(`/api/jobs/${jobId}/stream`);
   const appendLine = (text, isErr) => {
     const div = document.createElement("div");
-    // "warn:"-prefixed lines (e.g. ingest collisions) get the amber gutter and a
-    // ⚠ glyph in place of the prefix; error lines win over warn.
-    const isWarn = !isErr && /^\s*warn:/i.test(text);
-    div.className = "ln" + (isErr ? " ln-err" : isWarn ? " ln-warn" : "");
-    div.textContent = isWarn ? text.replace(/^\s*warn:\s*/i, "⚠ ") : text;
+    let m;
+    if (!isErr && (m = text.match(VERDICT_RE))) {
+      // Render the result as a row: a verdict pill (reused from the table) +
+      // company name + reason, so the log reads like results, not raw text.
+      const verdict = m[2].toLowerCase();
+      tally[verdict]++;
+      div.className = "ln ln-verdict";
+      const pill = document.createElement("span");
+      pill.className = "pill pill-" + verdict;
+      pill.textContent = verdict;
+      const body = document.createElement("span");
+      body.className = "lv-text";
+      const name = document.createElement("span");
+      name.className = "lv-name";
+      name.textContent = m[1].trim();
+      body.appendChild(name);
+      const reason = (m[3] || "").trim();
+      if (reason) {
+        const rs = document.createElement("span");
+        rs.className = "lv-reason";
+        rs.textContent = reason;
+        body.append(" ", rs);
+      }
+      div.append(pill, body);
+    } else if (!isErr && /^(scoring|enriching|ingesting)\b/i.test(text)) {
+      div.className = "ln ln-head"; // the run's opening header line
+      div.textContent = text;
+    } else if (!isErr && /^·\s/.test(text)) {
+      div.className = "ln ln-pick"; // a worker picking up a company (transient)
+      div.textContent = text;
+    } else {
+      // "warn:"-prefixed lines (e.g. ingest collisions) get the amber gutter and
+      // a ⚠ glyph in place of the prefix; error lines win over warn.
+      const isWarn = !isErr && /^\s*warn:/i.test(text);
+      div.className = "ln" + (isErr ? " ln-err" : isWarn ? " ln-warn" : "");
+      div.textContent = isWarn ? text.replace(/^\s*warn:\s*/i, "⚠ ") : text;
+    }
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   };
@@ -3406,6 +3455,18 @@ function streamJob(stage, jobId, opts) {
     document.getElementById("drawer-spinner").style.display = "none";
     document.getElementById("drawer-cancel").style.display = "none";
     document.getElementById("drawer-close").style.display = "";
+    // A scoring run ends with a yes/maybe/no tally footer (reusing the pills).
+    if (tally.yes + tally.maybe + tally.no > 0) {
+      for (const k of ["yes", "maybe", "no"]) {
+        if (!tally[k]) continue;
+        const chip = document.createElement("span");
+        chip.className = "pill pill-" + k;
+        chip.textContent = `${tally[k]} ${k}`;
+        summaryEl.appendChild(chip);
+      }
+      summaryEl.hidden = false;
+    }
+    armDrawerTTL(); // run done: start the auto-close countdown
     toast(`${stage} ${e.data}`);
     // Refresh what the run could have changed. A targeted run (the open pane's
     // "↻ re-score" / "re-enrich", which pass company_ids) patches just those
@@ -3994,7 +4055,14 @@ document.getElementById("csv-file").onchange = e => {
   e.target.value = ""; // allow re-selecting the same file
 };
 document.getElementById("drawer-cancel").onclick = cancelActiveJob;
-document.getElementById("drawer-close").onclick = () => document.getElementById("drawer").classList.remove("open");
+document.getElementById("drawer-close").onclick = closeDrawer;
+// Pause the auto-close countdown while the cursor is on the drawer (reading the
+// log), and resume it on leave — but only for a finished run, never a live one.
+(() => {
+  const d = document.getElementById("drawer");
+  d.addEventListener("mouseenter", clearDrawerTTL);
+  d.addEventListener("mouseleave", () => { if (!activeJob && d.classList.contains("open")) armDrawerTTL(); });
+})();
 
 // editor (edit-taste / edit-playbook links are wired in renderCriteria, since
 // the Criteria block re-renders them dynamically)
