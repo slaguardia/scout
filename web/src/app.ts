@@ -3436,7 +3436,6 @@ function isStatusListKind(kind) {
 function editorLabel(kind) {
   if (kind === "outreach-template") return "outreach template";
   if (kind === "followup-template") return "follow-up template";
-  if (kind === "taste-filter") return "pre-filter rules";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
   if (kind === "outreach-statuses") return "outreach statuses";
@@ -3453,16 +3452,16 @@ async function openEditor(kind) {
   document.getElementById("editor-title").textContent = "edit " + editorLabel(kind);
   document.getElementById("editor-text").value = "loading…";
   document.getElementById("editor-ver").textContent = "";
-  // The enable toggle shows for the pre-filter and for skippable pipeline stages
-  // (every stage but the Writer/fill). The reset button shows for pipeline stages.
+  // The enable toggle shows for skippable pipeline stages (every stage but the
+  // Writer/fill). The reset button shows for pipeline stages. (The pre-filter
+  // has its own form modal — openPrefilter — not this generic text editor.)
   const isPipeline = !!kind && kind.startsWith("outreach-prompts/");
   const pipelineStage = isPipeline ? kind.slice("outreach-prompts/".length) : "";
-  const showToggle = kind === "taste-filter" || (isPipeline && pipelineStage !== "fill");
+  const showToggle = isPipeline && pipelineStage !== "fill";
   document.getElementById("editor-toggle-row").style.display = showToggle ? "" : "none";
   document.getElementById("editor-reset").style.display = isPipeline ? "" : "none";
-  if (showToggle) document.getElementById("editor-toggle-label").textContent = kind === "taste-filter"
-    ? "Enable the pre-filter (off → bulk verdict runs score every company; the rules below are kept either way)"
-    : "Run this stage (off → it is skipped in the pipeline)";
+  if (showToggle) document.getElementById("editor-toggle-label").textContent =
+    "Run this stage (off → it is skipped in the pipeline)";
   scrim.classList.add("open");
   try {
     const r = await fetch(`/api/${kind}`);
@@ -3489,6 +3488,98 @@ async function openEditor(kind) {
 function closeEditor() {
   document.getElementById("editor-scrim").classList.remove("open");
   editorKind = null;
+}
+
+// ---- control surface: pre-filter form ----
+//
+// The mechanical pre-filter (location / headcount / vertical / stage) is edited
+// as a structured form, not raw TOML — clearer, and it can spell out why the
+// gate exists. We hold the rules in pfRules, bind the scalar fields (remote-ok,
+// headcount) directly, and render the list fields as removable chips. Save sends
+// PUT {rules, enabled}; the server re-encodes to the canonical TOML.
+let pfRules: any = null;
+// The four substring lists, each rendered as a chip input keyed by "section.key".
+const PF_LIST_FIELDS = ["location.allowed", "verticals.excluded", "verticals.allowed", "funding_stage.allowed"];
+
+function pfList(field) {
+  const [a, b] = field.split(".");
+  return (pfRules[a] && pfRules[a][b]) || [];
+}
+function pfSetList(field, vals) {
+  const [a, b] = field.split(".");
+  (pfRules[a] = pfRules[a] || {})[b] = vals;
+}
+function renderPfChips() {
+  PF_LIST_FIELDS.forEach(field => {
+    const host = document.querySelector(`.pf-chips[data-field="${field}"]`);
+    if (!host) return;
+    host.innerHTML =
+      pfList(field).map((v, i) =>
+        `<span class="pf-chip">${escapeHTML(v)}<button class="pf-chip-x" data-field="${field}" data-i="${i}" title="remove" aria-label="remove ${escapeHTML(v)}">×</button></span>`).join("") +
+      `<input class="pf-chip-input" data-field="${field}" type="text" placeholder="type &amp; Enter…" spellcheck="false" />`;
+  });
+}
+function pfAddChip(field, raw) {
+  const v = (raw || "").trim().toLowerCase();
+  if (v) {
+    const list = pfList(field);
+    if (!list.includes(v)) pfSetList(field, [...list, v]);
+  }
+  renderPfChips();
+  (document.querySelector(`.pf-chip-input[data-field="${field}"]`) as HTMLInputElement)?.focus();
+}
+function pfRemoveChip(field, i) {
+  const vals = pfList(field).slice();
+  vals.splice(i, 1);
+  pfSetList(field, vals);
+  renderPfChips();
+}
+function pfBlank() {
+  return { location: { allowed: [], remote_ok: true }, headcount: { min: 0, max: 0 }, verticals: { allowed: [], excluded: [] }, funding_stage: { allowed: [] } };
+}
+async function openPrefilter(useDefault = false) {
+  document.getElementById("prefilter-scrim").classList.add("open");
+  try {
+    const d = await (await fetch("/api/taste-filter" + (useDefault ? "?default=1" : ""))).json();
+    pfRules = Object.assign(pfBlank(), d.rules || {});
+    pfRules.location = Object.assign({ allowed: [], remote_ok: true }, pfRules.location);
+    pfRules.headcount = Object.assign({ min: 0, max: 0 }, pfRules.headcount);
+    pfRules.verticals = Object.assign({ allowed: [], excluded: [] }, pfRules.verticals);
+    pfRules.funding_stage = Object.assign({ allowed: [] }, pfRules.funding_stage);
+    // Reset reloads only the rules; it must not silently flip the master switch.
+    if (!useDefault) (document.getElementById("pf-enabled") as HTMLInputElement).checked = d.enabled !== false;
+    (document.getElementById("pf-remote-ok") as HTMLInputElement).checked = !!pfRules.location.remote_ok;
+    (document.getElementById("pf-hc-min") as HTMLInputElement).value = String(pfRules.headcount.min || 0);
+    (document.getElementById("pf-hc-max") as HTMLInputElement).value = String(pfRules.headcount.max || 0);
+    renderPfChips();
+  } catch (e) { toast(`failed to load pre-filter: ${e.message}`); }
+}
+function closePrefilter() {
+  document.getElementById("prefilter-scrim").classList.remove("open");
+  pfRules = null;
+}
+async function savePrefilter() {
+  if (!pfRules) return;
+  pfRules.location.remote_ok = (document.getElementById("pf-remote-ok") as HTMLInputElement).checked;
+  pfRules.headcount.min = Math.max(0, parseInt((document.getElementById("pf-hc-min") as HTMLInputElement).value, 10) || 0);
+  pfRules.headcount.max = Math.max(0, parseInt((document.getElementById("pf-hc-max") as HTMLInputElement).value, 10) || 0);
+  // Fold any text left typed-but-not-entered in a chip input into its list.
+  document.querySelectorAll(".pf-chip-input").forEach((inp: any) => {
+    const v = inp.value.trim().toLowerCase();
+    if (v && !pfList(inp.dataset.field).includes(v)) pfSetList(inp.dataset.field, [...pfList(inp.dataset.field), v]);
+  });
+  const enabled = (document.getElementById("pf-enabled") as HTMLInputElement).checked;
+  let resp;
+  try {
+    resp = await fetch("/api/taste-filter", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules: pfRules, enabled }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
+  toast("pre-filter saved");
+  closePrefilter();
+  loadStats(); // refresh the criteria card's active/disabled note
 }
 
 // ---- control surface: outreach knowledge (read-only) ----
@@ -3544,7 +3635,7 @@ async function saveEditor() {
   } else {
     body = { content: text };
     const isPipelineStage = editorKind.startsWith("outreach-prompts/") && editorKind !== "outreach-prompts/fill";
-    if (editorKind === "taste-filter" || isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
+    if (isPipelineStage) body.enabled = (document.getElementById("editor-enabled") as HTMLInputElement).checked;
   }
   let resp;
   try {
@@ -3707,6 +3798,7 @@ document.addEventListener("keydown", e => {
   }
   if (document.getElementById("key-scrim").classList.contains("open")) { closeKeyModal(); return; }
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
+  if (document.getElementById("prefilter-scrim").classList.contains("open")) { closePrefilter(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
   if (document.getElementById("settings-scrim").classList.contains("open")) { closeSettings(); return; }
 });
@@ -3864,6 +3956,28 @@ document.getElementById("sources-close").onclick = closeSourcesModal;
 document.getElementById("sources-scrim").onclick = e => {
   if (e.target.id === "sources-scrim") closeSourcesModal();
 };
+
+// pre-filter form modal: buttons + delegated chip interactions (chips re-render,
+// so add/remove are delegated on the scrim rather than bound per element).
+document.getElementById("pf-cancel").onclick = closePrefilter;
+document.getElementById("pf-save").onclick = savePrefilter;
+document.getElementById("pf-reset").onclick = () => openPrefilter(true);
+document.getElementById("prefilter-scrim").addEventListener("click", (e: any) => {
+  if (e.target.id === "prefilter-scrim") { closePrefilter(); return; }
+  const x = e.target.closest(".pf-chip-x");
+  if (x) { pfRemoveChip(x.dataset.field, parseInt(x.dataset.i, 10)); return; }
+  const chips = e.target.closest(".pf-chips"); // click bare chip area → focus its input
+  if (chips && e.target === chips) (chips.querySelector(".pf-chip-input") as HTMLInputElement)?.focus();
+});
+document.getElementById("prefilter-scrim").addEventListener("keydown", (e: any) => {
+  const inp = e.target.closest(".pf-chip-input");
+  if (!inp) return;
+  if (e.key === "Enter" || e.key === ",") { e.preventDefault(); pfAddChip(inp.dataset.field, inp.value); }
+  else if (e.key === "Backspace" && !inp.value) {
+    const list = pfList(inp.dataset.field);
+    if (list.length) pfRemoveChip(inp.dataset.field, list.length - 1);
+  }
+});
 
 document.getElementById("key-cancel").onclick = closeKeyModal;
 document.getElementById("key-save").onclick = saveKey;
@@ -4077,7 +4191,7 @@ function renderCriteria() {
   const prefilterCard = critCard({
     icon: ICON_FILTER,
     nameHTML: '<span class="edit-link" data-act="edit-taste-filter" title="edit the pre-filter rules">pre-filter</span>',
-    desc: "Cheap mechanical gate before the LLM verdict — location, headcount, vertical, stage. Toggle it off in the editor to score every company.",
+    desc: "Cheap mechanical gate that narrows bulk verdict runs before the paid LLM — location, headcount, vertical, stage. Re-scoring one company by hand ignores it.",
     dot: pfOn ? "ok" : "off", note: pfOn ? "active" : "disabled — scoring everything",
     act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
   });
@@ -4147,7 +4261,7 @@ function renderCriteria() {
     "view-profile": () => openProfileModal(state.profile),
     "refresh-profile": refreshProfile,
     "edit-taste": () => openEditor("taste"),
-    "edit-taste-filter": () => openEditor("taste-filter"),
+    "edit-taste-filter": () => openPrefilter(),
     "edit-application-stages": () => openEditor("application-stages"),
     "edit-outreach-statuses": () => openEditor("outreach-statuses"),
     "edit-playbook": () => openEditor("playbook"),
