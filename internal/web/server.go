@@ -169,7 +169,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/contacts/", s.handleContact)                    // PUT/DELETE {id}: edit/archive a company contact (see contacts.go)
 	mux.HandleFunc("/api/outreach-log/", s.handleOutreachLog)            // PUT/DELETE {id}: edit/delete a logged send (see contacts.go)
 	mux.HandleFunc("/api/followup-interval", s.handleFollowupInterval)   // GET/PUT the default follow-up interval (see contacts.go)
-	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate; DELETE {id}: dismiss one answer (see answers.go)
+	mux.HandleFunc("/api/answers/", s.handleAnswer)                      // PUT {id}: edit / regenerate; DELETE {id}: delete one answer (see answers.go)
 	mux.HandleFunc("/api/chat/threads", s.handleChatThreads)             // GET open-or-create a (scope,scope_id) thread
 	mux.HandleFunc("/api/chat/", s.handleChat)                           // POST {thread}/message, GET {thread}/stream
 	mux.HandleFunc("/api/stats", s.handleStats)

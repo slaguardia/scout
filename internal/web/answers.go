@@ -139,7 +139,7 @@ func (s *Server) handlePostingAnswersRedetect(w http.ResponseWriter, r *http.Req
 //
 //	PUT    /api/answers/{id}  {"edited": "..."}     -> inline save (200 + row)
 //	PUT    /api/answers/{id}  {"regenerate": true}  -> re-draft this one (202 + row)
-//	DELETE /api/answers/{id}                        -> dismiss the question (204)
+//	DELETE /api/answers/{id}                        -> delete the question (204)
 func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/answers/"), "/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -149,7 +149,7 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodDelete:
-		if err := s.DB.DismissAnswer(id); err != nil {
+		if err := s.DB.DeleteAnswer(id); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.NotFound(w, r)
 				return

@@ -160,7 +160,7 @@ func TestAnswerEditAndRegenerate(t *testing.T) {
 	}
 }
 
-func TestAnswerDismiss(t *testing.T) {
+func TestAnswerDelete(t *testing.T) {
 	s, cid := newTestServer(t)
 	pid := seedAnswersPosting(t, s, cid)
 	_ = s.DB.UpsertDetectedQuestions(pid, []store.DetectedQuestion{
@@ -173,15 +173,15 @@ func TestAnswerDismiss(t *testing.T) {
 
 	// DELETE → 204, the question leaves the list.
 	if rec := do(t, h, http.MethodDelete, idPath, ""); rec.Code != http.StatusNoContent {
-		t.Fatalf("dismiss: want 204, got %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("delete: want 204, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if left := mustListAnswers(t, s, pid); len(left) != 1 || left[0].Prompt != "A project?" {
-		t.Fatalf("after dismiss want only the other question, got %+v", left)
+		t.Fatalf("after delete want only the other question, got %+v", left)
 	}
 
 	// Unknown id → 404.
 	if rec := do(t, h, http.MethodDelete, "/api/answers/99999", ""); rec.Code != http.StatusNotFound {
-		t.Errorf("dismiss unknown: want 404, got %d", rec.Code)
+		t.Errorf("delete unknown: want 404, got %d", rec.Code)
 	}
 }
 

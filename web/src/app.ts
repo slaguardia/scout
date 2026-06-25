@@ -2250,8 +2250,8 @@ async function markDraftSent(id) {
 // application form, each with an inline-save drafted answer. Detection happens
 // at capture; generation is opt-in LLM spend, per question (the "Generate"
 // button on each card) or in bulk ("Draft all blank"). Unwanted questions are
-// removable (× — a sticky dismiss). Scout never submits — the user copy-pastes
-// into the ATS.
+// removable (× — a hard delete a later re-detect can bring back). Scout never
+// submits — the user copy-pastes into the ATS.
 
 // loadAnswers fetches the posting's questions+answers and renders the section,
 // polling while any answer is still generating (the closed panel relies on the
@@ -2349,9 +2349,10 @@ function answerStatusPill(a) {
 
 // answerCardHTML renders one question: the prompt, the inline-save answer
 // textarea (or a spinner while generating), a status pill, char count vs the
-// declared limit, a per-question Generate/Regenerate, and a remove (×). The
-// action button reads "Generate" for an undrafted question (the per-question
-// draft is the primary path) and "Regenerate" once there's a draft to replace.
+// declared limit, a per-question Generate/Regenerate, a copy (shown once there's
+// text), and a remove (×). The action button reads "Generate" for an undrafted
+// question (the per-question draft is the primary path) and "Regenerate" once
+// there's a draft to replace.
 function answerCardHTML(a) {
   const text = answerText(a);
   const edited = a.edited && a.edited.trim();
@@ -2375,6 +2376,7 @@ function answerCardHTML(a) {
       ${edited ? `<span class="answer-edited" title="your edit wins over the drafted answer">edited</span>` : ""}
       ${busy ? "" : counter}
       ${busy ? "" : `<button class="btn ${drafted ? "" : "btn-primary "}answer-regen-btn" title="${genTitle}">${genLabel}</button>`}
+      ${busy || !drafted ? "" : `<button class="answer-copy-btn dh-copy" title="copy this answer to the clipboard" aria-label="copy answer">${ICON_COPY}</button>`}
       ${busy ? "" : `<button class="answer-remove-btn" title="remove this question" aria-label="remove question">×</button>`}
     </div>
     ${a.status === "needs_review" ? `<div class="answer-note answer-review">Flagged by the honesty check — confirm it doesn't overstate your experience before sending.</div>` : ""}
@@ -2406,6 +2408,11 @@ function wireAnswers() {
     }
     const regen = card.querySelector(".answer-regen-btn");
     if (regen) regen.addEventListener("click", () => regenerateAnswer(id));
+    // Copy the answer — the live textarea value (unsaved edits included).
+    const copy = card.querySelector(".answer-copy-btn");
+    if (copy) copy.addEventListener("click", () => {
+      if (ta) copyToClipboard(ta.value, "answer copied");
+    });
     const rm = card.querySelector(".answer-remove-btn");
     if (rm) rm.addEventListener("click", () => removeAnswer(id));
   });
@@ -2507,11 +2514,10 @@ async function regenerateAnswer(id) {
   await loadAnswers();
 }
 
-// removeAnswer dismisses one detected question. The soft delete is sticky (a
-// re-detect won't bring it back) and discards any answer typed for it, so it is
-// confirmed first.
+// removeAnswer deletes one detected question. It is a hard delete, so a later
+// re-detect re-surfaces the question if it is still on the form — no confirm
+// needed.
 async function removeAnswer(id) {
-  if (!confirm("Remove this question? Any answer drafted or written for it is discarded, and re-detecting won't bring it back.")) return;
   let resp;
   try {
     resp = await fetch(`/api/answers/${id}`, { method: "DELETE" });

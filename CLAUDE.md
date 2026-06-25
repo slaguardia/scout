@@ -195,9 +195,9 @@ canonical port defeats that safety net — don't.
   per-question** — each card has a Generate (undrafted) / Regenerate (drafted)
   button as the primary path, with a secondary "Draft all blank" for bulk; both
   go through the single-row regenerate, honesty-gated identically. **Unwanted
-  questions are removable** (× → `DELETE /api/answers/{id}` → a `dismissed`
-  soft-delete that survives re-detection, since the idempotent upsert leaves it
-  untouched). Endpoints mirror outreach (`GET/POST /api/postings/{id}/answers`,
+  questions are removable** (× → `DELETE /api/answers/{id}` → a hard delete, no
+  confirm; a later re-detect re-inserts the question if it is still on the form,
+  so removing is undone by a re-detect). Endpoints mirror outreach (`GET/POST /api/postings/{id}/answers`,
   `…/redetect`, `PUT`/`DELETE /api/answers/{id}`), gated on a non-empty
   experience bundle + `ANTHROPIC_API_KEY`. CLI: `scout questions detect --posting
   <id> | --all`. **Scout never submits** — it drafts; the user copy-pastes into
