@@ -693,32 +693,33 @@ function compareJobs(a, b, k) {
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
-// renderFollowupBanner shows "N follow-ups due" above the jobs table with a
-// one-click filter to just those postings (M51). Total is over ALL postings (not
-// the current filter); when it drops to zero the banner hides and the due-only
-// filter releases so the table never strands empty.
-function renderFollowupBanner() {
-  const banner = document.getElementById("jobs-followup-banner");
-  if (!banner) return;
+// renderFollowupNav shows the "N follow-ups due" toggle in the jobs filter block
+// (sidebar, below Filters): one click filters the table to just those postings
+// (M51), with an active state. Total is over ALL postings (not the current
+// filter); when it drops to zero the button hides and the due-only filter
+// releases so the table never strands empty.
+function renderFollowupNav() {
+  const nav = document.getElementById("jobs-followup-nav");
+  if (!nav) return;
   const due = state.jobs.reduce((n, j) => n + (j.followups_due | 0), 0);
   if (!due) {
-    banner.style.display = "none";
+    nav.style.display = "none";
     dueOnly = false;
     return;
   }
-  banner.style.display = "";
-  banner.classList.toggle("is-filtered", dueOnly);
-  banner.innerHTML =
-    `<span class="fb-icon">${ICON_BELL}</span>`
-    + `<span class="fb-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
-    + `<button class="btn fb-toggle">${dueOnly ? "show all jobs" : "show only these"}</button>`;
-  banner.querySelector(".fb-toggle").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
+  nav.style.display = "";
+  nav.innerHTML =
+    `<button class="followup-nav-btn${dueOnly ? " is-active" : ""}" title="${dueOnly ? "showing only these — click to show all jobs" : "show only jobs owing a follow-up"}">`
+    + `<span class="fn-icon">${ICON_BELL}</span>`
+    + `<span class="fn-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
+    + `</button>`;
+  nav.querySelector(".followup-nav-btn").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
 }
 
 function renderJobs() {
   const tbody = document.querySelector("#jt tbody");
   tbody.innerHTML = "";
-  renderFollowupBanner();
+  renderFollowupNav();
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
   // Refresh the dropdown item counts + button badges against the live data.

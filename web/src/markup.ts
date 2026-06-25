@@ -105,6 +105,7 @@ export const SCOUT_MARKUP = `
         </div>
       </div>
     </div>
+    <div class="filter-row" id="jobs-followup-nav" style="display:none"></div>
   </div>
 
   <div class="block" id="block-columns">
@@ -169,7 +170,6 @@ export const SCOUT_MARKUP = `
   </div>
 
   <div class="table-wrap" id="jobs-view" style="display:none">
-    <div id="jobs-followup-banner" class="followup-banner" style="display:none"></div>
     <table id="jt">
       <thead>
         <tr>
