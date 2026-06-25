@@ -709,7 +709,7 @@ function renderFollowupBanner() {
   banner.style.display = "";
   banner.classList.toggle("is-filtered", dueOnly);
   banner.innerHTML =
-    `<span class="fb-icon">↳</span>`
+    `<span class="fb-icon">${ICON_BELL}</span>`
     + `<span class="fb-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
     + `<button class="btn fb-toggle">${dueOnly ? "show all jobs" : "show only these"}</button>`;
   banner.querySelector(".fb-toggle").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
@@ -751,7 +751,7 @@ function renderJobs() {
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg></button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">↳ ${j.followups_due}</span>` : ""}</div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">${ICON_BELL}${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open posting" aria-label="open posting">↗</a></td>
@@ -1616,13 +1616,13 @@ function renderFollowupTemplate(contact, latest) {
 }
 
 // contactsManagerHTML renders the company contacts list with per-contact logging
-// + follow-up controls, a derived send count, and the follow-up interval knob.
+// + follow-up controls. The follow-up reminder interval is a global setting,
+// edited in Settings → Outreach, not per-thread.
 function contactsManagerHTML() {
   const j = pursuit.row;
-  const meta = `<div class="outreach-meta">
-      ${j.last_outreach_at ? `<span>last outreach ${escapeHTML(j.last_outreach_at)}</span>` : ""}
-      <span class="om-interval" title="business days after a send to remind you to follow up (0 = off)">follow up after <input class="input fu-interval" type="number" min="0" max="90" value="${state.followupInterval}"> business days</span>
-    </div>`;
+  const meta = j.last_outreach_at
+    ? `<div class="outreach-meta"><span>last outreach ${escapeHTML(j.last_outreach_at)}</span></div>`
+    : "";
   if (!pursuit.contactsLoaded) {
     return `<div class="contacts-mgr">${meta}<div class="loading-row"><span class="spinner"></span><span>loading contacts…</span></div></div>`;
   }
@@ -1739,13 +1739,6 @@ function wireContacts() {
   const host = document.getElementById("outreach-section");
   if (!host) return;
   const pid = pursuit.postingId;
-
-  const interval = host.querySelector(".fu-interval");
-  if (interval) interval.addEventListener("change", async () => {
-    const days = Math.max(0, Math.min(90, parseInt(interval.value, 10) || 0));
-    const r = await contactApi("PUT", "/api/followup-interval", { days });
-    if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
-  });
 
   // Add contact.
   const addwrap = host.querySelector(".cc-addwrap");
@@ -4169,6 +4162,7 @@ const ICON_PLAYBOOK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor
 const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="M2.6 4.6 8 8.8l5.4-4.2"/></svg>';
 const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
+const ICON_BELL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
 // a status line (dot + note) for brain-backed items, and a trailing action.
@@ -4265,6 +4259,16 @@ function renderCriteria() {
     desc: "Copy-paste follow-up — variables {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.",
     act: "edit-followup-template", actIcon: PENCIL, actTitle: "edit the follow-up template", actLabel: "edit follow-up template",
   });
+  // Follow-up reminder interval — a global setting (PUT /api/followup-interval),
+  // edited here rather than per-contact. The number input sits in the action slot.
+  const intervalCard = `<div class="settings-item">
+    <span class="settings-item-icon">${ICON_BELL}</span>
+    <div class="settings-item-main">
+      <div class="settings-item-name">follow-up reminder</div>
+      <div class="settings-item-desc">Business days after a send before a follow-up comes due (0 = off).</div>
+    </div>
+    <input class="input set-fu-interval" type="number" min="0" max="90" value="${state.followupInterval}" title="business days (0 = off)" aria-label="follow-up reminder interval in business days">
+  </div>`;
   // The outreach pipeline: each stage is an editable LLM prompt (open to edit,
   // toggle on/off, or reset to default). The Writer can't be turned off.
   const PIPELINE_STAGES: [string, string, string][] = [
@@ -4334,7 +4338,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${templateCard}${followupTemplateCard}
+       ${templateCard}${followupTemplateCard}${intervalCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4365,6 +4369,15 @@ function renderCriteria() {
   el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
     const a = n.dataset.act;
     if (a && ACTIONS[a]) n.onclick = ACTIONS[a];
+  });
+
+  // The follow-up reminder interval — same PUT the old per-thread knob used.
+  const fuInterval = el.querySelector<HTMLInputElement>(".set-fu-interval");
+  if (fuInterval) fuInterval.addEventListener("change", async () => {
+    const days = Math.max(0, Math.min(90, parseInt(fuInterval.value, 10) || 0));
+    fuInterval.value = String(days);
+    const r = await contactApi("PUT", "/api/followup-interval", { days });
+    if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
   });
 }
 
