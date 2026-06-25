@@ -522,11 +522,13 @@ type JobRow struct {
 	Notes             string `json:"notes"`              // free-form, human-only posting notes
 	NextUp            bool   `json:"next_up"`            // queued "next up for outreach" (M27)
 
-	// FollowupsDue (M51) is the number of contact threads on this posting whose
-	// latest send has a pending follow-up due today or overdue — drives the
-	// jobs-view "follow-ups due" banner + filter. Gated to the awaiting phase:
-	// counts only while outreach_status is blank or the first configured label
-	// ("initial contact"); a reply/close-out silences the alerts (see ListJobRows).
+	// FollowupsDue (M51) is the number of contact threads on this posting with a
+	// reminder due today or overdue — drives the jobs-view "follow-ups due" banner
+	// + filter. A thread's latest send carries one due date that walks a two-rung
+	// ladder: before "followed up" it's the follow-up nudge, after it's the
+	// escalation ("no reply — try another contact"); both count here. Gated to the
+	// awaiting phase: only while outreach_status is blank or the first configured
+	// label; a reply/close-out silences the alerts (see ListJobRows).
 	FollowupsDue int `json:"followups_due"`
 
 	// OutreachDraftStatus is the latest outreach draft's status for this
@@ -543,11 +545,12 @@ type JobRow struct {
 // ListJobRows returns every posting across all companies, newest first, for
 // the jobs view. Returns an empty (non-nil) slice when there are none.
 func (db *DB) ListJobRows() ([]JobRow, error) {
-	// Follow-up alerts (followups_due) only fire while a posting is still awaiting
-	// a reply — its outreach_status is blank or the first configured label
-	// ("initial contact"). Once it moves off that (a reply came in, or it was
-	// closed out), the ⏰ alerts go quiet. The detail panel still shows every
-	// contact's follow-up for management; this gate is only on the alert count.
+	// Reminder alerts (followups_due) only fire while a posting is still awaiting
+	// a reply — its outreach_status is blank or the first configured label.
+	// Once it moves off that (a reply came in, or it was closed out), the alerts
+	// go quiet. The detail panel still shows every contact's follow-up for
+	// management; this gate is only on the alert count. The first label is read
+	// live (not hardcoded), so renaming/reordering statuses keeps the gate honest.
 	firstStatus := ""
 	if labels, lerr := db.OutreachStatuses(); lerr == nil && len(labels) > 0 {
 		firstStatus = labels[0]
@@ -579,7 +582,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        (SELECT COUNT(*) FROM outreach_log ol
          WHERE ol.posting_id = p.id
            AND COALESCE(p.outreach_status, '') IN ('', ?)
-           AND ol.followup_due_at IS NOT NULL AND ol.followup_done_at IS NULL
+           AND ol.followup_due_at IS NOT NULL
            AND ol.followup_due_at <= DATE('now')
            AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
                         WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id))

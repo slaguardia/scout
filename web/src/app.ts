@@ -1673,21 +1673,29 @@ function contactCardHTML(c) {
   </div>`;
 }
 
-// followupStatusHTML renders the contact's current outreach state from its latest
-// send. Three states: followed up (checkbox checked → done), pending (a "follow
-// up" checkbox + a "stop" link to discontinue this contact, with a due emphasis
-// once the auto-armed reminder is past due), or stopped (no pending reminder —
-// the due was cleared — with a "resume" link). No send yet → a dim placeholder.
+// followupStatusHTML renders the contact's current state from its latest send,
+// walking a two-rung reminder ladder (one due date that advances on "followed
+// up"):
+//   pending  — a "follow up" checkbox + "stop" link; due emphasis once overdue.
+//   followed up, escalation pending — checkbox checked.
+//   escalate — the follow-up went unanswered past the interval: "no reply — try
+//              another contact" + a "dismiss" link.
+//   stopped  — no pending reminder (due cleared) + a "resume" link.
+// No send yet → a dim placeholder.
 function followupStatusHTML(latest) {
   if (!latest) return `<span class="dim">no outreach logged yet</span>`;
   const last = `last ${escapeHTML(latest.sent_at)}`;
   const id = latest.id;
-  if (latest.followup_done_at)
+  const due = latest.followup_due_at;
+  const isDue = due && due <= isoToday();
+  if (latest.followup_done_at) {
+    if (isDue)
+      return `${last} · <span class="fu-escalate">no reply — try another contact</span> <button class="cc-fu-dismiss" data-eid="${id}" type="button" title="dismiss — stop reminding me about this contact">dismiss</button>`;
     return `${last} · <label class="cc-fu-check fu-done"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}" checked> followed up</label>`;
-  if (!latest.followup_due_at)
+  }
+  if (!due)
     return `${last} · <span class="fu-stopped">follow-up stopped</span> <button class="cc-fu-resume" data-eid="${id}" type="button">resume</button>`;
-  const due = latest.followup_due_at <= isoToday();
-  return `${last} · <label class="cc-fu-check${due ? " fu-overdue" : ""}"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}"> follow up</label> <button class="cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
+  return `${last} · <label class="cc-fu-check${isDue ? " fu-overdue" : ""}"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}"> follow up</label> <button class="cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
 }
 
 function outreachEntryHTML(e) {
@@ -1817,9 +1825,10 @@ function wireContacts() {
       copyToClipboard(renderFollowupTemplate(c, latest), "follow-up copied — paste into your email");
     });
 
-    // Follow-up state changes (checkbox toggle, stop, resume) all PUT full-state,
-    // carrying the entry's body + sent_at + note unchanged. Stop clears the due
-    // date (silences the nag without claiming a follow-up); resume re-arms it.
+    // Follow-up state changes (checkbox toggle, stop, resume, dismiss) all PUT
+    // full-state, carrying the entry's body + sent_at + note unchanged. Checking
+    // the box arms the escalation server-side (the due walks forward); stop and
+    // dismiss clear the due (silence it); resume re-arms a follow-up.
     const putFollowup = async (eid, patch, msg) => {
       const e = pursuit.outreach.find(x => String(x.id) === String(eid)) || {};
       const r = await contactApi("PUT", `/api/outreach-log/${eid}`, {
@@ -1837,6 +1846,10 @@ function wireContacts() {
     const fuResume = card.querySelector(".cc-fu-resume");
     if (fuResume) fuResume.addEventListener("click", () =>
       putFollowup(fuResume.dataset.eid, { followup_due_at: isoToday(), done: false }, "follow-up resumed"));
+    // Dismiss the escalation: keep the followed-up stamp, clear the due date.
+    const fuDismiss = card.querySelector(".cc-fu-dismiss");
+    if (fuDismiss) fuDismiss.addEventListener("click", () =>
+      putFollowup(fuDismiss.dataset.eid, { followup_due_at: "", done: true }, "escalation dismissed"));
 
     // Delete a logged send.
     card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async () => {

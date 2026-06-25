@@ -241,7 +241,10 @@ type OutreachInput struct {
 	NoFollowup    bool   `json:"no_followup"`
 }
 
-const outreachLogCols = `id, contact_id, posting_id, sent_at, COALESCE(body, ''),
+// sent_at is a DATE column, so the driver hands it back as a time.Time →
+// RFC3339 ("2026-06-17T00:00:00Z") unless we coerce it to text; date() also
+// normalizes it to a bare ISO date so it round-trips through parseDate on a PUT.
+const outreachLogCols = `id, contact_id, posting_id, COALESCE(date(sent_at), ''), COALESCE(body, ''),
 	COALESCE(note, ''), COALESCE(followup_due_at, ''), COALESCE(followup_done_at, '')`
 
 func scanOutreachEntry(row interface{ Scan(...any) error }) (OutreachEntry, error) {
@@ -366,8 +369,10 @@ func (db *DB) ListOutreachForPosting(postingID string) ([]OutreachEntry, error) 
 }
 
 // OutreachEntryEdit is the full-state edit of a logged send. FollowupDueAt is
-// literal — empty clears the follow-up. Done toggles the follow-up's completion
-// (a newly-done entry is stamped now; reopening clears the stamp).
+// literal — empty clears the reminder. Done toggles the follow-up's completion
+// (a newly-done entry is stamped now; reopening clears the stamp). Flipping a
+// pending follow-up to done re-arms FollowupDueAt to the escalation date,
+// overriding the literal value (see UpdateOutreachEntry).
 type OutreachEntryEdit struct {
 	SentAt        string `json:"sent_at"`
 	Body          string `json:"body"`
@@ -389,6 +394,18 @@ func (db *DB) UpdateOutreachEntry(id int64, e OutreachEntryEdit) (OutreachEntry,
 	var dueVal sql.NullString
 	if due != "" {
 		dueVal = sql.NullString{String: due, Valid: true}
+	}
+	// Marking a follow-up done arms the second rung: the same due date walks
+	// forward to the escalation ("no reply — try another contact"), surfacing
+	// again after the interval. Only on the not-done→done transition, so
+	// dismissing an escalation (which keeps done set, due cleared) sticks. With
+	// the interval off (0), nothing re-arms — done means done.
+	if cur, _ := db.readOutreachEntry(id); cur.FollowupDoneAt == "" && e.Done {
+		if n, _ := db.FollowupIntervalDays(); n > 0 {
+			dueVal = sql.NullString{String: addBusinessDays(time.Now(), n).Format("2006-01-02"), Valid: true}
+		} else {
+			dueVal = sql.NullString{}
+		}
 	}
 	// COALESCE preserves an existing done timestamp; reopening clears it.
 	doneExpr := "NULL"

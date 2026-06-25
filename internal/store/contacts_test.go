@@ -271,6 +271,107 @@ func TestFollowupAlertsGatedByStatus(t *testing.T) {
 	}
 }
 
+// TestOutreachEntrySentAtRoundTrips guards the DATE-affinity bug: sent_at must
+// read back as a bare ISO date, not an RFC3339 timestamp, so the UI's edit (which
+// re-sends the entry's own sent_at on every follow-up toggle) isn't rejected.
+func TestOutreachEntrySentAtRoundTrips(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+	e, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{}) // sent_at defaults to today
+	if err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	if len(e.SentAt) != 10 {
+		t.Fatalf("sent_at = %q, want a bare YYYY-MM-DD date", e.SentAt)
+	}
+	// Re-feeding the entry's own sent_at through an edit (what the checkbox does)
+	// must not be rejected as a malformed date.
+	if _, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{SentAt: e.SentAt, FollowupDueAt: e.FollowupDueAt, Done: true}); err != nil {
+		t.Fatalf("round-trip edit rejected: %v", err)
+	}
+}
+
+// TestOutreachEscalation walks the two-rung reminder ladder: a pending follow-up
+// is due; marking it followed up arms the escalation forward (no longer due);
+// once that date passes with no reply it's due again; dismissing it silences it.
+func TestOutreachEscalation(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+	due := func() int {
+		rows, err := db.ListJobRows()
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("ListJobRows: n=%d err=%v", len(rows), err)
+		}
+		return rows[0].FollowupsDue
+	}
+	today := time.Now().Format("2006-01-02")
+	past := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
+
+	// Rung 1 — an overdue follow-up alerts.
+	e, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{SentAt: past, FollowupDueAt: past})
+	if err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	if due() != 1 {
+		t.Fatalf("rung 1 (follow-up due): followups_due = %d, want 1", due())
+	}
+
+	// Marking it followed up arms the escalation forward — no longer due now,
+	// even though the client passed the stale past date (server overrides it).
+	done, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{FollowupDueAt: past, Done: true})
+	if err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+	if done.FollowupDoneAt == "" {
+		t.Error("expected a followed-up stamp")
+	}
+	if done.FollowupDueAt <= today {
+		t.Errorf("escalation should be armed in the future, got due %q", done.FollowupDueAt)
+	}
+	if due() != 0 {
+		t.Errorf("escalation pending: followups_due = %d, want 0", due())
+	}
+
+	// Rung 2 — once the escalation date passes with no reply, it alerts again.
+	// (done already set, so this edit just moves the date; no re-arm.)
+	if _, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{FollowupDueAt: past, Done: true}); err != nil {
+		t.Fatalf("set escalation overdue: %v", err)
+	}
+	if due() != 1 {
+		t.Errorf("rung 2 (escalation due): followups_due = %d, want 1", due())
+	}
+
+	// Dismissing (done stays set, due cleared) silences it for good.
+	if _, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{FollowupDueAt: "", Done: true}); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+	if due() != 0 {
+		t.Errorf("after dismiss: followups_due = %d, want 0", due())
+	}
+}
+
 func TestOutreachBodyPersists(t *testing.T) {
 	db := openTestDB(t)
 	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
