@@ -187,8 +187,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/profile/refresh", s.handleProfileRefresh) // POST refetch
 
 	// editor (local file + DB singletons — never the brain)
-	mux.HandleFunc("/api/taste", s.handleTaste)              // taste.md narrative fallback (file)
-	mux.HandleFunc("/api/taste-filter", s.handleTasteFilter) // structured pre-filter rules (DB singleton)
+	mux.HandleFunc("/api/taste", s.handleTaste)                  // taste.md narrative fallback (file)
+	mux.HandleFunc("/api/taste-filter", s.handleTasteFilter)     // structured pre-filter rules (DB singleton)
+	mux.HandleFunc("/api/filter-options", s.handleFilterOptions) // vertical tags + funding stages present in the data
 	mux.HandleFunc("/api/playbook", s.handlePlaybook)
 
 	// integrations (dashboard-configurable secrets, stored in scout's SQLite)

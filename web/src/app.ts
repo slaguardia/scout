@@ -3575,8 +3575,16 @@ function closeEditor() {
 // headcount) directly, and render the list fields as removable chips. Save sends
 // PUT {rules, enabled}; the server re-encodes to the canonical TOML.
 let pfRules: any = null;
-// The four substring lists, each rendered as a chip input keyed by "section.key".
-const PF_LIST_FIELDS = ["location.allowed", "verticals.excluded", "verticals.allowed", "funding_stage.allowed"];
+// Vocabularies for the multi-selects, loaded from /api/filter-options: the
+// vertical tags present in the data (for autocomplete) and the canonical funding
+// stages (for the toggle chips).
+let pfVertOptions: { value: string; count: number }[] = [];
+let pfStageOptions: { value: string; count: number }[] = [];
+// The free-text/tag list fields, each a chip input keyed by "section.key".
+// Funding stage is NOT here — it's a fixed multi-select of canonical stages.
+const PF_LIST_FIELDS = ["location.allowed", "verticals.excluded", "verticals.allowed"];
+// Vertical fields get datalist autocomplete from the real tag vocabulary.
+const PF_DATALIST_FIELDS = { "verticals.excluded": "pf-vertical-tags", "verticals.allowed": "pf-vertical-tags" };
 
 function pfList(field) {
   const [a, b] = field.split(".");
@@ -3586,21 +3594,27 @@ function pfSetList(field, vals) {
   const [a, b] = field.split(".");
   (pfRules[a] = pfRules[a] || {})[b] = vals;
 }
+function pfHas(list, v) { // case-insensitive membership
+  const lv = v.toLowerCase();
+  return list.some(x => String(x).toLowerCase() === lv);
+}
 function renderPfChips() {
   PF_LIST_FIELDS.forEach(field => {
     const host = document.querySelector(`.pf-chips[data-field="${field}"]`);
     if (!host) return;
+    const listAttr = PF_DATALIST_FIELDS[field] ? ` list="${PF_DATALIST_FIELDS[field]}"` : "";
+    const ph = PF_DATALIST_FIELDS[field] ? "type to search…" : "type &amp; Enter…";
     host.innerHTML =
       pfList(field).map((v, i) =>
         `<span class="pf-chip">${escapeHTML(v)}<button class="pf-chip-x" data-field="${field}" data-i="${i}" title="remove" aria-label="remove ${escapeHTML(v)}">×</button></span>`).join("") +
-      `<input class="pf-chip-input" data-field="${field}" type="text" placeholder="type &amp; Enter…" spellcheck="false" />`;
+      `<input class="pf-chip-input" data-field="${field}"${listAttr} type="text" placeholder="${ph}" spellcheck="false" autocomplete="off" />`;
   });
 }
 function pfAddChip(field, raw) {
-  const v = (raw || "").trim().toLowerCase();
+  const v = (raw || "").trim(); // preserve casing (matching is case-insensitive)
   if (v) {
     const list = pfList(field);
-    if (!list.includes(v)) pfSetList(field, [...list, v]);
+    if (!pfHas(list, v)) pfSetList(field, [...list, v]);
   }
   renderPfChips();
   (document.querySelector(`.pf-chip-input[data-field="${field}"]`) as HTMLInputElement)?.focus();
@@ -3611,13 +3625,39 @@ function pfRemoveChip(field, i) {
   pfSetList(field, vals);
   renderPfChips();
 }
+// Funding-stage multi-select: a row of toggle chips, lit when the canonical
+// stage is in funding_stage.allowed. No selection → every stage passes.
+function renderPfStages() {
+  const host = document.getElementById("pf-stages");
+  if (!host) return;
+  const allowed = pfList("funding_stage.allowed");
+  host.innerHTML = pfStageOptions.map(o => {
+    const on = pfHas(allowed, o.value);
+    const c = o.count ? ` <span class="pf-stage-n">${o.count}</span>` : "";
+    return `<button class="pf-stage${on ? " is-on" : ""}" data-stage="${escapeHTML(o.value)}">${escapeHTML(o.value)}${c}</button>`;
+  }).join("");
+}
+function pfToggleStage(value) {
+  const list = pfList("funding_stage.allowed");
+  pfSetList("funding_stage.allowed", pfHas(list, value) ? list.filter(x => String(x).toLowerCase() !== value.toLowerCase()) : [...list, value]);
+  renderPfStages();
+}
+function populateVertDatalist() {
+  const dl = document.getElementById("pf-vertical-tags");
+  if (dl) dl.innerHTML = pfVertOptions.map(o => `<option value="${escapeHTML(o.value)}" label="${o.count}"></option>`).join("");
+}
 function pfBlank() {
   return { location: { allowed: [], remote_ok: true }, headcount: { min: 0, max: 0 }, verticals: { allowed: [], excluded: [] }, funding_stage: { allowed: [] } };
 }
 async function openPrefilter(useDefault = false) {
   document.getElementById("prefilter-scrim").classList.add("open");
   try {
-    const d = await (await fetch("/api/taste-filter" + (useDefault ? "?default=1" : ""))).json();
+    // Rules + the option vocabularies (the latter cached after first load).
+    const [d, opts] = await Promise.all([
+      (await fetch("/api/taste-filter" + (useDefault ? "?default=1" : ""))).json(),
+      (pfVertOptions.length || pfStageOptions.length) ? Promise.resolve(null) : fetch("/api/filter-options").then(r => r.json()).catch(() => null),
+    ]);
+    if (opts) { pfVertOptions = opts.verticals || []; pfStageOptions = opts.stages || []; }
     pfRules = Object.assign(pfBlank(), d.rules || {});
     pfRules.location = Object.assign({ allowed: [], remote_ok: true }, pfRules.location);
     pfRules.headcount = Object.assign({ min: 0, max: 0 }, pfRules.headcount);
@@ -3628,7 +3668,9 @@ async function openPrefilter(useDefault = false) {
     (document.getElementById("pf-remote-ok") as HTMLInputElement).checked = !!pfRules.location.remote_ok;
     (document.getElementById("pf-hc-min") as HTMLInputElement).value = String(pfRules.headcount.min || 0);
     (document.getElementById("pf-hc-max") as HTMLInputElement).value = String(pfRules.headcount.max || 0);
+    populateVertDatalist();
     renderPfChips();
+    renderPfStages();
   } catch (e) { toast(`failed to load pre-filter: ${e.message}`); }
 }
 function closePrefilter() {
@@ -3642,8 +3684,8 @@ async function savePrefilter() {
   pfRules.headcount.max = Math.max(0, parseInt((document.getElementById("pf-hc-max") as HTMLInputElement).value, 10) || 0);
   // Fold any text left typed-but-not-entered in a chip input into its list.
   document.querySelectorAll(".pf-chip-input").forEach((inp: any) => {
-    const v = inp.value.trim().toLowerCase();
-    if (v && !pfList(inp.dataset.field).includes(v)) pfSetList(inp.dataset.field, [...pfList(inp.dataset.field), v]);
+    const v = inp.value.trim();
+    if (v && !pfHas(pfList(inp.dataset.field), v)) pfSetList(inp.dataset.field, [...pfList(inp.dataset.field), v]);
   });
   const enabled = (document.getElementById("pf-enabled") as HTMLInputElement).checked;
   let resp;
@@ -4048,6 +4090,8 @@ document.getElementById("pf-save").onclick = savePrefilter;
 document.getElementById("pf-reset").onclick = () => openPrefilter(true);
 document.getElementById("prefilter-scrim").addEventListener("click", (e: any) => {
   if (e.target.id === "prefilter-scrim") { closePrefilter(); return; }
+  const stage = e.target.closest(".pf-stage");
+  if (stage) { pfToggleStage(stage.dataset.stage); return; }
   const x = e.target.closest(".pf-chip-x");
   if (x) { pfRemoveChip(x.dataset.field, parseInt(x.dataset.i, 10)); return; }
   const chips = e.target.closest(".pf-chips"); // click bare chip area → focus its input

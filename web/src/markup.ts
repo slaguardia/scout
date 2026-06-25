@@ -341,17 +341,18 @@ export const SCOUT_MARKUP = `
 
       <section class="pf-sec">
         <h3 class="pf-h">Industry / vertical</h3>
-        <p class="pf-help">Drop companies in verticals you never want. Matching is by substring, so keep terms specific — “law” also matches “Law&nbsp;Enforcement”.</p>
-        <div class="pf-sublabel">Exclude these verticals</div>
+        <p class="pf-help">Matches whole category tags from your data (a company’s vertical is a list like “Health&nbsp;Care, Software”). Start typing to pick a tag — selecting “Health&nbsp;Care” never touches “Health&nbsp;Insurance”.</p>
+        <div class="pf-sublabel">Exclude these tags</div>
         <div class="pf-chips" data-field="verticals.excluded"></div>
         <div class="pf-sublabel">Allow only these <span class="pf-sublabel-note">(leave empty to allow all)</span></div>
         <div class="pf-chips" data-field="verticals.allowed"></div>
+        <datalist id="pf-vertical-tags"></datalist>
       </section>
 
       <section class="pf-sec">
         <h3 class="pf-h">Funding stage</h3>
-        <p class="pf-help">If you list any, only companies at these stages pass. Leave empty to allow all.</p>
-        <div class="pf-chips" data-field="funding_stage.allowed"></div>
+        <p class="pf-help">If you pick any, only companies at those stages pass. Leave all unselected to allow every stage.</p>
+        <div class="pf-stages" id="pf-stages"></div>
       </section>
     </div>
     <div class="modal-foot">

@@ -154,9 +154,9 @@ func (t *Taste) evaluate(s Survivor) string {
 	}
 
 	loc := strings.ToLower(s.Location)
-	vert := strings.ToLower(s.Vertical)
 
-	// Location
+	// Location — substring match is correct here: a free-form location string
+	// ("San Francisco, CA") should match the rule "san francisco".
 	if !t.locationOK(loc) {
 		return "location"
 	}
@@ -171,18 +171,24 @@ func (t *Taste) evaluate(s Survivor) string {
 		}
 	}
 
-	// Excluded verticals (hard reject)
+	// Verticals — the field is a comma-separated tag set ("Artificial
+	// Intelligence (AI), Software"), so we match whole tags, not substrings of
+	// the joined string. That's the difference between excluding the tag "Law"
+	// and accidentally nuking "Law Enforcement" (a distinct tag).
+	tags := verticalTags(s.Vertical)
+
+	// Excluded verticals (hard reject): any company tag equal to an excluded term.
 	for _, ex := range t.Verticals.Excluded {
-		if ex != "" && strings.Contains(vert, strings.ToLower(ex)) {
+		if ex = strings.ToLower(strings.TrimSpace(ex)); ex != "" && containsStr(tags, ex) {
 			return "vertical_excluded"
 		}
 	}
 
-	// Allowed verticals (if specified)
+	// Allowed verticals (if specified): at least one tag must match.
 	if len(t.Verticals.Allowed) > 0 {
 		ok := false
 		for _, a := range t.Verticals.Allowed {
-			if a != "" && strings.Contains(vert, strings.ToLower(a)) {
+			if a = strings.ToLower(strings.TrimSpace(a)); a != "" && containsStr(tags, a) {
 				ok = true
 				break
 			}
@@ -192,12 +198,13 @@ func (t *Taste) evaluate(s Survivor) string {
 		}
 	}
 
-	// Funding stage
+	// Funding stage — match on the normalized canonical label so "Pre Seed",
+	// "pre-seed", and the rule "Pre-Seed" all line up.
 	if len(t.FundingStage.Allowed) > 0 {
-		stage := strings.ToLower(s.Stage)
+		stage := NormalizeStage(s.Stage)
 		ok := false
 		for _, a := range t.FundingStage.Allowed {
-			if a != "" && strings.Contains(stage, strings.ToLower(a)) {
+			if stage != "" && NormalizeStage(a) == stage {
 				ok = true
 				break
 			}
@@ -208,6 +215,28 @@ func (t *Taste) evaluate(s Survivor) string {
 	}
 
 	return ""
+}
+
+// verticalTags splits a company's comma-separated vertical field into normalized
+// (lowercased, trimmed) tags. Empty fragments are dropped.
+func verticalTags(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func containsStr(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Taste) locationOK(loc string) bool {
@@ -221,4 +250,42 @@ func (t *Taste) locationOK(loc string) bool {
 		}
 	}
 	return false
+}
+
+// CanonicalStages is the normalized funding-stage vocabulary, ordered earliest
+// to latest. The dashboard's stage multi-select offers these; matching compares
+// the canonical labels (see NormalizeStage), so raw data like "Pre Seed" and a
+// saved rule "Pre-Seed" line up.
+var CanonicalStages = []string{"Pre-Seed", "Seed", "Series A", "Series B", "Series C", "Series D", "Series E+", "Growth", "Public"}
+
+// NormalizeStage maps a raw funding-stage string to one of CanonicalStages. An
+// unrecognized non-empty value is returned trimmed (so unusual stages stay
+// selectable and matchable); a blank value normalizes to "".
+func NormalizeStage(raw string) string {
+	k := strings.NewReplacer(" ", "", "-", "", ".", "", "_", "").Replace(strings.ToLower(raw))
+	switch k {
+	case "":
+		return ""
+	case "preseed", "pre":
+		return "Pre-Seed"
+	case "seed":
+		return "Seed"
+	case "seriesa", "a":
+		return "Series A"
+	case "seriesb", "b":
+		return "Series B"
+	case "seriesc", "c":
+		return "Series C"
+	case "seriesd", "d":
+		return "Series D"
+	case "seriese", "e", "seriesf", "f", "seriesg", "g":
+		return "Series E+"
+	}
+	switch {
+	case strings.Contains(k, "growth"), strings.Contains(k, "late"):
+		return "Growth"
+	case strings.Contains(k, "ipo"), strings.Contains(k, "public"):
+		return "Public"
+	}
+	return strings.TrimSpace(raw)
 }

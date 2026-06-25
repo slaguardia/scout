@@ -6,11 +6,11 @@
 #
 # Be conservative here — this gate is brain-free and judgment-free. Location,
 # headcount, and has-domain are unambiguous facts worth gating on cheaply.
-# Vertical include/exclude is a taste call the brain-informed LLM is better at;
-# substring matching here is blunt (e.g. "law" matches "Law Enforcement").
+# Vertical include/exclude is a taste call the brain-informed LLM is better at.
 
 [location]
-# Lowercased substrings. A company's `location` field matches if it contains any.
+# Lowercased substrings. A company's free-form `location` matches if it contains
+# any (so "san francisco" matches "San Francisco, CA").
 allowed = ["san francisco", "sf", "bay area", "remote"]
 remote_ok = true   # if true, missing or "remote" location passes
 
@@ -21,12 +21,17 @@ min = 0
 max = 500
 
 [verticals]
-# If `allowed` is non-empty, the vertical must match one of these.
-# `excluded` always filters out matches even if `allowed` is empty.
-# Match is case-insensitive substring.
+# The `vertical` field is a comma-separated tag set ("Artificial Intelligence
+# (AI), Software"); these match WHOLE tags, case-insensitively — so "web3" hits
+# the tag "Web3" but never a longer tag that merely contains it. Pick tags from
+# the dashboard multi-select (it lists the tags present in your data).
+# If `allowed` is non-empty, a company must carry one of those tags.
+# `excluded` always drops a company carrying any of those tags.
 allowed  = []
-excluded = ["law", "legal tech", "voice", "voice ai", "crypto", "blockchain", "web3", "insurance", "insurtech"]
+excluded = ["Web3", "Blockchain", "Cryptocurrency", "InsurTech"]
 
 [funding_stage]
-# Empty = allow all.
+# Empty = allow all. Otherwise a company must be at one of these stages, matched
+# on the normalized label (Pre-Seed, Seed, Series A…E+, Growth, Public) so raw
+# data like "Pre Seed" lines up. Pick from the dashboard multi-select.
 allowed = []
