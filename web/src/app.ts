@@ -709,7 +709,7 @@ function renderFollowupBanner() {
   banner.style.display = "";
   banner.classList.toggle("is-filtered", dueOnly);
   banner.innerHTML =
-    `<span class="fb-icon">⏰</span>`
+    `<span class="fb-icon">↳</span>`
     + `<span class="fb-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
     + `<button class="btn fb-toggle">${dueOnly ? "show all jobs" : "show only these"}</button>`;
   banner.querySelector(".fb-toggle").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
@@ -751,7 +751,7 @@ function renderJobs() {
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg></button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
-      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
+      <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">↳ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
       <td data-col="link"><a href="${safeHref(j.url)}" target="_blank" rel="noopener" title="open posting" aria-label="open posting">↗</a></td>
@@ -1596,19 +1596,6 @@ function renderOutreachSection() {
 
 // ---- per-contact outreach tracking + follow-ups (M51) ----
 
-// addBusinessDaysISO advances an ISO date by n weekdays (skips Sat/Sun), mirroring
-// the server's auto-arm so a hand-set follow-up matches a logged one.
-function addBusinessDaysISO(iso, n) {
-  const d = new Date(iso + "T00:00:00");
-  let added = 0;
-  while (added < n) {
-    d.setDate(d.getDate() + 1);
-    const wd = d.getDay();
-    if (wd !== 0 && wd !== 6) added++;
-  }
-  return d.toISOString().slice(0, 10);
-}
-
 // renderFollowupTemplate fills the user's follow-up template with this contact +
 // the last send's variables ({{company}}, {{role}}, {{contact_name}},
 // {{contact_role}}, {{last_sent}}, {{last_message}}). Mirrors the server's bareVarRE;
@@ -1674,28 +1661,33 @@ function contactCardHTML(c) {
       <div class="cc-form-actions"><button class="btn btn-primary cc-e-save" type="button">Save</button><button class="btn cc-e-cancel" type="button">Cancel</button></div>
     </div>
     <div class="cc-status">${followupStatusHTML(latest)}</div>
-    <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button>${latest ? `<button class="btn cc-followup" type="button" title="copy a follow-up email from your template and pre-fill the log">Follow up ⧉</button>` : ""}</div>
-    <div class="cc-logform" style="display:none">
+    <div class="cc-rowacts">${latest
+      ? `<button class="btn cc-followup" type="button" title="copy a follow-up email from your template">Follow up ⧉</button>`
+      : `<button class="btn cc-log" type="button">+ log outreach</button>`}</div>
+    ${latest ? "" : `<div class="cc-logform" style="display:none">
       <input class="input cc-l-date" type="date" value="${isoToday()}" title="date sent">
       <textarea class="input cc-l-body" rows="5" placeholder="email body — what you sent (optional)" spellcheck="false"></textarea>
       <div class="cc-form-actions"><button class="btn btn-primary cc-l-save" type="button">Log</button><button class="btn cc-l-cancel" type="button">Cancel</button></div>
-    </div>
+    </div>`}
     ${entries.length ? `<details class="cc-history"><summary>${entries.length} send${entries.length > 1 ? "s" : ""}</summary><div class="cc-entries">${entries.map(outreachEntryHTML).join("")}</div></details>` : ""}
   </div>`;
 }
 
 // followupStatusHTML renders the contact's current outreach state from its latest
-// send: last-sent date plus the active follow-up (editable date + "mark done"),
-// or affordances to set one / log the first outreach.
+// send. Three states: followed up (checkbox checked → done), pending (a "follow
+// up" checkbox + a "stop" link to discontinue this contact, with a due emphasis
+// once the auto-armed reminder is past due), or stopped (no pending reminder —
+// the due was cleared — with a "resume" link). No send yet → a dim placeholder.
 function followupStatusHTML(latest) {
   if (!latest) return `<span class="dim">no outreach logged yet</span>`;
   const last = `last ${escapeHTML(latest.sent_at)}`;
-  if (latest.followup_done_at) return `${last} · <span class="fu-done">followed up ✓</span>`;
-  if (latest.followup_due_at) {
-    const overdue = latest.followup_due_at <= isoToday();
-    return `${last} · <span class="fu-wrap ${overdue ? "fu-overdue" : ""}">${overdue ? "⏰ " : ""}follow up by <input class="input fu-date" data-eid="${latest.id}" type="date" value="${escapeHTML(latest.followup_due_at)}"></span> <button class="btn cc-fu-done" data-eid="${latest.id}" type="button">mark followed up</button>`;
-  }
-  return `${last} · <span class="dim">no follow-up</span> <button class="btn cc-fu-set" data-eid="${latest.id}" type="button">set reminder</button>`;
+  const id = latest.id;
+  if (latest.followup_done_at)
+    return `${last} · <label class="cc-fu-check fu-done"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}" checked> followed up</label>`;
+  if (!latest.followup_due_at)
+    return `${last} · <span class="fu-stopped">follow-up stopped</span> <button class="cc-fu-resume" data-eid="${id}" type="button">resume</button>`;
+  const due = latest.followup_due_at <= isoToday();
+  return `${last} · <label class="cc-fu-check${due ? " fu-overdue" : ""}"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}"> follow up</label> <button class="cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
 }
 
 function outreachEntryHTML(e) {
@@ -1801,9 +1793,12 @@ function wireContacts() {
       if (r) { toast("contact removed"); refreshAfterContactChange(); }
     });
 
-    // Log outreach (the body field records the actual email sent).
+    // Log the first outreach (pre-outreach only; the body records the actual
+    // email sent). Once a send exists the card shows the follow-up controls
+    // instead, so the log button + form aren't rendered.
     const logForm = card.querySelector(".cc-logform");
-    card.querySelector(".cc-log").addEventListener("click", () => {
+    const logBtn = card.querySelector(".cc-log");
+    if (logBtn) logBtn.addEventListener("click", () => {
       logForm.style.display = logForm.style.display === "none" ? "" : "none";
       if (logForm.style.display !== "none") logForm.querySelector(".cc-l-date").focus();
     });
@@ -1820,42 +1815,35 @@ function wireContacts() {
       if (r) { toast("outreach logged"); refreshAfterContactChange(); }
     });
 
-    // Follow up: render the template (filled from this contact + the last send),
-    // copy it to the clipboard, and pre-fill the log form so sending then logging
-    // is one more click. Nothing is recorded until they hit Log.
+    // Follow up: fill the template from this contact + the last send and copy it
+    // to the clipboard. Pure copy — sending and marking done are the user's.
     const fuBtn = card.querySelector(".cc-followup");
     if (fuBtn) fuBtn.addEventListener("click", () => {
-      const c = pursuit.contacts.find(x => x.id === cid);
-      const latest = pursuit.outreach.filter(e => e.contact_id === cid)[0] || null;
-      const text = renderFollowupTemplate(c, latest);
-      copyToClipboard(text, "follow-up copied — paste into your email");
-      logForm.style.display = "";
-      logForm.querySelector(".cc-l-body").value = text;
-      logForm.querySelector(".cc-l-date").value = isoToday();
+      const c = pursuit.contacts.find(x => String(x.id) === String(cid));
+      const latest = pursuit.outreach.filter(e => String(e.contact_id) === String(cid))[0] || null;
+      copyToClipboard(renderFollowupTemplate(c, latest), "follow-up copied — paste into your email");
     });
 
-    // Follow-up: snooze (date change), mark done, set from cleared. The PUT is
-    // full-state, so each carries the entry's current body + sent_at + note unchanged.
-    const entryEdit = (eid, patch) => {
+    // Follow-up state changes (checkbox toggle, stop, resume) all PUT full-state,
+    // carrying the entry's body + sent_at + note unchanged. Stop clears the due
+    // date (silences the nag without claiming a follow-up); resume re-arms it.
+    const putFollowup = async (eid, patch, msg) => {
       const e = pursuit.outreach.find(x => String(x.id) === String(eid)) || {};
-      return { sent_at: e.sent_at || "", body: e.body || "", note: e.note || "", followup_due_at: e.followup_due_at || "", done: !!e.followup_done_at, ...patch };
+      const r = await contactApi("PUT", `/api/outreach-log/${eid}`, {
+        sent_at: e.sent_at || "", body: e.body || "", note: e.note || "",
+        followup_due_at: e.followup_due_at || "", done: !!e.followup_done_at, ...patch,
+      });
+      if (r) { toast(msg); refreshAfterContactChange(); }
     };
-    const fuDate = card.querySelector(".fu-date");
-    if (fuDate) fuDate.addEventListener("change", async () => {
-      const r = await contactApi("PUT", `/api/outreach-log/${fuDate.dataset.eid}`, entryEdit(fuDate.dataset.eid, { followup_due_at: fuDate.value, done: false }));
-      if (r) { toast("follow-up updated"); refreshAfterContactChange(); }
-    });
-    const fuDone = card.querySelector(".cc-fu-done");
-    if (fuDone) fuDone.addEventListener("click", async () => {
-      const r = await contactApi("PUT", `/api/outreach-log/${fuDone.dataset.eid}`, entryEdit(fuDone.dataset.eid, { done: true }));
-      if (r) { toast("marked followed up"); refreshAfterContactChange(); }
-    });
-    const fuSet = card.querySelector(".cc-fu-set");
-    if (fuSet) fuSet.addEventListener("click", async () => {
-      const due = addBusinessDaysISO(isoToday(), state.followupInterval || 5);
-      const r = await contactApi("PUT", `/api/outreach-log/${fuSet.dataset.eid}`, entryEdit(fuSet.dataset.eid, { followup_due_at: due, done: false }));
-      if (r) { toast("reminder set"); refreshAfterContactChange(); }
-    });
+    const fuToggle = card.querySelector(".cc-fu-toggle");
+    if (fuToggle) fuToggle.addEventListener("change", () =>
+      putFollowup(fuToggle.dataset.eid, { done: fuToggle.checked }, fuToggle.checked ? "marked followed up" : "follow-up reopened"));
+    const fuStop = card.querySelector(".cc-fu-stop");
+    if (fuStop) fuStop.addEventListener("click", () =>
+      putFollowup(fuStop.dataset.eid, { followup_due_at: "", done: false }, "follow-up stopped"));
+    const fuResume = card.querySelector(".cc-fu-resume");
+    if (fuResume) fuResume.addEventListener("click", () =>
+      putFollowup(fuResume.dataset.eid, { followup_due_at: isoToday(), done: false }, "follow-up resumed"));
 
     // Delete a logged send.
     card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async () => {

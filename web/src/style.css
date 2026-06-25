@@ -884,12 +884,15 @@
   }
   .cc-edit:hover, .cc-arch:hover { color: var(--fg); background: var(--line); }
   .cc-status { font-size: 12.5px; color: var(--fg-mute); margin-top: 7px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-  .cc-status .fu-wrap { display: inline-flex; align-items: center; gap: 5px; color: var(--fg); }
+  .cc-status .cc-fu-check { display: inline-flex; align-items: center; gap: 5px; color: var(--fg); cursor: pointer; }
+  .cc-status .cc-fu-check input { margin: 0; cursor: pointer; }
   .cc-status .fu-overdue { color: var(--maybe); font-weight: 600; }
   .cc-status .fu-done { color: var(--yes); }
-  .fu-date { width: 138px; padding: 3px 6px; font-size: 12px; color-scheme: dark; }
+  .cc-status .fu-stopped { color: var(--fg-dim); }
+  .cc-fu-stop, .cc-fu-resume { border: none; background: none; padding: 0; cursor: pointer; font-size: 12px; color: var(--link); }
+  .cc-fu-stop:hover, .cc-fu-resume:hover { text-decoration: underline; }
   .cc-rowacts { margin-top: 8px; display: flex; gap: 6px; }
-  .cc-log, .cc-fu-done, .cc-fu-set, .cc-followup { font-size: 12px; padding: 3px 9px; }
+  .cc-log, .cc-followup { font-size: 12px; padding: 3px 9px; }
   .cc-logform .cc-l-body {
     flex: 1 0 100%; min-height: 96px; resize: vertical;
     font: 12px/1.5 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
