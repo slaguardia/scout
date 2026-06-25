@@ -243,10 +243,11 @@
   /* a touch of air between the title and the company subline */
   .jt-namecol .small.dim { margin-top: 3px; }
   .jt-nextup {
-    flex: none; font: inherit; font-size: 17px; line-height: 1; cursor: pointer;
+    flex: none; display: inline-flex; align-items: center; line-height: 1; cursor: pointer;
     padding: 0; background: none; border: none; color: var(--fg-faint);
     transition: color var(--dur-fast) var(--ease);
   }
+  .jt-nextup svg { width: 15px; height: 15px; }
   .jt-nextup:hover { color: var(--accent); }
   .jt-nextup.is-on { color: var(--accent); }
   /* application-stage cell: a compact stage select with its date stacked under.

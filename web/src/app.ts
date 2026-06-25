@@ -440,12 +440,11 @@ async function updateCompanyRows(ids) {
 //     "not applied" item (the empty stage). Default is every stage except
 //     "rejected", plus "not applied" (this folds in the old "hide rejected"
 //     default while still showing un-applied roles).
-//   • Outreach — two quick toggles (next up / not reached out) plus a reply-
-//     status checklist where an empty selection means "all".
+//   • Outreach — a "next up" queue toggle plus a reply-status checklist where
+//     an empty selection means "all".
 let jobStageSel = null;          // Set<stage>; null until the first vocab load seeds it
 let knownStages = null;          // last vocab seen, so new stages can default visible
 let nextUpOnly = false;          // postings queued next up for outreach
-let notReachedOnly = false;      // postings with zero outreach logged yet
 let dueOnly = false;             // postings with a follow-up due today/overdue
 const outreachSel = new Set();   // checked reply statuses ("" = none); empty = all
 
@@ -471,7 +470,6 @@ function filteredJobs() {
     const stage = j.application_status || "";
     if (!jobStageSel.has(stage)) return false;   // "" = the "not applied" filter item
     if (nextUpOnly && !j.next_up) return false;
-    if (notReachedOnly && (j.outreach_count|0) > 0) return false;
     if (dueOnly && !(j.followups_due|0)) return false;
     if (outreachSel.size && !outreachSel.has(j.outreach_status || "")) return false;
     if (q) {
@@ -494,9 +492,9 @@ function fdropItem(attr, key, label, dot, checked) {
 }
 
 // renderFilterMenus rebuilds the jobs "Filters" menu — application stage, the
-// next-up/not-reached quick toggles, and the reply-status checklist, all in one
-// panel. Called on vocab load and on structural selection changes (e.g. the
-// footer's "show rejected" link flipping a selection the user didn't click).
+// next-up queue toggle, and the reply-status checklist, all in one panel. Called
+// on vocab load and on structural selection changes (e.g. the footer's "show
+// rejected" link flipping a selection the user didn't click).
 function renderFilterMenus() {
   reconcileStageSel();
   const menu = document.getElementById("fdrop-jfilters-menu");
@@ -504,9 +502,8 @@ function renderFilterMenus() {
   menu.innerHTML = `<div class="fdrop-head">Application stage</div>`
     + fdropItem("data-stage", "", "not applied", "", jobStageSel.has(""))
     + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("")
-    + `<div class="fdrop-sep"></div><div class="fdrop-head">Quick filters</div>`
+    + `<div class="fdrop-sep"></div><div class="fdrop-head">Outreach queue</div>`
     + fdropItem("data-toggle", "nextup", "★ Next up", "", nextUpOnly)
-    + fdropItem("data-toggle", "notreached", "Not reached out", "", notReachedOnly)
     + `<div class="fdrop-sep"></div><div class="fdrop-head">Reply status</div>`
     + [["", "none", ""]].concat(state.outreachStatuses.map(s => [s, s, statusColorClass(s)]))
         .map(([v, label, dot]) => fdropItem("data-status", v, label, dot, outreachSel.has(v))).join("");
@@ -517,25 +514,23 @@ function renderFilterMenus() {
 // from the full jobs list — cheap, called on every renderJobs so counts track edits.
 function syncFilterCounts() {
   const stageN = {}, statusN = {};
-  let nextN = 0, notReachedN = 0;
+  let nextN = 0;
   for (const j of state.jobs) {
     const st = j.application_status || "";
     stageN[st] = (stageN[st] | 0) + 1;   // includes "" (not applied)
     const os = j.outreach_status || "";
     statusN[os] = (statusN[os] | 0) + 1;
     if (j.next_up) nextN++;
-    if (!(j.outreach_count | 0)) notReachedN++;
   }
   writeItemCounts("#fdrop-jfilters-menu [data-stage]", "data-stage", stageN);
   writeItemCounts("#fdrop-jfilters-menu [data-status]", "data-status", statusN);
   setToggleCount("nextup", nextN);
-  setToggleCount("notreached", notReachedN);
   // The badge counts every active narrowing in the panel: stages (when changed
-  // from the all-but-rejected default) + the two toggles + reply-status picks.
+  // from the all-but-rejected default) + the next-up toggle + reply-status picks.
   const def = ["", ...state.applicationStages.filter(s => s !== "rejected")];
   const appDefault = jobStageSel && jobStageSel.size === def.length && def.every(s => jobStageSel.has(s));
   const n = (appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0))
-    + (nextUpOnly ? 1 : 0) + (notReachedOnly ? 1 : 0) + outreachSel.size;
+    + (nextUpOnly ? 1 : 0) + outreachSel.size;
   setFilterBadge("fdrop-jfilters-btn", n, n > 0);
 }
 function writeItemCounts(sel, attr, counts) {
@@ -754,7 +749,7 @@ function renderJobs() {
     const osOpts = statusOptions(ostatus).map(([v, label]) =>
       `<option value="${escapeHTML(v)}"${ostatus === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     tr.innerHTML = `
-      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up">${j.next_up ? "★" : "☆"}</button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
+      <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg></button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
       <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
       <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">⏰ ${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
@@ -3863,7 +3858,7 @@ for (const id of ["fdrop-cfilters", "fdrop-columns", "fdrop-jfilters"]) {
   drop.querySelector(".fdrop-menu").addEventListener("click", e => e.stopPropagation());
 }
 document.addEventListener("click", closeAllDropdowns);
-// Jobs Filters menu: stage checklist + next-up/not-reached toggles + reply status.
+// Jobs Filters menu: stage checklist + next-up toggle + reply status.
 document.getElementById("fdrop-jfilters-menu").addEventListener("click", e => {
   const it = e.target.closest(".fdrop-item");
   if (!it) return;
@@ -3872,7 +3867,6 @@ document.getElementById("fdrop-jfilters-menu").addEventListener("click", e => {
     if (jobStageSel.has(s)) jobStageSel.delete(s); else jobStageSel.add(s);
     setItemChecked(it, jobStageSel.has(s));
   } else if (it.dataset.toggle === "nextup") { nextUpOnly = !nextUpOnly; setItemChecked(it, nextUpOnly); }
-  else if (it.dataset.toggle === "notreached") { notReachedOnly = !notReachedOnly; setItemChecked(it, notReachedOnly); }
   else if (it.hasAttribute("data-status")) {
     const v = it.getAttribute("data-status");
     if (outreachSel.has(v)) outreachSel.delete(v); else outreachSel.add(v);
