@@ -1,22 +1,22 @@
 # scout — HTTP API contract
 
 The stable surface a client (the UI today, a PWA next) builds against. Scout's
-backend is a Go `net/http` server that serves one HTML page plus a JSON API on
-localhost (`scout serve`, default `:8765`).
+backend is a Python FastAPI (uvicorn) server that serves the built PWA plus a
+JSON API on localhost (`scout serve`, default `:8765`).
 
-**Source of truth: [`internal/web/server.go`](../internal/web/server.go)** — the
-route table is exactly the `mux.HandleFunc` calls in `func (s *Server) Handler()`.
-Per-route behavior lives in the sibling handler files (`run.go`, `capture.go`,
-`outreach.go`, `editor.go`, `profile.go`, and `server.go` itself). If this doc
+**Source of truth: the FastAPI routers in [`scout/web/`](../scout/web/)** —
+`app.py::create_app` auto-includes one `APIRouter` per module under `routes/`,
+and the route table is the `@router` declarations across those files (`core.py`,
+`run.py`, `capture.py`, `outreach.py`, `editor.py`, `profile.py`, …). If this doc
 and the code disagree, the code wins; fix this doc. For *what scout is* and the
 brain/scout split see [`./north-star.md`](./north-star.md); for *how to run it*
 (flags, env, the `ANTHROPIC_API_KEY` requirement) see
 [`./operations.md`](./operations.md).
 
-All JSON responses are `Content-Type: application/json`. Errors are plain-text
-`http.Error` bodies unless noted (capture and outreach return JSON on a couple of
+All JSON responses are `Content-Type: application/json`. Errors are `{"error":
+msg}` JSON bodies (capture and outreach add a structured field on a couple of
 error paths). IDs are UUID strings for companies/postings; outreach draft ids are
-int64.
+integers.
 
 ## Capability gating (read this before building a client)
 
@@ -44,7 +44,7 @@ client should treat 412 as "the server is up but this action needs a key" and
 
 | Method | Path | Purpose | Notes |
 |---|---|---|---|
-| `GET` | `/` | Serves the built PWA. | The **only** HTML the backend renders — the toolkit-built PWA's `internal/web/dist/` via `go:embed` (SPA fallback to `dist/index.html` for unknown non-`/api/` paths). |
+| `GET` | `/` | Serves the built PWA. | The PWA shell the backend serves — static files from `web/dist/` (SPA fallback to `dist/index.html` for unknown non-`/api/` paths). |
 | `GET` | `/api/me` | Signed-in identity. | Reads the edge's `X-Auth-Request-Email` header; returns `{"email":"…"}` when present, else `{}` (HTTP 200 either way). Never trusts a client value. |
 | `GET` | `/healthz` | Liveness probe. | Prints `ok` (plain text). Used by the platform edge / launcher to show connected/offline. |
 
@@ -143,9 +143,9 @@ client). Gated on the path being configured.
 Most routes are plain request/response JSON. Three are not:
 
 - **`GET /`** serves HTML (`text/html`), not JSON — the built PWA shell
-  (`internal/web/dist/index.html`). It is the only HTML the backend emits; unknown
+  (`web/dist/index.html`). It is the PWA shell the backend serves; unknown
   non-`/api/` paths fall back to it (SPA routing), while real assets under `/assets`,
-  `/manifest.webmanifest`, `/sw.js`, and the icons are served from the embedded dist.
+  `/manifest.webmanifest`, `/sw.js`, and the icons are served from `web/dist/`.
 - **`GET /api/jobs/{id}/stream`** is **Server-Sent Events** (`text/event-stream`,
   `Cache-Control: no-cache`, keep-alive). It replays the job's backlog, then
   streams `event: line` messages, and closes with `event: end` carrying the final
@@ -159,16 +159,16 @@ Most routes are plain request/response JSON. Three are not:
 
 This section tracks moving scout's UI onto the shared web platform (see the
 platform plan in `brainbot/docs/app-platform.md`). The frontend re-home itself is
-**done** — `GET /` now serves the toolkit-built PWA from the embedded
-`internal/web/dist/`, and `GET /api/me` exists. What is still **target direction**
+**done** — `GET /` now serves the toolkit-built PWA from `web/dist/` as static
+files, and `GET /api/me` exists. What is still **target direction**
 is putting scout behind the shared edge (HTTPS + SSO). Items below are marked
 accordingly.
 
 - **The backend renders no app HTML except `GET /`.** Everything a client needs
   is the JSON API above plus the SSE/multipart transports. The re-home pulled
-  scout's frontend out of the single `go:embed`-ed `index.html` and rebuilt it as a
-  toolkit-built PWA (`web/`, emitted to `internal/web/dist/`, still `go:embed`-ed);
-  the Go server keeps serving this `/api/*` surface **unchanged**. It was a frontend
+  scout's frontend out of the single embedded `index.html` and rebuilt it as a
+  toolkit-built PWA (`web/`, emitted to `web/dist/`, served as static files);
+  the server keeps serving this `/api/*` surface **unchanged**. It was a frontend
   re-home, not a backend rewrite — which is exactly why this contract exists.
 - **Identity comes from the edge, via `X-Auth-Request-Email`.** `GET /api/me`
   **exists**: it reads that header and returns `{"email":"…"}` when present, else

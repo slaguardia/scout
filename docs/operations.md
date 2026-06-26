@@ -6,7 +6,7 @@ sideways. For *what scout is* and the brain/scout split, see
 
 ## Prerequisites
 
-- Go 1.22+ (1.26+ on dev machines is fine).
+- Python 3.12+.
 - `ANTHROPIC_API_KEY` for scoring (the `verdict` stage, including UI-triggered
   runs).
 - The brain on `http://127.0.0.1:8100` if you want live criteria (read-only).
@@ -16,31 +16,27 @@ sideways. For *what scout is* and the brain/scout split, see
 ## First-run
 
 ```bash
-brew install go
 cd ~/Repositories/scout
-go mod tidy
-go build -o scout ./cmd/scout
+pip install -e .
 ```
 
-The migrations are embedded; the first `scout <anything>` call creates
-`scout.db` and runs them (currently through `0013`).
+The migrations ship inside the `scout` package; the first `scout <anything>`
+call creates `scout.db` and runs them (currently through `0013`).
 
 ## Building the web UI
 
 The UI is a Vite + vanilla-TS PWA in `web/` (consuming the shared
-`@brainbot/web-toolkit`). Its build emits to `internal/web/dist/`, which the Go
-server embeds with `go:embed` and serves at `GET /` — so the binary stays a
-single self-contained artifact. `internal/web/dist/` is committed, so a fresh
-checkout builds with just `go build` (no Node needed to *run* scout).
+`@brainbot/web-toolkit`). Its build emits to `web/dist/`, which the FastAPI
+server serves as static files at `GET /`. `web/dist/` is committed, so a fresh
+checkout runs with just `pip install -e .` (no Node needed to *run* scout).
 
-After any UI change, rebuild the dist before `go build`:
+After any UI change, rebuild the dist:
 
 ```bash
 cd web
 npm install        # first time only — resolves the toolkit file: dep
-npm run build      # gen-pwa (manifest + sw.js) then vite build → ../internal/web/dist/
+npm run build      # gen-pwa (manifest + sw.js) then vite build → dist/
 cd ..
-go build -o scout ./cmd/scout
 ```
 
 For live UI work, `cd web && npm run dev` serves with HMR and proxies `/api/*`
@@ -49,13 +45,13 @@ to a running `scout serve` (default `:8765`).
 ## Deployment — behind the shared edge
 
 For local use, `scout serve` on `localhost` is enough (above). For the deployed
-estate, scout ships as **one Go binary with the PWA embedded** (`go:embed`) —
-no Node at image-build time — in a compose service on the brain's `brainnet`,
-fronted by the **shared Caddy + oauth2-proxy edge** at `scout.{domain}`:
+estate, scout ships as a **Python app serving the prebuilt PWA as static
+files** — no Node at image-build time — in a compose service on the brain's
+`brainnet`, fronted by the **shared Caddy + oauth2-proxy edge** at `scout.{domain}`:
 
 ```
 scout.{domain} → Caddy (HTTPS) → forward_auth → oauth2-proxy (Google SSO +
-                 email whitelist) → scout:8765 (/api + embedded PWA)
+                 email whitelist) → scout:8765 (/api + static PWA)
 ```
 
 - **No auth code in scout.** The edge authenticates; scout trusts the injected
@@ -82,7 +78,7 @@ triage and the Criteria panel (view/refresh the brain profile, or edit the
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-./scout serve
+scout serve
 # scout triage UI at http://localhost:8765
 ```
 
@@ -98,11 +94,11 @@ The same stages, headless — for automation or debugging.
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # 1. Drop the CSV into the DB.
-./scout ingest data/crunchbase-export.csv
+scout ingest data/crunchbase-export.csv
 # read=423 upserted=423 skipped=0 errors=0
 
 # 2. Sanity-check the mechanical pre-filter.
-./scout filter
+scout filter
 # ... survivor table ...
 # total=423 survivors=87
 # dropped by:
@@ -112,12 +108,12 @@ export ANTHROPIC_API_KEY=sk-ant-...
 #   vertical_excluded     122
 
 # 3. Fetch about-pages.
-./scout enrich
+scout enrich
 # considered=87 fetched=87 ok=71 failed=16
 
 # 4. Score with Haiku. Criteria come from the brain (@127.0.0.1:8100) when
 #    healthy (cached locally), else taste.md.
-./scout verdict
+scout verdict
 # taste source=brain:profile@http://127.0.0.1:8100 version=b4cd783174d6
 # considered=71 scored=71 skipped=0 failed=0
 #   maybe 18
@@ -125,7 +121,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 #   yes   18
 
 # 5. Triage in the browser.
-./scout serve
+scout serve
 # scout triage UI at http://localhost:8765
 ```
 
@@ -253,12 +249,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## Troubleshooting
 
-**`go: cannot find main module`**
-You're not in the repo root. `cd ~/Repositories/scout`.
-
 **Ingest reports `skipped=N` but you didn't expect it**
 Rows with no `name` column value are skipped. The Crunchbase column
-aliases live in `internal/ingest/csv.go`. If your CSV uses an exotic
+aliases live in `scout/ingest/csv.py`. If your CSV uses an exotic
 header, either rename it or add an alias.
 
 **Filter says `total=0 survivors=0` but the CSV ingested fine**
@@ -298,11 +291,11 @@ the next run.
 **`parse: no valid verdict JSON`**
 Model returned something other than the requested JSON. Should be rare —
 if it gets frequent, tighten the system prompt in
-`internal/verdict/verdict.go::buildSystemPrompt`.
+`scout/verdict/verdict.py::build_system_prompt`.
 
 **Triage UI shows no rows after `verdict`**
 The UI shows every company, not just scored ones. If you see nothing,
-something is up with `scout.db`. Confirm `./scout stats`.
+something is up with `scout.db`. Confirm `scout stats`.
 
 **Triage UI shows `unscored` for everyone**
 You haven't run `scout verdict` yet, or it failed silently. Run again
@@ -335,7 +328,7 @@ There's no daemon. If you want a daily cron:
 
 ```cron
 # Re-score whatever's new, every morning at 9am.
-0 9 * * *  cd ~/Repositories/scout && ./scout enrich && ./scout verdict
+0 9 * * *  cd ~/Repositories/scout && scout enrich && scout verdict
 ```
 
 But really — scout is a "run when you have a new CSV" tool. Cron is overkill.

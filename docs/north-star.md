@@ -94,7 +94,7 @@ unreachable**, nothing more — and we don't invest in it.
 | `taste.md` as the source | **fallback criteria** | local file is offline-only |
 | "the agent's taste" | **the playbook** (how) + **the brain** (what) | two different things, two sources |
 
-The code still uses `taste`-prefixed names (`internal/taste`, `taste.Block`,
+The code still uses `taste`-prefixed names (`scout/taste`, `taste.Block`,
 `taste_version`) — that's **legacy naming to be migrated**, not a contradiction
 of this doc. When you touch it, rename toward "criteria"/"brain context."
 
@@ -104,13 +104,13 @@ A single verdict decision combines four things from three sources:
 
 | Input | Source | Role |
 |---|---|---|
-| **Output contract** | Go constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
+| **Output contract** | code constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
 | **The user's criteria** | **the brain** (`recall` → prose chunks, distilled by scout into a company-fit brief, cached locally) | *what* the user wants + their rules/exclusions |
 | **This company** | scout SQLite | Crunchbase fields + enriched site text |
 
 ```
-  output contract (Go, fixed) ─┐
+  output contract (code, fixed) ─┐
   playbook — how to decide ────┤
   the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
     (brain: recall → distilled │
@@ -130,7 +130,7 @@ deliberately **not** user-data — it's procedure. The brain owns the rest.
 | **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — kept current by the change-propagation cascade (`/changes` cursor → distill basis → re-synthesize), served verbatim until the brain actually changes; stale-fallback (within `--brain-cache-ttl`) when the brain is down. See [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md) | yes — a disposable cache; the brain is the source of truth |
 | **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
 | **playbook** (scout-local) | how scout reasons — procedure only | DB singleton, edited in the dashboard (Criteria); compiled-in default |
-| **pre-filter rules** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, vertical, stage). NOT taste/judgment. | DB singleton (`taste_filter`), edited in the dashboard (Criteria → "pre-filter"); compiled-in default ([`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml)) |
+| **pre-filter rules** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, vertical, stage). NOT taste/judgment. | DB singleton (`taste_filter`), edited in the dashboard (Criteria → "pre-filter"); compiled-in default ([`scout/filter/taste_default.toml`](../scout/filter/taste_default.toml)) |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
 scout-local), reading it via `recall` only.
@@ -201,7 +201,7 @@ spec `brainbot/plans/scout-migration.md`. (The old graph reference client
 
 With the user's small corpus, recall is **coarse**: it returns whole pages,
 scored almost flat, mixing the relevant with the irrelevant. So scout adds an
-intelligence layer — the **distiller** (`internal/distill`) — in front of it:
+intelligence layer — the **distiller** (`scout/distill`) — in front of it:
 
 1. Fan out a few **company-fit** recalls ("what kind of company does the user
    want", "what does the user avoid", stage/size, verticals). *Companies only —
@@ -244,12 +244,11 @@ The classify + synthesize prompts are shown verbatim in
    are no polarity/strength tags — the stance is in the words. (See above.)
 5. **Web-first.** The browser stays the interface; the CLI is the secondary
    automation/debug surface, kept but not primary. The UI is now a **toolkit-built
-   PWA** (`web/`, consuming `@brainbot/web-toolkit`); the Go server `go:embed`s
-   its built `internal/web/dist/` and serves it at `GET /` — so scout is still a
-   single self-contained binary. What remains future is putting it **behind the
+   PWA** (`web/`, consuming `@brainbot/web-toolkit`); the FastAPI server serves
+   its built `web/dist/` as static files at `GET /`. What remains future is putting it **behind the
    shared edge** (Caddy + oauth2-proxy; see [Web delivery is moving to the app
    platform](#web-delivery-is-moving-to-the-app-platform)). The browser-as-interface
-   intent is unchanged, and so are the Go `/api/*` surface and the local-SQLite data.
+   intent is unchanged, and so are the `/api/*` surface and the local-SQLite data.
 
 ## Resolved: the `filter` stage
 
@@ -271,11 +270,11 @@ surfaced via recall and the distilled brief.
 ## Web delivery is moving to the app platform
 
 Scout's **web delivery** is being re-homed onto a shared **app platform**. The
-first step is **done**: the UI moved from a `go:embed` single `index.html` to a
+first step is **done**: the UI moved from a single embedded `index.html` to a
 toolkit-built, installable PWA (`web/`, consuming `@brainbot/web-toolkit`), whose
-built `internal/web/dist/` the Go server `go:embed`s and serves at `GET /`. Still
+built `web/dist/` the FastAPI server serves as static files at `GET /`. Still
 ahead is putting it **behind a shared edge** (Caddy + oauth2-proxy) for HTTPS and
-Google sign-in. This is **delivery only** — scout's Go `/api/*` surface and its
+Google sign-in. This is **delivery only** — scout's `/api/*` surface and its
 local-SQLite working set (companies, enrichment, verdicts, runs) are **unchanged**,
 and the CLI stays the secondary surface. Data does not move to the brain/Postgres;
 verdicts stay scout-local (invariant 1). The identity endpoint `GET /api/me` now

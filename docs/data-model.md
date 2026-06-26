@@ -6,11 +6,11 @@ the system of record for the user), see [`north-star.md`](./north-star.md). This
 doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`internal/store/migrations/` (`0001`–`0013`), are embedded via `//go:embed`,
-apply in filename order on every `Open()`, and are tracked in
+`scout/store/migrations/` (`0001`–`0013`), ship inside the `scout` package,
+apply in filename order on every `open_db()`, and are tracked in
 `schema_migrations`.
 
-Two pragmas, set in the DSN: `foreign_keys=ON`, `journal_mode=WAL`. WAL because
+Two pragmas, set on every connection: `foreign_keys=ON`, `journal_mode=WAL`. WAL because
 most stages do bursts of writes from worker pools and it handles that better
 than the default rollback journal.
 
@@ -40,7 +40,7 @@ indexes are speculative — drop if profiling says so.
 preserved. Useful when a verdict looks wrong and you want the extra signal that
 *was* in the row.
 
-**Dedup.** `id` is a deterministic UUIDv5 (`store.CompanyID`) derived from the
+**Dedup.** `id` is a deterministic UUIDv5 (`store.company_id`) derived from the
 company's *identity*: the normalized `domain`, or `'name:'+lower(name)` when
 there's no domain. The same company always hashes to the same id, so the
 primary key **is** the dedup key — ingest `INSERT ... ON CONFLICT(id) DO UPDATE`
@@ -142,10 +142,10 @@ job_postings (
 ```
 
 Links to actual job/role postings found at a company. Migrations `0011` +
-`0022`–`0024`. Two ways in: **by hand** from the triage detail pane (`AddPosting`,
+`0022`–`0024`. Two ways in: **by hand** from the triage detail pane (`add_posting`,
 source `manual` — url + optional title only), or **by link-capture**
-(`UpsertCapturedPosting`, source `capture`): the user pastes a URL, and one
-Haiku pass (`internal/capture`) classifies the page and extracts
+(`upsert_captured_posting`, source `capture`): the user pastes a URL, and one
+Haiku pass (`scout/capture`) classifies the page and extracts
 title/location/summary. Capture is **idempotent by URL** — re-pasting a link
 (or capturing a hand-added one) refreshes the same row in place rather than
 duplicating; both the pasted and the final post-redirect URL are matched.
@@ -198,7 +198,7 @@ auto-arms `followup_due_at` to `sent_at + N business days` (the
 `followup_interval_days` setting, default 5; 0 = off) unless an explicit date or
 `no_followup` is passed. The posting's `outreach_count` / `last_outreach_at`
 (and the jobs view's `followups_due` badge) are **derived** from this table.
-Stores: `internal/store/contacts.go`. Endpoints: `GET/POST
+Stores: `scout/store/contacts.py`. Endpoints: `GET/POST
 /api/companies/{id}/contacts`, `PUT/DELETE /api/contacts/{id}`, `GET/POST
 /api/postings/{id}/outreach-log`, `PUT/DELETE /api/outreach-log/{id}`,
 `GET/PUT /api/followup-interval`. The legacy posting-level `contacts` blob (M24)
@@ -206,14 +206,14 @@ was backfilled into this table and dropped.
 
 **Follow-up template (M53).** A second singleton row in `outreach_template`
 (key `followup`, alongside the email template's `default`), compiled-in default
-`outreach.DefaultFollowupTemplate`. Pure `{{var}}` substitution (no LLM holes) —
+`outreach.DEFAULT_FOLLOWUP_TEMPLATE`. Pure `{{var}}` substitution (no LLM holes) —
 `{{contact_name}}`, `{{contact_role}}`, `{{role}}` (job title), `{{company}}`,
 `{{last_sent}}`, `{{last_message}}` (the last send's body) — rendered client-side
 for the per-contact "Follow up" copy-paste. Edited via `GET/PUT
 /api/followup-template`.
 
-`ListPostings` returns one company's postings newest-first;
-`ListJobRows` joins every posting with its company's name/verdict/marks plus
+`list_postings` returns one company's postings newest-first;
+`list_job_rows` joins every posting with its company's name/verdict/marks plus
 the lifecycle columns for the UI's jobs view.
 
 ---
@@ -259,12 +259,12 @@ verdict_trace (
 
 Migration `0012`. Unlike every other company-scoped table, this one is
 **append-only** — one row per verdict scoring pass, written by the scorer
-(`scoreOne` → `writeTrace`) via `InsertVerdictTrace`. It is the answer to "*why
+(`score_one` → `write_trace`) via `insert_verdict_trace`. It is the answer to "*why
 did this company get this verdict?*": it records which criteria drove the
 decision (`criteria_source` + `taste_version`), which `model` scored it, and the
 resulting `verdict` + `reason`. There is no per-company brain Q&A here — the
 brain's only contribution to a verdict is the user's criteria, captured by the
-source/version pair. `CompanyTrace(company_id)` reads it oldest-first to power
+source/version pair. `company_trace(company_id)` reads it oldest-first to power
 the UI's "Decision trail" panel (`GET /api/companies/:id/trace`).
 
 Because it appends, it keeps history the `verdicts` snapshot throws away: each
@@ -293,7 +293,7 @@ brain_profile_cache (
 
 Migration `0013`. One row per brain URL — the last distilled company-fit brief
 scout produced from that brain, cached locally so a verdict run (or the web
-server) doesn't re-distill on every invocation. Read by the `internal/criteria`
+server) doesn't re-distill on every invocation. Read by the `scout/criteria`
 resolver: a row younger than `--brain-cache-ttl` (default 6h) is reused as-is;
 older, the resolver re-distills (recall + synthesis) and overwrites the row, and
 only when the brain is unreachable (or distillation fails) does it fall back to
@@ -309,8 +309,8 @@ remains the source of truth; deleting the row just forces a refetch. Like
 schema_migrations (name TEXT PK, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)
 ```
 
-One row per applied migration filename. The `migrate()` loop in
-`internal/store/store.go` skips anything already recorded.
+One row per applied migration filename. The `_migrate()` loop in
+`scout/store/db.py` skips anything already recorded.
 
 ## Relationships
 

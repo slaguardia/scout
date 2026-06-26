@@ -29,7 +29,7 @@ scout-local). Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it
 | **Flags** | `--db scout.db`, `--source crunchbase`. |
 
 **Behavior:**
-- Column aliases in `internal/ingest/csv.go` map many header names to canonical
+- Column aliases in `scout/ingest/csv.py` map many header names to canonical
   fields (`Organization Name`/`Company`/`name`, `UUID`/`id`, `Industries`/`Industry`,
   `Headcount`/`Employees`, `Headquarters Location`/`HQ Location`, etc.).
 - **Strips a UTF-8 BOM from the first header cell** — Crunchbase exports are
@@ -57,25 +57,25 @@ Four combinations, three endpoints:
   are the deduped tags split out of the composite `Industries` cells, rejoined
   `"A, B, C"` on save). Unlike a CSV re-ingest, a manual add for a website
   **already present is rejected (`409`), never overwritten** — it returns the
-  existing company. See `ingest.AddManual` / `ingest.ErrCompanyExists`.
+  existing company. See `ingest.add_manual` / `ingest.CompanyExists`.
 - **Job, no agent pass** → `POST /api/postings` (source `manual`): no fetch, no
   LLM. The posting attaches to the typed company name and/or the link's own
-  host (`capture.CompanyDomainFromURL`; ATS hosts identify nothing), creating
-  the company via `ingest.EnsureCompany` on first sight; a link that names
+  host (`capture.company_domain_from_url`; ATS hosts identify nothing), creating
+  the company via `ingest.ensure_company` on first sight; a link that names
   neither is rejected (`400`) rather than guessed at.
 - **Either kind, agent pass ticked** → `POST /api/capture` with the kind pinned
   and the typed fields passed along — **user input wins, extraction fills the
   blanks**.
 
 **Link capture (the agent pass).** `POST /api/capture {url, kind?, fields?}`
-runs `internal/capture`: one Haiku call over the page fetched with the
+runs `scout/capture`: one Haiku call over the page fetched with the
 enrichment fetch stack, classifying it — **job posting vs company page vs
 other** — and extracting structured fields. A pinned `kind` (the dialog's
 toggle) overrides the classifier; `fields` carry typed values that win over
 extraction (headcount/funding-stage are never extracted — they only pass user
 input through). A job posting is stored in `job_postings`
 (title/location/summary) attached to its company, with the company created
-first (source `capture`, via `ingest.EnsureCompany`) when it isn't in the
+first (source `capture`, via `ingest.ensure_company`) when it isn't in the
 list; the company's own domain is resolved from the extraction with
 ATS/job-board hosts (greenhouse, lever, ashby, …) explicitly rejected as
 identities. A company page upserts the company and **seeds its enrichment row
@@ -109,15 +109,15 @@ open it or [targeted-rescore](#scout-verdict) it (which bypasses the filter).
 The rules live in the DB as a singleton (raw TOML), **edited from the dashboard**
 (Criteria → "pre-filter") and with a **master on/off switch** — turn it off and
 a bulk run scores everything. The compiled-in default is
-[`internal/filter/taste_default.toml`](../internal/filter/taste_default.toml). A
+[`scout/filter/taste_default.toml`](../scout/filter/taste_default.toml). A
 targeted per-company verdict re-score **bypasses** the pre-filter entirely.
 
 **Behavior:**
 - Loads the rules from the DB (falling back to the compiled-in default), pulls
-  all company rows into Go, evaluates per row.
+  all company rows into memory, evaluates per row.
 - Eval order, first failing check is the recorded drop reason:
   `location → headcount_min/max → vertical_excluded → vertical_not_allowed → funding_stage`.
-- Eval is in Go (not SQL) for per-reason drop counts and substring matching;
+- Eval is in Python (not SQL) for per-reason drop counts and substring matching;
   N is low thousands, so speed isn't the bottleneck.
 - Location with no data passes only if `location.remote_ok`. Headcount is
   checked only when present.
@@ -188,21 +188,21 @@ in the detail pane uses this.
 ### Resolving the criteria (distilled brief, cached)
 
 The criteria are **the user's** — they come from the brain, not a scout file.
-Resolution is centralized in `internal/criteria` (`criteria.Resolver`), shared by
-both `cmdVerdict` and the web server, with a local SQLite cache in front of the
+Resolution is centralized in `scout/criteria` (`criteria.Resolver`), shared by
+both `cmd_verdict` (the CLI) and the web server, with a local SQLite cache in front of the
 brain:
 
 ```
 fresh cached brief? (age < --brain-cache-ttl) ──yes──▶ use it
        │ no
-recall + distill (internal/distill) ──▶ brief ──▶ cache + use
+recall + distill (scout/distill) ──▶ brief ──▶ cache + use
        │ unreachable / distill failed
 stale cached brief? ──yes──▶ use it (brain is down)
        │ no
 fall back to taste.md (offline criteria)
 ```
 
-- The brief comes from the **distiller** (`internal/distill`): it fans out a few
+- The brief comes from the **distiller** (`scout/distill`): it fans out a few
   **company-fit** recalls (`GET /recall`), dedups the prose chunks, then runs a
   two-step pass — classify each excerpt as COMPANY vs ROLE_OR_OTHER, then
   synthesize a company-fit brief from the COMPANY items only — sections (*Hard
@@ -216,8 +216,8 @@ fall back to taste.md (offline criteria)
   fails, a *stale* cached brief is used before scout drops to `taste.md`.
 - A brain that's **unreachable with no cache** *or* **healthy-but-empty** falls
   back to `taste.md`. The fallback is offline-only — scout never invests in it.
-- The resolved block becomes a `taste.Block`: `Text`, `Source`
-  (`brain:brief@<url>` or `file:taste.md`), and `Version`.
+- The resolved block becomes a `taste.Block`: `text`, `source`
+  (`brain:brief@<url>` or `file:taste.md`), and `version`.
 - `scout distill` prints the recalled chunks + the brief without scoring — the
   debug/tuning instrument for the recall → brief step.
 
@@ -254,12 +254,12 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 | **Subcommands** | `scout outreach sources [--refresh]` (sync from the brain + print the experience/voice/logistics bundle; `--refresh` forces a full re-discovery), `scout outreach draft --posting <id>` (research → draft). |
 
 **Four editable LLM stages.** Every stage's system prompt has a compiled default
-in `internal/outreach` (registry in `stages.go`) and is overridable per-stage
+in `scout/outreach` (registry in `stages.py`) and is overridable per-stage
 from the dashboard (Settings → *Outreach pipeline*), stored in the
-`prompt_overrides` table and resolved at draft time by `Engine.stagePrompt`. A
-bad edit only fails that stage's drafts (Reset reverts it), never the binary —
+`prompt_overrides` table and resolved at draft time by `Engine.stage_prompt`. A
+bad edit only fails that stage's drafts (Reset reverts it), never the server —
 the JSON contract lives inside each default prompt. Every stage **except the
-Writer** can be toggled off/skipped (`Engine.stageEnabled`). There is **no judge
+Writer** can be toggled off/skipped (`Engine.stage_enabled`). There is **no judge
 and no "doctrine"** — both removed: the judge's depth-gating produced robotic,
 clever-sounding output (and a critique report-card on the user); the doctrine doc
 was superseded. The writing register is **plain, warm, and specific** —
@@ -286,7 +286,7 @@ claim beyond the documented experience; honest → review queue, dishonest twice
 failed). A disabled stage is skipped. Verbatim template prose is true by
 construction. Discovery fails loud (`ErrNoExperience`) when experience is empty.
 The engine wires into `serve` when `ANTHROPIC_API_KEY` is set; drafting is
-fire-and-forget. Code: `internal/outreach`.
+fire-and-forget. Code: `scout/outreach`.
 
 ---
 
@@ -297,9 +297,9 @@ fire-and-forget. Code: `internal/outreach`.
 | **Input** | a `job_postings` row (its ATS application form), plus — for generation — the same JD + company-fit brief + experience bundle + voice the email pipeline uses. |
 | **Output** | one `posting_answers` row per detected essay question, each independently editable/regenerable from the pursuit panel's "Application" section. **Scout never submits** — it drafts; you copy-paste into the ATS. |
 | **Idempotent** | Re-detect refreshes the question set; per-question Regenerate redraws one answer. |
-| **Subcommands** | `scout questions detect (--posting <id> | --all)`. Generation is on a UI button (`Engine.GenerateAnswers`), gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. |
+| **Subcommands** | `scout questions detect (--posting <id> | --all)`. Generation is on a UI button (`Engine.generate_answers`), gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. |
 
-**Detection** runs at capture time (`internal/capture/questions.go`) via
+**Detection** runs at capture time (`scout/capture/questions.py`) via
 per-platform resolvers — Greenhouse `?questions=true` (official) and Ashby
 `applicationForm` over the unofficial `non-user-graphql` endpoint (fail-soft to
 `unsupported` on schema drift), plus a Haiku HTML fallback. Identity / EEO /
@@ -322,15 +322,15 @@ than shipping it. Endpoints mirror outreach (`GET/POST
 | **Output** | `scout triage UI at http://localhost:8765`. |
 | **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`, `--brain-cache-ttl 6h`. |
 
-A toolkit-built PWA (`web/`, consuming `@brainbot/web-toolkit`, embedded via
-`go:embed internal/web/dist/`) plus a **full control surface** — the whole
+A toolkit-built PWA (`web/`, consuming `@brainbot/web-toolkit`, served as static
+files from `web/dist/`) plus a **full control surface** — the whole
 pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 
 **Read / triage**
 
 | Route | Does |
 |---|---|
-| `GET /` | the embedded triage UI |
+| `GET /` | the triage UI (the built PWA, served as static files) |
 | `GET /api/companies` | every company joined with verdict and enrichment |
 | `POST /api/companies` | **manual single-company add** (source `manual`); website required, a duplicate website → `409` |
 | `GET /api/companies/{id}` | full detail |
@@ -365,7 +365,7 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
 - `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server resolves criteria
-  through the same `internal/criteria` resolver the CLI uses (cached brief →
+  through the same `scout/criteria` resolver the CLI uses (cached brief →
   live recall + distill → stale cache → `taste.md`).
 
 **Editor — local files only, never the brain**

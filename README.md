@@ -23,24 +23,42 @@ only), with `taste.md` as the offline fallback when the brain is unreachable.
 ## Quickstart
 
 ```bash
-brew install go && go build -o scout ./cmd/scout
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"        # installs the `scout` command + pytest
 
 # Put the key in a gitignored .env (auto-loaded), or export it in your shell.
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 
 # The brain runs at http://127.0.0.1:8100 by default (and is on by default).
 # If it's down, scout logs once and falls back to taste.md.
-./scout serve          # the primary interface — drive everything from the browser
+scout serve            # the primary interface — drive everything from the browser
                        #   upload a CSV, enrich, verdict, triage at localhost:8765
 ```
 
-The CLI stages (`ingest`, `filter`, `enrich`, `verdict`) still exist as a
-secondary automation/debug surface, but the web UI is the way in.
+The CLI stages (`ingest`, `filter`, `enrich`, `verdict`, …) still exist as a
+secondary automation/debug surface, but the web UI is the way in. Run the tests
+with `pytest`. See [`PORTING.md`](./PORTING.md) for the conventions and the
+Go→Python mapping (this backend was ported from Go).
+
+## Layout
+
+```
+scout/            the Python package (the backend)
+  store/          SQLite layer — connection + migrations + one module per table
+  anthropic/      Anthropic Messages API client (httpx, no SDK)
+  brainbot/       read-only brain client (recall / doc / map)
+  ingest/ capture/ enrich/ verdict/ distill/   the scoring pipeline
+  outreach/ chat/ criteria/ filter/ jobs/ taste/ playbook/   the rest
+  web/            FastAPI app (app.py + routes/, serves the PWA + /api)
+  cli.py          the `scout` command (serve, ingest, verdict, outreach, …)
+tests/            pytest, ported from the Go *_test.go suite
+web/              Vite/TypeScript PWA (source) → builds to web/dist/
+```
 
 ## Stack
 
-- **Go** — single binary, typed pipeline stages, parallel fetches
-- **SQLite** — working set (`modernc.org/sqlite`, pure-Go, no CGO)
-- **Anthropic Messages API** — verdicts (direct HTTP, no SDK)
-- **the brain** — `profile`/`recall` over HTTP (read-only) for the user's criteria
-- **embedded web UI** — triage + control surface served by the Go binary
+- **Python · FastAPI** — the API + control surface, on uvicorn
+- **SQLite** — working set, via the stdlib `sqlite3` driver (no ORM)
+- **httpx** — the Anthropic Messages API + brain calls (direct HTTP, no SDK)
+- **the brain** — `recall`/`doc`/`map` over HTTP (read-only) for the user's criteria
+- **Vite/TS PWA** — triage + control surface, served as static files by the API

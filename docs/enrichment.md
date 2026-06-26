@@ -4,7 +4,7 @@ How the `enrich` stage turns a domain into a chunk of text the verdict LLM can
 read. Architecture context: [`north-star.md`](./north-star.md) — `enrich` is the
 brain-free "fetch company site → text" stage.
 
-Code: `internal/enrich/enrich.go`.
+Code: `scout/enrich/enrich.py`.
 
 ## Strategy
 
@@ -53,14 +53,14 @@ out signal from noise.
 
 **Why not a real HTML parser?**
 
-- Adds a dep (`golang.org/x/net/html` or similar).
+- Adds a dependency (a real HTML parser).
 - The output is fed to an LLM that's better at salience than any tag-based
   extractor we'd write.
 - Failure mode is "extra noise in the prompt," not "broken pipeline."
 
 If we ever need DOM-aware extraction (e.g. JS-rendered content), this is the
-call site to rewrite — it's a single function (`extractText`) in
-`internal/enrich/enrich.go`.
+call site to rewrite — it's a single function (`extract_text`) in
+`scout/enrich/enrich.py`.
 
 ## Per-request HTTP shape
 
@@ -75,18 +75,17 @@ call site to rewrite — it's a single function (`extractText`) in
 
 ## Concurrency
 
-`Workers` goroutines (default 8) consume from an unbuffered job channel. Each
-worker does one fetch at a time. DB writes are serialized through SQLite's lock
-— the upsert is fast enough that this isn't a bottleneck.
-
-Why 8? It's a balance between throughput and not getting flagged as abusive by
-Cloudflare. Most company sites are on the same handful of CDNs; banging them at
-32 parallel from one IP is rude. Bump if you have a reason; default is
-conservative.
+`--workers` defaults to 8. The Go design fanned fetches out across that many
+goroutines; this Python port runs them **sequentially** over the single shared
+`sqlite3` connection (not thread-safe across threads), so the worker pool isn't
+reproduced — the progress header still prints the worker count, but only one
+fetch runs at a time and DB writes go through that one connection. The observable
+contract (Result counts, writes, progress lines) matches Go; only wall-clock
+parallelism differs.
 
 ## Idempotency
 
-The targets query (`store.EnrichmentTargets`) returns companies where:
+The targets query (`store.enrichment_targets`) returns companies where:
 
 ```sql
 e.company_id IS NULL                                  -- never fetched
@@ -132,13 +131,13 @@ Most failures are persistent (dead domains).
 When the Enricher has an Anthropic client (the web server passes its key
 through; the CLI picks up `ANTHROPIC_API_KEY`), every `ok` fetch gets one extra
 Haiku call over the page text that extracts `{name, vertical, location,
-headcount, funding_stage}` — see `internal/enrich/facts.go`. The write is
+headcount, funding_stage}` — see `scout/enrich/facts.py`. The write is
 strictly fill-only-blanks:
 
 - The **name** is replaced only when it's still the bare-domain placeholder a
-  name-less "Add company" gets (`FillCompanyNamePlaceholder`). A typed or
+  name-less "Add company" gets (`fill_company_name_placeholder`). A typed or
   ingested name is never touched.
-- The other columns go through `BackfillCompanyBlanks`, which guards per
+- The other columns go through `backfill_company_blanks`, which guards per
   column — a CSV value always wins over an extracted one.
 - The prompt forbids guessing: headcount and stage are filled only when the
   page states them, so most sites fill name + vertical and honestly leave the
@@ -163,7 +162,7 @@ quality is weak:
 - **GitHub orgs.** Open-source presence is a strong "real engineering" signal.
 
 Adding any of these would mean: a new `enrichment_<thing>` table or extending
-`enrichment` with more columns, a new fetch path in `internal/enrich/enrich.go`,
+`enrichment` with more columns, a new fetch path in `scout/enrich/enrich.py`,
 and a corresponding section in the verdict prompt.
 
 ## Known weaknesses

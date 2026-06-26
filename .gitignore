@@ -1,12 +1,13 @@
-# Binaries
-/scout
-/bin/
-*.exe
-*.test
-*.out
-
-# Go build cache
-/vendor/
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# NOTE: no bare `dist/` here — web/dist (the committed PWA build) must stay tracked.
 
 # Local DB + dumps
 *.db
@@ -15,6 +16,9 @@
 *.sqlite3
 /data/
 /dumps/
+# SQLite WAL sidecars
+*.db-wal
+*.db-shm
 # source CSV dumps (Crunchbase exports) dropped at the repo root
 /*.csv
 
@@ -24,13 +28,9 @@
 .env.*.local
 
 # Personal, local-only config (real localized outreach template, scratch files).
-# The tracked outreach-template.md stays a sanitized example; the real one with
-# your credentials lives in local/ and is loaded via --outreach-template.
+# The tracked outreach template stays a sanitized example; the real one with
+# your credentials lives in local/.
 /local/
-
-# SQLite WAL sidecars
-*.db-wal
-*.db-shm
 
 # Claude Code worktrees (harness-managed checkouts)
 .claude/worktrees/
@@ -41,7 +41,7 @@
 *.swp
 .DS_Store
 
-# PWA build (web/ → internal/web/dist embedded by go:embed)
+# PWA source deps + generated public assets (web/ → web/dist/, served as static)
 /web/node_modules
 /web/public/manifest.webmanifest
 /web/public/sw.js

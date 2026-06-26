@@ -25,12 +25,15 @@ data-model, operations, limitations).
 
 ## Stack
 
-Go · SQLite (`modernc.org/sqlite`, pure-Go, no CGO) · BurntSushi/toml ·
-Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
+Python · FastAPI (on uvicorn) · SQLite (stdlib `sqlite3`, raw SQL, no ORM) ·
+httpx · Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
+The backend was ported from Go in 2026-06; see [`PORTING.md`](./PORTING.md) for
+the conventions and the Go→Python mapping. The package is `scout/`, tests in
+`tests/`, run with `pytest`; the `scout` CLI installs via `pip install -e .`.
 
 ## Dev servers
 
-The user's long-running dev servers (Go API on `:8765`, Vite on `:5173`) live in
+The user's long-running dev servers (Python API on `:8765`, Vite on `:5173`) live in
 [`mprocs.yaml`](./mprocs.yaml) and run in a single `mprocs` TUI window. **Those
 canonical ports belong to the user — never bind them.** If the app just needs to
 be up, ask the user to start `mprocs` or restart a pane.

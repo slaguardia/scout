@@ -8,12 +8,12 @@ a verdict), see [`north-star.md`](./north-star.md) — this doc is the mechanics
 
 For each survivor with `ok` enrichment, build one Messages API request, parse
 the JSON out of the response, write to `verdicts`. No tool use, no multi-turn,
-no retries beyond `net/http`. One call, one verdict.
+no stage-level retries beyond the shared HTTP client. One call, one verdict.
 
 ```
-candidate ──▶ buildSystemPrompt(playbook, criteria)  (cached system block)
-          ──▶ buildUserPrompt(company)                (per-company)
-          ──▶ Haiku  ──▶ parseVerdict  ──▶  {verdict, reason}  ──▶ verdicts
+candidate ──▶ build_system_prompt(playbook, criteria)  (cached system block)
+          ──▶ build_user_prompt(company)                (per-company)
+          ──▶ Haiku  ──▶ parse_verdict  ──▶  {verdict, reason}  ──▶ verdicts
 ```
 
 ## The call
@@ -31,17 +31,17 @@ Body:
   }
 ```
 
-Per-call timeout: 45s, separate from the global ctx. No streaming. Workers
-default to 4 — Anthropic rate limits matter more than local CPU.
+Per-call timeout: 45s, set per request. No streaming. The `--workers` flag
+defaults to 4 (see **Concurrency** — this port scores sequentially).
 
 ## System prompt — three layers
 
-`buildSystemPrompt(playbook, criteria string)` concatenates, in order:
+`build_system_prompt(playbook, criteria)` concatenates, in order:
 
 | # | Layer | Header string | Source | Editable? |
 |---|---|---|---|---|
-| 1 | **Hard contract** | *(none — leads the prompt)* | `hardContract` Go const | No — a broken contract breaks the parser |
-| 2 | **Playbook** (how to decide) | `--- PLAYBOOK (how to decide) ---` | `playbook.md`, else `builtinRubric` | Yes — operator-editable in the UI |
+| 1 | **Hard contract** | *(none — leads the prompt)* | `HARD_CONTRACT` constant | No — a broken contract breaks the parser |
+| 2 | **Playbook** (how to decide) | `--- PLAYBOOK (how to decide) ---` | `playbook.md`, else `BUILTIN_RUBRIC` | Yes — operator-editable in the UI |
 | 3 | **Criteria** (what the user wants) | `--- CRITERIA (what the user wants) ---` | **the brain** (distilled brief), else `taste.md` | Brain-owned; local file is offline fallback |
 
 The hard contract pins the output shape:
@@ -55,7 +55,7 @@ no preamble, no markdown fences. The JSON must have exactly two fields:
 
 The criteria block is appended verbatim — not summarized, paraphrased, or
 trimmed (the distiller already did the summarizing). The block leads with a
-short gate rubric (`hardGateRubric`): the brief states dealbreakers, requirements,
+short gate rubric (`HARD_GATE_RUBRIC`): the brief states dealbreakers, requirements,
 and preferences in prose, and the rubric tells the LLM to gate on dealbreakers/
 requirements and weigh preferences. (The header text reads `CRITERIA`; the
 concept is the user's criteria, from the brain. See
@@ -63,7 +63,7 @@ concept is the user's criteria, from the brain. See
 
 ### Where the criteria come from (distilled brief, cached, file-fallback)
 
-Resolved once per run, before scoring, by the shared `internal/criteria`
+Resolved once per run, before scoring, by the shared `scout/criteria`
 resolver (the same path the web server uses) with a local SQLite cache in front
 of the brain:
 
@@ -78,7 +78,7 @@ fresh cached brief? (age < --brain-cache-ttl) ── yes ──▶ use it
    distilled brief  ──────────────────────────────────────────────▶ scoring
 ```
 
-The criteria are the **distiller's** output (`internal/distill`): a few
+The criteria are the **distiller's** output (`scout/distill`): a few
 company-fit `GET /recall` calls return prose chunks `{heading, text, score,
 path}`, scout dedups them, then runs a **two-step** pass — (1) **classify** every
 preference in the excerpts as `COMPANY` vs `ROLE_OR_OTHER` (with a verbatim quote
@@ -100,11 +100,11 @@ brief before dropping to `taste.md`. A healthy-but-empty brain falls back to
 ### The distiller prompts (classify → synthesize)
 
 These are the two prompts that turn the brain's chunks into the brief — the
-place to tune *how* the raw notes become criteria. They are `classifySystemPrompt`
-and `synthSystemPrompt` in `internal/distill/distill.go` (shown verbatim here;
-keep these blocks in sync when you edit the consts). Both run as the **system**
+place to tune *how* the raw notes become criteria. They are `CLASSIFY_SYSTEM_PROMPT`
+and `SYNTH_SYSTEM_PROMPT` in `scout/distill/distill.py` (shown verbatim here;
+keep these blocks in sync when you edit the constants). Both run as the **system**
 prompt at `temperature: 0`, prompt-cached. The classify step's **user** message
-is the deduped chunks (`formatChunks`), each labeled `[Source: <path> —
+is the deduped chunks (`format_chunks`), each labeled `[Source: <path> —
 <heading>]`; the synthesize step's **user** message is the classify output.
 
 **Step 1 — classify (the leak gate):**
@@ -166,7 +166,7 @@ re-distillable, in the UI's Criteria panel.
 
 ## User prompt
 
-`buildUserPrompt(c)`:
+`build_user_prompt(c)`:
 
 ```
 Company: <name>
@@ -197,14 +197,14 @@ block is amortized across every company. `Result` aggregates
 
 ## The criteria version (cache key)
 
-`verdicts.taste_version` is the cache key — `taste.Hash`, the first 12 hex chars
+`verdicts.taste_version` is the cache key — `taste.hash`, the first 12 hex chars
 of sha256:
 
-```go
-// playbook present (the shipped default):
-Hash(playbook + "\n---taste---\n" + criteria)
-// no playbook.md:
-Hash(criteria)
+```
+# playbook present (the shipped default):
+taste.hash(playbook + "\n---taste---\n" + criteria)
+# no playbook.md:
+taste.hash(criteria)
 ```
 
 It deliberately covers **both** the playbook and the criteria, so editing the
@@ -215,25 +215,29 @@ inspections, stable across leading/trailing whitespace. Not content-addressable
 
 ## Idempotency
 
-`scoreOne` checks before the API call:
+A scored company is **sticky**: a default (or `--only-blanks`) bulk run skips any
+company that already has a verdict, before the API call:
 
-```go
-existing, _ := db.GetVerdict(c.CompanyID)
-if existing != nil && existing.TasteVersion == s.Taste.Version {
-    return nil // up to date, skip
-}
+```python
+if not self.company_ids and (self.only_blanks or not self.force):
+    existing = get_verdict(self.con, c.company_id)
+    if existing is not None:
+        return None  # already scored — leave it untouched
 ```
 
-The version is global to the run, so any change to the playbook or the brain's
-criteria changes it for **every** company, and the next run re-scores all of
-them. That is intended: when the brain learns something new about what the user
-wants, every prior verdict is stale. `--force` re-scores regardless of version.
+The skip is by **existence**, not version — editing the playbook or the brain
+learning something does NOT auto-rescore prior verdicts. Re-scoring is always
+explicit: a `--force` run (re-scores everything) or a targeted per-company run
+(the `company_ids` path above always re-scores, since you pointed at it on
+purpose). `verdicts.taste_version` is still recorded on each verdict (the cache
+key above) for provenance — which criteria/playbook version produced it — but it
+does not gate the default run.
 
 ## Parsing
 
-Models occasionally wrap JSON in prose. `parseVerdict` is tolerant:
+Models occasionally wrap JSON in prose. `parse_verdict` is tolerant:
 
-1. `json.Unmarshal` the whole response.
+1. `json.loads` the whole response.
 2. If that fails, extract the first `{…}` substring (regex `\{[^{}]*\}`) and
    retry.
 3. Validate `verdict ∈ {yes, maybe, no}` (lowercased).
@@ -245,7 +249,7 @@ JSON, switch to a real bracket-matching parser.
 
 ## Model choice
 
-Default: `claude-haiku-4-5` (`anthropic.DefaultModel`). Override with
+Default: `claude-haiku-4-5` (`anthropic.DEFAULT_MODEL`). Override with
 `scout verdict --model <id>`. The mechanical pre-filter (the `taste_filter` DB
 singleton, edited in the dashboard) already culls obvious mismatches on a bulk
 run, so survivors are plausible candidates and the model is
@@ -268,11 +272,13 @@ state; rebuild it from a CSV anytime.
 
 ## Concurrency
 
-`Workers` (default 4) goroutines consume a channel of candidates; DB upserts
-serialize through SQLite's per-connection lock. A failure logs to stderr and
-bumps a counter but doesn't kill other workers. Why 4: Anthropic's standard-tier
-rate limits sit well above this; the real point is not hammering someone else's
-account if scout grows. Higher tier → bump `--workers`.
+`--workers` (default 4) survives as a flag, but this Python port scores
+**sequentially** over the single per-run `sqlite3` connection — one shared
+connection isn't thread-safe, so the Go goroutine worker pool isn't reproduced.
+DB upserts go through that one connection. A failure logs to stderr and bumps a
+counter but doesn't stop the run. The observable contract — `Result` accounting,
+the verdict + trace writes, and the progress lines (the header still prints the
+worker count) — is identical to Go; only wall-clock parallelism differs.
 
 ## Failure modes
 

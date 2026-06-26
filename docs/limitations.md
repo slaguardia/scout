@@ -50,21 +50,23 @@ until residue actually corrupts verdicts.
 
 ### SQLite single-writer
 
-Worker pools write through a single SQLite connection. WAL helps, but there's
+Enrich and verdict run sequentially over a single SQLite connection (the Go
+worker pools became sequential loops in the Python port — one shared `sqlite3`
+connection isn't thread-safe to share across threads). WAL helps, but there's
 still a serial write point. Invisible at low thousands of rows; visible at
-hundreds of thousands. The fix (a real connection pool / `MaxOpenConns > 1`) is
+hundreds of thousands. The fix (a per-request/pooled connection layer) is
 straightforward when the scale arrives.
 
-### No API retry/backoff
+### No stage-level API retry/backoff
 
-`anthropic.Client.Send` does not retry. A transient 5xx or 429 marks the row
-`failed`; the next run picks it up. Fine for batch; wrong for interactive use.
-Add exponential backoff in `Send` if interactive latency starts to matter.
+The verdict and enrich stages add no retries of their own. A transient 5xx or
+429 that exhausts the shared client's retries marks the row `failed`; the next
+run picks it up. Fine for batch; wrong for interactive use.
 
 ### No structured logging
 
-`fmt.Println` / `fmt.Fprintf(os.Stderr, ...)` throughout. Fine for a one-person
-tool; would need `log/slog` for anything multi-user or for log aggregation.
+`print(...)` / `print(..., file=sys.stderr)` throughout. Fine for a one-person
+tool; would need the `logging` module for anything multi-user or for log aggregation.
 
 ## What's deferred by design
 
@@ -74,7 +76,7 @@ Listed so they're not surprises — not a to-do list.
 
 Crunchbase CSV only. AngelList, YC, scraped lists, etc. wait until one source
 runs clean end-to-end and the combined data model is clear. A new source is a
-new file in `internal/ingest/` plus a `--source` value — not architecturally
+new file in `scout/ingest/` plus a `--source` value — not architecturally
 hard.
 
 ### Careers / jobs-page enrichment
@@ -127,9 +129,10 @@ Wanted but unbuilt. Not blocking; worth being honest about.
 ## Tests
 
 Scout is no longer untested. Coverage exists across the load-bearing packages:
-`internal/brainbot`, `internal/taste`, `internal/verdict`, `internal/store`,
-`internal/ingest`, `internal/enrich`. The thinnest area is end-to-end pipeline
-coverage on a real Crunchbase CSV; unit boundaries are covered.
+`scout/brainbot`, `scout/taste`, `scout/verdict`, `scout/store`,
+`scout/ingest`, `scout/enrich` (the suite lives in `tests/`, run with `pytest`).
+The thinnest area is end-to-end pipeline coverage on a real Crunchbase CSV; unit
+boundaries are covered.
 
 ## When to actually fix any of this
 
