@@ -302,6 +302,49 @@ func TestOutreachEntrySentAtRoundTrips(t *testing.T) {
 	}
 }
 
+// TestFollowedUpBumpsLastOutreach: ticking "followed up" counts as outreach, so
+// last_outreach_at advances to the day it was ticked (followup_done_at) without
+// disturbing the original send date.
+func TestFollowedUpBumpsLastOutreach(t *testing.T) {
+	db := openTestDB(t)
+	cid, err := db.UpsertCompany(Company{Source: "test", Name: "Acme", Domain: sql.NullString{String: "acme.com", Valid: true}, RawJSON: "{}"})
+	if err != nil {
+		t.Fatalf("upsert company: %v", err)
+	}
+	p, err := db.AddPosting(cid, "https://acme.com/jobs/se", "SE")
+	if err != nil {
+		t.Fatalf("AddPosting: %v", err)
+	}
+	jane, err := db.CreateContact(cid, ContactInput{Email: "jane@acme.com"})
+	if err != nil {
+		t.Fatalf("CreateContact: %v", err)
+	}
+	last := func() string {
+		rows, err := db.ListJobRows()
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("ListJobRows: n=%d err=%v", len(rows), err)
+		}
+		return rows[0].LastOutreachAt
+	}
+	past := time.Now().AddDate(0, 0, -10).Format("2006-01-02")
+	e, err := db.LogOutreach(p.ID, jane.ID, OutreachInput{SentAt: past, FollowupDueAt: past})
+	if err != nil {
+		t.Fatalf("LogOutreach: %v", err)
+	}
+	if last() != past {
+		t.Fatalf("before follow-up: last outreach = %q, want %q", last(), past)
+	}
+	// Tick "followed up" — last outreach now reflects the follow-up (today, UTC
+	// from followup_done_at's CURRENT_TIMESTAMP), not the original send.
+	if _, err := db.UpdateOutreachEntry(e.ID, OutreachEntryEdit{FollowupDueAt: past, Done: true}); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	if last() != today {
+		t.Errorf("after follow-up: last outreach = %q, want %q (the tick date)", last(), today)
+	}
+}
+
 // TestOutreachEscalation walks the two-rung reminder ladder: a pending follow-up
 // is due; marking it followed up arms the escalation forward (no longer due);
 // once that date passes with no reply it's due again; dismissing it silences it.

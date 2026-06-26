@@ -70,7 +70,9 @@ type Posting struct {
 
 	// OutreachCount / LastOutreachAt are DERIVED (read-only) from outreach_log
 	// (M51 contact tracking) — the per-contact send is the source of truth. Count
-	// = number of logged sends; LastOutreachAt = the most recent send date.
+	// = number of logged sends; LastOutreachAt = the most recent outreach date,
+	// counting a "followed up" tick (followup_done_at) as outreach alongside the
+	// original send.
 	OutreachCount  int    `json:"outreach_count"`
 	LastOutreachAt string `json:"last_outreach_at"`
 
@@ -102,7 +104,7 @@ const postingCols = `id, company_id, url, COALESCE(title, ''), COALESCE(location
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = job_postings.id),
-       COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
+       COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
        COALESCE(outreach_status, ''),
        COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')`
@@ -516,7 +518,7 @@ type JobRow struct {
 	// Application lifecycle — the tracker columns of the jobs view.
 	ApplicationStatus string `json:"application_status"` // application axis (M51): configurable label, "" = none
 	OutreachCount     int    `json:"outreach_count"`     // derived from outreach_log: number of logged sends
-	LastOutreachAt    string `json:"last_outreach_at"`   // derived: most recent send date, "" when none
+	LastOutreachAt    string `json:"last_outreach_at"`   // derived: most recent send or follow-up date, "" when none
 	OutreachStatus    string `json:"outreach_status"`    // reply axis (M48): configurable label, "" = none
 	Contacts          string `json:"contacts"`           // derived (M51): the company's contacts as JSON [{position,email}] for the table's mailto links
 	Notes             string `json:"notes"`              // free-form, human-only posting notes
@@ -568,7 +570,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = p.id),
-       COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
+       COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
        COALESCE(p.outreach_status, ''),
        COALESCE((SELECT json_group_array(json_object(
                   'position', CASE WHEN ct.role <> '' THEN ct.role ELSE ct.name END,
