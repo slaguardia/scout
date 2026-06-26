@@ -147,6 +147,27 @@ def test_outreach_entry_sent_at_round_trips(db):
     contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(sent_at=e.sent_at, followup_due_at=e.followup_due_at, done=True))
 
 
+def test_followed_up_bumps_last_outreach(db):
+    """Ticking 'followed up' counts as outreach, so last_outreach_at advances to
+    the day it was ticked (followup_done_at) without disturbing the original send."""
+    cid = _acme(db)
+    p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
+    jane = contacts.create_contact(db, cid, ContactInput(email="jane@acme.com"))
+
+    def last():
+        return _job_row(db).last_outreach_at
+
+    past = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+    e = contacts.log_outreach(db, p.id, jane.id, OutreachInput(sent_at=past, followup_due_at=past))
+    assert last() == past
+
+    # Tick "followed up" — last outreach now reflects the follow-up (today, UTC
+    # from followup_done_at's CURRENT_TIMESTAMP), not the original send.
+    contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(followup_due_at=past, done=True))
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    assert last() == today
+
+
 def test_outreach_escalation(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")

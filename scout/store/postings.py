@@ -67,7 +67,7 @@ _POSTING_COLS = """id, company_id, url, COALESCE(title, ''), COALESCE(location, 
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
        COALESCE(application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = job_postings.id),
-       COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
+       COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
        COALESCE(outreach_status, ''),
        COALESCE(notes, ''), next_up_at,
        COALESCE(questions_status, ''), COALESCE(questions_at, '')"""
@@ -346,7 +346,7 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        c.reviewed_at, c.flagged_at, p.next_up_at,
        COALESCE(p.application_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = p.id),
-       COALESCE((SELECT MAX(ol.sent_at) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
+       COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
        COALESCE(p.outreach_status, ''),
        COALESCE((SELECT json_group_array(json_object(
                   'position', CASE WHEN ct.role <> '' THEN ct.role ELSE ct.name END,
