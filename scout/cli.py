@@ -581,6 +581,77 @@ def cmd_serve(args) -> None:
     uvicorn.run(app, host=host, port=port)
 
 
+# --- gmail -------------------------------------------------------------------
+
+
+def cmd_gmail_auth(args) -> None:
+    """Connect a Gmail account via a one-shot localhost loopback OAuth flow: print
+    (and open) the consent URL, capture the redirect on --port, exchange the code,
+    and store the refresh token + address. The loopback redirect
+    (http://localhost:<port>/api/gmail/callback) must be a registered redirect URI
+    on the OAuth client."""
+    import http.server
+    import secrets
+    import urllib.parse
+    import webbrowser
+
+    from scout.gmail import oauth as gmail_oauth
+    from scout.gmail.client import GmailClient
+    from scout.store import gmail as gmail_store
+
+    con = store_db.open_db(args.db)
+    try:
+        redirect = f"http://localhost:{args.port}/api/gmail/callback"
+        cfg = gmail_oauth.load_config(con, redirect_uri=redirect)
+        if not cfg.configured():
+            _stderr("gmail: set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET (env or .env) first")
+            sys.exit(1)
+        state = secrets.token_urlsafe(24)
+        url = gmail_oauth.consent_url(cfg, state)
+
+        holder: dict = {}
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path != "/api/gmail/callback":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                q = urllib.parse.parse_qs(parsed.query)
+                holder["code"] = q.get("code", [""])[0]
+                holder["state"] = q.get("state", [""])[0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<h2>Gmail connected. You can close this tab.</h2>")
+
+            def log_message(self, *a):  # silence the access log
+                pass
+
+        srv = http.server.HTTPServer(("localhost", args.port), _Handler)
+        print(f"opening the Google consent screen; if it doesn't open, visit:\n{url}")
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - headless box: just print the URL
+            pass
+        srv.handle_request()  # serve exactly one request: the OAuth redirect
+        srv.server_close()
+
+        if not holder.get("code") or holder.get("state") != state:
+            _stderr("gmail: OAuth callback missing a code or with a mismatched state — aborted")
+            sys.exit(1)
+        tok = gmail_oauth.exchange_code(cfg, holder["code"])
+        email = tok.email
+        if not email and tok.refresh_token:
+            with GmailClient(cfg, tok.refresh_token, access_token=tok.access_token) as gc:
+                email = gc.get_profile().get("emailAddress", "")
+        gmail_store.store_credentials(con, tok.refresh_token, email)
+        print(f"connected {email or '(unknown address)'}")
+    finally:
+        con.close()
+
+
 # --- stats -------------------------------------------------------------------
 
 
@@ -739,6 +810,16 @@ def build_parser() -> argparse.ArgumentParser:
     sq.add_argument("--all", action="store_true", help="detect across every posting (backfill)")
     sq.set_defaults(func=cmd_questions_detect)
     sp.set_defaults(func=lambda a: _require_sub("questions: want a subcommand: detect"))
+
+    # gmail
+    sp = sub.add_parser("gmail", help="connect a Gmail account; run a read-sync pass")
+    gsub = sp.add_subparsers(dest="gmail_cmd", metavar="<subcommand>")
+    ga = gsub.add_parser("auth", help="connect a Gmail account via a localhost loopback OAuth flow")
+    ga.add_argument("--db", default="scout.db", help="sqlite path")
+    ga.add_argument("--port", type=int, default=8765,
+                    help="loopback port for the OAuth redirect (must be a registered redirect URI)")
+    ga.set_defaults(func=cmd_gmail_auth)
+    sp.set_defaults(func=lambda a: _require_sub("gmail: want a subcommand: auth | sync"))
 
     # serve
     sp = sub.add_parser("serve", help="web control surface + triage UI")
