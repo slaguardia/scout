@@ -42,7 +42,18 @@ class Config:
     brain_cache_ttl: float = DEFAULT_BRAIN_CACHE_TTL
 
     def static_path(self) -> Path | None:
-        """The resolved static dir, or None when it is absent on disk."""
-        p = Path(self.static_dir) if self.static_dir else DEFAULT_STATIC_DIR
-        p = p.resolve()
-        return p if p.is_dir() else None
+        """The resolved static dir, or None when it is absent on disk.
+
+        Order: an explicit static_dir wins. Otherwise try the package-relative
+        default (dev/editable install, where scout/ sits next to web/dist), then
+        <cwd>/web/dist — the deployed case, where the package lives in
+        site-packages but the image's WORKDIR (/app) holds the copied bundle."""
+        if self.static_dir:
+            candidates = [Path(self.static_dir)]
+        else:
+            candidates = [DEFAULT_STATIC_DIR, Path.cwd() / "web" / "dist"]
+        for p in candidates:
+            p = p.resolve()
+            if p.is_dir():
+                return p
+        return None
