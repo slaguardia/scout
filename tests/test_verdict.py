@@ -1,7 +1,8 @@
-"""Behavior test for scout.verdict. internal/verdict has no Go test, so this
-exercises the ported module end-to-end (Scorer.run over a stubbed Anthropic
-client) plus the prompt/parse helpers, asserting the observable contract:
-verdict + trace writes, Result accounting, stickiness, and targeted re-scoring."""
+"""Behavior test for scout.verdict. Exercises the module end-to-end (Scorer.run
+over a stubbed Anthropic client) plus the prompt/parse helpers, asserting the
+observable contract: verdict + trace writes, Result accounting, stickiness, and
+targeted re-scoring."""
+
 from __future__ import annotations
 
 import json
@@ -17,17 +18,27 @@ from scout.verdict import (
     parse_verdict,
 )
 from scout.verdict.verdict import BUILTIN_RUBRIC, HARD_CONTRACT
-
 from tests.httpstub import http_server
 
 
 class _VerdictStub:
     """Records request bodies and returns a canned verdict JSON + usage."""
 
-    def __init__(self, verdict: str = "yes", reason: str = "AI dev tools", cache_create: int = 10, cache_read: int = 5):
+    def __init__(
+        self,
+        verdict: str = "yes",
+        reason: str = "AI dev tools",
+        cache_create: int = 10,
+        cache_read: int = 5,
+    ):
         self.payload = {
-            "content": [{"type": "text", "text": json.dumps({"verdict": verdict, "reason": reason})}],
-            "usage": {"cache_creation_input_tokens": cache_create, "cache_read_input_tokens": cache_read},
+            "content": [
+                {"type": "text", "text": json.dumps({"verdict": verdict, "reason": reason})}
+            ],
+            "usage": {
+                "cache_creation_input_tokens": cache_create,
+                "cache_read_input_tokens": cache_read,
+            },
         }
         self.lock = threading.Lock()
         self.bodies: list[str] = []
@@ -48,19 +59,32 @@ def _seed(db, cid_name_summary):
     """Seed companies + an 'ok' enrichment row each. Returns the list of ids."""
     ids = []
     for name, domain, summary in cid_name_summary:
-        cid = companies.upsert_company(db, Company(source="test", name=name, domain=domain, raw_json="{}"))
-        enrichment.upsert_enrichment(db, enrichment.Enrichment(
-            company_id=cid, website_url=f"https://{domain}", website_summary=summary, fetch_status="ok"))
+        cid = companies.upsert_company(
+            db, Company(source="test", name=name, domain=domain, raw_json="{}")
+        )
+        enrichment.upsert_enrichment(
+            db,
+            enrichment.Enrichment(
+                company_id=cid,
+                website_url=f"https://{domain}",
+                website_summary=summary,
+                fetch_status="ok",
+            ),
+        )
         ids.append(cid)
     return ids
 
 
 # --- helpers ---
 
+
 def test_parse_verdict():
     assert parse_verdict('{"verdict":"yes","reason":"AI infra"}') == ("yes", "AI infra")
     # Wrapped in prose / fences.
-    assert parse_verdict('Sure:\n```json\n{"verdict":"NO","reason":"crypto (excluded)"}\n```') == ("no", "crypto (excluded)")
+    assert parse_verdict('Sure:\n```json\n{"verdict":"NO","reason":"crypto (excluded)"}\n```') == (
+        "no",
+        "crypto (excluded)",
+    )
     # maybe, tolerant of whitespace/casing.
     assert parse_verdict('{"verdict":" Maybe ","reason":" adjacent "}') == ("maybe", "adjacent")
     for bad in ("no json here", '{"verdict":"perhaps","reason":"x"}'):
@@ -94,6 +118,7 @@ def test_build_user_prompt_omits_blanks():
 
 # --- end-to-end Scorer.run ---
 
+
 def _scorer(db, client, **kw):
     return Scorer(
         con=db,
@@ -105,8 +130,13 @@ def _scorer(db, client, **kw):
 
 
 def test_run_scores_and_writes_trace(db):
-    ids = _seed(db, [("Acme", "acme.com", "Acme builds AI dev tools"),
-                     ("Beta", "beta.com", "Beta builds AI infra")])
+    ids = _seed(
+        db,
+        [
+            ("Acme", "acme.com", "Acme builds AI dev tools"),
+            ("Beta", "beta.com", "Beta builds AI infra"),
+        ],
+    )
     stub = _VerdictStub(verdict="yes", reason="AI dev tools")
     with http_server(stub.handle) as url:
         s = _scorer(db, _client(url))
@@ -178,8 +208,10 @@ def test_run_records_parse_failure(db):
 
     class _GarbageStub:
         def __init__(self):
-            self.payload = {"content": [{"type": "text", "text": "not json"}],
-                            "usage": {"cache_creation_input_tokens": 3, "cache_read_input_tokens": 1}}
+            self.payload = {
+                "content": [{"type": "text", "text": "not json"}],
+                "usage": {"cache_creation_input_tokens": 3, "cache_read_input_tokens": 1},
+            }
 
         def handle(self, req):
             return 200, {"Content-Type": "application/json"}, json.dumps(self.payload)
@@ -188,7 +220,7 @@ def test_run_records_parse_failure(db):
         res = _scorer(db, _client(url)).run()
     assert res.failed == 1
     assert res.scored == 0
-    # Cache tokens are still aggregated on a parse failure (mirrors the Go signature).
+    # Cache tokens are still aggregated on a parse failure.
     assert res.cache_creation_tokens == 3
     assert res.cache_read_tokens == 1
     # No verdict row written on a failed parse.

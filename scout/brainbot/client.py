@@ -1,4 +1,4 @@
-"""A thin HTTP/JSON client for the brain service. Port of internal/brainbot/client.go.
+"""A thin HTTP/JSON client for the brain service.
 
 Scout uses the brain READ-ONLY through reads: recall (search), map (discovery),
 doc (deterministic whole-document fetch), changes (cheap change signal), and a
@@ -18,6 +18,7 @@ The brain is an enhancement, never a hard dependency: when it is unreachable
 callers fall back to local criteria (taste.md). If the base URL isn't configured,
 every call raises a "not configured" error.
 """
+
 from __future__ import annotations
 
 import json
@@ -158,13 +159,18 @@ class Client:
         if complete:
             params.append(("complete", "true"))
         out = self._get_json("/recall", params)
-        return RecallResult(chunks=[
-            Chunk(
-                id=c.get("id", ""), heading=c.get("heading", ""), text=c.get("text", ""),
-                score=c.get("score", 0.0), path=c.get("path", ""),
-            )
-            for c in (out.get("chunks") or [])
-        ])
+        return RecallResult(
+            chunks=[
+                Chunk(
+                    id=c.get("id", ""),
+                    heading=c.get("heading", ""),
+                    text=c.get("text", ""),
+                    score=c.get("score", 0.0),
+                    path=c.get("path", ""),
+                )
+                for c in (out.get("chunks") or [])
+            ]
+        )
 
     def doc(self, id: str) -> Doc:
         """Fetch one whole document by its stable id. A 404 means the document left
@@ -172,21 +178,29 @@ class Client:
         failure (is_not_found classifies it)."""
         out = self._get_json("/doc", [("id", id)])
         return Doc(
-            id=out.get("id", ""), title=out.get("title", ""), path=out.get("path", ""),
-            version=out.get("version", ""), text=out.get("text", ""),
+            id=out.get("id", ""),
+            title=out.get("title", ""),
+            path=out.get("path", ""),
+            version=out.get("version", ""),
+            text=out.get("text", ""),
         )
 
     def map(self) -> MapResult:
         """Fetch the synced document tree — the discovery surface where pinnable
         ids come from."""
         out = self._get_json("/map", None)
-        return MapResult(sources=[
-            MapSource(
-                id=s.get("id", ""), title=s.get("title", ""), path=s.get("path", ""),
-                parent_id=s.get("parent_id"), version=s.get("version", ""),
-            )
-            for s in (out.get("sources") or [])
-        ])
+        return MapResult(
+            sources=[
+                MapSource(
+                    id=s.get("id", ""),
+                    title=s.get("title", ""),
+                    path=s.get("path", ""),
+                    parent_id=s.get("parent_id"),
+                    version=s.get("version", ""),
+                )
+                for s in (out.get("sources") or [])
+            ]
+        )
 
     def changes(self, since: str) -> ChangesResult:
         """The cheap 'did anything in the brain move since `since`?' read. `since`

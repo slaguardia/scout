@@ -1,19 +1,28 @@
-"""Port of internal/store/companies_test.go."""
+"""Tests for scout.store.companies."""
+
 import pytest
-
-from scout.store import companies, detail, enrichment, overrides, postings, trace, verdicts
-from scout.store import errors, outreach_drafts
-from scout.store.companies import Company, EditableCompany, company_id, upsert_company
-from scout.store.enrichment import Enrichment
-from scout.store.verdicts import Verdict
-from scout.store.trace import VerdictTrace
-from scout.store.overrides import VerdictOverride
-
 from helpers import mk_company
+
+from scout.store import (
+    companies,
+    detail,
+    enrichment,
+    errors,
+    outreach_drafts,
+    overrides,
+    postings,
+    trace,
+    verdicts,
+)
+from scout.store.companies import EditableCompany, company_id, upsert_company
+from scout.store.enrichment import Enrichment
+from scout.store.overrides import VerdictOverride
+from scout.store.trace import VerdictTrace
+from scout.store.verdicts import Verdict
 
 
 def test_company_id_pinned():
-    """The deterministic UUIDv5 scheme matches Go's uuid.NewSHA1 byte-for-byte."""
+    """The deterministic UUIDv5 scheme produces these pinned ids byte-for-byte."""
     assert company_id("acme.com", "Acme") == "79517ca0-4cf4-51a9-a41a-71141a11d5ad"
     assert company_id("", "Acme") == "ff0d9751-c6f0-5f03-ba1a-56ba9330cae1"
 
@@ -66,7 +75,9 @@ def test_delete_company_removes_everything(db):
     cid = upsert_company(db, mk_company("crunchbase", "Acme", "acme.com"))
 
     enrichment.upsert_enrichment(db, Enrichment(company_id=cid, fetch_status="ok"))
-    verdicts.upsert_verdict(db, Verdict(company_id=cid, verdict="yes", reason="fits", model="manual"))
+    verdicts.upsert_verdict(
+        db, Verdict(company_id=cid, verdict="yes", reason="fits", model="manual")
+    )
     trace.insert_verdict_trace(db, VerdictTrace(company_id=cid, model="haiku", verdict="yes"))
     overrides.insert_verdict_override(db, VerdictOverride(company_id=cid, to_verdict="yes"))
     p = postings.add_posting(db, cid, "https://acme.com/jobs", "SE")
@@ -117,10 +128,17 @@ def test_update_company_notes(db):
 def test_update_company_editable(db):
     cid = upsert_company(db, mk_company("manual", "acme.com", "acme.com"))
 
-    companies.update_company_editable(db, cid, EditableCompany(
-        name="Acme Robotics", headcount=50, funding_stage="Series A",
-        location="Austin, TX", vertical="Robotics",
-    ))
+    companies.update_company_editable(
+        db,
+        cid,
+        EditableCompany(
+            name="Acme Robotics",
+            headcount=50,
+            funding_stage="Series A",
+            location="Austin, TX",
+            vertical="Robotics",
+        ),
+    )
     d = detail.get_company_detail(db, cid)
     assert d is not None
     assert d.name == "Acme Robotics" and d.headcount == 50 and d.funding_stage == "Series A"

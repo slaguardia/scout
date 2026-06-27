@@ -1,4 +1,5 @@
-"""Port of internal/store/brain_profile_test.go."""
+"""Tests for scout.store.brain_profile."""
+
 from scout.store import brain_profile
 from scout.store import db as db_module
 

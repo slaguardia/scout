@@ -1,4 +1,5 @@
-"""The link-capture flow's company resolution. Port of internal/ingest/capture.go."""
+"""The link-capture flow's company resolution."""
+
 from __future__ import annotations
 
 import json
@@ -47,9 +48,12 @@ def ensure_company(con, c: CapturedCompany) -> tuple[str, bool]:
     # raw_json mirrors the captured fields plus the page the capture came from.
     raw = {"name": name}
     for k, v in {
-        "website": domain, "location": c.location,
-        "vertical": c.vertical, "captured_from": c.source_url,
-        "headcount": c.headcount, "funding_stage": c.funding_stage,
+        "website": domain,
+        "location": c.location,
+        "vertical": c.vertical,
+        "captured_from": c.source_url,
+        "headcount": c.headcount,
+        "funding_stage": c.funding_stage,
     }.items():
         s = v.strip()
         if s != "":

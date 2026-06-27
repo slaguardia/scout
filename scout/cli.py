@@ -1,7 +1,6 @@
 """scout — personal job-research pipeline (Python CLI).
 
-Port of cmd/scout/main.go. Argparse-driven; each subcommand mirrors the Go
-flagset (same names/defaults/semantics) and drives the already-ported packages.
+Argparse-driven; each subcommand drives one stage of the pipeline.
 
   scout ingest <csv>        Load a CSV dump into the local DB.
   scout filter              Apply the pre-filter rules (from the DB); print survivors.
@@ -17,6 +16,7 @@ flagset (same names/defaults/semantics) and drives the already-ported packages.
 The web UI (`scout serve`) is the primary interface; the CLI is the secondary
 automation/debug surface.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,17 +28,19 @@ import threading
 from datetime import datetime
 from urllib.parse import urlparse
 
-from scout import anthropic
-from scout import brainbot
-from scout import criteria
-from scout import distill
-from scout import enrich
+from scout import (
+    anthropic,
+    brainbot,
+    criteria,
+    distill,
+    enrich,
+    ingest,
+    outreach,
+    playbook,
+    taste,
+    verdict,
+)
 from scout import filter as filter_pkg
-from scout import ingest
-from scout import outreach
-from scout import playbook
-from scout import taste
-from scout import verdict
 from scout.store import db as store_db
 from scout.web.config import (
     DEFAULT_BRAIN_CACHE_TTL,
@@ -48,13 +50,13 @@ from scout.web.config import (
     Config,
 )
 
-# defaultReconcileInterval (Go: 2m) — how often `scout serve` reconciles the
-# cached brief against the brain in the background. The others come from the web
-# Config (one source of truth shared with the serve path).
+# DEFAULT_RECONCILE_INTERVAL — how often `scout serve` reconciles the cached brief
+# against the brain in the background. The others come from the web Config (one
+# source of truth shared with the serve path).
 DEFAULT_RECONCILE_INTERVAL = 2 * 60.0  # seconds
 
 
-# --- dotenv (port of cmd/scout/dotenv.go) ------------------------------------
+# --- dotenv ------------------------------------------------------------------
 
 
 def load_dotenv(path: str = ".env") -> None:
@@ -72,7 +74,7 @@ def load_dotenv(path: str = ".env") -> None:
         if line == "" or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):]
+            line = line[len("export ") :]
         key, sep, val = line.partition("=")
         if sep == "":
             continue
@@ -103,8 +105,8 @@ _UNIT_SECONDS = {"ns": 1e-9, "us": 1e-6, "µs": 1e-6, "ms": 1e-3, "s": 1.0, "m":
 
 
 def parse_duration(s: str) -> float:
-    """Parse a Go-style duration string ("12s", "6h", "2m", "1h30m", "500ms")
-    into seconds. Mirrors flag.Duration so the flag values round-trip."""
+    """Parse a duration string ("12s", "6h", "2m", "1h30m", "500ms") into seconds.
+    Supports a leading "0"/"" as zero and chained unit segments."""
     s = s.strip()
     if s in ("", "0"):
         return 0.0
@@ -115,9 +117,9 @@ def parse_duration(s: str) -> float:
 
 
 def parse_addr(addr: str) -> tuple[str, int]:
-    """Split a Go listen address (":8765", "127.0.0.1:8807", "localhost:5173")
+    """Split a listen address (":8765", "127.0.0.1:8807", "localhost:5173")
     into (host, port) for uvicorn. An empty host (":8765") binds all interfaces
-    (0.0.0.0), matching Go's net/http default."""
+    (0.0.0.0)."""
     if ":" not in addr:
         raise ValueError(f"invalid --addr {addr!r} (want host:port, e.g. :8765)")
     host, _, port = addr.rpartition(":")
@@ -142,8 +144,8 @@ def url_host(raw: str) -> str:
 
 
 def _tabwrite(rows: list[list[str]]) -> None:
-    """Print rows as a left-aligned table with 2-space column padding — the
-    analogue of Go's text/tabwriter used by `scout filter`."""
+    """Print rows as a left-aligned table with 2-space column padding, used by
+    `scout filter`."""
     if not rows:
         return
     cols = len(rows[0])
@@ -255,7 +257,7 @@ def cmd_verdict(args) -> None:
         tb = resolver.resolve()
 
         # Fold the playbook (how-to-decide) into the version, matching `scout
-        # verdict`'s Go behavior: a playbook edit re-scores everything.
+        # verdict`: a playbook edit re-scores everything.
         pb = playbook.content_or_default(con)
         if pb != "":
             tb.version = taste.hash(pb + "\n---taste---\n" + tb.version)
@@ -279,11 +281,15 @@ def cmd_verdict(args) -> None:
     finally:
         con.close()
 
-    print(f"considered={res.considered} scored={res.scored} skipped={res.skipped} failed={res.failed}")
+    print(
+        f"considered={res.considered} scored={res.scored} skipped={res.skipped} failed={res.failed}"
+    )
     for k in sorted(res.by_verdict):
         print(f"  {k:<5} {res.by_verdict[k]}")
     if res.cache_creation_tokens > 0 or res.cache_read_tokens > 0:
-        print(f"cache: created={res.cache_creation_tokens} tokens, read={res.cache_read_tokens} tokens")
+        print(
+            f"cache: created={res.cache_creation_tokens} tokens, read={res.cache_read_tokens} tokens"
+        )
 
 
 # --- distill (debug) ---------------------------------------------------------
@@ -320,11 +326,11 @@ def cmd_outreach_sources(args) -> None:
                 outreach.discover(bc, ac, con, "")
             except outreach.ErrNoExperience as e:
                 _stderr(f"warning: {e}")
-            # Any other discovery error propagates (Go returns it).
+            # Any other discovery error propagates.
         else:
             try:
                 outreach.ensure_knowledge(bc, ac, con, "", _stderr)
-            except Exception as e:  # noqa: BLE001 - best-effort, like Go's warning
+            except Exception as e:  # noqa: BLE001 - best-effort: warn and continue
                 _stderr(f"warning: {e}")
 
         from scout.store.outreach_sources import list_outreach_sources
@@ -426,7 +432,8 @@ def cmd_questions_detect(args) -> None:
                 _stderr(f"  {pid}: store: {e}")
                 continue
             ti = by_host.setdefault(
-                url_host(url), {"ok": 0, "none": 0, "unsupported": 0, "unreachable": 0, "questions": 0}
+                url_host(url),
+                {"ok": 0, "none": 0, "unsupported": 0, "unreachable": 0, "questions": 0},
             )
             if scan.status == capture.QUESTIONS_OK:
                 ti["ok"] += 1
@@ -438,7 +445,9 @@ def cmd_questions_detect(args) -> None:
             else:
                 ti["unreachable"] += 1
             if args.posting != "":
-                print(f"{pid}  {scan.status}  ({len(scan.questions)} questions, source {scan.source})")
+                print(
+                    f"{pid}  {scan.status}  ({len(scan.questions)} questions, source {scan.source})"
+                )
                 for q in scan.questions:
                     print(f"  - {q.prompt}")
     finally:
@@ -469,8 +478,8 @@ def cmd_serve(args) -> None:
 
     host, port = parse_addr(args.addr)
 
-    # Build the web Config from the serve flags and stand up the app exactly as
-    # the Go cmdServe builds the web.Server (migrations, clients, resolver, taste).
+    # Build the web Config from the serve flags and stand up the app (migrations,
+    # clients, resolver, taste).
     config = Config(
         db_path=args.db,
         taste_md_path=args.taste_md,
@@ -687,31 +696,52 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--workers", type=int, default=8, help="parallel fetchers")
     sp.add_argument("--timeout", type=parse_duration, default=12.0, help="per-request timeout")
     sp.add_argument("--force", action="store_true", help="re-fetch even if cached")
-    sp.add_argument("--only-blanks", action="store_true", help="only companies with no enrichment row yet")
-    sp.add_argument("--company", default="", help="comma-separated company IDs; re-fetch exactly these")
+    sp.add_argument(
+        "--only-blanks", action="store_true", help="only companies with no enrichment row yet"
+    )
+    sp.add_argument(
+        "--company", default="", help="comma-separated company IDs; re-fetch exactly these"
+    )
     sp.set_defaults(func=cmd_enrich)
 
     # verdict
     sp = sub.add_parser("verdict", help="score enriched survivors")
     sp.add_argument("--db", default="scout.db", help="sqlite path")
     sp.add_argument("--taste-md", default="taste.md", help="narrative taste block (for the LLM)")
-    sp.add_argument("--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables")
-    sp.add_argument("--brain-cache-ttl", type=parse_duration, default=DEFAULT_BRAIN_CACHE_TTL,
-                    help="reuse a cached brain profile for this long before refetching")
+    sp.add_argument(
+        "--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables"
+    )
+    sp.add_argument(
+        "--brain-cache-ttl",
+        type=parse_duration,
+        default=DEFAULT_BRAIN_CACHE_TTL,
+        help="reuse a cached brain profile for this long before refetching",
+    )
     sp.add_argument("--model", default=anthropic.DEFAULT_MODEL, help="Anthropic model for scoring")
-    sp.add_argument("--distill-model", default=DEFAULT_DISTILL_MODEL,
-                    help="Anthropic model for the once-per-run distiller")
+    sp.add_argument(
+        "--distill-model",
+        default=DEFAULT_DISTILL_MODEL,
+        help="Anthropic model for the once-per-run distiller",
+    )
     sp.add_argument("--workers", type=int, default=10, help="parallel API calls")
     sp.add_argument("--force", action="store_true", help="re-score even if taste_version matches")
-    sp.add_argument("--only-blanks", action="store_true", help="only companies with no verdict row yet")
-    sp.add_argument("--company", default="", help="comma-separated company IDs; re-score exactly these")
+    sp.add_argument(
+        "--only-blanks", action="store_true", help="only companies with no verdict row yet"
+    )
+    sp.add_argument(
+        "--company", default="", help="comma-separated company IDs; re-score exactly these"
+    )
     sp.set_defaults(func=cmd_verdict)
 
     # distill
     sp = sub.add_parser("distill", help="print the company-fit brief (debug)")
     sp.add_argument("--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP)")
-    sp.add_argument("--model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller")
-    sp.add_argument("--k", type=int, default=0, help="per-question recall depth (0 = distiller default)")
+    sp.add_argument(
+        "--model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller"
+    )
+    sp.add_argument(
+        "--k", type=int, default=0, help="per-question recall depth (0 = distiller default)"
+    )
     sp.set_defaults(func=cmd_distill)
 
     # outreach
@@ -725,7 +755,9 @@ def build_parser() -> argparse.ArgumentParser:
     so = osub.add_parser("draft", help="run the outreach pipeline for one posting")
     so.add_argument("--db", default="scout.db", help="sqlite path")
     so.add_argument("--posting", default="", help="job_postings.id to draft outreach for")
-    so.add_argument("--model", default=DEFAULT_OUTREACH_MODEL, help="Anthropic model for the outreach pipeline")
+    so.add_argument(
+        "--model", default=DEFAULT_OUTREACH_MODEL, help="Anthropic model for the outreach pipeline"
+    )
     so.add_argument("--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP)")
     so.set_defaults(func=cmd_outreach_draft)
     sp.set_defaults(func=lambda a: _require_sub("outreach: want a subcommand: sources | draft"))
@@ -744,16 +776,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("serve", help="web control surface + triage UI")
     sp.add_argument("--db", default="scout.db", help="sqlite path")
     sp.add_argument("--addr", default=":8765", help="listen address")
-    sp.add_argument("--taste-md", default="taste.md", help="narrative taste block (editable in the UI)")
+    sp.add_argument(
+        "--taste-md", default="taste.md", help="narrative taste block (editable in the UI)"
+    )
     sp.add_argument("--source", default="crunchbase", help="source tag for UI CSV uploads")
-    sp.add_argument("--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables")
-    sp.add_argument("--brain-cache-ttl", type=parse_duration, default=DEFAULT_BRAIN_CACHE_TTL,
-                    help="reuse a cached brain profile for this long before refetching")
-    sp.add_argument("--reconcile-interval", type=parse_duration, default=DEFAULT_RECONCILE_INTERVAL,
-                    help="background interval to reconcile the cached brief; 0 disables")
-    sp.add_argument("--distill-model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller")
-    sp.add_argument("--outreach-model", default=DEFAULT_OUTREACH_MODEL,
-                    help="Anthropic model for the outreach pipeline")
+    sp.add_argument(
+        "--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables"
+    )
+    sp.add_argument(
+        "--brain-cache-ttl",
+        type=parse_duration,
+        default=DEFAULT_BRAIN_CACHE_TTL,
+        help="reuse a cached brain profile for this long before refetching",
+    )
+    sp.add_argument(
+        "--reconcile-interval",
+        type=parse_duration,
+        default=DEFAULT_RECONCILE_INTERVAL,
+        help="background interval to reconcile the cached brief; 0 disables",
+    )
+    sp.add_argument(
+        "--distill-model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller"
+    )
+    sp.add_argument(
+        "--outreach-model",
+        default=DEFAULT_OUTREACH_MODEL,
+        help="Anthropic model for the outreach pipeline",
+    )
     sp.set_defaults(func=cmd_serve)
 
     # stats
@@ -771,7 +820,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("restore", help="make a snapshot file the live database")
     sp.add_argument("snapshot", help="snapshot path")
     sp.add_argument("--db", default="scout.db", help="live sqlite path to restore into")
-    sp.add_argument("--force", action="store_true", help="overwrite without keeping a .pre-restore copy")
+    sp.add_argument(
+        "--force", action="store_true", help="overwrite without keeping a .pre-restore copy"
+    )
     sp.set_defaults(func=cmd_restore)
 
     # help
@@ -800,7 +851,7 @@ def main(argv: list[str] | None = None) -> None:
         raise
     except KeyboardInterrupt:
         sys.exit(130)
-    except Exception as e:  # noqa: BLE001 - top-level: report and exit 1, like Go's exit()
+    except Exception as e:  # noqa: BLE001 - top-level: report and exit 1
         _stderr(f"error: {e}")
         sys.exit(1)
 

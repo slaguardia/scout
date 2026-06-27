@@ -1,14 +1,13 @@
-"""Company-level contacts + per-contact outreach log (M51).
-Port of internal/store/contacts.go.
-"""
+"""Company-level contacts + per-contact outreach log (M51)."""
+
 from __future__ import annotations
 
 import datetime
 import sqlite3
 from dataclasses import dataclass
 
-from . import errors, settings, statuses
 from . import companies as companies_mod
+from . import errors, settings, statuses
 from ._helpers import new_uuid, tx
 
 # FollowupIntervalSetting holds the default number of business days after a send
@@ -23,8 +22,8 @@ _MAX_CONTACT_FIELD_LEN = 200
 class DuplicateContact(Exception):
     """A contact with the same email already exists at the company (→ HTTP 409).
 
-    Mirrors Go's store.ErrDuplicateContact, defined module-local like the Go
-    sentinel (which lives in contacts.go, not a shared errors file)."""
+    Defined module-local (rather than in the shared errors module) since it is
+    specific to contact writes."""
 
     def __init__(self, message: str = "a contact with that email already exists for this company"):
         super().__init__(message)
@@ -54,24 +53,34 @@ def _clean_contact(inp: ContactInput) -> ContactInput:
     email = inp.email.strip().lower()
     if name == "" and email == "":
         raise ValueError("contact needs a name or an email")
-    if (len(name) > _MAX_CONTACT_FIELD_LEN or len(role) > _MAX_CONTACT_FIELD_LEN
-            or len(email) > _MAX_CONTACT_FIELD_LEN):
+    if (
+        len(name) > _MAX_CONTACT_FIELD_LEN
+        or len(role) > _MAX_CONTACT_FIELD_LEN
+        or len(email) > _MAX_CONTACT_FIELD_LEN
+    ):
         raise ValueError("contact field is too long")
     return ContactInput(name=name, role=role, email=email)
 
 
-_CONTACT_COLS = (
-    "id, company_id, COALESCE(name, ''), COALESCE(role, ''), COALESCE(email, ''), created_at, updated_at"
-)
+_CONTACT_COLS = "id, company_id, COALESCE(name, ''), COALESCE(role, ''), COALESCE(email, ''), created_at, updated_at"
 
 
 def _scan_contact(row) -> Contact:
-    return Contact(id=row[0], company_id=row[1], name=row[2], role=row[3],
-                   email=row[4], created_at=row[5], updated_at=row[6])
+    return Contact(
+        id=row[0],
+        company_id=row[1],
+        name=row[2],
+        role=row[3],
+        email=row[4],
+        created_at=row[5],
+        updated_at=row[6],
+    )
 
 
 def _read_contact(con: sqlite3.Connection, id: str) -> Contact:
-    return _scan_contact(con.execute(f"SELECT {_CONTACT_COLS} FROM contacts WHERE id = ?", (id,)).fetchone())
+    return _scan_contact(
+        con.execute(f"SELECT {_CONTACT_COLS} FROM contacts WHERE id = ?", (id,)).fetchone()
+    )
 
 
 def list_contacts(con: sqlite3.Connection, company_id: str) -> list[Contact]:
@@ -209,8 +218,16 @@ _OUTREACH_LOG_COLS = (
 
 
 def _scan_outreach_entry(row) -> OutreachEntry:
-    return OutreachEntry(id=row[0], contact_id=row[1], posting_id=row[2], sent_at=row[3],
-                         body=row[4], note=row[5], followup_due_at=row[6], followup_done_at=row[7])
+    return OutreachEntry(
+        id=row[0],
+        contact_id=row[1],
+        posting_id=row[2],
+        sent_at=row[3],
+        body=row[4],
+        note=row[5],
+        followup_due_at=row[6],
+        followup_done_at=row[7],
+    )
 
 
 def _read_outreach_entry(con: sqlite3.Connection, id: int) -> OutreachEntry:
@@ -230,7 +247,9 @@ def _parse_date(field_name: str, s: str) -> str:
     return s
 
 
-def log_outreach(con: sqlite3.Connection, posting_id: str, contact_id: str, inp: OutreachInput) -> OutreachEntry:
+def log_outreach(
+    con: sqlite3.Connection, posting_id: str, contact_id: str, inp: OutreachInput
+) -> OutreachEntry:
     """Record a send to a contact about a posting, arm its follow-up, and clear
     the posting's "next up" to-do. Validation errors carry the field name."""
     sent = _parse_date("sent_at", inp.sent_at)
@@ -310,7 +329,9 @@ def update_outreach_entry(con: sqlite3.Connection, id: int, e: OutreachEntryEdit
 
     # Marking a follow-up done arms the second rung: the due date walks forward to
     # the escalation. Only on the not-done→done transition.
-    row = con.execute("SELECT COALESCE(followup_done_at, '') FROM outreach_log WHERE id = ?", (id,)).fetchone()
+    row = con.execute(
+        "SELECT COALESCE(followup_done_at, '') FROM outreach_log WHERE id = ?", (id,)
+    ).fetchone()
     cur_done = row[0] if row is not None else ""
     if cur_done == "" and e.done:
         n = followup_interval_days(con)

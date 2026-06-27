@@ -1,4 +1,5 @@
-"""Singleton email + follow-up template rows. Port of internal/store/outreach_template.go."""
+"""Singleton email + follow-up template rows."""
+
 from __future__ import annotations
 
 import sqlite3

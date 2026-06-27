@@ -1,4 +1,5 @@
-"""Port of internal/criteria/resolver_test.go."""
+"""Tests for the scout.criteria resolver."""
+
 from __future__ import annotations
 
 import json
@@ -74,8 +75,10 @@ class BrainStub:
             if self.changes_fail:
                 return 500, {}, ""
             since = req.query.get("since", [""])[0]
-            return 200, {"Content-Type": "application/json"}, json.dumps(
-                {"cursor": self.cursor, "changed": since != self.cursor}
+            return (
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps({"cursor": self.cursor, "changed": since != self.cursor}),
             )
         return 404, {}, "not found"
 
@@ -110,7 +113,9 @@ def test_cascade_tier0_unchanged(db, tmp_path):
         c = brainbot.new(url)
         _seed_cache(db, c.base_url, "CACHED BODY", "BASIS-X", "cur-1")  # cursor matches stub
         fd = FakeDistiller(brief="SHOULD NOT SYNTH", basis="BASIS-X")
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.resolve()
     assert blk.text == "CACHED BODY"
@@ -130,7 +135,9 @@ def test_cascade_tier1_basis_unchanged(db, tmp_path):
         _seed_cache(db, c.base_url, "CACHED BODY", "BASIS-X", "cur-OLD")
         cp0 = brain_profile.get_brain_profile(db, c.base_url)
         fd = FakeDistiller(brief="SHOULD NOT SYNTH", basis="BASIS-X")  # SAME basis as cached
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.resolve()
     assert blk.text == "CACHED BODY", "Tier 1 absorb"
@@ -151,7 +158,9 @@ def test_cascade_tier2_basis_changed(db, tmp_path):
         _seed_cache(db, c.base_url, "OLD BODY", "BASIS-X", "cur-OLD")
         cp0 = brain_profile.get_brain_profile(db, c.base_url)
         fd = FakeDistiller(brief="NEW BRIEF", basis="BASIS-Y")  # DIFFERENT basis
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.resolve()
     assert "NEW BRIEF" in blk.text
@@ -159,7 +168,11 @@ def test_cascade_tier2_basis_changed(db, tmp_path):
     assert blk.version != cp0.content_hash, "version must bump on a real basis change"
     assert blk.version == taste.hash("BASIS-Y")
     cp1 = brain_profile.get_brain_profile(db, c.base_url)
-    assert "NEW BRIEF" in cp1.body and cp1.content_hash == taste.hash("BASIS-Y") and cp1.cursor == "cur-3"
+    assert (
+        "NEW BRIEF" in cp1.body
+        and cp1.content_hash == taste.hash("BASIS-Y")
+        and cp1.cursor == "cur-3"
+    )
 
 
 # --- Tier 1 gather hiccup: keep the good cached brief, don't advance the cursor ---
@@ -172,7 +185,9 @@ def test_cascade_tier1_gather_fails(db, tmp_path):
         _seed_cache(db, c.base_url, "CACHED BODY", "BASIS-X", "cur-OLD")
         cp0 = brain_profile.get_brain_profile(db, c.base_url)
         fd = FakeDistiller(g_err=RuntimeError("recall hiccup"))
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.resolve()
     assert blk.text == "CACHED BODY"
@@ -193,13 +208,17 @@ def test_cascade_tier2_synth_fails(db, tmp_path):
         cp0 = brain_profile.get_brain_profile(db, c.base_url)
         # changed=true + a NEW basis reaches Tier 2, but synthesis fails.
         fd = FakeDistiller(basis="BASIS-Y", s_err=RuntimeError("llm boom"))
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.resolve()
     assert blk.text == "OLD BODY"
     assert fd.counts()[:2] == (1, 1)
     cp1 = brain_profile.get_brain_profile(db, c.base_url)
-    assert cp1.body == cp0.body and cp1.content_hash == cp0.content_hash and cp1.cursor == cp0.cursor
+    assert (
+        cp1.body == cp0.body and cp1.content_hash == cp0.content_hash and cp1.cursor == cp0.cursor
+    )
 
 
 # --- Unreachable brain: serve the cached brief within the TTL ceiling ---
@@ -209,7 +228,9 @@ def test_cascade_brain_unreachable_serves_cache(db, tmp_path):
     url = _dead_brain_url()
     _seed_cache(db, url, "CACHED BODY", "BASIS-X", "cur-1")  # verified now → within ceiling
     fd = FakeDistiller(brief="UNUSED", basis="BASIS-X")
-    r = criteria.Resolver(brain=brainbot.new(url), distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+    r = criteria.Resolver(
+        brain=brainbot.new(url), distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+    )
 
     blk = r.resolve()
     assert blk.text == "CACHED BODY"
@@ -230,7 +251,13 @@ def test_cascade_brain_unreachable_past_ceiling_uses_taste(db, tmp_path):
     )
     md = tmp_path / "taste.md"
     md.write_text("LOCAL FALLBACK")
-    r = criteria.Resolver(brain=brainbot.new(url), distiller=FakeDistiller(), store=db, taste_md_path=str(md), ttl=3600)
+    r = criteria.Resolver(
+        brain=brainbot.new(url),
+        distiller=FakeDistiller(),
+        store=db,
+        taste_md_path=str(md),
+        ttl=3600,
+    )
 
     blk = r.resolve()
     assert blk.text == "LOCAL FALLBACK"
@@ -244,7 +271,9 @@ def test_cold_then_warm_zero_synthesis(db, tmp_path):
     with http_server(stub.handle) as url:
         c = brainbot.new(url)
         fd = FakeDistiller(brief="DISTILLED BRIEF", basis="BASIS-X")
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         # Resolve #1: cold path → one full distill, cursor stored.
         blk1 = r.resolve()
@@ -265,8 +294,13 @@ def test_resolve_falls_back_to_taste_md(db, tmp_path):
     md = tmp_path / "taste.md"
     md.write_text("LOCAL FALLBACK")
     # Hard-unreachable brain, no cache → cold path fails → taste.md.
-    r = criteria.Resolver(brain=brainbot.new(_dead_brain_url()), distiller=FakeDistiller(brief="unused"),
-                          store=db, taste_md_path=str(md), ttl=3600)
+    r = criteria.Resolver(
+        brain=brainbot.new(_dead_brain_url()),
+        distiller=FakeDistiller(brief="unused"),
+        store=db,
+        taste_md_path=str(md),
+        ttl=3600,
+    )
 
     blk = r.resolve()
     assert blk.text == "LOCAL FALLBACK"
@@ -283,7 +317,9 @@ def test_refresh_stores_cursor(db, tmp_path):
         # Even with an already-current cache, Refresh re-distills unconditionally.
         _seed_cache(db, c.base_url, "OLD BODY", "BASIS-X", "cur-refresh")
         fd = FakeDistiller(brief="REFRESHED BRIEF", basis="BASIS-Z")
-        r = criteria.Resolver(brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600)
+        r = criteria.Resolver(
+            brain=c, distiller=fd, store=db, taste_md_path=_no_file(tmp_path), ttl=3600
+        )
 
         blk = r.refresh()
         assert "REFRESHED BRIEF" in blk.text
@@ -299,6 +335,8 @@ def test_refresh_errors_when_brain_disabled(db):
         r.refresh()
     # Brain configured but no distiller wired — also unavailable, no crash.
     with http_server(BrainStub(cursor="x").handle) as url:
-        r2 = criteria.Resolver(brain=brainbot.new(url), store=db, taste_md_path="taste.md", ttl=3600)
+        r2 = criteria.Resolver(
+            brain=brainbot.new(url), store=db, taste_md_path="taste.md", ttl=3600
+        )
         with pytest.raises(criteria.ErrBrainUnavailable):
             r2.refresh()

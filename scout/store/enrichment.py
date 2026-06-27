@@ -1,4 +1,5 @@
-"""Enrichment cache (about-page records). Port of internal/store/enrichment.go."""
+"""Enrichment cache (about-page records)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +22,7 @@ class EnrichmentTarget:
 
 @dataclass
 class Enrichment:
-    """The cached about-page record. Nullable Go columns are str|None here."""
+    """The cached about-page record. Nullable columns are str|None here."""
 
     company_id: str = ""
     website_url: str | None = None
@@ -53,8 +54,13 @@ WHERE COALESCE(c.domain, '') <> ''
     rows = con.execute(q, args).fetchall()
     return [
         EnrichmentTarget(
-            company_id=r[0], name=r[1], domain=r[2], headcount=r[3],
-            funding_stage=r[4], location=r[5], vertical=r[6],
+            company_id=r[0],
+            name=r[1],
+            domain=r[2],
+            headcount=r[3],
+            funding_stage=r[4],
+            location=r[5],
+            vertical=r[6],
         )
         for r in rows
     ]
@@ -86,6 +92,10 @@ def get_enrichment(con: sqlite3.Connection, company_id: str) -> Enrichment | Non
     if row is None:
         return None
     return Enrichment(
-        company_id=row[0], website_url=row[1], website_summary=row[2],
-        fetch_status=row[3], fetch_error=row[4], fetched_at=row[5],
+        company_id=row[0],
+        website_url=row[1],
+        website_summary=row[2],
+        fetch_status=row[3],
+        fetch_error=row[4],
+        fetched_at=row[5],
     )

@@ -1,10 +1,11 @@
-"""The editable pipeline stage registry. Port of internal/outreach/stages.go.
+"""The editable pipeline stage registry.
 
 The outreach pipeline is four LLM stages, each driven by a system prompt. Each
 stage's prompt is fully editable from the dashboard (stored per-stage in the
 `prompt_overrides` table); an empty/absent override falls back to the compiled-in
 default. A bad edit is recoverable with reset-to-default.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -25,10 +26,10 @@ class Stage:
     """One editable pipeline stage for the dashboard. default is the compiled-in
     default prompt (not listed; fetched per-stage)."""
 
-    stage: str = ""        # json: "stage"
+    stage: str = ""  # json: "stage"
     title: str = ""
     description: str = ""
-    default: str = ""      # json:"-" — compiled-in default prompt
+    default: str = ""  # json:"-" — compiled-in default prompt
 
 
 def stages() -> list[Stage]:
@@ -36,18 +37,30 @@ def stages() -> list[Stage]:
     "Pipeline" view; default is the compiled-in prompt each stage uses until the
     user saves an override."""
     return [
-        Stage("researcher", "Researcher",
-              "Searches the web for true company facts and the best referenceable hooks to open with.",
-              RESEARCHER_SYSTEM),
-        Stage("fill", "Writer",
-              "Writes the email's blanks from the research, your experience, and your voice.",
-              FILL_SYSTEM_DEFAULT),
-        Stage("humanizer", "Humanizer",
-              "Strips AI tells and matches your voice — never changes a fact.",
-              HUMANIZE_SYSTEM),
-        Stage("honesty", "Honesty check",
-              "Vetoes any claim about you beyond your documented experience.",
-              HONESTY_CHECKER_SYSTEM),
+        Stage(
+            "researcher",
+            "Researcher",
+            "Searches the web for true company facts and the best referenceable hooks to open with.",
+            RESEARCHER_SYSTEM,
+        ),
+        Stage(
+            "fill",
+            "Writer",
+            "Writes the email's blanks from the research, your experience, and your voice.",
+            FILL_SYSTEM_DEFAULT,
+        ),
+        Stage(
+            "humanizer",
+            "Humanizer",
+            "Strips AI tells and matches your voice — never changes a fact.",
+            HUMANIZE_SYSTEM,
+        ),
+        Stage(
+            "honesty",
+            "Honesty check",
+            "Vetoes any claim about you beyond your documented experience.",
+            HONESTY_CHECKER_SYSTEM,
+        ),
     ]
 
 

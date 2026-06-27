@@ -1,4 +1,5 @@
-"""Port of internal/filter/filter_test.go."""
+"""Tests for scout.filter."""
+
 from scout import filter as flt
 
 
@@ -69,10 +70,16 @@ def test_stage_normalization_match():
 
 def test_normalize_stage():
     cases = {
-        "Pre Seed": "Pre-Seed", "pre-seed": "Pre-Seed",
-        "Seed": "Seed", "SERIES A": "Series A", "series-b": "Series B",
-        "Series E": "Series E+", "Growth Equity": "Growth", "IPO": "Public",
-        "": "", "Crowdfunding": "Crowdfunding",  # unknown passes through trimmed
+        "Pre Seed": "Pre-Seed",
+        "pre-seed": "Pre-Seed",
+        "Seed": "Seed",
+        "SERIES A": "Series A",
+        "series-b": "Series B",
+        "Series E": "Series E+",
+        "Growth Equity": "Growth",
+        "IPO": "Public",
+        "": "",
+        "Crowdfunding": "Crowdfunding",  # unknown passes through trimmed
     }
     for raw, want in cases.items():
         assert flt.normalize_stage(raw) == want, f"normalize_stage({raw!r})"

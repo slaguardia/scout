@@ -1,10 +1,10 @@
-"""The chat engine's custom tool registry, wired to the store + capture pass. Port
-of internal/chat/tools.go.
+"""The chat engine's custom tool registry, wired to the store + capture pass.
 
 Each tool implementation parses the model-supplied input dict and returns a result
 string (the tool_result content). A raised exception is surfaced to the model as an
 is_error tool_result, so the model can adapt.
 """
+
 from __future__ import annotations
 
 import functools
@@ -12,7 +12,7 @@ import json
 
 from scout import capture
 from scout.anthropic import ToolDef, new_web_search_tool
-from scout.store import companies, detail, postings, triage, verdicts, errors
+from scout.store import companies, detail, errors, postings, triage, verdicts
 from scout.store.postings import PostingTracking
 from scout.store.verdicts import MANUAL_MODEL, Verdict
 
@@ -26,7 +26,9 @@ def register_tools(e) -> None:
             ToolDef(
                 name="capture_link",
                 description="Add a job posting or company to scout from a pasted URL. Call this FIRST whenever the user says they applied to, found, or is looking at a job/company with a link — it resolves the company and posting (idempotent by URL) and returns their ids. After capturing an application, follow up with track_application to set the application stage.",
-                input_schema=obj_schema({"url": str_prop("The job posting or company URL the user pasted.")}, "url"),
+                input_schema=obj_schema(
+                    {"url": str_prop("The job posting or company URL the user pasted.")}, "url"
+                ),
             ),
             _tool_capture_link,
         ),
@@ -34,11 +36,16 @@ def register_tools(e) -> None:
             ToolDef(
                 name="track_application",
                 description="Update a posting's application-tracking fields. Call this when the user reports applying or advancing a stage (heard back / screening / interview / offer / rejected). Passing `stage` sets the posting's current application stage. Only the fields you pass are changed; omit the rest. Get the posting_id from capture_link or search.",
-                input_schema=obj_schema({
-                    "posting_id": str_prop("The posting id (from capture_link or search)."),
-                    "stage": str_prop("The current application stage (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Set \"\" to clear it."),
-                    "notes": str_prop("Free-form note on this posting."),
-                }, "posting_id"),
+                input_schema=obj_schema(
+                    {
+                        "posting_id": str_prop("The posting id (from capture_link or search)."),
+                        "stage": str_prop(
+                            'The current application stage (e.g. applied, screening, interview, offer, rejected — whatever stage the user names). Set "" to clear it.'
+                        ),
+                        "notes": str_prop("Free-form note on this posting."),
+                    },
+                    "posting_id",
+                ),
             ),
             _tool_track_application,
         ),
@@ -46,7 +53,14 @@ def register_tools(e) -> None:
             ToolDef(
                 name="search",
                 description="Search scout's saved companies and job postings by name/title. Call this to check whether something is already tracked (\"did I already add Ramp?\") or to find an entity's id before reading or updating it. Returns matching companies and postings with their ids and verdicts.",
-                input_schema=obj_schema({"query": str_prop("Case-insensitive substring to match against company names and posting titles.")}, "query"),
+                input_schema=obj_schema(
+                    {
+                        "query": str_prop(
+                            "Case-insensitive substring to match against company names and posting titles."
+                        )
+                    },
+                    "query",
+                ),
             ),
             _tool_search,
         ),
@@ -54,7 +68,10 @@ def register_tools(e) -> None:
             ToolDef(
                 name="get_company",
                 description="Fetch a company's full detail: facts, verdict + reasoning, enriched website summary, notes, and its postings. Call this to answer questions about a specific saved company.",
-                input_schema=obj_schema({"company_id": str_prop("The company id (from search or capture_link).")}, "company_id"),
+                input_schema=obj_schema(
+                    {"company_id": str_prop("The company id (from search or capture_link).")},
+                    "company_id",
+                ),
             ),
             _tool_get_company,
         ),
@@ -62,7 +79,10 @@ def register_tools(e) -> None:
             ToolDef(
                 name="get_posting",
                 description="Fetch one job posting's detail: title, location, comp, full description, and its tracking state. Call this to answer questions about a specific role.",
-                input_schema=obj_schema({"posting_id": str_prop("The posting id (from search or capture_link).")}, "posting_id"),
+                input_schema=obj_schema(
+                    {"posting_id": str_prop("The posting id (from search or capture_link).")},
+                    "posting_id",
+                ),
             ),
             _tool_get_posting,
         ),
@@ -70,10 +90,14 @@ def register_tools(e) -> None:
             ToolDef(
                 name="set_notes",
                 description="Replace a company's free-form notes (a human scratchpad). Call this when the user asks you to jot something down about a company. This overwrites existing notes — read them with get_company first if you mean to append.",
-                input_schema=obj_schema({
-                    "company_id": str_prop("The company id."),
-                    "notes": str_prop("The note text to store (replaces existing notes)."),
-                }, "company_id", "notes"),
+                input_schema=obj_schema(
+                    {
+                        "company_id": str_prop("The company id."),
+                        "notes": str_prop("The note text to store (replaces existing notes)."),
+                    },
+                    "company_id",
+                    "notes",
+                ),
             ),
             _tool_set_notes,
         ),
@@ -81,11 +105,15 @@ def register_tools(e) -> None:
             ToolDef(
                 name="set_verdict",
                 description="Hand-set a company's fit verdict (yes/maybe/no) with a reason. Call this only when the user explicitly asks you to mark or override a verdict. It is recorded as a sticky manual override.",
-                input_schema=obj_schema({
-                    "company_id": str_prop("The company id."),
-                    "verdict": enum_prop("The fit verdict.", "yes", "maybe", "no"),
-                    "reason": str_prop("Short reason for the verdict."),
-                }, "company_id", "verdict"),
+                input_schema=obj_schema(
+                    {
+                        "company_id": str_prop("The company id."),
+                        "verdict": enum_prop("The fit verdict.", "yes", "maybe", "no"),
+                        "reason": str_prop("Short reason for the verdict."),
+                    },
+                    "company_id",
+                    "verdict",
+                ),
             ),
             _tool_set_verdict,
         ),
@@ -149,13 +177,15 @@ def _tool_track_application(e, inp: dict) -> str:
     except errors.NotFound:
         raise RuntimeError(f'no posting with id "{posting_id}"')
     # Validation errors (ValueError) surface to the model unchanged.
-    return json_string({
-        "posting_id": p.id,
-        "title": p.title,
-        "stage": p.application_status,
-        "outreach_count": p.outreach_count,
-        "last_outreach": p.last_outreach_at,
-    })
+    return json_string(
+        {
+            "posting_id": p.id,
+            "title": p.title,
+            "stage": p.application_status,
+            "outreach_count": p.outreach_count,
+            "last_outreach": p.last_outreach_at,
+        }
+    )
 
 
 def _tool_search(e, inp: dict) -> str:
@@ -169,26 +199,30 @@ def _tool_search(e, inp: dict) -> str:
         if len(companies_out) >= max_hits:
             break
         if q in r.name.lower() or (r.domain != "" and q in r.domain.lower()):
-            companies_out.append({
-                "company_id": r.company_id,
-                "name": r.name,
-                "domain": r.domain,
-                "verdict": r.verdict,
-                "location": r.location,
-            })
+            companies_out.append(
+                {
+                    "company_id": r.company_id,
+                    "name": r.name,
+                    "domain": r.domain,
+                    "verdict": r.verdict,
+                    "location": r.location,
+                }
+            )
 
     postings_out: list[dict] = []
     for j in postings.list_job_rows(e.con):
         if len(postings_out) >= max_hits:
             break
         if q in j.title.lower() or q in j.company.lower():
-            postings_out.append({
-                "posting_id": j.posting_id,
-                "company_id": j.company_id,
-                "company": j.company,
-                "title": j.title,
-                "stage": j.application_status,
-            })
+            postings_out.append(
+                {
+                    "posting_id": j.posting_id,
+                    "company_id": j.company_id,
+                    "company": j.company,
+                    "title": j.title,
+                    "stage": j.application_status,
+                }
+            )
 
     return json_string({"companies": companies_out, "postings": postings_out})
 
@@ -196,17 +230,29 @@ def _tool_search(e, inp: dict) -> str:
 def _tool_get_company(e, inp: dict) -> str:
     d = detail.get_company_detail(e.con, (inp.get("company_id") or "").strip())
     if d is None:
-        raise RuntimeError(f'no company with id "{inp.get("company_id") or ""}" (use search to find it)')
+        raise RuntimeError(
+            f'no company with id "{inp.get("company_id") or ""}" (use search to find it)'
+        )
     postings_out = [
         {"posting_id": p.id, "title": p.title, "url": p.url, "stage": p.application_status}
         for p in d.postings
     ]
-    return json_string({
-        "company_id": d.company_id, "name": d.name, "domain": d.domain,
-        "location": d.location, "vertical": d.vertical, "headcount": d.headcount,
-        "funding_stage": d.funding_stage, "verdict": d.verdict, "reason": d.reason,
-        "website_summary": d.website_summary, "notes": d.notes, "postings": postings_out,
-    })
+    return json_string(
+        {
+            "company_id": d.company_id,
+            "name": d.name,
+            "domain": d.domain,
+            "location": d.location,
+            "vertical": d.vertical,
+            "headcount": d.headcount,
+            "funding_stage": d.funding_stage,
+            "verdict": d.verdict,
+            "reason": d.reason,
+            "website_summary": d.website_summary,
+            "notes": d.notes,
+            "postings": postings_out,
+        }
+    )
 
 
 def _tool_get_posting(e, inp: dict) -> str:
@@ -217,15 +263,24 @@ def _tool_get_posting(e, inp: dict) -> str:
         name, _ = detail.get_company_name(e.con, p.company_id)
     except errors.NotFound:
         name = ""
-    return json_string({
-        "posting_id": p.id, "company_id": p.company_id, "company": name,
-        "title": p.title, "url": p.url, "location": p.location,
-        "employment_type": p.employment_type, "workplace_type": p.workplace_type,
-        "department": p.department, "comp_range": p.comp_range,
-        "description": p.description,
-        "stage": p.application_status,
-        "outreach_count": p.outreach_count, "notes": p.notes,
-    })
+    return json_string(
+        {
+            "posting_id": p.id,
+            "company_id": p.company_id,
+            "company": name,
+            "title": p.title,
+            "url": p.url,
+            "location": p.location,
+            "employment_type": p.employment_type,
+            "workplace_type": p.workplace_type,
+            "department": p.department,
+            "comp_range": p.comp_range,
+            "description": p.description,
+            "stage": p.application_status,
+            "outreach_count": p.outreach_count,
+            "notes": p.notes,
+        }
+    )
 
 
 def _tool_set_notes(e, inp: dict) -> str:
@@ -249,12 +304,15 @@ def _tool_set_verdict(e, inp: dict) -> str:
         detail.get_company_name(e.con, company_id)
     except errors.NotFound:
         raise RuntimeError(f'no company with id "{company_id}"')
-    verdicts.upsert_verdict(e.con, Verdict(
-        company_id=company_id,
-        verdict=v,
-        reason=(inp.get("reason") or "").strip(),
-        model=MANUAL_MODEL,  # sticky manual override (a verdict run won't overwrite)
-    ))
+    verdicts.upsert_verdict(
+        e.con,
+        Verdict(
+            company_id=company_id,
+            verdict=v,
+            reason=(inp.get("reason") or "").strip(),
+            model=MANUAL_MODEL,  # sticky manual override (a verdict run won't overwrite)
+        ),
+    )
     return json_string({"company_id": company_id, "verdict": v})
 
 
@@ -277,8 +335,8 @@ def enum_prop(desc: str, *values: str) -> dict:
 
 
 def json_string(v) -> str:
-    """Marshal a tool result to a compact JSON string for the model (Go's
-    encoding/json sorts map keys, so we mirror that with sort_keys)."""
+    """Marshal a tool result to a compact JSON string for the model, with sorted
+    keys so the output is stable across calls."""
     return json.dumps(v, separators=(",", ":"), sort_keys=True)
 
 

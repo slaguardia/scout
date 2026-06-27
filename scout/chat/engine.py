@@ -1,4 +1,4 @@
-"""scout's chat engine: a Sonnet 4.6 tool-using agent. Port of internal/chat/engine.go.
+"""scout's chat engine: a Sonnet 4.6 tool-using agent.
 
 Behind two surfaces (a global "I applied to <link>" tracking chat and a per-entity
 research chat). Both share this one engine — the only new machinery is the
@@ -12,11 +12,12 @@ tool_use turn and the matching tool_result turn, and continue with a fresh strea
 request → until end_turn. The hosted web_search server tool's pause_turn is resumed
 inside one assistant turn. Iterations are capped so a runaway model can't loop.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Callable
+from collections.abc import Callable
 
 from scout import capture
 from scout.anthropic import ADAPTIVE_THINKING, Client, Message, Request
@@ -68,7 +69,7 @@ class Engine:
         another terminal stop), or when the iteration cap is hit."""
         stored = chat_store.thread_messages(self.con, thread_id)
         # m.content is the raw content-block JSON array; parse it so the wire encoder
-        # serializes it back as an array (Go replays json.RawMessage verbatim).
+        # serializes it back as an array rather than re-encoding it as a string.
         msgs = [Message(role=m.role, content=json.loads(m.content)) for m in stored]
 
         for _ in range(self._max_iters()):
@@ -101,21 +102,27 @@ class Engine:
 
         cont = 0
         while True:
-            resp = self.client.stream(Request(
-                model=self._model(),
-                system=system,
-                cached=True,
-                max_tokens=_DEFAULT_MAX_TOKENS,
-                messages=turn,
-                tools=self.tool_wire,
-                thinking=ADAPTIVE_THINKING,
-            ), on_text)
+            resp = self.client.stream(
+                Request(
+                    model=self._model(),
+                    system=system,
+                    cached=True,
+                    max_tokens=_DEFAULT_MAX_TOKENS,
+                    messages=turn,
+                    tools=self.tool_wire,
+                    thinking=ADAPTIVE_THINKING,
+                ),
+                on_text,
+            )
             for b in resp.content:
                 blocks.append(b.raw)
             if resp.stop_reason != "pause_turn":
                 return blocks, resp.stop_reason
             if cont >= _DEFAULT_MAX_CONTINUATIONS:
-                self._logf("chat: web_search still paused after %d continuations — using partial output", cont)
+                self._logf(
+                    "chat: web_search still paused after %d continuations — using partial output",
+                    cont,
+                )
                 return blocks, "end_turn"  # treat as done so the loop terminates
             # Resume: replay the partial assistant turn and re-send (no user message).
             turn = turn + [Message(role="assistant", content=resp.raw_content())]

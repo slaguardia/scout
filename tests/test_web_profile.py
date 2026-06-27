@@ -1,8 +1,11 @@
-"""Port of internal/web/profile_test.go — the criteria-state tri-state deriver and
-the read-only profile payload over a stubbed brain."""
+"""The criteria-state tri-state deriver and the read-only profile payload over a
+stubbed brain."""
+
 from __future__ import annotations
 
 import json
+
+from httpstub import http_server
 
 from scout import brainbot as brainbot_pkg
 from scout import criteria as criteria_pkg
@@ -12,8 +15,6 @@ from scout.store import db as db_module
 from scout.web.config import Config
 from scout.web.deps import AppState
 from scout.web.routes.profile import criteria_state, profile_payload
-
-from httpstub import http_server
 
 
 def _brain_handler(cursor, health_ok, changes_ok):

@@ -1,4 +1,5 @@
-"""Port of internal/brainbot/client_test.go."""
+"""Tests for the scout.brainbot client."""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ from tests.httpstub import http_server
 def _json(payload: dict):
     def handle(req):
         return 200, {"Content-Type": "application/json"}, json.dumps(payload)
+
     return handle
 
 
@@ -47,11 +49,15 @@ def test_recall():
 
     def handle(req):
         captured.append(req)
-        return 200, {"Content-Type": "application/json"}, (
-            '{"chunks":['
-            '{"heading":"Target company","text":"Wants 0→1 product companies.","score":0.81,"path":"Job Hunting/Target company"},'
-            '{"heading":"Job Hunting","text":"Avoids fintech and crypto.","score":0.32,"path":"Job Hunting"}'
-            ']}'
+        return (
+            200,
+            {"Content-Type": "application/json"},
+            (
+                '{"chunks":['
+                '{"heading":"Target company","text":"Wants 0→1 product companies.","score":0.81,"path":"Job Hunting/Target company"},'
+                '{"heading":"Job Hunting","text":"Avoids fintech and crypto.","score":0.32,"path":"Job Hunting"}'
+                "]}"
+            ),
         )
 
     with http_server(handle) as base:
@@ -145,7 +151,11 @@ def test_doc_ok():
 
     def handle(req):
         captured.append(req)
-        return 200, {}, '{"id":"abc-123","title":"T","path":"A/T","version":"v9","text":"verbatim — body"}'
+        return (
+            200,
+            {},
+            '{"id":"abc-123","title":"T","path":"A/T","version":"v9","text":"verbatim — body"}',
+        )
 
     with http_server(handle) as base:
         got = brainbot.new(base).doc("abc-123")
@@ -181,10 +191,14 @@ def test_map():
 
     def handle(req):
         captured.append(req)
-        return 200, {}, (
-            '{"sources":['
-            '{"id":"root1","title":"Outreach","path":"Outreach","parent_id":null,"version":"v1"},'
-            '{"id":"kid1","title":"Templates","path":"Outreach/Templates","parent_id":"root1","version":"v2"}]}'
+        return (
+            200,
+            {},
+            (
+                '{"sources":['
+                '{"id":"root1","title":"Outreach","path":"Outreach","parent_id":null,"version":"v1"},'
+                '{"id":"kid1","title":"Templates","path":"Outreach/Templates","parent_id":"root1","version":"v2"}]}'
+            ),
         )
 
     with http_server(handle) as base:

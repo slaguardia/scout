@@ -1,4 +1,5 @@
-"""Port of internal/store/chat_test.go."""
+"""Tests for scout.store.chat."""
+
 import json
 
 import pytest
@@ -16,8 +17,10 @@ def test_chat_thread_round_trip(db):
     assert th.scope == CHAT_SCOPE_GLOBAL and th.scope_id == ""
 
     user_msg = '[{"type":"text","text":"I applied to acme.com/jobs/1"}]'
-    asst_msg = ('[{"type":"text","text":"On it."},{"type":"tool_use","id":"toolu_1",'
-                '"name":"capture_link","input":{"url":"https://acme.com/jobs/1"}}]')
+    asst_msg = (
+        '[{"type":"text","text":"On it."},{"type":"tool_use","id":"toolu_1",'
+        '"name":"capture_link","input":{"url":"https://acme.com/jobs/1"}}]'
+    )
     tool_result = '[{"type":"tool_result","tool_use_id":"toolu_1","content":"captured posting p1"}]'
 
     chat.append_message(db, th.id, "user", user_msg, "I applied to acme.com/jobs/1")

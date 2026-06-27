@@ -1,5 +1,5 @@
 """Package jobs is a tiny in-process runner for scout's long-running pipeline
-stages (ingest, enrich, verdict) triggered from the UI. Port of internal/jobs/jobs.go.
+stages (ingest, enrich, verdict) triggered from the UI.
 
 A job runs in a background thread; the HTTP layer returns immediately with an id
 and streams the job's progress lines over SSE. Live state (lines, cancel) is
@@ -7,19 +7,18 @@ in-memory; the durable record lives in the runs table (written by the caller via
 the on_finish hook). Process restart loses in-flight jobs and live lines, never
 results — the DB has those.
 
-Go translation notes: a goroutine becomes a threading.Thread; context.WithCancel
-becomes a Context wrapping a threading.Event (cancelled() is Go's ctx.Err() != nil);
-an SSE subscriber channel becomes a queue.Queue closed by enqueuing a None
-sentinel. The work Func returns its summary and raises on failure (Python's
-analogue of Go's returned error).
+Concurrency model: each job runs on a threading.Thread; cancellation rides on a
+Context wrapping a threading.Event; an SSE subscriber is a queue.Queue closed by
+enqueuing a None sentinel. The work Func returns its summary and raises on failure.
 """
+
 from __future__ import annotations
 
 import queue
 import threading
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 # Status values for a job.
 STATUS_RUNNING = "running"
@@ -29,8 +28,8 @@ STATUS_CANCELED = "canceled"
 
 
 class Context:
-    """The cancelable context handed to a job's work function — the analogue of
-    Go's context.WithCancel result. cancelled() mirrors `ctx.Err() != nil`."""
+    """The cancelable context handed to a job's work function. cancel() sets the
+    underlying event; cancelled() reports whether cancellation has been requested."""
 
     def __init__(self) -> None:
         self._ev = threading.Event()
@@ -100,7 +99,7 @@ class Job:
         with self._mu:
             return self.status
 
-    def subscribe(self) -> "tuple[list[str], queue.Queue, threading.Event]":
+    def subscribe(self) -> tuple[list[str], queue.Queue, threading.Event]:
         """Return (backlog, ch, done): a snapshot of lines already emitted, a queue
         of future lines (terminated by a None sentinel when the job finishes), and
         the done event. The caller must drain ch."""
@@ -129,7 +128,7 @@ class Runner:
         # on_start / on_finish let the caller persist to the runs table. Both may
         # be None. on_finish receives the terminal status, summary, and error text.
         self.on_start: Callable[[str, str], None] | None = None
-        self.on_finish: Callable[[str, str, "dict | None", str], None] | None = None
+        self.on_finish: Callable[[str, str, dict | None, str], None] | None = None
 
     def busy(self) -> str:
         """The stage of the currently-running job, or "" if idle."""

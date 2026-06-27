@@ -1,11 +1,12 @@
-"""Smoke coverage for the control surface (no Go web test): run-stage gating,
+"""Smoke coverage for the control surface: run-stage gating,
 job stream/cancel, runs, and a real multipart CSV ingest end-to-end."""
+
 from __future__ import annotations
+
+from web_helpers import new_test_app, open_db
 
 from scout import jobs
 from scout.store import companies as companies_store
-
-from web_helpers import new_test_app, open_db
 
 
 def test_run_gating(tmp_path, monkeypatch):

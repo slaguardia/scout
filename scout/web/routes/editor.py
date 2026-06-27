@@ -1,11 +1,12 @@
 """The outreach-side editors: email template, follow-up template, and the
 per-stage pipeline prompts.
 
-Partial port of internal/web/editor.go — only the outreach editors (the
-taste/playbook/pre-filter editors live elsewhere). Each is a DB singleton (a save
-can't clobber it and git never touches it); the engine re-reads at draft time, so
-there is no reload and no taste_version on these.
+This covers only the outreach editors (the taste/playbook/pre-filter editors live
+elsewhere). Each is a DB singleton (a save can't clobber it and git never touches
+it); the engine re-reads at draft time, so there is no reload and no taste_version
+on these.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -65,8 +66,11 @@ def list_outreach_prompts(con=Depends(get_db)) -> Response:
         content, enabled = prompt_overrides.get_stage(con, st.stage)
         out.append(
             {
-                "stage": st.stage, "title": st.title, "description": st.description,
-                "enabled": enabled, "skippable": st.stage != "fill",
+                "stage": st.stage,
+                "title": st.title,
+                "description": st.description,
+                "enabled": enabled,
+                "skippable": st.stage != "fill",
                 "is_overridden": content.strip() != "",
             }
         )
@@ -81,8 +85,11 @@ def _stage_payload(con, stage: str, st) -> Response:
         content = st.default
     return json_response(
         {
-            "kind": "outreach-prompts/" + stage, "content": content,
-            "enabled": enabled, "skippable": stage != "fill", "is_overridden": overridden,
+            "kind": "outreach-prompts/" + stage,
+            "content": content,
+            "enabled": enabled,
+            "skippable": stage != "fill",
+            "is_overridden": overridden,
         }
     )
 
@@ -96,7 +103,9 @@ def get_outreach_prompt(stage: str, con=Depends(get_db)) -> Response:
 
 
 @router.put("/api/outreach-prompts/{stage}")
-def put_outreach_prompt(stage: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def put_outreach_prompt(
+    stage: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """PUT {content} saves an override, {enabled} toggles the stage, {reset:true}
     reverts to the compiled default. The Writer (fill) can't be disabled."""
     st = outreach_pkg.stage_by_key(stage)

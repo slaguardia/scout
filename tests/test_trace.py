@@ -1,4 +1,5 @@
-"""Port of internal/store/trace_test.go."""
+"""Tests for scout.store.trace."""
+
 from dataclasses import replace
 
 from scout.store import trace
@@ -10,13 +11,19 @@ def test_verdict_trace_round_trip(db):
     cid = upsert_company(db, Company(source="test", name="Acme Corp", raw_json="{}"))
 
     v1 = VerdictTrace(
-        company_id=cid, run_id="run-1", model="claude-haiku-4-5", taste_version="v1",
+        company_id=cid,
+        run_id="run-1",
+        model="claude-haiku-4-5",
+        taste_version="v1",
         criteria_source="brain:profile@http://127.0.0.1:8100 + playbook.md",
-        verdict="maybe", reason="adjacent ML infra",
+        verdict="maybe",
+        reason="adjacent ML infra",
     )
     trace.insert_verdict_trace(db, v1)
     # A later re-score appends a second row rather than overwriting.
-    v2 = replace(v1, run_id="run-2", taste_version="v2", verdict="no", reason="fintech-leaning (excluded)")
+    v2 = replace(
+        v1, run_id="run-2", taste_version="v2", verdict="no", reason="fintech-leaning (excluded)"
+    )
     trace.insert_verdict_trace(db, v2)
 
     events = trace.company_trace(db, cid)

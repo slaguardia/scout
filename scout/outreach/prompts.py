@@ -1,13 +1,13 @@
-"""Compiled-in default system prompts for the outreach pipeline stages. Port of
-internal/outreach/prompts.go.
+"""Compiled-in default system prompts for the outreach pipeline stages.
 
 Each stage's prompt is fully editable from the dashboard (stored per-stage in the
 `prompt_overrides` table); an empty/absent override falls back to the compiled-in
 default below. The JSON output contract lives inside each default prompt, so an
 edit that breaks it only fails that stage's drafts until reset, never the import.
 
-The text is copied VERBATIM from the Go consts — do not reflow or edit it.
+Treat the prompt text below as VERBATIM — do not reflow or edit it.
 """
+
 from __future__ import annotations
 
 # researcherSystem is the Researcher. It uses the hosted web_search server tool

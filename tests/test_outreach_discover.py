@@ -1,5 +1,5 @@
-"""Port of internal/outreach/discover_test.go — brain knowledge discovery + the
-change-aware EnsureKnowledge sync."""
+"""Brain knowledge discovery + the change-aware EnsureKnowledge sync."""
+
 from __future__ import annotations
 
 import pytest
@@ -18,11 +18,21 @@ def _doc(id, title, path, version, text):
 # Discovery selects the relevant pages per need, whole-fetches them, and caches the
 # text — and ignores an off-topic page the model didn't pick.
 def test_discover_selects_and_caches(db):
-    fb = FakeBrain({
-        "exp": _doc("exp", "Past Experience", "Career/Past Experience", "v1", "Five years at Globex, forward-deployed."),
-        "voice": _doc("voice", "Voice & Style", "Writing/Voice", "v2", "Plain, tight sentences."),
-        "junk": _doc("junk", "Grocery list", "Home", "v3", "milk, eggs"),
-    })
+    fb = FakeBrain(
+        {
+            "exp": _doc(
+                "exp",
+                "Past Experience",
+                "Career/Past Experience",
+                "v1",
+                "Five years at Globex, forward-deployed.",
+            ),
+            "voice": _doc(
+                "voice", "Voice & Style", "Writing/Voice", "v2", "Plain, tight sentences."
+            ),
+            "junk": _doc("junk", "Grocery list", "Home", "v3", "milk, eggs"),
+        }
+    )
     fa = FakeAnthropic(['{"experience":["exp"],"voice":["voice"]}'])
     with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
         brain = brainbot.new(burl)
@@ -61,14 +71,21 @@ def test_discover_ignores_hallucinated_ids(db):
 # EnsureKnowledge is change-aware: a cold cache discovers, an unchanged brain serves
 # the cache with no re-discovery, and a moved cursor re-discovers and re-stamps.
 def test_ensure_knowledge_change_aware(db):
-    fb = FakeBrain({
-        "exp": _doc("exp", "Past Experience", "Career/Past Experience", "v1", "Five years at Globex."),
-        "voice": _doc("voice", "Voice", "Writing/Voice", "v1", "Plain."),
-    }, cursor="c1")
-    fa = FakeAnthropic([
-        '{"experience":["exp"],"voice":["voice"],"logistics":[]}',  # cold discovery
-        '{"experience":["exp"],"voice":["voice"],"logistics":[]}',  # after the change
-    ])
+    fb = FakeBrain(
+        {
+            "exp": _doc(
+                "exp", "Past Experience", "Career/Past Experience", "v1", "Five years at Globex."
+            ),
+            "voice": _doc("voice", "Voice", "Writing/Voice", "v1", "Plain."),
+        },
+        cursor="c1",
+    )
+    fa = FakeAnthropic(
+        [
+            '{"experience":["exp"],"voice":["voice"],"logistics":[]}',  # cold discovery
+            '{"experience":["exp"],"voice":["voice"],"logistics":[]}',  # after the change
+        ]
+    )
     with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
         brain = brainbot.new(burl)
         client = anthropic.Client(api_key="k", endpoint=aurl)

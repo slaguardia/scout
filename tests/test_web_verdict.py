@@ -1,17 +1,21 @@
-"""Port of internal/web/verdict_test.go."""
+"""The verdict web routes."""
+
 from __future__ import annotations
 
-from scout.store import trace, verdicts
-
 from web_helpers import new_test_app, open_db
+
+from scout.store import trace, verdicts
 
 
 def test_manual_verdict_api(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
 
     def put(company_id, body):
-        return client.put(f"/api/companies/{company_id}/verdict", content=body,
-                          headers={"Content-Type": "application/json"})
+        return client.put(
+            f"/api/companies/{company_id}/verdict",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     # Happy path: 200 + refreshed detail, stamped model "manual".
     rec = put(cid, '{"verdict":"no","reason":"crypto wallet (excluded)"}')
@@ -39,7 +43,8 @@ def test_manual_verdict_api(tmp_path, monkeypatch):
     # The latest override records the no → yes delta.
     row = con.execute(
         "SELECT COALESCE(from_verdict,''), to_verdict, COALESCE(criteria_version,'') "
-        "FROM verdict_override WHERE company_id = ? ORDER BY id DESC LIMIT 1", (cid,)
+        "FROM verdict_override WHERE company_id = ? ORDER BY id DESC LIMIT 1",
+        (cid,),
     ).fetchone()
     con.close()
     assert row[0] == "no" and row[1] == "yes"

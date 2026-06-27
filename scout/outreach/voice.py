@@ -1,8 +1,9 @@
-"""Deterministic voice/length lint backstops. Port of internal/outreach/voice.go.
+"""Deterministic voice/length lint backstops.
 
 These are non-blocking flags surfaced in the review panel — the honesty checker
 is the only gate; voice nits are the user's call to fix on review.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,16 +21,33 @@ class LintFinding:
 # pass is meant to remove them, but LLM cleanup reintroduces patterns, so this
 # deterministic backstop catches what slips through.
 BANNED_PHRASES = [
-    "excited to", "excited about", "passionate about", "thrilled", "super excited",
-    "pick your brain", "huge fan", "resonate", "deeply aligned",
+    "excited to",
+    "excited about",
+    "passionate about",
+    "thrilled",
+    "super excited",
+    "pick your brain",
+    "huge fan",
+    "resonate",
+    "deeply aligned",
     "hope you're doing well",
     # stating your own interest/preference — the email already is the interest signal
-    "caught my attention", "drew my attention", "want to be doing",
-    "interested in joining", "enjoy most", "what i love", "love doing",
+    "caught my attention",
+    "drew my attention",
+    "want to be doing",
+    "interested in joining",
+    "enjoy most",
+    "what i love",
+    "love doing",
     # the doctrine's kill list — openings and frames that mark a template email
-    "hope this email finds you well", "finds you well",
-    "my name is", "i'm writing to", "i am writing to", "i just applied",
-    "a leader in", "leader in the",
+    "hope this email finds you well",
+    "finds you well",
+    "my name is",
+    "i'm writing to",
+    "i am writing to",
+    "i just applied",
+    "a leader in",
+    "leader in the",
 ]
 
 
@@ -60,9 +78,9 @@ def length_findings(email: str) -> list[LintFinding]:
     whole thing."""
     lines = email.split("\n")
     body = lines
-    for i, l in enumerate(lines):
-        if l.startswith("Subject:"):
-            body = lines[i + 1:]
+    for i, line in enumerate(lines):
+        if line.startswith("Subject:"):
+            body = lines[i + 1 :]
             break
     n = len("\n".join(body).split())
     if n <= LENGTH_FLAG_AT:

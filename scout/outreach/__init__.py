@@ -1,9 +1,10 @@
 """scout.outreach — the outreach + application-answer engine.
 
-Port of internal/outreach. The web layer drives it through the Engine class and
-the module-level discovery helpers; everything reasons over the brain knowledge
-bundle cached in outreach_sources and never writes back to the brain.
+The web layer drives it through the Engine class and the module-level discovery
+helpers; everything reasons over the brain knowledge bundle cached in
+outreach_sources and never writes back to the brain.
 """
+
 from __future__ import annotations
 
 from .answers import ANSWER_SYSTEM, AnswerContext, answer_length_guide

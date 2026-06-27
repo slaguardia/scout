@@ -1,9 +1,10 @@
-"""The two user-configurable status vocabularies. Port of internal/store/statuses.go.
+"""The two user-configurable status vocabularies.
 
 Stored as JSON string arrays in the generic settings table (singletons). They
 drive the dropdowns in the jobs view; "none" (empty) is always implicitly
 available and is NOT part of either list.
 """
+
 from __future__ import annotations
 
 import json

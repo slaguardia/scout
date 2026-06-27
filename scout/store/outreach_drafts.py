@@ -1,4 +1,5 @@
-"""Outreach draft pipeline rows. Port of internal/store/outreach_drafts.go."""
+"""Outreach draft pipeline rows."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -45,9 +46,21 @@ _DRAFT_COLS = (
 
 def _scan_draft(row) -> OutreachDraft:
     return OutreachDraft(
-        id=row[0], posting_id=row[1], status=row[2], stage=row[3], research=row[4],
-        hook=row[5], draft=row[6], edited=row[7], lint=row[8], violations=row[9],
-        critique=row[10], fail_reason=row[11], created_at=row[12], updated_at=row[13], sent_at=row[14],
+        id=row[0],
+        posting_id=row[1],
+        status=row[2],
+        stage=row[3],
+        research=row[4],
+        hook=row[5],
+        draft=row[6],
+        edited=row[7],
+        lint=row[8],
+        violations=row[9],
+        critique=row[10],
+        fail_reason=row[11],
+        created_at=row[12],
+        updated_at=row[13],
+        sent_at=row[14],
     )
 
 
@@ -59,7 +72,9 @@ def _must_affect(cur: sqlite3.Cursor) -> None:
 def _insert_draft(con: sqlite3.Connection, posting_id: str) -> OutreachDraft:
     """Insert a fresh researching draft and return it (within the caller's tx)."""
     cur = con.execute("INSERT INTO outreach_drafts (posting_id) VALUES (?)", (posting_id,))
-    row = con.execute(f"SELECT {_DRAFT_COLS} FROM outreach_drafts WHERE id = ?", (cur.lastrowid,)).fetchone()
+    row = con.execute(
+        f"SELECT {_DRAFT_COLS} FROM outreach_drafts WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
     return _scan_draft(row)
 
 
@@ -67,7 +82,12 @@ def create_outreach_draft(con: sqlite3.Connection, posting_id: str) -> OutreachD
     """Start a new draft for a posting. Raises NotFound for an unknown posting and
     ValueError ("active draft") when one is already in a non-terminal status."""
     with tx(con):
-        if con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[0] == 0:
+        if (
+            con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[
+                0
+            ]
+            == 0
+        ):
             raise errors.NotFound()
         active = con.execute(
             "SELECT COUNT(1) FROM outreach_drafts WHERE posting_id = ? AND status IN (?, ?, ?, ?)",
@@ -84,7 +104,12 @@ def regenerate_outreach_draft(con: sqlite3.Connection, posting_id: str) -> Outre
     fresh one, carrying the most recent research forward. Refuses while a draft is
     still researching."""
     with tx(con):
-        if con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[0] == 0:
+        if (
+            con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[
+                0
+            ]
+            == 0
+        ):
             raise errors.NotFound()
         researching = con.execute(
             "SELECT COUNT(1) FROM outreach_drafts WHERE posting_id = ? AND status = ?",
@@ -108,7 +133,9 @@ def regenerate_outreach_draft(con: sqlite3.Connection, posting_id: str) -> Outre
 
         d = _insert_draft(con, posting_id)
         if prior_research != "":
-            con.execute("UPDATE outreach_drafts SET research = ? WHERE id = ?", (prior_research, d.id))
+            con.execute(
+                "UPDATE outreach_drafts SET research = ? WHERE id = ?", (prior_research, d.id)
+            )
             d.research = prior_research
     return d
 
@@ -131,14 +158,23 @@ def list_outreach_drafts(con: sqlite3.Connection, posting_id: str) -> list[Outre
 def set_outreach_draft_stage(con: sqlite3.Connection, id: int, stage: str) -> None:
     """Record which pipeline step an in-flight draft is on."""
     cur = con.execute(
-        "UPDATE outreach_drafts SET stage = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (stage, id)
+        "UPDATE outreach_drafts SET stage = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (stage, id),
     )
     _must_affect(cur)
 
 
 def set_outreach_draft_result(
-    con: sqlite3.Connection, id: int, status: str, research: str, hook: str,
-    draft: str, lint: str, violations: str, critique: str, fail_reason: str,
+    con: sqlite3.Connection,
+    id: int,
+    status: str,
+    research: str,
+    hook: str,
+    draft: str,
+    lint: str,
+    violations: str,
+    critique: str,
+    fail_reason: str,
 ) -> None:
     """Record a pipeline outcome: the new status plus any stage outputs."""
     cur = con.execute(
@@ -168,7 +204,9 @@ def mark_outreach_draft_sent(con: sqlite3.Connection, id: int) -> OutreachDraft:
         (DRAFT_SENT, id, DRAFT_SENT),
     )
     if cur.rowcount == 0:
-        row = con.execute(f"SELECT {_DRAFT_COLS} FROM outreach_drafts WHERE id = ?", (id,)).fetchone()
+        row = con.execute(
+            f"SELECT {_DRAFT_COLS} FROM outreach_drafts WHERE id = ?", (id,)
+        ).fetchone()
         if row is not None:
             d = _scan_draft(row)
             if d.status == DRAFT_SENT:

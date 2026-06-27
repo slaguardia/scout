@@ -1,4 +1,4 @@
-"""Application-question detection. Port of internal/capture/questions.go.
+"""Application-question detection.
 
 A posting link → the free-text essay questions on its application form. Mirrors
 ats.py's structure: dispatch on the recognized ATS target, resolve through the
@@ -7,6 +7,7 @@ platform's API, normalize. Two no-LLM platform resolvers (Greenhouse's official
 everything else falls to a single Haiku pass over the page text, or honestly
 reports "unsupported". Status is always load-bearing.
 """
+
 from __future__ import annotations
 
 import json
@@ -78,9 +79,18 @@ def detect_questions(httpc: httpx.Client, raw_url: str) -> QuestionScan:
 
 # --- Greenhouse (official) ---------------------------------------------------
 
-def _detect_greenhouse_questions(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> QuestionScan:
-    url = (api_base + "/v1/boards/" + urllib.parse.quote(org, safe="") + "/jobs/"
-           + urllib.parse.quote(job_id, safe="") + "?questions=true")
+
+def _detect_greenhouse_questions(
+    httpc: httpx.Client, api_base: str, org: str, job_id: str
+) -> QuestionScan:
+    url = (
+        api_base
+        + "/v1/boards/"
+        + urllib.parse.quote(org, safe="")
+        + "/jobs/"
+        + urllib.parse.quote(job_id, safe="")
+        + "?questions=true"
+    )
     try:
         payload = fetch_ats_json(httpc, url)
     except Exception:
@@ -142,11 +152,13 @@ _ashby_application_form_query = """query ApiJobPosting($organizationHostedJobsPa
 def _detect_ashby_questions(httpc: httpx.Client, org: str, job_id: str) -> QuestionScan:
     """Resolve the application form through Ashby's non-user-graphql endpoint. Any
     schema drift degrades to "unsupported" rather than crashing capture."""
-    req_body = json.dumps({
-        "operationName": "ApiJobPosting",
-        "variables": {"organizationHostedJobsPageName": org, "jobPostingId": job_id},
-        "query": _ashby_application_form_query,
-    }).encode()
+    req_body = json.dumps(
+        {
+            "operationName": "ApiJobPosting",
+            "variables": {"organizationHostedJobsPageName": org, "jobPostingId": job_id},
+            "query": _ashby_application_form_query,
+        }
+    ).encode()
 
     try:
         resp = _post_ats_graphql(httpc, ashby_graphql_base + "/api/non-user-graphql", req_body)
@@ -180,9 +192,17 @@ def _detect_ashby_questions(httpc: httpx.Client, org: str, job_id: str) -> Quest
 
 # --- Rippling (public board API) ---------------------------------------------
 
-def _detect_rippling_questions(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> QuestionScan:
-    url = (api_base + "/platform/api/ats/v1/board/" + urllib.parse.quote(org, safe="")
-           + "/jobs/" + urllib.parse.quote(job_id, safe=""))
+
+def _detect_rippling_questions(
+    httpc: httpx.Client, api_base: str, org: str, job_id: str
+) -> QuestionScan:
+    url = (
+        api_base
+        + "/platform/api/ats/v1/board/"
+        + urllib.parse.quote(org, safe="")
+        + "/jobs/"
+        + urllib.parse.quote(job_id, safe="")
+    )
     try:
         payload = fetch_ats_json(httpc, url)
     except Exception:
@@ -221,6 +241,7 @@ def _rippling_is_essay(field_type: str, title: str) -> bool:
 
 # --- Dover (public apply-portal API) -----------------------------------------
 
+
 def _detect_dover_questions(httpc: httpx.Client, api_base: str, job_id: str) -> QuestionScan:
     url = api_base + "/api/v1/inbound/application-portal-job/" + urllib.parse.quote(job_id, safe="")
     try:
@@ -231,7 +252,9 @@ def _detect_dover_questions(httpc: httpx.Client, api_base: str, job_id: str) -> 
     qs: list[AppQuestion] = []
     for q in payload.get("application_questions") or []:
         if q.get("hidden") or not _dover_is_essay(
-            q.get("input_type", "") or "", q.get("question_type", "") or "", q.get("question", "") or ""
+            q.get("input_type", "") or "",
+            q.get("question_type", "") or "",
+            q.get("question", "") or "",
         ):
             continue
         p = clean_prompt(q.get("question", "") or "")
@@ -253,7 +276,10 @@ def _dover_is_essay(input_type: str, question_type: str, title: str) -> bool:
 
 # --- HTML + LLM fallback -----------------------------------------------------
 
-def detect_questions_llm(client: anthropic.Client, model: str, httpc: httpx.Client, raw_url: str) -> QuestionScan:
+
+def detect_questions_llm(
+    client: anthropic.Client, model: str, httpc: httpx.Client, raw_url: str
+) -> QuestionScan:
     """Fetch the page and run one Haiku pass to pull essay questions out of
     server-rendered application forms. A fetch failure reports its status and
     stores nothing; the model is best-effort and never invents."""
@@ -262,12 +288,21 @@ def detect_questions_llm(client: anthropic.Client, model: str, httpc: httpx.Clie
         return QuestionScan(status=status, source="html-llm")
     model = model or anthropic.DEFAULT_MODEL
     try:
-        resp = client.send(anthropic.Request(
-            model=model,
-            system=_questions_contract,
-            max_tokens=LLM_MAX_TOKENS,
-            messages=[anthropic.Message(role="user", content="Application page text (truncated):\n" + text + "\n\nReturn the JSON now.")],
-        ))
+        resp = client.send(
+            anthropic.Request(
+                model=model,
+                system=_questions_contract,
+                max_tokens=LLM_MAX_TOKENS,
+                messages=[
+                    anthropic.Message(
+                        role="user",
+                        content="Application page text (truncated):\n"
+                        + text
+                        + "\n\nReturn the JSON now.",
+                    )
+                ],
+            )
+        )
     except Exception:
         return QuestionScan(status=QUESTIONS_UNREACHABLE, source="html-llm")
     qs, ok = parse_questions_json(resp.text())
@@ -320,6 +355,7 @@ def parse_questions_json(s: str) -> tuple[list[AppQuestion], bool]:
 
 # --- shared helpers ----------------------------------------------------------
 
+
 def _scan_from(qs: list[AppQuestion], source: str) -> QuestionScan:
     """Wrap a resolved question list with the right status: ok when any were
     found, none when the form was readable but carried no essays."""
@@ -331,7 +367,8 @@ def _post_ats_graphql(httpc: httpx.Client, url: str, body: bytes) -> dict:
     """POST a GraphQL body and decode the JSON reply — the Ashby counterpart of
     fetch_ats_json. Only Content-Type is required for a 200."""
     resp = httpc.post(
-        url, content=body,
+        url,
+        content=body,
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         timeout=ATS_CALL_TIMEOUT,
     )
@@ -350,20 +387,35 @@ def clean_prompt(s: str) -> str:
 def is_identity_label(label: str) -> bool:
     """Whether a form label is a standard identity / contact / link field to drop,
     never an essay question. Cover Letter is deliberately NOT here."""
-    l = label.strip().lower()
-    if l in {
-        "first name", "last name", "full name", "name", "preferred name",
-        "email", "email address", "phone", "phone number", "mobile",
-        "location", "current location", "city", "pronouns", "gender", "race",
-        "ethnicity", "veteran status", "disability status",
+    lowered = label.strip().lower()
+    if lowered in {
+        "first name",
+        "last name",
+        "full name",
+        "name",
+        "preferred name",
+        "email",
+        "email address",
+        "phone",
+        "phone number",
+        "mobile",
+        "location",
+        "current location",
+        "city",
+        "pronouns",
+        "gender",
+        "race",
+        "ethnicity",
+        "veteran status",
+        "disability status",
     }:
         return True
     # Substring matches catch the common variants.
     for s in ("resume", "linkedin", "github", "website", "portfolio", "curriculum vitae"):
-        if s in l:
+        if s in lowered:
             return True
     # "cv" only as a standalone token.
-    for w in l.split():
+    for w in lowered.split():
         if w == "cv":
             return True
     return False
@@ -371,10 +423,22 @@ def is_identity_label(label: str) -> bool:
 
 def looks_like_question(label: str) -> bool:
     """Whether an input_text label reads like a real open-ended question."""
-    l = label.strip().lower()
-    if l.endswith("?"):
+    lowered = label.strip().lower()
+    if lowered.endswith("?"):
         return True
-    for kw in ("why ", "describe", "tell us", "tell me", "what ", "how ", "share ", "explain", "would you", "your experience", "in your own words"):
-        if kw in l:
+    for kw in (
+        "why ",
+        "describe",
+        "tell us",
+        "tell me",
+        "what ",
+        "how ",
+        "share ",
+        "explain",
+        "would you",
+        "your experience",
+        "in your own words",
+    ):
+        if kw in lowered:
             return True
     return False

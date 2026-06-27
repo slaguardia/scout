@@ -1,11 +1,12 @@
 """The outreach draft queue + the discovered-sources peek + draft edit/send.
 
-Faithful port of internal/web/outreach.go. The async pipeline is fire-and-forget:
+The async pipeline is fire-and-forget:
 the POST creates a draft row and calls state.outreach.draft(id, skip) — the runner
 (the wired Engine, or a test fake) owns the background thread and its OWN
 connection; the request connection here is only used for the gate + the draft-row
 create/list. The panel polls the draft row for progress.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,7 @@ from .core import _s, decode_json, raw_body
 router = APIRouter()
 
 
-# --- knowledge sync (Go's ensureOutreachKnowledge) ---------------------------
+# --- knowledge sync ----------------------------------------------------------
 
 
 def _ensure_outreach_knowledge(con, state: AppState) -> None:
@@ -118,8 +119,11 @@ def outreach_sources_endpoint(con=Depends(get_db)) -> Response:
     srcs = outreach_sources.list_outreach_sources(con)
     lite = [
         {
-            "need": s.need, "page_id": s.page_id, "title": s.title,
-            "version": s.version, "resolved_at": s.resolved_at,
+            "need": s.need,
+            "page_id": s.page_id,
+            "title": s.title,
+            "version": s.version,
+            "resolved_at": s.resolved_at,
         }
         for s in srcs
     ]
@@ -142,7 +146,7 @@ def _lint_body(email: str) -> str:
     if email.startswith("Subject:"):
         i = email.find("\n")
         if i >= 0:
-            return email[i + 1:]
+            return email[i + 1 :]
     return email
 
 
@@ -176,12 +180,17 @@ def save_draft_edit(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get
     )
     if cur is not None and cur.status not in editable:
         return json_error(
-            f"draft is {cur.status} — only awaiting_review/needs_work/no_hook drafts are editable", 409
+            f"draft is {cur.status} — only awaiting_review/needs_work/no_hook drafts are editable",
+            409,
         )
 
     # Re-run the deterministic voice flag (body only) + the word-count check.
-    findings = outreach_pkg.voice_findings(_lint_body(edited)) + outreach_pkg.length_findings(edited)
-    lint_json = json.dumps([{"code": f.code, "message": f.message} for f in findings], separators=(",", ":"))
+    findings = outreach_pkg.voice_findings(_lint_body(edited)) + outreach_pkg.length_findings(
+        edited
+    )
+    lint_json = json.dumps(
+        [{"code": f.code, "message": f.message} for f in findings], separators=(",", ":")
+    )
     outreach_drafts.set_outreach_draft_edited(con, id, edited, lint_json)
     d = outreach_drafts.get_outreach_draft(con, id)
     if d is None:

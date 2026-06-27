@@ -1,18 +1,15 @@
-// scout's UI logic, lifted VERBATIM from the <script> of internal/web/index.html.
-//
-// The original script was a flat module body: function declarations interleaved
-// with top-level `document.getElementById(...).onclick = ...` wiring and a final
-// boot sequence (loadList/loadJobs/loadStats/loadMeta/loadRuns/loadProfile).
-// Wrapping the WHOLE body in initScout() preserves behavior exactly: JS hoists
-// the nested function declarations, and the interleaved wiring + boot calls run
-// in source order AFTER main.ts has injected SCOUT_MARKUP — so every
-// getElementById target exists. The original had no import/export, no
-// DOMContentLoaded/window.onload (only one document-level keydown listener,
-// which still binds to document). All fetch("/api/...") + the SSE
-// EventSource("/api/jobs/{id}/stream") + draft-status polling are untouched.
+// scout's UI logic — a flat vanilla-JS module body: function declarations
+// interleaved with top-level `document.getElementById(...).onclick = ...` wiring
+// and a final boot sequence (loadList/loadJobs/loadStats/loadMeta/loadRuns/
+// loadProfile). The whole body is wrapped in initScout(): JS hoists the nested
+// function declarations, and the interleaved wiring + boot calls run in source
+// order AFTER main.ts has injected SCOUT_MARKUP — so every getElementById target
+// exists. One document-level keydown listener binds to document. All
+// fetch("/api/...") + the SSE EventSource("/api/jobs/{id}/stream") + draft-status
+// polling live here.
 //
 // @ts-nocheck — this is loosely-typed vanilla DOM code; esbuild transpiles it
-// without type-checking. Intentional, to de-risk the faithful port.
+// without type-checking.
 // @ts-nocheck
 
 export function initScout(_root) {

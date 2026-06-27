@@ -1,9 +1,10 @@
-"""Companies table — the cross-source dedup root. Port of internal/store/companies.go.
+"""Companies table — the cross-source dedup root.
 
 Company primary keys are deterministic UUIDv5 over the company's identity (its
 normalized domain, or 'name:<lower(name)>' when domain-less), so the same
 company always hashes to the same row — the pkey doubles as the dedup key.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -11,18 +12,18 @@ import uuid
 from dataclasses import dataclass
 
 from . import errors
-from ._helpers import new_uuid, tx
+from ._helpers import tx
 
-# companyNamespace seeds the deterministic company IDs. Stable across builds
+# _COMPANY_NAMESPACE seeds the deterministic company IDs. Stable across builds
 # (derived from a fixed name), so the same identity always hashes to the same
-# UUID. uuid.uuid5 (SHA1 over NAMESPACE_URL) matches Go's uuid.NewSHA1 byte-for-byte.
+# UUID. uuid.uuid5 is a SHA1 hash over (namespace, name).
 _COMPANY_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "github.com/slaguardia/scout/companies")
 
 
 @dataclass
 class Company:
-    """The minimal row used by ingest and filter. Nullable Go columns
-    (sql.NullString / sql.NullInt64) are str|None / int|None here."""
+    """The minimal row used by ingest and filter. Nullable columns are
+    str|None / int|None here."""
 
     source: str = ""
     name: str = ""
@@ -84,11 +85,22 @@ ON CONFLICT(id) DO UPDATE SET
 
 
 def _upsert_company(con: sqlite3.Connection, id: str, c: Company) -> None:
-    """Write one company row. name_key is the Go-folded identity name."""
+    """Write one company row. name_key is the case-folded identity name."""
     con.execute(
         _UPSERT_SQL,
-        (id, c.source, c.source_id, c.name, norm_name(c.name), c.domain,
-         c.headcount, c.funding_stage, c.location, c.vertical, c.raw_json),
+        (
+            id,
+            c.source,
+            c.source_id,
+            c.name,
+            norm_name(c.name),
+            c.domain,
+            c.headcount,
+            c.funding_stage,
+            c.location,
+            c.vertical,
+            c.raw_json,
+        ),
     )
 
 
@@ -206,9 +218,7 @@ _COMPANY_CHILD_TABLES_UNIQUE_EMAIL = ["contacts"]
 # Every table whose company_id FKs companies(id). TestCompanyChildTablesMatchSchema
 # guards this against schema drift.
 COMPANY_CHILD_TABLES = (
-    _COMPANY_CHILD_TABLES_1TO1
-    + _COMPANY_CHILD_TABLES_MANY
-    + _COMPANY_CHILD_TABLES_UNIQUE_EMAIL
+    _COMPANY_CHILD_TABLES_1TO1 + _COMPANY_CHILD_TABLES_MANY + _COMPANY_CHILD_TABLES_UNIQUE_EMAIL
 )
 
 
@@ -250,7 +260,9 @@ def delete_company(con: sqlite3.Connection, id: str) -> None:
             raise errors.NotFound()
 
 
-def upsert_and_fold_name(con: sqlite3.Connection, domain_key: str, c: Company, name_key: str) -> None:
+def upsert_and_fold_name(
+    con: sqlite3.Connection, domain_key: str, c: Company, name_key: str
+) -> None:
     """Upsert the new domain-keyed company AND fold a pre-existing name-keyed twin
     into it in a SINGLE transaction."""
     with tx(con):

@@ -1,9 +1,10 @@
-"""A small, SDK-free Anthropic Messages API client. Port of internal/anthropic/client.go.
+"""A small, SDK-free Anthropic Messages API client.
 
 We don't pull the official SDK because our usage is one endpoint, two request
 shapes, and we want a lean dependency footprint. Transport is httpx (the project
-standard); the streaming SSE machinery lives in stream.py (mirroring stream.go).
+standard); the streaming SSE machinery lives in stream.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,8 +12,9 @@ import os
 import random
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -61,7 +63,11 @@ class ToolDef:
     input_schema: dict
 
     def to_wire(self) -> dict:
-        return {"name": self.name, "description": self.description, "input_schema": self.input_schema}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.input_schema,
+        }
 
 
 @dataclass
@@ -157,7 +163,7 @@ def _tool_to_wire(t: Any) -> Any:
 
 def build_wire(req: Request, stream: bool) -> dict:
     """Map a Request onto the on-the-wire JSON shape, shared by send and stream.
-    omitempty fields are dropped to match the Go wire exactly."""
+    Fields left empty/at their default are omitted from the request body."""
     wire: dict = {
         "model": req.model,
         "max_tokens": req.max_tokens,
@@ -173,11 +179,13 @@ def build_wire(req: Request, stream: bool) -> dict:
         wire["stream"] = True
     if req.system != "":
         if req.cached:
-            wire["system"] = [{
-                "type": "text",
-                "text": req.system,
-                "cache_control": {"type": "ephemeral"},
-            }]
+            wire["system"] = [
+                {
+                    "type": "text",
+                    "text": req.system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
         else:
             wire["system"] = req.system
     return wire
@@ -185,7 +193,9 @@ def build_wire(req: Request, stream: bool) -> dict:
 
 def _parse_response(raw: bytes) -> Response:
     data = json.loads(raw)
-    out = Response(id=data.get("id", ""), model=data.get("model", ""), stop_reason=data.get("stop_reason", ""))
+    out = Response(
+        id=data.get("id", ""), model=data.get("model", ""), stop_reason=data.get("stop_reason", "")
+    )
     for b in data.get("content") or []:
         out.content.append(ContentBlock(type=b.get("type", ""), text=b.get("text", ""), raw=b))
     u = data.get("usage") or {}
@@ -238,7 +248,9 @@ class Client:
     key change races no one.
     """
 
-    def __init__(self, api_key: str = "", endpoint: str = DEFAULT_ENDPOINT, http: httpx.Client | None = None):
+    def __init__(
+        self, api_key: str = "", endpoint: str = DEFAULT_ENDPOINT, http: httpx.Client | None = None
+    ):
         self._lock = threading.RLock()
         self.api_key = api_key
         self.endpoint = endpoint or DEFAULT_ENDPOINT
@@ -274,8 +286,7 @@ class Client:
         api_key = self._key()
         if api_key == "":
             raise AnthropicError("anthropic: no API key (set ANTHROPIC_API_KEY)")
-        # Apply defaults on a copy — don't mutate the caller's Request (Go passes
-        # the request by value).
+        # Apply defaults on a copy — don't mutate the caller's Request.
         req = replace(req, max_tokens=req.max_tokens or 512, model=req.model or DEFAULT_MODEL)
 
         body = json.dumps(build_wire(req, False)).encode()
@@ -294,8 +305,10 @@ class Client:
                 retry_after = 0.0
             try:
                 resp = self.http.post(
-                    self.endpoint, content=body,
-                    headers=self._headers(api_key), timeout=call_timeout,
+                    self.endpoint,
+                    content=body,
+                    headers=self._headers(api_key),
+                    timeout=call_timeout,
                 )
             except httpx.RequestError as e:
                 last_err = AnthropicError(f"anthropic POST: {e}")  # transient — retry
@@ -306,9 +319,13 @@ class Client:
                 try:
                     return _parse_response(raw)
                 except (ValueError, json.JSONDecodeError) as e:
-                    raise AnthropicError(f"anthropic decode: {e} (body={raw.decode(errors='replace')})")
+                    raise AnthropicError(
+                        f"anthropic decode: {e} (body={raw.decode(errors='replace')})"
+                    )
 
-            last_err = AnthropicError(f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}")
+            last_err = AnthropicError(
+                f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}"
+            )
             if not retryable_status(resp.status_code):
                 raise last_err
             retry_after = parse_retry_after(resp.headers.get("retry-after", ""))
@@ -341,7 +358,8 @@ class Client:
                     if resp.status_code // 100 != 2:
                         raw = resp.read()
                         last_err = AnthropicError(
-                            f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}")
+                            f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}"
+                        )
                         if not retryable_status(resp.status_code):
                             raise last_err
                         retry_after = parse_retry_after(resp.headers.get("retry-after", ""))
@@ -356,8 +374,8 @@ class Client:
 
 def _iter_lines(resp: httpx.Response):
     """Yield text lines from a streaming response, splitting on '\\n' and dropping
-    a trailing '\\r' — exactly Go's bufio.Scanner ScanLines semantics, including
-    the empty strings that mark SSE event boundaries."""
+    a trailing '\\r', preserving the empty strings that mark SSE event
+    boundaries."""
     buf = ""
     for chunk in resp.iter_text():
         buf += chunk
@@ -366,7 +384,7 @@ def _iter_lines(resp: httpx.Response):
             if nl < 0:
                 break
             line = buf[:nl]
-            buf = buf[nl + 1:]
+            buf = buf[nl + 1 :]
             if line.endswith("\r"):
                 line = line[:-1]
             yield line

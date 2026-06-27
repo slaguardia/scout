@@ -1,4 +1,5 @@
-"""Port of internal/capture/capture_test.go — the generic fetch + Haiku path."""
+"""The generic fetch + Haiku capture path."""
+
 from __future__ import annotations
 
 import contextlib
@@ -6,6 +7,7 @@ import json
 
 import httpx
 import pytest
+from httpstub import http_server
 
 from scout import anthropic, capture
 from scout.capture.capture import (
@@ -22,12 +24,12 @@ from scout.capture.capture import (
 from scout.store import companies, detail, enrichment, postings
 from scout.store.companies import Company
 
-from httpstub import http_server
-
 
 def test_parse_extraction():
-    clean = ('{"kind":"job_posting","company_name":"Acme","company_domain":"acme.com",'
-             '"job_title":"SE","job_location":"SF","summary":"Sells things.","vertical":"AI","company_location":""}')
+    clean = (
+        '{"kind":"job_posting","company_name":"Acme","company_domain":"acme.com",'
+        '"job_title":"SE","job_location":"SF","summary":"Sells things.","vertical":"AI","company_location":""}'
+    )
     for name, raw in {
         "clean": clean,
         "fenced": "```json\n" + clean + "\n```",
@@ -37,18 +39,42 @@ def test_parse_extraction():
         e = parse_extraction(raw)
         assert e.kind == KIND_JOB and e.company_name == "Acme" and e.job_title == "SE", name
 
-    for name, raw in {"empty": "", "prose": "I cannot classify this page.", "bad kind": '{"kind":"newsletter"}'}.items():
+    for raw in {
+        "empty": "",
+        "prose": "I cannot classify this page.",
+        "bad kind": '{"kind":"newsletter"}',
+    }.values():
         with pytest.raises(ValueError):
             parse_extraction(raw)
 
 
 def test_resolve_company_domain():
     cases = [
-        ("acme.com", "https://boards.greenhouse.io/acme/jobs/1", "https://boards.greenhouse.io/acme/jobs/1", "acme.com"),
-        ("greenhouse.io", "https://boards.greenhouse.io/acme/jobs/1", "https://boards.greenhouse.io/acme/jobs/1", ""),
+        (
+            "acme.com",
+            "https://boards.greenhouse.io/acme/jobs/1",
+            "https://boards.greenhouse.io/acme/jobs/1",
+            "acme.com",
+        ),
+        (
+            "greenhouse.io",
+            "https://boards.greenhouse.io/acme/jobs/1",
+            "https://boards.greenhouse.io/acme/jobs/1",
+            "",
+        ),
         ("", "https://acme.com/careers/123", "https://www.acme.com/careers/123", "acme.com"),
-        ("linkedin.com", "https://www.linkedin.com/jobs/view/1", "https://www.linkedin.com/jobs/view/1", ""),
-        ("acme.ashbyhq.com", "https://jobs.ashbyhq.com/acme/1", "https://jobs.ashbyhq.com/acme/1", ""),
+        (
+            "linkedin.com",
+            "https://www.linkedin.com/jobs/view/1",
+            "https://www.linkedin.com/jobs/view/1",
+            "",
+        ),
+        (
+            "acme.ashbyhq.com",
+            "https://jobs.ashbyhq.com/acme/1",
+            "https://jobs.ashbyhq.com/acme/1",
+            "",
+        ),
     ]
     for extracted, pasted, final, want in cases:
         assert resolve_company_domain(extracted, pasted, final) == want, (extracted, pasted, final)
@@ -56,10 +82,16 @@ def test_resolve_company_domain():
 
 # --- test harness ------------------------------------------------------------
 
+
 def _ext(**kw) -> dict:
     base = {
-        "kind": "", "company_name": "", "company_domain": "", "job_title": "",
-        "job_location": "", "vertical": "", "company_location": "",
+        "kind": "",
+        "company_name": "",
+        "company_domain": "",
+        "job_title": "",
+        "job_location": "",
+        "vertical": "",
+        "company_location": "",
     }
     base.update(kw)
     return base
@@ -69,7 +101,12 @@ def _ext(**kw) -> dict:
 def _fake_anthropic(ext: dict):
     def handle(req):
         text = json.dumps(ext)
-        resp = {"id": "msg_1", "model": "test", "content": [{"type": "text", "text": text}], "stop_reason": "end_turn"}
+        resp = {
+            "id": "msg_1",
+            "model": "test",
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn",
+        }
         return 200, {"Content-Type": "application/json"}, json.dumps(resp)
 
     with http_server(handle) as url:
@@ -81,7 +118,11 @@ def _job_page():
     body = "<p>Acme builds AI infrastructure for ML platform teams. </p>" * 20
 
     def handle(req):
-        return 200, {"Content-Type": "text/html"}, f"<html><body><h1>Solutions Engineer</h1>{body}</body></html>"
+        return (
+            200,
+            {"Content-Type": "text/html"},
+            f"<html><body><h1>Solutions Engineer</h1>{body}</body></html>",
+        )
 
     with http_server(handle) as url:
         yield url
@@ -96,10 +137,19 @@ def _capturer(db, llm_url) -> capture.Capturer:
 
 
 def test_run_captures_job_posting(db):
-    with _job_page() as page, _fake_anthropic(_ext(
-        kind=KIND_JOB, company_name="Acme", company_domain="acme.com",
-        job_title="Solutions Engineer", job_location="SF / remote", vertical="AI infra",
-    )) as llm:
+    with (
+        _job_page() as page,
+        _fake_anthropic(
+            _ext(
+                kind=KIND_JOB,
+                company_name="Acme",
+                company_domain="acme.com",
+                job_title="Solutions Engineer",
+                job_location="SF / remote",
+                vertical="AI infra",
+            )
+        ) as llm,
+    ):
         c = _capturer(db, llm)
         res = c.run(Request(url=page + "/jobs/1"))
         assert res.kind == KIND_JOB and res.fetch_status == "ok"
@@ -111,17 +161,29 @@ def test_run_captures_job_posting(db):
         assert res.company_id == companies.company_id("acme.com", "Acme")
 
         res2 = c.run(Request(url=page + "/jobs/1"))
-        assert not res2.company_created and res2.posting_updated and res2.posting.id == res.posting.id
+        assert (
+            not res2.company_created and res2.posting_updated and res2.posting.id == res.posting.id
+        )
         assert len(postings.list_job_rows(db)) == 1
 
 
 def test_capture_job_for_company_pins_company(db):
-    with _job_page() as page, _fake_anthropic(_ext(
-        kind=KIND_JOB, company_name="Wrong Co", company_domain="wrong.com",
-        job_title="Solutions Engineer", job_location="SF / remote",
-    )) as llm:
+    with (
+        _job_page() as page,
+        _fake_anthropic(
+            _ext(
+                kind=KIND_JOB,
+                company_name="Wrong Co",
+                company_domain="wrong.com",
+                job_title="Solutions Engineer",
+                job_location="SF / remote",
+            )
+        ) as llm,
+    ):
         c = _capturer(db, llm)
-        cid = companies.upsert_company(db, Company(source="test", name="Acme Inc", domain="acme.com", raw_json="{}"))
+        cid = companies.upsert_company(
+            db, Company(source="test", name="Acme Inc", domain="acme.com", raw_json="{}")
+        )
 
         res = c.capture_job_for_company(cid, Request(url=page + "/jobs/1"))
         assert res is not None and res.posting is not None
@@ -130,8 +192,14 @@ def test_capture_job_for_company_pins_company(db):
         assert "AI infrastructure" in res.posting.description
         assert companies.count_companies(db) == 1  # no twin minted
 
-        res2 = c.capture_job_for_company(cid, Request(url=page + "/jobs/1", fields=Fields(title="Forward-Deployed Engineer")))
-        assert res2 is not None and res2.posting is not None and res2.posting.title == "Forward-Deployed Engineer"
+        res2 = c.capture_job_for_company(
+            cid, Request(url=page + "/jobs/1", fields=Fields(title="Forward-Deployed Engineer"))
+        )
+        assert (
+            res2 is not None
+            and res2.posting is not None
+            and res2.posting.title == "Forward-Deployed Engineer"
+        )
 
         no_key = capture.Capturer(db=db, http=httpx.Client(timeout=5, follow_redirects=True))
         assert no_key.capture_job_for_company(cid, Request(url=page + "/jobs/1")) is None
@@ -141,11 +209,23 @@ def test_run_stores_full_description(db):
     body = "Acme builds AI infrastructure for ML platform teams. " * 200  # ~10.6k runes
 
     def handle(req):
-        return 200, {"Content-Type": "text/html"}, f"<html><body><h1>Solutions Engineer</h1><p>{body}</p></body></html>"
+        return (
+            200,
+            {"Content-Type": "text/html"},
+            f"<html><body><h1>Solutions Engineer</h1><p>{body}</p></body></html>",
+        )
 
-    with http_server(handle) as page, _fake_anthropic(_ext(
-        kind=KIND_JOB, company_name="Acme", company_domain="acme.com", job_title="Solutions Engineer",
-    )) as llm:
+    with (
+        http_server(handle) as page,
+        _fake_anthropic(
+            _ext(
+                kind=KIND_JOB,
+                company_name="Acme",
+                company_domain="acme.com",
+                job_title="Solutions Engineer",
+            )
+        ) as llm,
+    ):
         c = _capturer(db, llm)
         res = c.run(Request(url=page + "/jobs/1"))
         assert res.posting is not None
@@ -155,10 +235,18 @@ def test_run_stores_full_description(db):
 
 
 def test_run_captures_company_page(db):
-    with _job_page() as page, _fake_anthropic(_ext(
-        kind=KIND_COMPANY, company_name="Acme", company_domain="acme.com",
-        vertical="AI infra", company_location="San Francisco",
-    )) as llm:
+    with (
+        _job_page() as page,
+        _fake_anthropic(
+            _ext(
+                kind=KIND_COMPANY,
+                company_name="Acme",
+                company_domain="acme.com",
+                vertical="AI infra",
+                company_location="San Francisco",
+            )
+        ) as llm,
+    ):
         c = _capturer(db, llm)
         res = c.run(Request(url=page + "/about"))
         assert res.kind == KIND_COMPANY and res.company_created and res.posting is None
@@ -178,25 +266,53 @@ def test_run_other_kind_writes_nothing(db):
 def test_run_pinned_kind_overrides_classifier(db):
     with _job_page() as page, _fake_anthropic(_ext(kind=KIND_OTHER)) as llm:
         c = _capturer(db, llm)
-        res = c.run(Request(url=page + "/jobs/1", kind=KIND_JOB, fields=Fields(name="Acme", title="Solutions Engineer")))
+        res = c.run(
+            Request(
+                url=page + "/jobs/1",
+                kind=KIND_JOB,
+                fields=Fields(name="Acme", title="Solutions Engineer"),
+            )
+        )
         assert res.kind == KIND_JOB and res.company_id != "" and res.company_created
         assert res.posting is not None and res.posting.title == "Solutions Engineer"
 
 
 def test_run_user_fields_win_over_extraction(db):
-    with _job_page() as page, _fake_anthropic(_ext(
-        kind=KIND_COMPANY, company_name="Acme Robotics", company_domain="acme.com",
-        vertical="robots", company_location="Austin",
-    )) as llm:
+    with (
+        _job_page() as page,
+        _fake_anthropic(
+            _ext(
+                kind=KIND_COMPANY,
+                company_name="Acme Robotics",
+                company_domain="acme.com",
+                vertical="robots",
+                company_location="Austin",
+            )
+        ) as llm,
+    ):
         c = _capturer(db, llm)
-        res = c.run(Request(
-            url=page + "/about", kind=KIND_COMPANY,
-            fields=Fields(name="Acme", location="NYC", vertical="AI infra", headcount="250", funding_stage="Series B"),
-        ))
+        res = c.run(
+            Request(
+                url=page + "/about",
+                kind=KIND_COMPANY,
+                fields=Fields(
+                    name="Acme",
+                    location="NYC",
+                    vertical="AI infra",
+                    headcount="250",
+                    funding_stage="Series B",
+                ),
+            )
+        )
         assert res.company_name == "Acme"
         d = detail.get_company_detail(db, res.company_id)
         assert d is not None
-        assert d.location == "NYC" and d.vertical == "AI infra" and d.headcount == 250 and d.funding_stage == "Series B"
+        assert (
+            d.location == "NYC"
+            and d.vertical == "AI infra"
+            and d.headcount == 250
+            and d.funding_stage == "Series B"
+        )
 
 
 def test_run_fetch_failure(db):
@@ -218,7 +334,13 @@ def test_run_fetch_failure_company_fallback(db):
 
     with http_server(handle) as page, _fake_anthropic(_ext(kind=KIND_OTHER)) as llm:
         c = _capturer(db, llm)
-        res = c.run(Request(url=page + "/", kind=KIND_COMPANY, fields=Fields(name="Persona", funding_stage="Series C")))
+        res = c.run(
+            Request(
+                url=page + "/",
+                kind=KIND_COMPANY,
+                fields=Fields(name="Persona", funding_stage="Series C"),
+            )
+        )
         assert res.company_id != "" and res.company_created
         assert res.company_name == "Persona"
         assert res.fetch_status == "challenge"

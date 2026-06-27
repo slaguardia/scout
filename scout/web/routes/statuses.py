@@ -1,9 +1,10 @@
 """The two user-configurable status vocabularies (the jobs view dropdowns).
 
-Faithful port of internal/web/statuses.go. GET → {statuses}; PUT/POST {statuses}
+GET → {statuses}; PUT/POST {statuses}
 replaces the list (empty/garbage rejected as 400 — the store's "statuses …"
 ValueError → global 400). DB singletons, no Runner involved.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

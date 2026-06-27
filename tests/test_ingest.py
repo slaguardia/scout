@@ -1,4 +1,5 @@
-"""Port of internal/ingest/{csv,dedup,dedup_round2,dedup_round3,dedup_round4,ensure}_test.go."""
+"""Tests for scout.ingest — CSV parsing, dedup, and company-ensure."""
+
 from __future__ import annotations
 
 import uuid
@@ -11,8 +12,7 @@ from scout.store import companies, detail, enrichment, triage
 from scout.store.companies import company_id
 from scout.store.enrichment import Enrichment
 
-
-# --- helpers (Go's runIngest / getDetailByName / freshDB) ---
+# --- helpers ---
 
 
 def run_ingest(db, tmp_path, source, content):
@@ -34,12 +34,12 @@ def seed_enrichment(db, cid):
     enrichment.upsert_enrichment(db, Enrichment(company_id=cid, fetch_status="ok"))
 
 
-# --- csv_test.go ---
+# --- CSV parsing ---
 
 CRUNCHBASE_CSV = "\ufeff" + (
     "Organization Name,Industries,Headquarters Location,Number of Employees,Last Funding Type,Website,Organization Name URL\n"
     'Acme AI,Artificial Intelligence,"San Francisco, California, United States",11-50,Series A,https://acme.ai/,https://www.crunchbase.com/organization/acme-ai\n'
-    "Globex,Fintech,\"New York, New York, United States\",1001-5000,Series C,www.globex.com,https://www.crunchbase.com/organization/globex\n"
+    'Globex,Fintech,"New York, New York, United States",1001-5000,Series C,www.globex.com,https://www.crunchbase.com/organization/globex\n'
     "NoSite,Developer Tools,Remote,,Seed,,https://www.crunchbase.com/organization/nosite\n"
 )
 
@@ -88,7 +88,9 @@ def test_ingest_auto_merges_domainless_into_domain(db, tmp_path):
     name_key = company_id("", "Acme")
     seed_enrichment(db, name_key)
 
-    res = run_ingest(db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,https://acme.com/\n")
+    res = run_ingest(
+        db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,https://acme.com/\n"
+    )
     assert (res.read, res.upserted, res.merged) == (1, 1, 1)
 
     assert companies.count_companies(db) == 1
@@ -104,15 +106,24 @@ def test_add_manual(db):
             ingest.add_manual(db, ingest.ManualCompany(website=bad))
     assert companies.count_companies(db) == 0
 
-    cid = ingest.add_manual(db, ingest.ManualCompany(
-        website="https://www.acme.com/careers", name="Acme",
-        headcount="11-50", funding_stage="Series A", location="Remote", vertical="Developer Tools",
-    ))
+    cid = ingest.add_manual(
+        db,
+        ingest.ManualCompany(
+            website="https://www.acme.com/careers",
+            name="Acme",
+            headcount="11-50",
+            funding_stage="Series A",
+            location="Remote",
+            vertical="Developer Tools",
+        ),
+    )
     assert cid == company_id("acme.com", "Acme")
     d = detail.get_company_detail(db, cid)
     assert d is not None
     assert d.source == "manual" and d.domain == "acme.com" and d.headcount == 50
-    assert d.funding_stage == "Series A" and d.location == "Remote" and d.vertical == "Developer Tools"
+    assert (
+        d.funding_stage == "Series A" and d.location == "Remote" and d.vertical == "Developer Tools"
+    )
 
     # Re-adding the same domain is rejected and leaves the row intact.
     with pytest.raises(ingest.CompanyExists) as exc:
@@ -127,7 +138,7 @@ def test_add_manual(db):
     assert g is not None and g.name == "globex.io"
 
 
-# --- dedup_test.go ---
+# --- dedup ---
 
 
 def test_aggregator_urls_do_not_collapse(db, tmp_path):
@@ -246,7 +257,7 @@ def test_aggregator_reingest_stable(db, tmp_path):
     assert n1 == n2
 
 
-# --- dedup_round2_test.go ---
+# --- dedup (round 2) ---
 
 
 def test_bare_tld_and_junk_route_to_name(db, tmp_path):
@@ -359,14 +370,16 @@ def test_headcount_round2():
 def test_forward_fold_still_works_and_carries_children(db, tmp_path):
     run_ingest(db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,\n")
     seed_enrichment(db, company_id("", "Acme"))
-    res = run_ingest(db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,https://acme.com/\n")
+    res = run_ingest(
+        db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,https://acme.com/\n"
+    )
     assert res.merged == 1, f"res={res}"
     assert companies.count_companies(db) == 1
     d = get_detail_by_name(db, "Acme")
     assert d.domain == "acme.com" and d.has_enrichment
 
 
-# --- dedup_round3_test.go ---
+# --- dedup (round 3) ---
 
 
 def test_add_manual_folds_name_keyed_twin(db, tmp_path):
@@ -401,12 +414,26 @@ def test_reverse_fold_backfills_blanks(db, tmp_path):
 
 def test_looks_like_domain_label_validation(db, tmp_path):
     good = ["acme.com", "sub.acme.co.uk", "xn--mnchen-3ya.de", "a-b.io", "123.example.com"]
-    bad = ["acme.com (verified)", "ac me.com", "com", "localhost", "-acme.com", "acme-.com", "a..b.com", "acme.c_m"]
+    bad = [
+        "acme.com (verified)",
+        "ac me.com",
+        "com",
+        "localhost",
+        "-acme.com",
+        "acme-.com",
+        "a..b.com",
+        "acme.c_m",
+    ]
     for h in good:
         assert ingest_csv.looks_like_domain(h), h
     for h in bad:
         assert not ingest_csv.looks_like_domain(h), h
-    run_ingest(db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,acme.com\nAcme,acme.com (verified)\n")
+    run_ingest(
+        db,
+        tmp_path,
+        "crunchbase",
+        "Organization Name,Website\nAcme,acme.com\nAcme,acme.com (verified)\n",
+    )
     assert companies.count_companies(db) == 1
 
 
@@ -416,7 +443,9 @@ def test_single_column_header_name_not_dropped(db, tmp_path):
 
 
 def test_surplus_cells_preserved(db, tmp_path):
-    run_ingest(db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,acme.com,extra1,extra2\n")
+    run_ingest(
+        db, tmp_path, "crunchbase", "Organization Name,Website\nAcme,acme.com,extra1,extra2\n"
+    )
     raw = get_detail_by_name(db, "Acme").raw_json
     assert raw["__extra_2"] == "extra1" and raw["__extra_3"] == "extra2", raw
 
@@ -450,7 +479,7 @@ def test_headcount_round3():
             assert got == want, f"null_headcount({s!r}) = {got}, want {want}"
 
 
-# --- dedup_round4_test.go ---
+# --- dedup (round 4) ---
 
 
 def test_last_column_unterminated_quote_skipped(db, tmp_path):
@@ -510,16 +539,22 @@ def test_reingest_idempotent_with_ambiguous_name(db, tmp_path):
     assert n1 == 2
 
 
-# --- ensure_test.go ---
+# --- ensure_company ---
 
 
 def test_ensure_company_creates_and_resolves(db):
-    cid, created = ingest.ensure_company(db, ingest.CapturedCompany(
-        name="Acme", domain="acme.com", vertical="AI infra", source_url="https://acme.com/about"))
+    cid, created = ingest.ensure_company(
+        db,
+        ingest.CapturedCompany(
+            name="Acme", domain="acme.com", vertical="AI infra", source_url="https://acme.com/about"
+        ),
+    )
     assert created
     assert cid == company_id("acme.com", "Acme")
 
-    cid2, created = ingest.ensure_company(db, ingest.CapturedCompany(name="Acme Inc", domain="acme.com"))
+    cid2, created = ingest.ensure_company(
+        db, ingest.CapturedCompany(name="Acme Inc", domain="acme.com")
+    )
     assert not created and cid2 == cid
 
     name, _ = companies.company_name_by_id(db, cid)

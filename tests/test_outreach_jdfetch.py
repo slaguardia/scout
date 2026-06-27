@@ -1,9 +1,10 @@
-"""Port of internal/outreach/jdfetch_test.go.
+"""Tests for scout.outreach.jdfetch — JD fetch over the ATS API hosts.
 
-The Go tests redirect a real ATS API host to a local httptest server with a custom
-RoundTripper; here a custom httpx transport rewrites the host while preserving the
-path/query, so the real ATS-host regexes and URL construction are exercised.
+A custom httpx transport rewrites a real ATS API host to a local test server while
+preserving the path/query, so the real ATS-host regexes and URL construction are
+exercised.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,14 +12,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
-import pytest
 
 from scout.outreach.jdfetch import fetch_jd
 
 
 class _RewriteHost(httpx.BaseTransport):
     """Redirect requests to a single upstream host to the test server, leaving the
-    path/query intact (Go's rewriteHost RoundTripper)."""
+    path/query intact."""
 
     def __init__(self, host: str, target: str):
         self.host = host
@@ -71,8 +71,10 @@ def test_fetch_jd_greenhouse():
         if "/v1/boards/acme/jobs/123" not in path:
             return 404, '{"error":"nf"}'
         seen["query"] = path
-        return 200, ('{"title":"Backend Engineer","location":{"name":"Remote"},'
-                     '"content":"<p>You will deploy into customer environments &amp; own reliability.</p>"}')
+        return 200, (
+            '{"title":"Backend Engineer","location":{"name":"Remote"},'
+            '"content":"<p>You will deploy into customer environments &amp; own reliability.</p>"}'
+        )
 
     srv = _Srv(handler)
     try:
@@ -88,8 +90,10 @@ def test_fetch_jd_greenhouse():
 
 def test_fetch_jd_lever():
     def handler(path):
-        return 200, ('{"text":"Platform Engineer","descriptionPlain":"Build deployment tooling for embedded '
-                     'teams.","categories":{"location":"NYC"}}')
+        return 200, (
+            '{"text":"Platform Engineer","descriptionPlain":"Build deployment tooling for embedded '
+            'teams.","categories":{"location":"NYC"}}'
+        )
 
     srv = _Srv(handler)
     try:
@@ -103,12 +107,24 @@ def test_fetch_jd_lever():
 
 def test_fetch_jd_ashby_matches_posting():
     def handler(path):
-        return 200, json.dumps({"jobs": [
-            {"id": "00000000-0000-0000-0000-000000000001", "title": "Other", "location": "X",
-             "descriptionPlain": "wrong one"},
-            {"id": "abcdef00-0000-0000-0000-000000000002", "title": "Backend", "location": "Remote",
-             "descriptionPlain": "the right description"},
-        ]})
+        return 200, json.dumps(
+            {
+                "jobs": [
+                    {
+                        "id": "00000000-0000-0000-0000-000000000001",
+                        "title": "Other",
+                        "location": "X",
+                        "descriptionPlain": "wrong one",
+                    },
+                    {
+                        "id": "abcdef00-0000-0000-0000-000000000002",
+                        "title": "Backend",
+                        "location": "Remote",
+                        "descriptionPlain": "the right description",
+                    },
+                ]
+            }
+        )
 
     srv = _Srv(handler)
     try:
@@ -123,8 +139,10 @@ def test_fetch_jd_ashby_matches_posting():
 
 def test_fetch_jd_plain_fallback():
     def handler(path):
-        return 200, ("<html><head><style>.x{}</style></head><body><h1>Senior Engineer</h1>"
-                     "<p>Own the platform.</p><script>noise()</script></body></html>")
+        return 200, (
+            "<html><head><style>.x{}</style></head><body><h1>Senior Engineer</h1>"
+            "<p>Own the platform.</p><script>noise()</script></body></html>"
+        )
 
     srv = _Srv(handler)
     try:

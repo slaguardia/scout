@@ -1,4 +1,5 @@
-"""Verdicts table. Port of internal/store/verdicts.go."""
+"""Verdicts table."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -42,8 +43,12 @@ def get_verdict(con: sqlite3.Connection, company_id: str) -> Verdict | None:
     if row is None:
         return None
     return Verdict(
-        company_id=row[0], verdict=row[1], reason=row[2],
-        taste_version=row[3], model=row[4], scored_at=row[5],
+        company_id=row[0],
+        verdict=row[1],
+        reason=row[2],
+        taste_version=row[3],
+        model=row[4],
+        scored_at=row[5],
     )
 
 

@@ -1,5 +1,4 @@
-"""Package playbook loads the verdict agent's operating manual. Port of
-internal/playbook/playbook.go.
+"""Package playbook loads the verdict agent's operating manual.
 
 The playbook is the *how* of triage — procedural instructions for making the call
 (handling ambiguity, weak signal, tie-breaking) — as opposed to taste (the *what*:
@@ -10,6 +9,7 @@ never touches it, same as the outreach template. An empty/absent row means "use
 the compiled-in default" (DEFAULT_PLAYBOOK, the shipped default.md). The playbook
 only augments the system prompt; it never changes the hard JSON-output contract.
 """
+
 from __future__ import annotations
 
 import sqlite3

@@ -1,5 +1,4 @@
 """JSON-LD JobPosting resolver: the keyless middle of the generic capture path.
-Port of internal/capture/jsonld.go.
 
 Most job pages embed a schema.org JobPosting as a <script
 type="application/ld+json"> blob (Google for Jobs requires it), so a posting on a
@@ -8,6 +7,7 @@ fields with no LLM call. Everything here is best-effort: a missing, malformed, o
 oddly-typed field stays empty, and a page with no usable JobPosting falls through
 to Haiku.
 """
+
 from __future__ import annotations
 
 import html
@@ -98,7 +98,9 @@ def _map_job_posting_ld(m: dict) -> JobPostingLD | None:
         return None  # a JobPosting with no title isn't worth a write
     jp = JobPostingLD(
         title=title,
-        description=trunc_runes(strip_html(html.unescape(_ld_str(m.get("description")))), DESC_CAP_RUNES),
+        description=trunc_runes(
+            strip_html(html.unescape(_ld_str(m.get("description")))), DESC_CAP_RUNES
+        ),
         employment_type=_ld_employment_label(_ld_str(m.get("employmentType"))),
         posted_at=iso_date(_ld_str(m.get("datePosted"))),
         location=_ld_job_location(m.get("jobLocation")),
@@ -158,14 +160,20 @@ def _ld_employment_label(s: str) -> str:
     """Map schema.org's employmentType enum to the human label; unknown values
     pass through trimmed."""
     return {
-        "FULL_TIME": "Full-time", "FULLTIME": "Full-time",
-        "PART_TIME": "Part-time", "PARTTIME": "Part-time",
-        "CONTRACTOR": "Contract", "CONTRACT": "Contract",
-        "TEMPORARY": "Temporary", "INTERN": "Internship", "INTERNSHIP": "Internship",
+        "FULL_TIME": "Full-time",
+        "FULLTIME": "Full-time",
+        "PART_TIME": "Part-time",
+        "PARTTIME": "Part-time",
+        "CONTRACTOR": "Contract",
+        "CONTRACT": "Contract",
+        "TEMPORARY": "Temporary",
+        "INTERN": "Internship",
+        "INTERNSHIP": "Internship",
     }.get(s.strip().upper(), s.strip())
 
 
 # --- JSON-LD value coercion (schema.org fields are polymorphic) --------------
+
 
 def _ld_str(x) -> str:
     """Read a scalar string out of a JSON-LD value that may be a string, the first

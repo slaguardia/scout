@@ -1,10 +1,10 @@
-"""Shared web-test scaffolding — the analogue of internal/web's newTestServer.
+"""Shared web-test scaffolding.
 
 Builds the FastAPI app over a fresh temp DB seeded with an "Acme" company at
 acme.com, returning a starlette TestClient + the seeded company id + the db path
-(so a test can open its own connection for store-level assertions, the way the Go
-tests reach through s.DB).
+(so a test can open its own connection for store-level assertions).
 """
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -16,7 +16,7 @@ from scout.web import Config, create_app
 
 def new_test_app(tmp_path, monkeypatch):
     """(client, company_id, db_path). Clears ANTHROPIC_API_KEY so the capture/LLM
-    paths stay off, matching the Go tests' no-key environment."""
+    paths stay off (a no-key environment)."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     db_path = str(tmp_path / "test.db")
     con = db_module.open_db(db_path)

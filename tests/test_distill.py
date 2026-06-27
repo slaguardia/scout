@@ -1,6 +1,7 @@
-"""Port of internal/distill/distill_test.go. brainStub / anthropicStub are built
-on tests/httpstub.py (the analogue of httptest.NewServer); each records request
-state so assertions happen AFTER the call, never inside a handler thread."""
+"""Tests for scout.distill. The brain / Anthropic stubs are built on
+tests/httpstub.py; each records request state so assertions happen AFTER the call,
+never inside a handler thread."""
+
 from __future__ import annotations
 
 import json

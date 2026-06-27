@@ -1,13 +1,14 @@
 """The tool-using chat: open-or-create a thread, kick an assistant turn, and stream
 its text deltas as SSE.
 
-Faithful port of internal/web/chat.go. A POST /message registers one in-flight turn
+A POST /message registers one in-flight turn
 per thread in a broadcast hub and runs it in a background thread (with its OWN
 connection); GET /stream subscribes to that turn and replays the backlog so a
-slightly-late stream still sees everything from the start. SSE framing matches
-Go's writeChatSSE: text deltas carry real newlines, split across multiple `data:`
-lines (the browser's EventSource rejoins them with "\n").
+slightly-late stream still sees everything from the start. SSE framing: text
+deltas carry real newlines, split across multiple `data:` lines (the browser's
+EventSource rejoins them with "\n").
 """
+
 from __future__ import annotations
 
 import json
@@ -31,7 +32,7 @@ from .core import _s, decode_json, raw_body
 router = APIRouter()
 
 
-# --- the per-thread broadcast hub (Go's chatHub / chatTurn) ------------------
+# --- the per-thread broadcast hub --------------------------------------------
 
 
 class ChatTurn:
@@ -148,8 +149,11 @@ def chat_threads(request: Request, con=Depends(get_db)) -> Response:
 
 @router.post("/api/chat/{thread_id}/message")
 def chat_message(
-    thread_id: str, request: Request, raw: bytes = Depends(raw_body),
-    con=Depends(get_db), state: AppState = Depends(get_state),
+    thread_id: str,
+    request: Request,
+    raw: bytes = Depends(raw_body),
+    con=Depends(get_db),
+    state: AppState = Depends(get_state),
 ) -> Response:
     """Append the user's message and kick an assistant turn (run in the background,
     consumed via /stream). 202 once started; 409 if a turn is already running; 412
@@ -242,7 +246,7 @@ def chat_stream(thread_id: str, request: Request) -> Response:
     )
 
 
-# --- seeded entity context (Go's buildChatContext) ---------------------------
+# --- seeded entity context ---------------------------------------------------
 
 
 def _or_dash(s: str) -> str:
@@ -273,7 +277,9 @@ def _company_context(con, company_id: str) -> str:
     if d.domain != "":
         b.append(f"Domain: {d.domain}\n")
     if d.location != "" or d.vertical != "" or d.headcount > 0 or d.funding_stage != "":
-        b.append(f"Location: {d.location} | Vertical: {d.vertical} | Headcount: {d.headcount} | Stage: {d.funding_stage}\n")
+        b.append(
+            f"Location: {d.location} | Vertical: {d.vertical} | Headcount: {d.headcount} | Stage: {d.funding_stage}\n"
+        )
     if d.has_verdict:
         b.append(f"Verdict: {d.verdict} — {d.reason}\n")
     if d.website_summary != "":
@@ -283,7 +289,9 @@ def _company_context(con, company_id: str) -> str:
     if len(d.postings) > 0:
         b.append("Postings:\n")
         for p in d.postings:
-            b.append(f"  - {_or_dash(p.title)} (posting_id: {p.id}) stage:{_or_dash(p.application_status)}\n")
+            b.append(
+                f"  - {_or_dash(p.title)} (posting_id: {p.id}) stage:{_or_dash(p.application_status)}\n"
+            )
     return "".join(b)
 
 
@@ -293,10 +301,14 @@ def _posting_context(con, posting_id: str) -> str:
         return ""
     name, _ = detail_store.get_company_name(con, p.company_id)
     b: list[str] = []
-    b.append(f"You are chatting about this job posting (posting_id: {p.id}, company_id: {p.company_id}).\n")
+    b.append(
+        f"You are chatting about this job posting (posting_id: {p.id}, company_id: {p.company_id}).\n"
+    )
     b.append(f"Role: {_or_dash(p.title)} at {_or_dash(name)}\n")
     if p.location != "" or p.workplace_type != "" or p.employment_type != "":
-        b.append(f"Location: {p.location} | Workplace: {p.workplace_type} | Type: {p.employment_type}\n")
+        b.append(
+            f"Location: {p.location} | Workplace: {p.workplace_type} | Type: {p.employment_type}\n"
+        )
     if p.comp_range != "":
         b.append(f"Comp: {p.comp_range}\n")
     b.append(f"Application: stage:{_or_dash(p.application_status)} outreach:{p.outreach_count}\n")

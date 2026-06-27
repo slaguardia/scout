@@ -1,9 +1,10 @@
-"""Port of internal/web/statuses_test.go."""
+"""The status-vocabulary web routes."""
+
 from __future__ import annotations
 
-from scout.store import statuses
-
 from web_helpers import new_test_app
+
+from scout.store import statuses
 
 
 def test_status_config_api(tmp_path, monkeypatch):
@@ -15,7 +16,9 @@ def test_status_config_api(tmp_path, monkeypatch):
         return rec.json()["statuses"]
 
     def put(path, body):
-        return client.put(path, content=body, headers={"Content-Type": "application/json"}).status_code
+        return client.put(
+            path, content=body, headers={"Content-Type": "application/json"}
+        ).status_code
 
     # Defaults come back when unset.
     got = get("/api/outreach-statuses")

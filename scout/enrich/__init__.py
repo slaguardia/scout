@@ -1,5 +1,5 @@
 """scout.enrich — about-page fetch + summary, with an optional fact-extraction
-pass (port of internal/enrich).
+pass.
 
 Public surface (imported by the web/CLI run paths and the capture flow):
     Enricher           — the run driver: Enricher(con=, ...).run(force) -> Result
@@ -9,6 +9,7 @@ Public surface (imported by the web/CLI run paths and the capture flow):
     fetch_page_html    — fetch_page that also returns the raw body bytes
     vertical_vocab     — vertical-tag steering prompt line (shared with capture)
 """
+
 from .enrich import (
     CANDIDATE_PATHS,
     DEFAULT_TIMEOUT,

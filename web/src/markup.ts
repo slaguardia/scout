@@ -1,6 +1,5 @@
-// scout's app markup — the sidebar + main + all modals/panels/drawer/scrims,
-// lifted VERBATIM from the <body> of internal/web/index.html (everything except
-// <script>/<style>). main.ts injects this into the chrome:false mount element,
+// scout's app markup — the sidebar + main + all modals/panels/drawer/scrims.
+// main.ts injects this into the chrome:false mount element,
 // then app.ts's initScout() wires it and runs the boot sequence. No backticks,
 // backslashes, or ${} sequences appear in the source markup, so it embeds
 // safely in a template literal.

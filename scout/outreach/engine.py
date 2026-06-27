@@ -1,4 +1,4 @@
-"""The outreach draft pipeline engine. Port of internal/outreach/engine.go.
+"""The outreach draft pipeline engine.
 
 The pipeline is: research the company (web) → fill the user's email template's
 holes in one LLM call (using the cached brain knowledge bundle) → honesty-check the
@@ -7,12 +7,14 @@ of every run the engine first syncs the knowledge bundle from the brain
 (_ensure_knowledge — a cheap change-aware check), then reads the local cache
 (template + outreach_sources) for the rest of the run.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -27,16 +29,16 @@ from .stages import _StagesMixin
 from .template import Template, parse_template, template_or_default
 from .voice import LintFinding, length_findings, voice_findings
 
-# researcherMaxTokens covers the structured-facts JSON (hooks + the
+# RESEARCHER_MAX_TOKENS covers the structured-facts JSON (hooks + the
 # thesis/implication/signals read). Headroom so the final JSON isn't truncated
 # after a multi-search transcript (a truncated object fails to parse).
 RESEARCHER_MAX_TOKENS = 5000
-# stageMaxTokens covers the smaller per-stage JSON outputs (fill, honesty).
+# STAGE_MAX_TOKENS covers the smaller per-stage JSON outputs (fill, honesty).
 STAGE_MAX_TOKENS = 2000
-# maxContinuations bounds pause_turn resumes of the hosted web_search server-side
+# MAX_CONTINUATIONS bounds pause_turn resumes of the hosted web_search server-side
 # loop (per stage call); past it the partial output is used.
 MAX_CONTINUATIONS = 4
-# webSearchMaxUses caps the researcher's hosted searches per run.
+# WEB_SEARCH_MAX_USES caps the researcher's hosted searches per run.
 WEB_SEARCH_MAX_USES = 5
 
 # Pipeline stage markers, persisted on the in-flight draft for the panel's progress
@@ -52,8 +54,8 @@ class Engine(_StagesMixin, _AnswersMixin):
     panel polls the row), run() is the synchronous CLI entry point. Every terminal
     path writes a final status — a row must never be left stuck in `researching`.
 
-    Fields (mirroring the Go struct):
-      con            — the sqlite3 connection (Go's *store.DB).
+    Fields:
+      con            — the sqlite3 connection.
       client         — the Anthropic client (research + fill + honesty).
       model          — model id; "" → anthropic.DEFAULT_MODEL.
       log            — optional log sink, Callable[[str], None].
@@ -117,14 +119,18 @@ class Engine(_StagesMixin, _AnswersMixin):
         exp = self._knowledge("experience")
         if exp != "":
             return exp
-        raise RuntimeError("no experience page found in your brain — add one; scout syncs it automatically")
+        raise RuntimeError(
+            "no experience page found in your brain — add one; scout syncs it automatically"
+        )
 
     def _ensure_knowledge(self) -> None:
         """Auto-sync the outreach knowledge cache from the brain before a run reads
         it. Best-effort: a sync failure is logged and the run proceeds against the
         last-good cache."""
         try:
-            ensure_knowledge(self.brainbot, self.client, self.con, self.discover_model, lambda s: self._log(s))
+            ensure_knowledge(
+                self.brainbot, self.client, self.con, self.discover_model, lambda s: self._log(s)
+            )
         except Exception as e:  # noqa: BLE001
             self._log(f"outreach: ensure knowledge: {e}")
 
@@ -134,11 +140,13 @@ class Engine(_StagesMixin, _AnswersMixin):
         """Fire-and-forget: run the pipeline in a background thread and return
         immediately. The panel sees progress by polling the draft row. skip_research
         skips the web-research stage for this one draft."""
+
         def _go() -> None:
             try:
                 self.run(draft_id, skip_research)
             except Exception as e:  # noqa: BLE001 - background task: log only
                 self._log(f"outreach: draft {draft_id} failed: {e}")
+
         threading.Thread(target=_go, daemon=True).start()
 
     def run(self, draft_id: int, skip_research: bool = False) -> None:
@@ -156,8 +164,17 @@ class Engine(_StagesMixin, _AnswersMixin):
             if d is not None and d.status == outreach_drafts.DRAFT_RESEARCHING:
                 try:
                     outreach_drafts.set_outreach_draft_result(
-                        self.con, draft_id, outreach_drafts.DRAFT_FAILED,
-                        d.research, d.hook, d.draft, d.lint, d.violations, d.critique, str(err))
+                        self.con,
+                        draft_id,
+                        outreach_drafts.DRAFT_FAILED,
+                        d.research,
+                        d.hook,
+                        d.draft,
+                        d.lint,
+                        d.violations,
+                        d.critique,
+                        str(err),
+                    )
                 except Exception:  # noqa: BLE001
                     pass
             raise
@@ -177,7 +194,9 @@ class Engine(_StagesMixin, _AnswersMixin):
         # template + bundle up front so a malformed template fails before spending
         # the research call.
         self._ensure_knowledge()
-        tmpl = parse_template(template_or_default(self.con))  # raises a clear "template: ..." message
+        tmpl = parse_template(
+            template_or_default(self.con)
+        )  # raises a clear "template: ..." message
         exp = self._require_experience()
         voice = self._knowledge("voice")  # soft
 
@@ -185,8 +204,10 @@ class Engine(_StagesMixin, _AnswersMixin):
         # (copied at create time), so we re-draft against the same web data.
         research = d.research.strip()
         if research != "":
-            self._log(f"outreach: draft {draft_id} — reusing carried-over research "
-                      f"({len(research)} chars), skipping web search")
+            self._log(
+                f"outreach: draft {draft_id} — reusing carried-over research "
+                f"({len(research)} chars), skipping web search"
+            )
         else:
             # The job description (no model). The capture pass stores the full
             # description for ATS-resolved postings.
@@ -200,14 +221,31 @@ class Engine(_StagesMixin, _AnswersMixin):
             if self.stage_enabled("researcher") and not skip_research:
                 research = self._research(company, posting.url, jd)
             outreach_drafts.set_outreach_draft_result(
-                self.con, draft_id, outreach_drafts.DRAFT_RESEARCHING,
-                research, "", "", "", "", "", "")
+                self.con,
+                draft_id,
+                outreach_drafts.DRAFT_RESEARCHING,
+                research,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
 
         # 2-5. Fill → honesty-check → humanize → queue.
         self._fill_route(draft_id, research, tmpl, company, role, exp, voice)
 
-    def _fill_route(self, draft_id: int, research: str, tmpl: Template,
-                    company: str, role: str, exp: str, voice: str) -> None:
+    def _fill_route(
+        self,
+        draft_id: int,
+        research: str,
+        tmpl: Template,
+        company: str,
+        role: str,
+        exp: str,
+        voice: str,
+    ) -> None:
         """Fill the template's holes in one call, honesty-check the filled spans
         against the experience bundle, and retry the fill once with the violations
         fed back. A no-send signal is the refusal success path: no draft. A
@@ -218,8 +256,17 @@ class Engine(_StagesMixin, _AnswersMixin):
         if not holes:
             email = tmpl.render(vars, None)
             outreach_drafts.set_outreach_draft_result(
-                self.con, draft_id, outreach_drafts.DRAFT_AWAITING_REVIEW,
-                research, "", email, combined_lint_json("", email), "", "", "")
+                self.con,
+                draft_id,
+                outreach_drafts.DRAFT_AWAITING_REVIEW,
+                research,
+                "",
+                email,
+                combined_lint_json("", email),
+                "",
+                "",
+                "",
+            )
             return
 
         feedback = ""
@@ -229,10 +276,22 @@ class Engine(_StagesMixin, _AnswersMixin):
             if no_send:
                 # "If you can't write even one true sentence for a company, don't
                 # email them." No draft, no fallback — a success path.
-                self._log(f"outreach: draft {draft_id} no_send — nothing honest to say, "
-                          "recommend not emailing")
+                self._log(
+                    f"outreach: draft {draft_id} no_send — nothing honest to say, "
+                    "recommend not emailing"
+                )
                 outreach_drafts.set_outreach_draft_result(
-                    self.con, draft_id, outreach_drafts.DRAFT_NO_HOOK, research, "", "", "", "", "", "")
+                    self.con,
+                    draft_id,
+                    outreach_drafts.DRAFT_NO_HOOK,
+                    research,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                )
                 return
 
             # De-AI cleanup over the model-written holes (verbatim prose untouched),
@@ -258,16 +317,34 @@ class Engine(_StagesMixin, _AnswersMixin):
             # dishonest draft gets the one shared retry; still dishonest → failed.
             if honest:
                 outreach_drafts.set_outreach_draft_result(
-                    self.con, draft_id, outreach_drafts.DRAFT_AWAITING_REVIEW,
-                    research, "", email, lint, "", "", "")
+                    self.con,
+                    draft_id,
+                    outreach_drafts.DRAFT_AWAITING_REVIEW,
+                    research,
+                    "",
+                    email,
+                    lint,
+                    "",
+                    "",
+                    "",
+                )
                 return
             if attempt == 0:
                 feedback = retry_feedback(violations)
                 continue
             viol_json = json.dumps(violations, separators=(",", ":"))
             outreach_drafts.set_outreach_draft_result(
-                self.con, draft_id, outreach_drafts.DRAFT_FAILED,
-                research, "", email, lint, viol_json, "", "honesty check failed twice")
+                self.con,
+                draft_id,
+                outreach_drafts.DRAFT_FAILED,
+                research,
+                "",
+                email,
+                lint,
+                viol_json,
+                "",
+                "honesty check failed twice",
+            )
             return
 
     # --- research ------------------------------------------------------------
@@ -282,8 +359,11 @@ class Engine(_StagesMixin, _AnswersMixin):
         user = f"Company: {company}\nJob URL: {job_url}\n\n{jd_section}"
 
         raw = self._call_json(
-            self.stage_prompt("researcher"), user, RESEARCHER_MAX_TOKENS,
-            [anthropic.new_web_search_tool(WEB_SEARCH_MAX_USES)])
+            self.stage_prompt("researcher"),
+            user,
+            RESEARCHER_MAX_TOKENS,
+            [anthropic.new_web_search_tool(WEB_SEARCH_MAX_USES)],
+        )
         try:
             return extract_json_object(raw)
         except ValueError as e:
@@ -291,21 +371,27 @@ class Engine(_StagesMixin, _AnswersMixin):
 
     # --- fill ----------------------------------------------------------------
 
-    def _fill(self, holes, research: str, exp: str, voice: str, feedback: str) -> tuple[dict | None, bool]:
+    def _fill(
+        self, holes, research: str, exp: str, voice: str, feedback: str
+    ) -> tuple[dict | None, bool]:
         """Write every template hole in one call, using the research + experience +
         voice. Returns (per-hole text, no_send). no_send=True means a hole's
         instructions said to refuse and there is no honest basis."""
         b: list[str] = ["HOLES to fill (name: instructions):\n"]
         for h in holes:
             b.append(f"- {h.name}: {h.instr}\n")
-        b.append("\nCOMPANY RESEARCH (JSON, true facts about the company plus the researcher's read):\n"
-                 f"{research}\n")
+        b.append(
+            "\nCOMPANY RESEARCH (JSON, true facts about the company plus the researcher's read):\n"
+            f"{research}\n"
+        )
         b.append(f"\nMY EXPERIENCE (the ONLY facts you may claim about me):\n{exp}\n")
         if voice != "":
             b.append(f"\nMY VOICE (write the holes like this):\n{voice}\n")
         if feedback != "":
-            b.append("\nFEEDBACK on your last fill — address every point without inventing anything:\n"
-                     f"{feedback}\n")
+            b.append(
+                "\nFEEDBACK on your last fill — address every point without inventing anything:\n"
+                f"{feedback}\n"
+            )
 
         raw = self._call_json(self.stage_prompt("fill"), "".join(b), STAGE_MAX_TOKENS, None)
         cleaned = extract_json_object(raw)
@@ -336,9 +422,12 @@ class Engine(_StagesMixin, _AnswersMixin):
             if not bad:
                 return cur
             msgs = [f.message for f in bad]
-            feedback = ("Your last pass still left: " + "; ".join(msgs) +
-                        ". Fix each by REWRITING the sentence (especially: replace every em dash, "
-                        "do not just move it).")
+            feedback = (
+                "Your last pass still left: "
+                + "; ".join(msgs)
+                + ". Fix each by REWRITING the sentence (especially: replace every em dash, "
+                "do not just move it)."
+            )
             self._log("outreach: humanizer left voice issues, retrying: " + "; ".join(msgs))
         return cur  # still flagged after the retry — the deterministic flag surfaces it
 
@@ -351,7 +440,9 @@ class Engine(_StagesMixin, _AnswersMixin):
         if feedback != "":
             b.append(f"\n{feedback}\n")
         try:
-            raw = self._call_json(self.stage_prompt("humanizer"), "".join(b), STAGE_MAX_TOKENS, None)
+            raw = self._call_json(
+                self.stage_prompt("humanizer"), "".join(b), STAGE_MAX_TOKENS, None
+            )
         except Exception as e:  # noqa: BLE001
             self._log(f"outreach: humanizer failed, keeping current text: {e}")
             return filled
@@ -367,12 +458,16 @@ class Engine(_StagesMixin, _AnswersMixin):
         result: dict = {}
         for h in holes:
             t = str(out.get(h.name, "")).strip()
-            result[h.name] = t if t != "" else filled.get(h.name, "")  # humanizer dropped it — keep current
+            result[h.name] = (
+                t if t != "" else filled.get(h.name, "")
+            )  # humanizer dropped it — keep current
         return result
 
     # --- honesty -------------------------------------------------------------
 
-    def _honesty_check_text(self, experience: str, logistics: str, text: str) -> tuple[str, list[dict]]:
+    def _honesty_check_text(
+        self, experience: str, logistics: str, text: str
+    ) -> tuple[str, list[dict]]:
         """Verify that `text` makes no claim beyond the documented ground truth: the
         experience bundle plus, when present, the logistics/profile bundle. It is
         isolated — it sees only those documents and the text, never the intended
@@ -390,8 +485,10 @@ class Engine(_StagesMixin, _AnswersMixin):
         verdict = out.get("verdict", "")
         if verdict not in ("pass", "fail"):
             raise ValueError(f'honesty checker returned unknown verdict "{verdict}"')
-        violations = [{"claim": v.get("claim", ""), "why": v.get("why", "")}
-                      for v in (out.get("violations") or [])]
+        violations = [
+            {"claim": v.get("claim", ""), "why": v.get("why", "")}
+            for v in (out.get("violations") or [])
+        ]
         return verdict, violations
 
     # --- shared LLM call with one JSON retry ---------------------------------
@@ -400,6 +497,7 @@ class Engine(_StagesMixin, _AnswersMixin):
         """Send a request and return the text output, retrying once with a "Return
         ONLY the JSON object." nudge when the first output has no JSON object. tools
         is passed through (the researcher uses web_search; the rest pass None)."""
+
         def send(msgs: list[anthropic.Message]) -> str:
             # The hosted web_search server tool runs a server-side loop; at its
             # iteration cap the API returns stop_reason "pause_turn" mid-turn.
@@ -407,20 +505,24 @@ class Engine(_StagesMixin, _AnswersMixin):
             text: list[str] = []
             cont = 0
             while True:
-                resp = self.client.send(anthropic.Request(
-                    model=self._resolved_model(),
-                    system=system,
-                    max_tokens=max_tokens,
-                    messages=msgs,
-                    cached=True,
-                    tools=tools,
-                ))
+                resp = self.client.send(
+                    anthropic.Request(
+                        model=self._resolved_model(),
+                        system=system,
+                        max_tokens=max_tokens,
+                        messages=msgs,
+                        cached=True,
+                        tools=tools,
+                    )
+                )
                 text.append(resp.text())
                 if resp.stop_reason != "pause_turn":
                     return "".join(text)
                 if cont >= MAX_CONTINUATIONS:
-                    self._log(f"outreach: server tool loop still paused after {cont} continuations, "
-                              "using partial output")
+                    self._log(
+                        f"outreach: server tool loop still paused after {cont} continuations, "
+                        "using partial output"
+                    )
                     return "".join(text)
                 self._log(f"outreach: server tool loop paused, continuing ({cont + 1})")
                 msgs = msgs + [anthropic.Message(role="assistant", content=resp.raw_content())]
@@ -472,5 +574,7 @@ def retry_feedback(violations: list[dict]) -> str:
     """Label the honesty violations for the one retry fill."""
     if not violations:
         return ""
-    return ("A reviewer flagged these claims in your last fill — fix them without inventing anything:\n"
-            + format_violations(violations))
+    return (
+        "A reviewer flagged these claims in your last fill — fix them without inventing anything:\n"
+        + format_violations(violations)
+    )

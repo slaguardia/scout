@@ -1,5 +1,7 @@
-"""Port of internal/store/statuses_test.go."""
+"""Tests for scout.store.statuses."""
+
 import pytest
+from helpers import seed_posting
 
 from scout.store import postings, settings, statuses
 from scout.store.postings import PostingTracking
@@ -8,8 +10,6 @@ from scout.store.statuses import (
     DEFAULT_OUTREACH_STATUSES,
     OUTREACH_STATUSES_SETTING,
 )
-
-from helpers import seed_posting
 
 
 def test_status_list_defaults_and_round_trip(db):
@@ -43,9 +43,12 @@ def test_status_list_sanitize(db):
 def test_outreach_status_lenient_and_independent(db):
     pid = seed_posting(db)
 
-    got = postings.update_posting_tracking(db, pid, PostingTracking(outreach_status="  followed up  "))
+    got = postings.update_posting_tracking(
+        db, pid, PostingTracking(outreach_status="  followed up  ")
+    )
     assert got.outreach_status == "followed up"
 
-    got = postings.update_posting_tracking(db, pid, PostingTracking(
-        outreach_status="followed up", application_status="interview"))
+    got = postings.update_posting_tracking(
+        db, pid, PostingTracking(outreach_status="followed up", application_status="interview")
+    )
     assert got.outreach_status == "followed up" and got.application_status == "interview"

@@ -1,4 +1,5 @@
-"""Per-stage outreach prompt overrides + on/off flags. Port of internal/store/prompt_overrides.go."""
+"""Per-stage outreach prompt overrides + on/off flags."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -7,7 +8,9 @@ import sqlite3
 def get_stage(con: sqlite3.Connection, stage: str) -> tuple[str, bool]:
     """Return (content, enabled) for a stage's saved prompt override. No row →
     ("", True): the compiled-in default prompt, stage on."""
-    row = con.execute("SELECT content, enabled FROM prompt_overrides WHERE stage = ?", (stage,)).fetchone()
+    row = con.execute(
+        "SELECT content, enabled FROM prompt_overrides WHERE stage = ?", (stage,)
+    ).fetchone()
     if row is None:
         return "", True
     return row[0], row[1] != 0

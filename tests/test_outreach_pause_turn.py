@@ -1,5 +1,5 @@
-"""Port of internal/outreach/pause_turn_test.go (hosted web_search pause_turn
-continuation handling in Engine._call_json)."""
+"""Hosted web_search pause_turn continuation handling in Engine._call_json."""
+
 from __future__ import annotations
 
 import json
@@ -23,15 +23,31 @@ def test_call_json_pause_turn_continuation():
         bodies.append(req.body.decode())
         hdr = {"Content-Type": "application/json"}
         if state["n"] == 1:
-            return 200, hdr, json.dumps({
-                "content": [
-                    {"type": "server_tool_use", "id": "st1", "name": "web_search", "input": {"query": "acme news"}},
-                    {"type": "web_search_tool_result", "tool_use_id": "st1", "content": []},
-                ],
-                "stop_reason": "pause_turn",
-            })
-        return 200, hdr, json.dumps({
-            "content": [{"type": "text", "text": '{"ok":true}'}], "stop_reason": "end_turn"})
+            return (
+                200,
+                hdr,
+                json.dumps(
+                    {
+                        "content": [
+                            {
+                                "type": "server_tool_use",
+                                "id": "st1",
+                                "name": "web_search",
+                                "input": {"query": "acme news"},
+                            },
+                            {"type": "web_search_tool_result", "tool_use_id": "st1", "content": []},
+                        ],
+                        "stop_reason": "pause_turn",
+                    }
+                ),
+            )
+        return (
+            200,
+            hdr,
+            json.dumps(
+                {"content": [{"type": "text", "text": '{"ok":true}'}], "stop_reason": "end_turn"}
+            ),
+        )
 
     with http_server(handle) as base:
         c = anthropic.new("test-key")
@@ -59,8 +75,16 @@ def test_call_json_pause_turn_gives_up():
 
     def handle(req):
         state["n"] += 1
-        return 200, {"Content-Type": "application/json"}, json.dumps({
-            "content": [{"type": "text", "text": "still searching"}], "stop_reason": "pause_turn"})
+        return (
+            200,
+            {"Content-Type": "application/json"},
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": "still searching"}],
+                    "stop_reason": "pause_turn",
+                }
+            ),
+        )
 
     with http_server(handle) as base:
         c = anthropic.new("test-key")

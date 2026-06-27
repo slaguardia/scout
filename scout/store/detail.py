@@ -1,4 +1,5 @@
-"""Joined company-detail + stats payloads. Port of internal/store/detail.go."""
+"""Joined company-detail + stats payloads."""
+
 from __future__ import annotations
 
 import json
@@ -60,9 +61,17 @@ WHERE c.id = ?"""
         return None
 
     d = CompanyDetail(
-        company_id=row[0], name=row[1], source=row[2], source_id=row[3],
-        domain=row[4], headcount=row[5], funding_stage=row[6], location=row[7],
-        vertical=row[8], ingested_at=row[9], notes=row[13],
+        company_id=row[0],
+        name=row[1],
+        source=row[2],
+        source_id=row[3],
+        domain=row[4],
+        headcount=row[5],
+        funding_stage=row[6],
+        location=row[7],
+        vertical=row[8],
+        ingested_at=row[9],
+        notes=row[13],
     )
     d.raw_json = _parse_raw_json(row[10])
     flagged_at, reviewed_at = row[11], row[12]
@@ -92,7 +101,7 @@ WHERE c.id = ?"""
     # Postings are one-to-many; a failure here shouldn't sink the whole payload.
     try:
         d.postings = postings.list_postings(con, company_id)
-    except Exception as exc:  # noqa: BLE001 - mirror Go's log-and-continue
+    except Exception as exc:  # noqa: BLE001 - log and continue
         print(f"list postings {company_id}: {exc}", file=sys.stderr)
         d.postings = []
     return d
@@ -135,11 +144,15 @@ class Stats:
     taste_filter_enabled: bool = True
 
 
-def get_stats(con: sqlite3.Connection, current_taste_version: str, current_taste_source: str) -> Stats:
+def get_stats(
+    con: sqlite3.Connection, current_taste_version: str, current_taste_source: str
+) -> Stats:
     """Compute the sidebar payload."""
     s = Stats(
-        by_verdict={}, fetch_status={},
-        current_taste=current_taste_version, taste_source=current_taste_source,
+        by_verdict={},
+        fetch_status={},
+        current_taste=current_taste_version,
+        taste_source=current_taste_source,
         taste_filter_enabled=True,
     )
     try:
@@ -149,12 +162,16 @@ def get_stats(con: sqlite3.Connection, current_taste_version: str, current_taste
         pass
 
     s.total_companies = con.execute("SELECT COUNT(1) FROM companies").fetchone()[0]
-    s.enriched_ok = con.execute("SELECT COUNT(1) FROM enrichment WHERE fetch_status = 'ok'").fetchone()[0]
+    s.enriched_ok = con.execute(
+        "SELECT COUNT(1) FROM enrichment WHERE fetch_status = 'ok'"
+    ).fetchone()[0]
     s.scored = con.execute("SELECT COUNT(1) FROM verdicts").fetchone()[0]
     s.unscored = max(s.total_companies - s.scored, 0)
 
     _scan_hist(con, "SELECT verdict, COUNT(1) FROM verdicts GROUP BY verdict", s.by_verdict)
-    _scan_hist(con, "SELECT fetch_status, COUNT(1) FROM enrichment GROUP BY fetch_status", s.fetch_status)
+    _scan_hist(
+        con, "SELECT fetch_status, COUNT(1) FROM enrichment GROUP BY fetch_status", s.fetch_status
+    )
     return s
 
 

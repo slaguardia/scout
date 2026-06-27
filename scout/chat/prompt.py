@@ -1,4 +1,5 @@
-"""The per-request chat system prompt. Port of internal/chat/prompt.go."""
+"""The per-request chat system prompt."""
+
 from __future__ import annotations
 
 from datetime import datetime

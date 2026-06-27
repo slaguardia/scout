@@ -1,4 +1,5 @@
-"""Application-form questions + drafted answers. Port of internal/store/posting_answers.go."""
+"""Application-form questions + drafted answers."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -20,8 +21,8 @@ class DetectedQuestion:
     """One essay question a capture-side resolver found, in the shape the store
     ingests (kept store-local so the store never imports capture)."""
 
-    key: str = ""        # ATS field id/path; "" when unknown
-    prompt: str = ""     # the question text shown to the applicant
+    key: str = ""  # ATS field id/path; "" when unknown
+    prompt: str = ""  # the question text shown to the applicant
     max_length: int = 0  # char limit when the ATS declares one; 0 = unknown
 
 
@@ -40,16 +41,22 @@ class PostingAnswer:
     updated_at: str = ""
 
 
-_ANSWER_COLS = (
-    "id, posting_id, q_key, prompt, max_length, answer, edited, status, fail_reason, created_at, updated_at"
-)
+_ANSWER_COLS = "id, posting_id, q_key, prompt, max_length, answer, edited, status, fail_reason, created_at, updated_at"
 
 
 def _scan_answer(row) -> PostingAnswer:
     return PostingAnswer(
-        id=row[0], posting_id=row[1], q_key=row[2], prompt=row[3], max_length=row[4],
-        answer=row[5], edited=row[6], status=row[7], fail_reason=row[8],
-        created_at=row[9], updated_at=row[10],
+        id=row[0],
+        posting_id=row[1],
+        q_key=row[2],
+        prompt=row[3],
+        max_length=row[4],
+        answer=row[5],
+        edited=row[6],
+        status=row[7],
+        fail_reason=row[8],
+        created_at=row[9],
+        updated_at=row[10],
     )
 
 
@@ -65,7 +72,12 @@ def upsert_detected_questions(
     posting's questions_status/questions_at, without touching an existing
     question's answer/edited/status. Raises NotFound when the posting is absent."""
     with tx(con):
-        if con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[0] == 0:
+        if (
+            con.execute("SELECT COUNT(1) FROM job_postings WHERE id = ?", (posting_id,)).fetchone()[
+                0
+            ]
+            == 0
+        ):
             raise errors.NotFound()
         for q in qs:
             prompt = q.prompt.strip()
@@ -115,7 +127,9 @@ def mark_answers_generating(con: sqlite3.Connection, posting_id: str) -> list[Po
     return [_scan_answer(r) for r in rows]
 
 
-def update_answer(con: sqlite3.Connection, id: int, answer: str, status: str, fail_reason: str) -> None:
+def update_answer(
+    con: sqlite3.Connection, id: int, answer: str, status: str, fail_reason: str
+) -> None:
     """Record a generation outcome for one question."""
     cur = con.execute(
         "UPDATE posting_answers SET answer = ?, status = ?, fail_reason = ?, updated_at = CURRENT_TIMESTAMP "
@@ -129,10 +143,13 @@ def edit_answer(con: sqlite3.Connection, id: int, edited: str) -> PostingAnswer:
     """Store the user's inline edit (wins over the generated answer). An empty
     string clears the edit."""
     cur = con.execute(
-        "UPDATE posting_answers SET edited = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (edited, id)
+        "UPDATE posting_answers SET edited = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (edited, id),
     )
     _must_affect(cur)
-    return _scan_answer(con.execute(f"SELECT {_ANSWER_COLS} FROM posting_answers WHERE id = ?", (id,)).fetchone())
+    return _scan_answer(
+        con.execute(f"SELECT {_ANSWER_COLS} FROM posting_answers WHERE id = ?", (id,)).fetchone()
+    )
 
 
 def regenerate_answer(con: sqlite3.Connection, id: int) -> PostingAnswer:
@@ -144,7 +161,9 @@ def regenerate_answer(con: sqlite3.Connection, id: int) -> PostingAnswer:
         (ANSWER_GENERATING, id),
     )
     _must_affect(cur)
-    return _scan_answer(con.execute(f"SELECT {_ANSWER_COLS} FROM posting_answers WHERE id = ?", (id,)).fetchone())
+    return _scan_answer(
+        con.execute(f"SELECT {_ANSWER_COLS} FROM posting_answers WHERE id = ?", (id,)).fetchone()
+    )
 
 
 def delete_answer(con: sqlite3.Connection, id: int) -> None:

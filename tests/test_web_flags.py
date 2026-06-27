@@ -1,17 +1,21 @@
-"""Port of internal/web/flags_test.go."""
+"""The company-flagged web route."""
+
 from __future__ import annotations
 
-from scout.store import triage
-
 from web_helpers import new_test_app, open_db
+
+from scout.store import triage
 
 
 def test_flagged_api(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
 
     def put(company_id, body):
-        return client.put(f"/api/companies/{company_id}/flagged", content=body,
-                          headers={"Content-Type": "application/json"})
+        return client.put(
+            f"/api/companies/{company_id}/flagged",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     # A fresh company starts unflagged.
     con = open_db(db_path)

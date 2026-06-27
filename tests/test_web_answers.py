@@ -1,10 +1,11 @@
-"""Port of internal/web/answers_test.go."""
+"""The application-answers web routes."""
+
 from __future__ import annotations
+
+from web_helpers import new_test_app, open_db
 
 from scout.store import posting_answers, postings
 from scout.store.outreach_sources import OutreachSource, upsert_outreach_source
-
-from web_helpers import new_test_app, open_db
 
 
 # fakeAnswersRunner records the posting ids generation was kicked off for.
@@ -31,8 +32,12 @@ def _seed_questions(db_path, pid, qs, status):
 
 def _seed_experience(db_path):
     con = open_db(db_path)
-    upsert_outreach_source(con, OutreachSource(
-        need="experience", page_id="exp1", title="Exp", content="exp doc", version="v1"))
+    upsert_outreach_source(
+        con,
+        OutreachSource(
+            need="experience", page_id="exp1", title="Exp", content="exp doc", version="v1"
+        ),
+    )
     con.close()
 
 
@@ -59,10 +64,15 @@ def test_answers_get_and_detect(tmp_path, monkeypatch):
     assert got["answers"] == [] and got["questions_status"] == ""
 
     # Seed questions and read them back.
-    _seed_questions(db_path, pid, [
-        posting_answers.DetectedQuestion(key="k1", prompt="Why us?", max_length=300),
-        posting_answers.DetectedQuestion(key="k2", prompt="A project?"),
-    ], "ok")
+    _seed_questions(
+        db_path,
+        pid,
+        [
+            posting_answers.DetectedQuestion(key="k1", prompt="Why us?", max_length=300),
+            posting_answers.DetectedQuestion(key="k2", prompt="A project?"),
+        ],
+        "ok",
+    )
     got = client.get(f"/api/postings/{pid}/answers").json()
     assert len(got["answers"]) == 2 and got["questions_status"] == "ok"
 
@@ -73,7 +83,9 @@ def test_answers_get_and_detect(tmp_path, monkeypatch):
 def test_answers_generate_gate(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
     pid = _seed_answers_posting(db_path, cid)
-    _seed_questions(db_path, pid, [posting_answers.DetectedQuestion(key="k1", prompt="Why us?")], "ok")
+    _seed_questions(
+        db_path, pid, [posting_answers.DetectedQuestion(key="k1", prompt="Why us?")], "ok"
+    )
 
     # No runner wired → 503.
     assert _json(client, "post", f"/api/postings/{pid}/answers").status_code == 503
@@ -95,7 +107,9 @@ def test_answers_generate_gate(tmp_path, monkeypatch):
 def test_answer_edit_and_regenerate(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
     pid = _seed_answers_posting(db_path, cid)
-    _seed_questions(db_path, pid, [posting_answers.DetectedQuestion(key="k1", prompt="Why us?")], "ok")
+    _seed_questions(
+        db_path, pid, [posting_answers.DetectedQuestion(key="k1", prompt="Why us?")], "ok"
+    )
     aid = _list_answers(db_path, pid)[0].id
     id_path = f"/api/answers/{aid}"
 
@@ -117,7 +131,9 @@ def test_answer_edit_and_regenerate(tmp_path, monkeypatch):
     rec = _json(client, "put", id_path, '{"regenerate":true}')
     assert rec.status_code == 202, (rec.status_code, rec.text)
     a = rec.json()
-    assert a["status"] == posting_answers.ANSWER_GENERATING and a["edited"] == "" and a["answer"] == ""
+    assert (
+        a["status"] == posting_answers.ANSWER_GENERATING and a["edited"] == "" and a["answer"] == ""
+    )
     assert runner.started == [pid]
 
     # Unknown answer id → 404.
@@ -127,10 +143,15 @@ def test_answer_edit_and_regenerate(tmp_path, monkeypatch):
 def test_answer_delete(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
     pid = _seed_answers_posting(db_path, cid)
-    _seed_questions(db_path, pid, [
-        posting_answers.DetectedQuestion(key="k1", prompt="Why us?"),
-        posting_answers.DetectedQuestion(key="k2", prompt="A project?"),
-    ], "ok")
+    _seed_questions(
+        db_path,
+        pid,
+        [
+            posting_answers.DetectedQuestion(key="k1", prompt="Why us?"),
+            posting_answers.DetectedQuestion(key="k2", prompt="A project?"),
+        ],
+        "ok",
+    )
     aid = _list_answers(db_path, pid)[0].id
     id_path = f"/api/answers/{aid}"
 

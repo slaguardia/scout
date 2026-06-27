@@ -1,4 +1,5 @@
-"""Append-only verdict decision trail. Port of internal/store/trace.go."""
+"""Append-only verdict decision trail."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -25,8 +26,15 @@ def insert_verdict_trace(con: sqlite3.Connection, t: VerdictTrace) -> None:
 INSERT INTO verdict_trace
   (company_id, run_id, model, taste_version, criteria_source, verdict, reason)
 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (t.company_id, null(t.run_id), t.model, t.taste_version,
-         null(t.criteria_source), t.verdict, t.reason),
+        (
+            t.company_id,
+            null(t.run_id),
+            t.model,
+            t.taste_version,
+            null(t.criteria_source),
+            t.verdict,
+            t.reason,
+        ),
     )
 
 
@@ -54,7 +62,15 @@ ORDER BY scored_at ASC, id ASC""",
         (company_id,),
     ).fetchall()
     return [
-        TraceEvent(id=r[0], run_id=r[1], model=r[2], taste_version=r[3],
-                   criteria_source=r[4], verdict=r[5], reason=r[6], scored_at=r[7])
+        TraceEvent(
+            id=r[0],
+            run_id=r[1],
+            model=r[2],
+            taste_version=r[3],
+            criteria_source=r[4],
+            verdict=r[5],
+            reason=r[6],
+            scored_at=r[7],
+        )
         for r in rows
     ]

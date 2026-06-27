@@ -1,23 +1,21 @@
-"""Fetch a company's about/landing page and store a text summary. Port of
-internal/enrich/enrich.go.
+"""Fetch a company's about/landing page and store a text summary.
 
 Strategy: try a small set of candidate URLs (/about, /about-us, /, ...), take the
 first one that returns 2xx HTML, strip tags, collapse whitespace, truncate. Errors
 are recorded so we don't retry hot loops on permanently broken sites.
 
-Concurrency note: Go's Run fans the work out over a goroutine worker pool. This
-port runs the same work sequentially — the Python store is built around a single
-sqlite3 connection (not safe to share across threads), so the worker pool can't be
-reproduced without a per-thread connection layer the store doesn't have. The
-observable contract is identical: the same Result accounting, the same DB writes,
-and the same progress emissions (the header still names the worker count). Only
-wall-clock parallelism differs.
+Concurrency note: enrichment runs sequentially. The store is built around a single
+sqlite3 connection (not safe to share across threads), so the work can't be spread
+across a worker pool without a per-thread connection layer the store doesn't have.
+Result accounting, DB writes, and progress emissions (the header still names the
+worker count) are unaffected — only wall-clock parallelism.
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, replace
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -68,9 +66,8 @@ def new_http_client(timeout: float = 0.0) -> httpx.Client:
 class Enricher:
     """Fetches about-pages.
 
-    Attributes mirror Go's Enricher struct. `scheme` is a Python-only testability
-    seam (Go's fetchOne hard-codes "https://"; defaulting it to "https" preserves
-    that, while a test can point at a local http stub).
+    `scheme` is a testability seam: it defaults to "https" (what the fetch path
+    uses in production), while a test can point it at a local http stub.
     """
 
     def __init__(
@@ -195,7 +192,9 @@ class Enricher:
                 # longest one we've seen (cached so it can be inspected) but try the
                 # remaining candidates.
                 if rune_count(text) < MIN_CONTENT_RUNES:
-                    if low_fallback is None or rune_count(text) > rune_count(low_fallback.website_summary or ""):
+                    if low_fallback is None or rune_count(text) > rune_count(
+                        low_fallback.website_summary or ""
+                    ):
                         low_fallback = replace(rec, fetch_status="low_content")
                     last_status = "low_content"
                     continue
@@ -219,7 +218,9 @@ def fetch_page(client: httpx.Client | None, url: str, max_runes: int = 0) -> tup
     return text, final_url, status
 
 
-def fetch_page_html(client: httpx.Client | None, url: str, max_runes: int = 0) -> tuple[bytes | None, str, str, str]:
+def fetch_page_html(
+    client: httpx.Client | None, url: str, max_runes: int = 0
+) -> tuple[bytes | None, str, str, str]:
     """fetch_page that also returns the raw HTML body from the same fetch. body is
     the raw bytes for the "ok"/"low_content" outcomes (None otherwise);
     text/final_url/status are exactly fetch_page's. Returns (body, text, final_url,
@@ -275,8 +276,14 @@ def classify_err(err: Exception) -> str:
     s = str(err).lower()
     if isinstance(err, httpx.TimeoutException) or "timed out" in s or "deadline exceeded" in s:
         return "timeout"
-    if "no such host" in s or "name or service not known" in s or "nodename nor servname" in s \
-            or "name resolution" in s or "getaddrinfo" in s or "failed to resolve" in s:
+    if (
+        "no such host" in s
+        or "name or service not known" in s
+        or "nodename nor servname" in s
+        or "name resolution" in s
+        or "getaddrinfo" in s
+        or "failed to resolve" in s
+    ):
         return "dns"
     if "connection refused" in s or "refused" in s:
         return "refused"

@@ -1,4 +1,5 @@
-"""Chat threads + messages (tracking agent / per-entity research). Port of internal/store/chat.go."""
+"""Chat threads + messages (tracking agent / per-entity research)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -37,8 +38,14 @@ _THREAD_COLS = "id, scope, scope_id, title, created_at, updated_at"
 
 
 def _scan_thread(row) -> ChatThread:
-    return ChatThread(id=row[0], scope=row[1], scope_id=row[2] or "",
-                      title=row[3] or "", created_at=row[4], updated_at=row[5] or "")
+    return ChatThread(
+        id=row[0],
+        scope=row[1],
+        scope_id=row[2] or "",
+        title=row[3] or "",
+        created_at=row[4],
+        updated_at=row[5] or "",
+    )
 
 
 def open_or_create_thread(con: sqlite3.Connection, scope: str, scope_id: str) -> ChatThread:
@@ -95,7 +102,9 @@ def list_threads(con: sqlite3.Connection, scope: str) -> list[ChatThread]:
     return [_scan_thread(r) for r in rows]
 
 
-def append_message(con: sqlite3.Connection, thread_id: str, role: str, content: str, title: str) -> ChatMessage:
+def append_message(
+    con: sqlite3.Connection, thread_id: str, role: str, content: str, title: str
+) -> ChatMessage:
     """Store one turn and return it. The first user line seeds the thread title;
     every append bumps updated_at. Raises NotFound if the thread doesn't exist."""
     if len(content) == 0:
@@ -136,4 +145,6 @@ def thread_messages(con: sqlite3.Connection, thread_id: str) -> list[ChatMessage
         "WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC",
         (thread_id,),
     ).fetchall()
-    return [ChatMessage(id=r[0], thread_id=r[1], role=r[2], content=r[3], created_at=r[4]) for r in rows]
+    return [
+        ChatMessage(id=r[0], thread_id=r[1], role=r[2], content=r[3], created_at=r[4]) for r in rows
+    ]

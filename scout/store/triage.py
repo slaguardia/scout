@@ -1,4 +1,5 @@
-"""The joined triage rows served by the read-only UI. Port of internal/store/triage.go."""
+"""The joined triage rows served by the read-only UI."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -45,11 +46,20 @@ ORDER BY
     for r in con.execute(q).fetchall():
         out.append(
             TriageRow(
-                company_id=r[0], name=r[1], domain=r[2] or "", location=r[3] or "",
-                vertical=r[4] or "", headcount=r[5] or 0, stage=r[6] or "",
-                verdict=r[7] or "", reason=r[8] or "",
-                website_url=r[9] or "", website_summary=r[10] or "",
-                enriched=(r[11] == "ok"), flagged=r[12] is not None, reviewed_at=r[13] or "",
+                company_id=r[0],
+                name=r[1],
+                domain=r[2] or "",
+                location=r[3] or "",
+                vertical=r[4] or "",
+                headcount=r[5] or 0,
+                stage=r[6] or "",
+                verdict=r[7] or "",
+                reason=r[8] or "",
+                website_url=r[9] or "",
+                website_summary=r[10] or "",
+                enriched=(r[11] == "ok"),
+                flagged=r[12] is not None,
+                reviewed_at=r[13] or "",
             )
         )
     return out

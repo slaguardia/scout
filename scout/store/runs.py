@@ -1,4 +1,5 @@
-"""Durable pipeline-run records. Port of internal/store/runs.go."""
+"""Durable pipeline-run records."""
+
 from __future__ import annotations
 
 import datetime
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 
 
 def _utc_rfc3339() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _null_if_empty(s: str):
@@ -35,7 +36,9 @@ def insert_run(con: sqlite3.Connection, id: str, stage: str, taste_version: str)
     )
 
 
-def finish_run(con: sqlite3.Connection, id: str, status: str, summary: dict | None, err_msg: str) -> None:
+def finish_run(
+    con: sqlite3.Connection, id: str, status: str, summary: dict | None, err_msg: str
+) -> None:
     """Update a run with its terminal status and summary."""
     summary_json = json.dumps(summary) if summary is not None else None
     con.execute(
@@ -56,8 +59,15 @@ def list_runs(con: sqlite3.Connection, limit: int) -> list[Run]:
     ).fetchall()
     out: list[Run] = []
     for r in rows:
-        run = Run(id=r[0], stage=r[1], status=r[2], started_at=r[3], finished_at=r[4],
-                  taste_version=r[5], error=r[7])
+        run = Run(
+            id=r[0],
+            stage=r[1],
+            status=r[2],
+            started_at=r[3],
+            finished_at=r[4],
+            taste_version=r[5],
+            error=r[7],
+        )
         if r[6] != "":
             try:
                 run.summary = json.loads(r[6])

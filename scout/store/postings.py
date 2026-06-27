@@ -1,4 +1,5 @@
-"""Job postings — the jobs view + application tracker. Port of internal/store/postings.go."""
+"""Job postings — the jobs view + application tracker."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -75,13 +76,29 @@ _POSTING_COLS = """id, company_id, url, COALESCE(title, ''), COALESCE(location, 
 
 def _scan_posting(row) -> Posting:
     return Posting(
-        id=row[0], company_id=row[1], url=row[2], title=row[3], location=row[4],
-        source=row[5], fetch_status=row[6], created_at=row[7], captured_at=row[8],
-        posted_at=row[9], employment_type=row[10], workplace_type=row[11],
-        department=row[12], comp_range=row[13], description=row[14],
-        application_status=row[15], outreach_count=row[16], last_outreach_at=row[17],
-        outreach_status=row[18], notes=row[19], next_up=row[20] is not None,
-        questions_status=row[21], questions_at=row[22],
+        id=row[0],
+        company_id=row[1],
+        url=row[2],
+        title=row[3],
+        location=row[4],
+        source=row[5],
+        fetch_status=row[6],
+        created_at=row[7],
+        captured_at=row[8],
+        posted_at=row[9],
+        employment_type=row[10],
+        workplace_type=row[11],
+        department=row[12],
+        comp_range=row[13],
+        description=row[14],
+        application_status=row[15],
+        outreach_count=row[16],
+        last_outreach_at=row[17],
+        outreach_status=row[18],
+        notes=row[19],
+        next_up=row[20] is not None,
+        questions_status=row[21],
+        questions_at=row[22],
     )
 
 
@@ -161,9 +178,19 @@ def upsert_captured_posting(con: sqlite3.Connection, p: CapturedPosting) -> tupl
                 comp_range = COALESCE(?, comp_range), description = COALESCE(?, description),
                 source = 'capture', fetch_status = ?, captured_at = CURRENT_TIMESTAMP
              WHERE id = ?""",
-            (url, nz(p.title), nz(p.location), nz(p.posted_at), nz(p.employment_type),
-             nz(p.workplace_type), nz(p.department), nz(p.comp_range), nz(p.description),
-             nz(p.fetch_status), existing_id),
+            (
+                url,
+                nz(p.title),
+                nz(p.location),
+                nz(p.posted_at),
+                nz(p.employment_type),
+                nz(p.workplace_type),
+                nz(p.department),
+                nz(p.comp_range),
+                nz(p.description),
+                nz(p.fetch_status),
+                existing_id,
+            ),
         )
         return _read_posting(con, existing_id), True
 
@@ -175,9 +202,20 @@ def upsert_captured_posting(con: sqlite3.Connection, p: CapturedPosting) -> tupl
                posted_at, employment_type, workplace_type, department, comp_range, description,
                source, fetch_status, captured_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'capture', ?, CURRENT_TIMESTAMP)""",
-        (id, p.company_id, url, nz(p.title), nz(p.location), nz(p.posted_at),
-         nz(p.employment_type), nz(p.workplace_type), nz(p.department), nz(p.comp_range),
-         nz(p.description), nz(p.fetch_status)),
+        (
+            id,
+            p.company_id,
+            url,
+            nz(p.title),
+            nz(p.location),
+            nz(p.posted_at),
+            nz(p.employment_type),
+            nz(p.workplace_type),
+            nz(p.department),
+            nz(p.comp_range),
+            nz(p.description),
+            nz(p.fetch_status),
+        ),
     )
     return _read_posting(con, id), False
 
@@ -222,9 +260,16 @@ def update_posting_details(con: sqlite3.Connection, id: str, e: PostingEdit) -> 
             title = ?, location = ?, employment_type = ?,
             workplace_type = ?, department = ?, comp_range = ?, description = ?
          WHERE id = ?""",
-        (e.title.strip() or None, e.location.strip() or None, e.employment_type.strip() or None,
-         e.workplace_type.strip() or None, e.department.strip() or None,
-         e.comp_range.strip() or None, e.description.strip() or None, id),
+        (
+            e.title.strip() or None,
+            e.location.strip() or None,
+            e.employment_type.strip() or None,
+            e.workplace_type.strip() or None,
+            e.department.strip() or None,
+            e.comp_range.strip() or None,
+            e.description.strip() or None,
+            id,
+        ),
     )
     if cur.rowcount == 0:
         raise errors.NotFound()
@@ -373,15 +418,35 @@ ORDER BY p.created_at DESC, p.rowid DESC"""
     for r in rows:
         out.append(
             JobRow(
-                posting_id=r[0], company_id=r[1], company=r[2], url=r[3], title=r[4],
-                location=r[5], source=r[6], fetch_status=r[7], created_at=r[8],
-                posted_at=r[9], employment_type=r[10], workplace_type=r[11],
-                department=r[12], comp_range=r[13], description=r[14],
-                verdict=r[15], reason=r[16],
-                reviewed=r[17] is not None, flagged=r[18] is not None, next_up=r[19] is not None,
-                application_status=r[20], outreach_count=r[21], last_outreach_at=r[22],
-                outreach_status=r[23], contacts=r[24], notes=r[25],
-                outreach_draft_status=r[26], questions_status=r[27], followups_due=r[28],
+                posting_id=r[0],
+                company_id=r[1],
+                company=r[2],
+                url=r[3],
+                title=r[4],
+                location=r[5],
+                source=r[6],
+                fetch_status=r[7],
+                created_at=r[8],
+                posted_at=r[9],
+                employment_type=r[10],
+                workplace_type=r[11],
+                department=r[12],
+                comp_range=r[13],
+                description=r[14],
+                verdict=r[15],
+                reason=r[16],
+                reviewed=r[17] is not None,
+                flagged=r[18] is not None,
+                next_up=r[19] is not None,
+                application_status=r[20],
+                outreach_count=r[21],
+                last_outreach_at=r[22],
+                outreach_status=r[23],
+                contacts=r[24],
+                notes=r[25],
+                outreach_draft_status=r[26],
+                questions_status=r[27],
+                followups_due=r[28],
             )
         )
     return out

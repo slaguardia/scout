@@ -1,11 +1,10 @@
 """Company contacts + per-contact outreach log + the follow-up interval (M51).
 
-Faithful port of internal/web/contacts.go. Go's handleCompany/handlePosting
-prefix dispatch becomes explicit FastAPI routes (the contact/outreach-log paths
-are deeper than core's company/posting routes, so they coexist — FastAPI matches
-the most specific). Int-id paths parse the segment by hand so a non-numeric id is
-a 404 (Go's strconv.ParseInt → http.NotFound), not FastAPI's default 422.
+The contact/outreach-log paths are deeper than core's company/posting routes, so
+they coexist — FastAPI matches the most specific. Int-id paths parse the segment
+by hand so a non-numeric id is a 404, not FastAPI's default 422.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -46,8 +45,11 @@ def create_company_contact(
     body = decode_json(raw)
     try:
         c = contacts.create_contact(
-            con, company_id,
-            contacts.ContactInput(name=_s(body, "name"), role=_s(body, "role"), email=_s(body, "email")),
+            con,
+            company_id,
+            contacts.ContactInput(
+                name=_s(body, "name"), role=_s(body, "role"), email=_s(body, "email")
+            ),
         )
     except contacts.DuplicateContact as e:
         return json_error(str(e), 409)
@@ -58,12 +60,17 @@ def create_company_contact(
 
 
 @router.put("/api/contacts/{contact_id}")
-def update_contact(contact_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def update_contact(
+    contact_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     body = decode_json(raw)
     try:
         c = contacts.update_contact(
-            con, contact_id,
-            contacts.ContactInput(name=_s(body, "name"), role=_s(body, "role"), email=_s(body, "email")),
+            con,
+            contact_id,
+            contacts.ContactInput(
+                name=_s(body, "name"), role=_s(body, "role"), email=_s(body, "email")
+            ),
         )
     except contacts.DuplicateContact as e:
         return json_error(str(e), 409)
@@ -95,10 +102,15 @@ def log_outreach(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(ge
     if contact_id.strip() == "":
         return json_error("contact_id is required", 400)
     e = contacts.log_outreach(
-        con, posting_id, contact_id,
+        con,
+        posting_id,
+        contact_id,
         contacts.OutreachInput(
-            sent_at=_s(body, "sent_at"), body=_s(body, "body"), note=_s(body, "note"),
-            followup_due_at=_s(body, "followup_due_at"), no_followup=bool(body.get("no_followup")),
+            sent_at=_s(body, "sent_at"),
+            body=_s(body, "body"),
+            note=_s(body, "note"),
+            followup_due_at=_s(body, "followup_due_at"),
+            no_followup=bool(body.get("no_followup")),
         ),
     )
     return json_response(e)
@@ -108,16 +120,22 @@ def log_outreach(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(ge
 
 
 @router.put("/api/outreach-log/{raw_id}")
-def update_outreach_entry(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def update_outreach_entry(
+    raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     id = _parse_int_id(raw_id)
     if id is None:
         return json_error("not found", 404)
     body = decode_json(raw)
     out = contacts.update_outreach_entry(
-        con, id,
+        con,
+        id,
         contacts.OutreachEntryEdit(
-            sent_at=_s(body, "sent_at"), body=_s(body, "body"), note=_s(body, "note"),
-            followup_due_at=_s(body, "followup_due_at"), done=bool(body.get("done")),
+            sent_at=_s(body, "sent_at"),
+            body=_s(body, "body"),
+            note=_s(body, "note"),
+            followup_due_at=_s(body, "followup_due_at"),
+            done=bool(body.get("done")),
         ),
     )
     return json_response(out)

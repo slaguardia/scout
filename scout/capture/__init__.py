@@ -1,5 +1,5 @@
 """scout.capture — link capture: ATS resolvers, JSON-LD, the Haiku pass, and
-application-question detection. Port of internal/capture.
+application-question detection.
 
 Public surface (imported by the web layer's /api/capture endpoints, the chat
 engine, and the CLI):
@@ -9,14 +9,15 @@ engine, and the CLI):
     detect_questions, AppQuestion, QuestionScan
     QUESTIONS_OK, QUESTIONS_NONE, QUESTIONS_UNSUPPORTED, QUESTIONS_UNREACHABLE
 """
+
 from .ats import is_ats_posting
 from .capture import (
     KIND_COMPANY,
     KIND_JOB,
     KIND_OTHER,
     Capturer,
-    Fields,
     FetchError,
+    Fields,
     Request,
     Result,
     company_domain_from_url,

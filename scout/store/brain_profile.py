@@ -1,4 +1,5 @@
-"""Cached brain profile (change-aware criteria brief). Port of internal/store/brain_profile.go."""
+"""Cached brain profile (change-aware criteria brief)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -32,12 +33,20 @@ FROM brain_profile_cache WHERE source_url = ?"""
     if row is None:
         return None
     return BrainProfile(
-        source_url=row[0], body=row[1], content_hash=row[2], fetched_at=row[3],
-        age_seconds=row[4], cursor=row[5], verified_at=row[6], verified_age_seconds=row[7],
+        source_url=row[0],
+        body=row[1],
+        content_hash=row[2],
+        fetched_at=row[3],
+        age_seconds=row[4],
+        cursor=row[5],
+        verified_at=row[6],
+        verified_age_seconds=row[7],
     )
 
 
-def put_brain_profile(con: sqlite3.Connection, source_url: str, body: str, content_hash: str, cursor: str) -> None:
+def put_brain_profile(
+    con: sqlite3.Connection, source_url: str, body: str, content_hash: str, cursor: str
+) -> None:
     """Upsert the cached profile — the full write (fresh distill). Stamps both
     fetched_at and verified_at to now and stores the brain's current cursor."""
     con.execute(

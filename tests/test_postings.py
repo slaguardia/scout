@@ -1,4 +1,5 @@
-"""Port of internal/store/postings_test.go."""
+"""Tests for scout.store.postings."""
+
 import pytest
 
 from scout.store import (
@@ -71,7 +72,9 @@ def test_next_up_clears_when_outreach_goes_out(db):
     assert p.next_up
 
     # A tracking write that does NOT bump outreach keeps the mark.
-    p = postings.update_posting_tracking(db, p.id, PostingTracking(outreach_status="initial contact"))
+    p = postings.update_posting_tracking(
+        db, p.id, PostingTracking(outreach_status="initial contact")
+    )
     assert p.next_up
 
     contact = contacts.create_contact(db, cid, ContactInput(email="jane@acme.com"))
@@ -108,58 +111,111 @@ def test_add_posting_validation(db):
 def test_upsert_captured_posting(db):
     cid = _acme(db)
 
-    p, updated = postings.upsert_captured_posting(db, CapturedPosting(
-        company_id=cid, url="https://acme.com/jobs/se", pasted_url="https://acme.co/r/123",
-        title="Solutions Engineer", location="SF / remote", description="Pre-sales eng.", fetch_status="ok",
-    ))
+    p, updated = postings.upsert_captured_posting(
+        db,
+        CapturedPosting(
+            company_id=cid,
+            url="https://acme.com/jobs/se",
+            pasted_url="https://acme.co/r/123",
+            title="Solutions Engineer",
+            location="SF / remote",
+            description="Pre-sales eng.",
+            fetch_status="ok",
+        ),
+    )
     assert not updated
-    assert (p.source == "capture" and p.title == "Solutions Engineer" and p.location == "SF / remote"
-            and p.description == "Pre-sales eng." and p.fetch_status == "ok" and p.captured_at != "")
+    assert (
+        p.source == "capture"
+        and p.title == "Solutions Engineer"
+        and p.location == "SF / remote"
+        and p.description == "Pre-sales eng."
+        and p.fetch_status == "ok"
+        and p.captured_at != ""
+    )
 
-    p2, updated = postings.upsert_captured_posting(db, CapturedPosting(
-        company_id=cid, url="https://acme.com/jobs/se", title="Senior Solutions Engineer", fetch_status="ok",
-    ))
+    p2, updated = postings.upsert_captured_posting(
+        db,
+        CapturedPosting(
+            company_id=cid,
+            url="https://acme.com/jobs/se",
+            title="Senior Solutions Engineer",
+            fetch_status="ok",
+        ),
+    )
     assert updated and p2.id == p.id and p2.title == "Senior Solutions Engineer"
 
-    p3, updated = postings.upsert_captured_posting(db, CapturedPosting(
-        company_id=cid, url="https://acme.com/jobs/se-final", pasted_url="https://acme.com/jobs/se",
-        title="SE", fetch_status="ok",
-    ))
+    p3, updated = postings.upsert_captured_posting(
+        db,
+        CapturedPosting(
+            company_id=cid,
+            url="https://acme.com/jobs/se-final",
+            pasted_url="https://acme.com/jobs/se",
+            title="SE",
+            fetch_status="ok",
+        ),
+    )
     assert updated and p3.id == p.id and p3.url == "https://acme.com/jobs/se-final"
     assert len(postings.list_postings(db, cid)) == 1
 
     hand = postings.add_posting(db, cid, "https://acme.com/jobs/pm", "")
-    h2, updated = postings.upsert_captured_posting(db, CapturedPosting(
-        company_id=cid, url="https://acme.com/jobs/pm", title="PM", fetch_status="ok",
-    ))
+    h2, updated = postings.upsert_captured_posting(
+        db,
+        CapturedPosting(
+            company_id=cid,
+            url="https://acme.com/jobs/pm",
+            title="PM",
+            fetch_status="ok",
+        ),
+    )
     assert updated and h2.id == hand.id and h2.source == "capture" and h2.title == "PM"
 
     with pytest.raises(ValueError) as exc:
         postings.upsert_captured_posting(db, CapturedPosting(company_id=cid, url="javascript:x"))
     assert str(exc.value).startswith("url ")
     with pytest.raises(errors.NotFound):
-        postings.upsert_captured_posting(db, CapturedPosting(company_id="nope", url="https://x.com/j"))
+        postings.upsert_captured_posting(
+            db, CapturedPosting(company_id="nope", url="https://x.com/j")
+        )
 
 
 def test_list_job_rows(db):
     assert postings.list_job_rows(db) == []
 
     cid = _acme(db)
-    verdicts.upsert_verdict(db, Verdict(company_id=cid, verdict="yes", reason="fit", taste_version="v1", model="m"))
+    verdicts.upsert_verdict(
+        db, Verdict(company_id=cid, verdict="yes", reason="fit", taste_version="v1", model="m")
+    )
     marks.set_flagged(db, cid, True)
-    postings.upsert_captured_posting(db, CapturedPosting(
-        company_id=cid, url="https://acme.com/jobs/se", title="SE", location="SF", fetch_status="ok",
-    ))
+    postings.upsert_captured_posting(
+        db,
+        CapturedPosting(
+            company_id=cid,
+            url="https://acme.com/jobs/se",
+            title="SE",
+            location="SF",
+            fetch_status="ok",
+        ),
+    )
 
     rows = postings.list_job_rows(db)
     assert len(rows) == 1
     r = rows[0]
-    assert (r.company == "Acme" and r.company_id == cid and r.title == "SE" and r.location == "SF"
-            and r.verdict == "yes" and r.source == "capture" and r.flagged and not r.reviewed)
+    assert (
+        r.company == "Acme"
+        and r.company_id == cid
+        and r.title == "SE"
+        and r.location == "SF"
+        and r.verdict == "yes"
+        and r.source == "capture"
+        and r.flagged
+        and not r.reviewed
+    )
     assert r.outreach_draft_status == ""
 
     d1 = outreach_drafts.create_outreach_draft(db, r.posting_id)
-    outreach_drafts.set_outreach_draft_result(db, d1.id, DRAFT_NO_HOOK, "", "", "tpl", "[]", "", "", "")
+    outreach_drafts.set_outreach_draft_result(
+        db, d1.id, DRAFT_NO_HOOK, "", "", "tpl", "[]", "", "", ""
+    )
     rows = postings.list_job_rows(db)
     assert len(rows) == 1
     assert rows[0].outreach_draft_status == DRAFT_NO_HOOK
@@ -169,23 +225,38 @@ def test_update_posting_tracking(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
 
-    assert (p.application_status == "" and p.outreach_count == 0
-            and p.last_outreach_at == "" and p.outreach_status == "")
+    assert (
+        p.application_status == ""
+        and p.outreach_count == 0
+        and p.last_outreach_at == ""
+        and p.outreach_status == ""
+    )
 
-    got = postings.update_posting_tracking(db, p.id, PostingTracking(
-        application_status="interview", outreach_status="initial contact"))
-    assert (got.application_status == "interview" and got.outreach_status == "initial contact"
-            and got.outreach_count == 0 and got.last_outreach_at == "")
+    got = postings.update_posting_tracking(
+        db, p.id, PostingTracking(application_status="interview", outreach_status="initial contact")
+    )
+    assert (
+        got.application_status == "interview"
+        and got.outreach_status == "initial contact"
+        and got.outreach_count == 0
+        and got.last_outreach_at == ""
+    )
 
     got = postings.update_posting_tracking(db, p.id, PostingTracking())
     assert got.application_status == "" and got.outreach_status == "" and got.outreach_count == 0
 
-    postings.update_posting_tracking(db, p.id, PostingTracking(application_status="interview", outreach_status="replied"))
+    postings.update_posting_tracking(
+        db, p.id, PostingTracking(application_status="interview", outreach_status="replied")
+    )
     rows = postings.list_job_rows(db)
     assert len(rows) == 1
     r = rows[0]
-    assert (r.application_status == "interview" and r.outreach_status == "replied"
-            and r.outreach_count == 0 and r.last_outreach_at == "")
+    assert (
+        r.application_status == "interview"
+        and r.outreach_status == "replied"
+        and r.outreach_count == 0
+        and r.last_outreach_at == ""
+    )
 
     with pytest.raises(ValueError) as exc:
         postings.update_posting_tracking(db, p.id, PostingTracking(outreach_status="x" * 100))
@@ -198,18 +269,38 @@ def test_update_posting_details(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "Wrong Title")
 
-    got = postings.update_posting_details(db, p.id, PostingEdit(
-        title="  Staff Engineer  ", location="Remote", employment_type="Full-time",
-        workplace_type="Remote", department="Eng", comp_range="$200k-$250k", description="long description",
-    ))
-    assert (got.title == "Staff Engineer" and got.location == "Remote" and got.employment_type == "Full-time"
-            and got.workplace_type == "Remote" and got.department == "Eng"
-            and got.comp_range == "$200k-$250k" and got.description == "long description")
+    got = postings.update_posting_details(
+        db,
+        p.id,
+        PostingEdit(
+            title="  Staff Engineer  ",
+            location="Remote",
+            employment_type="Full-time",
+            workplace_type="Remote",
+            department="Eng",
+            comp_range="$200k-$250k",
+            description="long description",
+        ),
+    )
+    assert (
+        got.title == "Staff Engineer"
+        and got.location == "Remote"
+        and got.employment_type == "Full-time"
+        and got.workplace_type == "Remote"
+        and got.department == "Eng"
+        and got.comp_range == "$200k-$250k"
+        and got.description == "long description"
+    )
     assert got.url == "https://acme.com/jobs/se"
 
     got = postings.update_posting_details(db, p.id, PostingEdit(title="Just a Title"))
-    assert (got.title == "Just a Title" and got.location == "" and got.department == ""
-            and got.comp_range == "" and got.description == "")
+    assert (
+        got.title == "Just a Title"
+        and got.location == ""
+        and got.department == ""
+        and got.comp_range == ""
+        and got.description == ""
+    )
 
     with pytest.raises(errors.NotFound):
         postings.update_posting_details(db, "no-such-posting", PostingEdit())
@@ -249,7 +340,9 @@ def test_posting_notes(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
 
-    got = postings.update_posting_tracking(db, p.id, PostingTracking(notes="  referred by Dana; mentions on-call  "))
+    got = postings.update_posting_tracking(
+        db, p.id, PostingTracking(notes="  referred by Dana; mentions on-call  ")
+    )
     assert got.notes == "referred by Dana; mentions on-call"
 
     postings.update_posting_details(db, p.id, PostingEdit(title="Senior SE", description="new JD"))
@@ -276,6 +369,7 @@ def test_delete_posting_removes_everything(db):
         n = db.execute(f"SELECT COUNT(1) FROM {table} WHERE posting_id = ?", (p.id,)).fetchone()[0]
         assert n == 0
     from scout.store import companies
+
     assert companies.company_exists(db, cid)
 
     with pytest.raises(errors.NotFound):
@@ -288,7 +382,9 @@ def test_regenerate_outreach_draft(db):
 
     d1 = outreach_drafts.create_outreach_draft(db, p.id)
     research = '{"company":"Acme","hooks":[]}'
-    outreach_drafts.set_outreach_draft_result(db, d1.id, DRAFT_AWAITING_REVIEW, research, "", "first body", "[]", "", "", "")
+    outreach_drafts.set_outreach_draft_result(
+        db, d1.id, DRAFT_AWAITING_REVIEW, research, "", "first body", "[]", "", "", ""
+    )
 
     with pytest.raises(ValueError):
         outreach_drafts.create_outreach_draft(db, p.id)
@@ -313,7 +409,9 @@ def test_needs_work_is_active(db):
 
     d1 = outreach_drafts.create_outreach_draft(db, p.id)
     critique = '{"depth":"medium","proof_tier":"adjacent","weaknesses":[],"experience_gaps":"","attempts":2}'
-    outreach_drafts.set_outreach_draft_result(db, d1.id, DRAFT_NEEDS_WORK, "{}", "", "flagged body", "[]", "", critique, "")
+    outreach_drafts.set_outreach_draft_result(
+        db, d1.id, DRAFT_NEEDS_WORK, "{}", "", "flagged body", "[]", "", critique, ""
+    )
     got = outreach_drafts.get_outreach_draft(db, d1.id)
     assert got.critique == critique
 

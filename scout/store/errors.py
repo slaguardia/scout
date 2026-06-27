@@ -1,20 +1,20 @@
 """Store-layer exceptions.
 
-The Go store returns sentinel errors (sql.ErrNoRows, ErrDomainTaken, …) that the
-web layer maps to HTTP status codes. Python's idiom is exceptions, so each Go
-sentinel becomes a class here. The web layer catches these and sets the status.
+Each distinct failure mode is its own exception class; the web layer catches
+these and maps them to HTTP status codes.
 
 Mapping:
-    NotFound        ← sql.ErrNoRows          → HTTP 404
-    DomainTaken     ← store.ErrDomainTaken    → HTTP 409
-    UnknownCompany  ← store.ErrUnknownCompany → HTTP 400
+    NotFound        → HTTP 404
+    DomainTaken     → HTTP 409
+    UnknownCompany  → HTTP 400
     (plain ValueError, raised with a field-prefixed message, for validation → 400)
 """
+
 from __future__ import annotations
 
 
 class NotFound(Exception):
-    """A row addressed by id does not exist (Go's sql.ErrNoRows)."""
+    """A row addressed by id does not exist."""
 
 
 class DomainTaken(Exception):

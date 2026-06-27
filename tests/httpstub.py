@@ -1,8 +1,8 @@
-"""A tiny local HTTP server for client tests — the Python analogue of Go's
-httptest.NewServer. The handler records each request and returns a canned
-response, so a test asserts the request shape AFTER the call (handler threads
-can't raise into the test thread) and parses the parsed response.
+"""A tiny local HTTP server for client tests. The handler records each request
+and returns a canned response, so a test asserts the request shape AFTER the call
+(handler threads can't raise into the test thread) and parses the parsed response.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -41,7 +41,7 @@ def http_server(handle):
             if isinstance(out, str):
                 out = out.encode()
             # Close after each response: no keep-alive, so the server's accept loop
-            # stays responsive to shutdown() (Go's httptest closes per request too).
+            # stays responsive to shutdown().
             self.close_connection = True
             self.send_response(status)
             for k, v in (hdrs or {}).items():

@@ -1,13 +1,14 @@
-"""Smoke coverage for the criteria editors (no Go web test): taste.md, the
+"""Smoke coverage for the criteria editors: taste.md, the
 structured pre-filter, the playbook, and the filter-options vocabularies."""
+
 from __future__ import annotations
+
+from web_helpers import new_test_app, open_db
 
 from scout import filter as filter_pkg
 from scout import playbook as playbook_pkg
 from scout.store import companies as companies_store
 from scout.store.companies import Company
-
-from web_helpers import new_test_app, open_db
 
 _JSON = {"Content-Type": "application/json"}
 
@@ -62,6 +63,7 @@ def test_taste_filter_round_trip(tmp_path, monkeypatch):
         "funding_stage": {"allowed": ["Series A"]},
     }
     import json
+
     rec = _put(client, "/api/taste-filter", json.dumps({"rules": rules, "enabled": True}))
     assert rec.status_code == 200, (rec.status_code, rec.text)
     out = rec.json()
@@ -73,7 +75,12 @@ def test_taste_filter_round_trip(tmp_path, monkeypatch):
     assert t.funding_stage.allowed == ["Series A"] and t.headcount.min == 10
 
     # Invalid TOML on the legacy content path -> 400.
-    assert _put(client, "/api/taste-filter", json.dumps({"content": "not = valid = toml ="})).status_code == 400
+    assert (
+        _put(
+            client, "/api/taste-filter", json.dumps({"content": "not = valid = toml ="})
+        ).status_code
+        == 400
+    )
 
 
 def test_filter_options(tmp_path, monkeypatch):
@@ -81,12 +88,28 @@ def test_filter_options(tmp_path, monkeypatch):
 
     # Seed a couple of companies with verticals + stages to count.
     con = open_db(db_path)
-    companies_store.upsert_company(con, Company(
-        source="test", name="Beta", domain="beta.com",
-        vertical="AI infra, Software", funding_stage="Series A", raw_json="{}"))
-    companies_store.upsert_company(con, Company(
-        source="test", name="Gamma", domain="gamma.com",
-        vertical="AI infra", funding_stage="Seed", raw_json="{}"))
+    companies_store.upsert_company(
+        con,
+        Company(
+            source="test",
+            name="Beta",
+            domain="beta.com",
+            vertical="AI infra, Software",
+            funding_stage="Series A",
+            raw_json="{}",
+        ),
+    )
+    companies_store.upsert_company(
+        con,
+        Company(
+            source="test",
+            name="Gamma",
+            domain="gamma.com",
+            vertical="AI infra",
+            funding_stage="Seed",
+            raw_json="{}",
+        ),
+    )
     con.close()
 
     rec = client.get("/api/filter-options")

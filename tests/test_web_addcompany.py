@@ -1,18 +1,20 @@
-"""Port of internal/web/addcompany_test.go."""
+"""The add-company web route."""
+
 from __future__ import annotations
+
+from web_helpers import new_test_app, open_db
 
 from scout.store import companies, detail
 from scout.store.companies import Company, upsert_company
-
-from web_helpers import new_test_app, open_db
 
 
 def test_add_company_api(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
 
     def post(body):
-        return client.post("/api/companies", content=body,
-                           headers={"Content-Type": "application/json"})
+        return client.post(
+            "/api/companies", content=body, headers={"Content-Type": "application/json"}
+        )
 
     # Happy path → 200, and the row is retrievable by the returned id.
     rec = post('{"website":"https://www.globex.io/","name":"Globex","vertical":"Fintech"}')
@@ -50,8 +52,11 @@ def test_add_company_api(tmp_path, monkeypatch):
 def test_delete_company_api(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
 
-    add = client.post("/api/companies", content='{"website":"globex.io","name":"Globex"}',
-                      headers={"Content-Type": "application/json"})
+    add = client.post(
+        "/api/companies",
+        content='{"website":"globex.io","name":"Globex"}',
+        headers={"Content-Type": "application/json"},
+    )
     assert add.status_code == 200, (add.status_code, add.text)
     added_id = add.json()["company_id"]
 
@@ -72,13 +77,24 @@ def test_facets_api(tmp_path, monkeypatch):
     con = open_db(db_path)
 
     def seed(name, domain, vertical, stage):
-        upsert_company(con, Company(
-            source="test", name=name, domain=domain,
-            vertical=vertical or None, funding_stage=stage or None, raw_json="{}",
-        ))
+        upsert_company(
+            con,
+            Company(
+                source="test",
+                name=name,
+                domain=domain,
+                vertical=vertical or None,
+                funding_stage=stage or None,
+                raw_json="{}",
+            ),
+        )
 
-    seed("Vapi", "vapi.com", "Artificial Intelligence (AI), Developer Platform, Software", "Series B")
-    seed("Armada", "armada.ai", "Artificial Intelligence (AI), Cloud Computing, Software", "Series A")
+    seed(
+        "Vapi", "vapi.com", "Artificial Intelligence (AI), Developer Platform, Software", "Series B"
+    )
+    seed(
+        "Armada", "armada.ai", "Artificial Intelligence (AI), Cloud Computing, Software", "Series A"
+    )
     con.close()
 
     rec = client.get("/api/facets")

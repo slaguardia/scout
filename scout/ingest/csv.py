@@ -1,10 +1,11 @@
-"""CSV ingest (Crunchbase first) + the hand-add / domain paths. Port of internal/ingest/csv.go.
+"""CSV ingest (Crunchbase first) + the hand-add / domain paths.
 
 Store access is via free functions on scout.store.companies, taking the
 sqlite3.Connection. The two ways the SAME company can be keyed — by domain, or by
 name when domain-less — are kept collapsed onto one row in both arrival orders by
 upsert_with_merge (the shared merge path).
 """
+
 from __future__ import annotations
 
 import csv  # stdlib (absolute import; this module is scout.ingest.csv)
@@ -62,8 +63,8 @@ class CSV:
     def run(self, path: str) -> Result:
         """Read path and upsert every data row. The first row must be a header."""
         # newline='' lets the csv module handle line endings within quoted cells;
-        # strict=True makes an unterminated quote a hard parse error (mirroring Go's
-        # encoding/csv with LazyQuotes off) instead of silently swallowing the file.
+        # strict=True makes an unterminated quote a hard parse error instead of
+        # silently swallowing the file.
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.reader(f, strict=True)
             try:
@@ -119,7 +120,7 @@ class CSV:
                 )
                 try:
                     out = upsert_with_merge(self.con, company)
-                except Exception as e:  # noqa: BLE001 - mirror Go's per-row error capture
+                except Exception as e:  # noqa: BLE001 - record any per-row failure and keep going
                     res.errors.append(str(e))
                     continue
                 res.upserted += 1
@@ -127,11 +128,13 @@ class CSV:
                     res.merged += 1
                 if out.collision:
                     res.collisions += 1
-                    res.collision_details.append(Collision(
-                        domain=company.domain or "",
-                        incoming_name=name,
-                        overwrote_name=out.prev_name,
-                    ))
+                    res.collision_details.append(
+                        Collision(
+                            domain=company.domain or "",
+                            incoming_name=name,
+                            overwrote_name=out.prev_name,
+                        )
+                    )
             return res
 
 
@@ -229,7 +232,9 @@ def add_manual(con, m: ManualCompany) -> str:
     if not looks_like_domain(domain):
         raise ValueError("website is not a valid domain (e.g. acme.com)")
     if is_aggregator_host(domain):
-        raise ValueError("website looks like a social or profile link — enter the company's own domain (e.g. acme.com)")
+        raise ValueError(
+            "website looks like a social or profile link — enter the company's own domain (e.g. acme.com)"
+        )
     name = m.name.strip() or domain
     # Identity is the domain (company_id ignores the name once a domain is present).
     cid = companies.company_id(domain, name)
@@ -239,8 +244,10 @@ def add_manual(con, m: ManualCompany) -> str:
     # was typed, the way a CSV row preserves its cells.
     raw = {"name": name, "website": domain}
     for k, v in {
-        "headcount": m.headcount, "funding_stage": m.funding_stage,
-        "location": m.location, "vertical": m.vertical,
+        "headcount": m.headcount,
+        "funding_stage": m.funding_stage,
+        "location": m.location,
+        "vertical": m.vertical,
     }.items():
         s = v.strip()
         if s != "":
@@ -271,7 +278,9 @@ def set_company_domain(con, company_id: str, website: str) -> str:
     if not looks_like_domain(domain):
         raise ValueError("website is not a valid domain (e.g. acme.com)")
     if is_aggregator_host(domain):
-        raise ValueError("website looks like a social or profile link — enter the company's own domain (e.g. acme.com)")
+        raise ValueError(
+            "website looks like a social or profile link — enter the company's own domain (e.g. acme.com)"
+        )
     return companies.set_company_domain(con, company_id, domain)
 
 
@@ -329,7 +338,7 @@ def normalize(s: str) -> str:
 
 
 def _index_any(s: str, chars: str) -> int:
-    """The first index of any character from chars in s, or -1 (Go's strings.IndexAny)."""
+    """The first index of any character from chars in s, or -1."""
     for i, c in enumerate(s):
         if c in chars:
             return i
@@ -343,14 +352,14 @@ def normalize_domain(s: str) -> str:
     s = s.strip().lower()
     i = s.find("://")  # any scheme, not just http(s)
     if i >= 0:
-        s = s[i + 3:]
+        s = s[i + 3 :]
     s = s.removeprefix("//")  # protocol-relative URL
     i = _index_any(s, "/?#")  # path, query, fragment
     if i >= 0:
         s = s[:i]
     i = s.rfind("@")  # user:pass@host
     if i >= 0:
-        s = s[i + 1:]
+        s = s[i + 1 :]
     i = s.find(":")  # :port
     if i >= 0:
         s = s[:i]
@@ -389,20 +398,46 @@ def valid_label(label: str) -> bool:
 # column in place of a company's own site. Their bare host is NOT a company
 # identity — routing these to name-keying keeps the rows distinct.
 AGGREGATOR_HOSTS = {
-    "linkedin.com", "facebook.com", "fb.com",
-    "twitter.com", "x.com", "instagram.com",
-    "youtube.com", "tiktok.com", "crunchbase.com",
-    "angel.co", "wellfound.com", "pitchbook.com",
-    "bloomberg.com", "glassdoor.com", "indeed.com",
-    "medium.com", "substack.com", "linktr.ee",
-    "github.com", "gitlab.com", "github.io",
-    "google.com", "sites.google.com", "notion.site",
-    "notion.so", "wordpress.com", "blogspot.com",
-    "wixsite.com", "weebly.com", "myshopify.com",
-    "carrd.co", "bit.ly", "t.co", "goo.gl",
+    "linkedin.com",
+    "facebook.com",
+    "fb.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "youtube.com",
+    "tiktok.com",
+    "crunchbase.com",
+    "angel.co",
+    "wellfound.com",
+    "pitchbook.com",
+    "bloomberg.com",
+    "glassdoor.com",
+    "indeed.com",
+    "medium.com",
+    "substack.com",
+    "linktr.ee",
+    "github.com",
+    "gitlab.com",
+    "github.io",
+    "google.com",
+    "sites.google.com",
+    "notion.site",
+    "notion.so",
+    "wordpress.com",
+    "blogspot.com",
+    "wixsite.com",
+    "weebly.com",
+    "myshopify.com",
+    "carrd.co",
+    "bit.ly",
+    "t.co",
+    "goo.gl",
     "tinyurl.com",
     # Share / short-link hosts of the platforms above.
-    "youtu.be", "lnkd.in", "fb.me", "t.me",
+    "youtu.be",
+    "lnkd.in",
+    "fb.me",
+    "t.me",
 }
 
 
@@ -431,7 +466,7 @@ def identity_domain(raw: str) -> str:
 
 
 def _null_str(s: str) -> str | None:
-    """Empty string → None (SQL NULL); otherwise s. Mirrors Go's nullStr."""
+    """Empty string → None (SQL NULL); otherwise s."""
     return s or None
 
 
@@ -446,7 +481,7 @@ def null_headcount(s: str) -> int | None:
     bound of a range. Tolerates "11-50", "1,001-5,000", "10001+", dashless ranges
     ("11 to 50" → 50) and magnitude suffixes ("1.5k" → 1500). Scans every numeric
     token and returns the LARGEST. Returns None when no number is present or the
-    value overflows int64."""
+    value exceeds the signed 64-bit range SQLite stores headcount in."""
     s = s.strip()
     if s == "":
         return None
@@ -491,8 +526,8 @@ def null_headcount(s: str) -> int | None:
             if v > max_val:
                 max_val = v
             found = True
-    # float(MaxInt64) rounds up to 2^63, so a value rounding to 2^63 must be
-    # rejected (it would wrap when cast to int).
+    # float(2^63 - 1) rounds up to 2^63, so a value rounding to 2^63 must be
+    # rejected — it exceeds the signed 64-bit range SQLite stores headcount in.
     if not found or max_val < 0 or max_val >= float(2**63 - 1):
         return None
     return int(max_val)

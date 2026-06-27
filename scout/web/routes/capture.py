@@ -1,7 +1,6 @@
 """The link-capture agent pass and the direct posting-add + posting sub-resource
 edits.
 
-Faithful port of internal/web/capture.go:
   - POST /api/capture            — the one-fetch + at-most-one-LLM capture pass.
   - POST /api/postings           — add one posting from a link, no LLM (ATS links
                                    auto-resolve keyless; else a bare insert).
@@ -11,6 +10,7 @@ Faithful port of internal/web/capture.go:
 (GET /api/postings, PUT /api/postings/{id} tracking, DELETE, and recapture are in
 core.py; the outreach / outreach-log / answers sub-routes are part 2A.)
 """
+
 from __future__ import annotations
 
 from urllib.parse import urlparse
@@ -34,7 +34,9 @@ router = APIRouter()
 
 
 @router.post("/api/capture")
-def capture(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+def capture(
+    raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)
+) -> Response:
     """Run the link-capture agent pass on one pasted URL: fetch, classify, upsert.
     Synchronous (one fetch + at most one LLM call). The key is required only for
     links the ATS resolver can't handle — an ATS posting link captures keyless."""
@@ -82,7 +84,9 @@ def capture(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState
 
 
 @router.post("/api/postings")
-def add_posting(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+def add_posting(
+    raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)
+) -> Response:
     """Add one posting from just a link. A supported-ATS posting link resolves
     keyless through the platform API first (auto-fills the details); otherwise a
     bare insert, with the company resolved from the typed name and/or the link's
@@ -113,7 +117,8 @@ def add_posting(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppS
     domain = capture_pkg.company_domain_from_url(raw_url)
     if name == "" and domain == "":
         return json_error(
-            "can't tell the company from this link — type a company name, or let scout read the page", 400
+            "can't tell the company from this link — type a company name, or let scout read the page",
+            400,
         )
     company_id, created = ingest.ensure_company(
         con, ingest.CapturedCompany(name=name, domain=domain, source_url=raw_url)
@@ -121,7 +126,12 @@ def add_posting(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppS
     p = postings_store.add_posting(con, company_id, raw_url, title)
     cname, _ = detail_store.get_company_name(con, p.company_id)
     return json_response(
-        {"posting": p, "company_id": p.company_id, "company_name": cname, "company_created": created}
+        {
+            "posting": p,
+            "company_id": p.company_id,
+            "company_name": cname,
+            "company_created": created,
+        }
     )
 
 
@@ -129,7 +139,9 @@ def add_posting(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppS
 
 
 @router.api_route("/api/postings/{posting_id}/details", methods=["PUT", "POST"])
-def posting_details(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def posting_details(
+    posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """Edit a posting's hand-editable content (title, location, comp, description,
     …). A direct write — no capture/LLM. NotFound -> 404 via the global handler."""
     body = decode_json(raw)
@@ -154,7 +166,9 @@ def posting_url(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get
 
 
 @router.api_route("/api/postings/{posting_id}/company", methods=["PUT", "POST"])
-def posting_company(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def posting_company(
+    posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """Re-link a posting to a different existing company. An unknown/blank target is
     a 400 (UnknownCompany), an unknown posting a 404 — never a silent create."""
     body = decode_json(raw)
@@ -164,7 +178,11 @@ def posting_company(posting_id: str, raw: bytes = Depends(raw_body), con=Depends
 
 
 @router.api_route("/api/postings/{posting_id}/next-up", methods=["PUT", "POST"])
-def posting_next_up(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def posting_next_up(
+    posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """Queue/unqueue a posting as "next up for outreach". NotFound -> 404."""
     body = decode_json(raw)
-    return json_response(postings_store.set_posting_next_up(con, posting_id, bool(body.get("next_up"))))
+    return json_response(
+        postings_store.set_posting_next_up(con, posting_id, bool(body.get("next_up")))
+    )

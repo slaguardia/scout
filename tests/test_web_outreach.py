@@ -1,23 +1,21 @@
-"""Port of internal/web/outreach_test.go — the draft queue, the gates, the
-sources peek, the pipeline-prompts editor, regenerate, and a real end-to-end run
-driven by the fake Anthropic FIFO server.
+"""The draft queue, the gates, the sources peek, the pipeline-prompts editor,
+regenerate, and a real end-to-end run driven by the fake Anthropic FIFO server.
 """
+
 from __future__ import annotations
 
-import json
 import time
 
 import httpx
+from web_helpers import new_test_app, open_db
 
 from scout import anthropic
-from scout.outreach import Engine, stages, stage_by_key
+from scout.outreach import Engine, stage_by_key, stages
 from scout.store import outreach_drafts, outreach_template, postings
 from scout.store.db import connect
 from scout.store.outreach_sources import OutreachSource, upsert_outreach_source
-
 from tests.httpstub import http_server
 from tests.outreach_fakes import FakeAnthropic
-from web_helpers import new_test_app, open_db
 
 SEED_TEMPLATE = (
     "Subject: [Name] | intro — {{role}}\n\nHi [Name],\n\n"
@@ -39,10 +37,20 @@ def _seed_outreach_ready(db_path, cid) -> str:
     con = open_db(db_path)
     outreach_template.put_outreach_template(con, SEED_TEMPLATE)
     for src in [
-        OutreachSource(need="experience", page_id="exp1", title="Past Experience",
-                       content="Five years at Globex, forward-deployed.", version="v1"),
-        OutreachSource(need="voice", page_id="voice1", title="Voice & Style",
-                       content="Plain, tight sentences.", version="v1"),
+        OutreachSource(
+            need="experience",
+            page_id="exp1",
+            title="Past Experience",
+            content="Five years at Globex, forward-deployed.",
+            version="v1",
+        ),
+        OutreachSource(
+            need="voice",
+            page_id="voice1",
+            title="Voice & Style",
+            content="Plain, tight sentences.",
+            version="v1",
+        ),
     ]:
         upsert_outreach_source(con, src)
     p = postings.add_posting(con, cid, "https://acme.com/jobs/fde", "FDE")
@@ -50,10 +58,13 @@ def _seed_outreach_ready(db_path, cid) -> str:
     return p.id
 
 
-def _set_result(db_path, did, status, research, hook, draft, lint, violations, critique, fail_reason):
+def _set_result(
+    db_path, did, status, research, hook, draft, lint, violations, critique, fail_reason
+):
     con = open_db(db_path)
     outreach_drafts.set_outreach_draft_result(
-        con, did, status, research, hook, draft, lint, violations, critique, fail_reason)
+        con, did, status, research, hook, draft, lint, violations, critique, fail_reason
+    )
     con.close()
 
 
@@ -98,7 +109,18 @@ def test_outreach_draft_queue(tmp_path, monkeypatch):
     assert len(rec.json()["drafts"]) == 1
 
     # Pipeline finishes -> user edits (no lint in the template model).
-    _set_result(db_path, d["id"], outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "", "draft text", "[]", "", "", "")
+    _set_result(
+        db_path,
+        d["id"],
+        outreach_drafts.DRAFT_AWAITING_REVIEW,
+        "{}",
+        "",
+        "draft text",
+        "[]",
+        "",
+        "",
+        "",
+    )
     id_path = f"/api/outreach/drafts/{d['id']}"
     rec = _put(client, id_path, '{"edited":"my edited email"}')
     assert rec.status_code == 200, (rec.status_code, rec.text)
@@ -135,8 +157,12 @@ def test_outreach_start_gates(tmp_path, monkeypatch):
 
     # Experience present, no voice: 202 with voice degraded.
     con = open_db(db_path)
-    upsert_outreach_source(con, OutreachSource(
-        need="experience", page_id="exp1", title="Exp", content="5y Globex", version="v1"))
+    upsert_outreach_source(
+        con,
+        OutreachSource(
+            need="experience", page_id="exp1", title="Exp", content="5y Globex", version="v1"
+        ),
+    )
     con.close()
     rec = _post(client, f"/api/postings/{pid}/outreach")
     assert rec.status_code == 202, (rec.status_code, rec.text)
@@ -147,7 +173,9 @@ def test_outreach_sources_endpoint(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
     con = open_db(db_path)
     for src in [
-        OutreachSource(need="experience", page_id="exp1", title="Past Experience", content="x", version="v1"),
+        OutreachSource(
+            need="experience", page_id="exp1", title="Past Experience", content="x", version="v1"
+        ),
         OutreachSource(need="voice", page_id="voice1", title="Voice", content="y", version="v1"),
     ]:
         upsert_outreach_source(con, src)
@@ -165,16 +193,18 @@ def test_outreach_end_to_end(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
     pid = _seed_outreach_ready(db_path, cid)
 
-    fake = FakeAnthropic([
-        '{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80",'
-        '"role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x",'
-        '"source_url":"https://a.invalid","context":"c"}],"thesis":"t","implication":"i",'
-        '"signals_read":["s"],"disambiguation":"","confidence":"high"}',
-        '{"fills":{"hook":"You ship into customer environments, like my forward-deployed work."}}',
-        '{"hook":"You ship into customer environments, like my forward-deployed work."}',
-        '{"verdict":"pass","violations":[]}',
-        '{"depth":"deep","proof_tier":"direct","weaknesses":[],"experience_gaps":"","feedback":""}',
-    ])
+    fake = FakeAnthropic(
+        [
+            '{"company":"Acme","what_they_do":"infra","customer":"enterprises","stage":"B","headcount_est":"80",'
+            '"role":{"title":"FDE","jd_quotes":["x"]},"hooks":[{"type":"jd","quote":"x",'
+            '"source_url":"https://a.invalid","context":"c"}],"thesis":"t","implication":"i",'
+            '"signals_read":["s"],"disambiguation":"","confidence":"high"}',
+            '{"fills":{"hook":"You ship into customer environments, like my forward-deployed work."}}',
+            '{"hook":"You ship into customer environments, like my forward-deployed work."}',
+            '{"verdict":"pass","violations":[]}',
+            '{"depth":"deep","proof_tier":"direct","weaknesses":[],"experience_gaps":"","feedback":""}',
+        ]
+    )
 
     # An httpx client whose transport always fails — keeps the JD pre-fetch offline.
     def _offline(request):
@@ -203,8 +233,8 @@ def test_outreach_end_to_end(tmp_path, monkeypatch):
         assert d["status"] == outreach_drafts.DRAFT_AWAITING_REVIEW, (d["status"], d["fail_reason"])
         for want in [
             "You ship into customer environments",  # filled hole
-            "I spent five years at Globex.",          # verbatim prose
-            "Subject: [Name] | intro — FDE",          # {{role}} resolved
+            "I spent five years at Globex.",  # verbatim prose
+            "Subject: [Name] | intro — FDE",  # {{role}} resolved
             "Thanks,\nAlex",
         ]:
             assert want in d["draft"], f"assembled draft missing {want!r}:\n{d['draft']}"
@@ -229,7 +259,18 @@ def test_outreach_needs_work_editable(tmp_path, monkeypatch):
     did = rec.json()["draft"]["id"]
 
     critique = '{"depth":"medium","proof_tier":"adjacent","weaknesses":["thin hook"],"experience_gaps":"","attempts":2}'
-    _set_result(db_path, did, outreach_drafts.DRAFT_NEEDS_WORK, "{}", "", "flagged draft", "[]", "", critique, "")
+    _set_result(
+        db_path,
+        did,
+        outreach_drafts.DRAFT_NEEDS_WORK,
+        "{}",
+        "",
+        "flagged draft",
+        "[]",
+        "",
+        critique,
+        "",
+    )
 
     id_path = f"/api/outreach/drafts/{did}"
     rec = _put(client, id_path, '{"edited":"my sharper rewrite"}')
@@ -263,8 +304,12 @@ def test_outreach_prompts_endpoint(tmp_path, monkeypatch):
     assert body["content"] == st.default and not body["is_overridden"]
 
     # PUT an override and disable the stage.
-    assert _put(client, "/api/outreach-prompts/humanizer",
-                '{"content":"my humanizer","enabled":false}').status_code == 200
+    assert (
+        _put(
+            client, "/api/outreach-prompts/humanizer", '{"content":"my humanizer","enabled":false}'
+        ).status_code
+        == 200
+    )
     body = client.get("/api/outreach-prompts/humanizer").json()
     assert body["content"] == "my humanizer" and not body["enabled"] and body["is_overridden"]
 
@@ -291,7 +336,18 @@ def test_outreach_regenerate(tmp_path, monkeypatch):
     rec = _post(client, f"/api/postings/{pid}/outreach")
     assert rec.status_code == 202
     first_id = rec.json()["draft"]["id"]
-    _set_result(db_path, first_id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "", "draft text", "[]", "", "", "")
+    _set_result(
+        db_path,
+        first_id,
+        outreach_drafts.DRAFT_AWAITING_REVIEW,
+        "{}",
+        "",
+        "draft text",
+        "[]",
+        "",
+        "",
+        "",
+    )
 
     # Plain re-POST conflicts; regenerate succeeds with a new researching draft.
     assert _post(client, f"/api/postings/{pid}/outreach").status_code == 409
@@ -304,6 +360,8 @@ def test_outreach_regenerate(tmp_path, monkeypatch):
     # History: the original is superseded, the new one researching.
     drafts = client.get(f"/api/postings/{pid}/outreach").json()["drafts"]
     assert len(drafts) == 2
-    assert drafts[0]["id"] == regen["id"] and drafts[0]["status"] == outreach_drafts.DRAFT_RESEARCHING
+    assert (
+        drafts[0]["id"] == regen["id"] and drafts[0]["status"] == outreach_drafts.DRAFT_RESEARCHING
+    )
     assert drafts[1]["id"] == first_id and drafts[1]["status"] == outreach_drafts.DRAFT_SUPERSEDED
     assert drafts[1]["draft"] == "draft text"

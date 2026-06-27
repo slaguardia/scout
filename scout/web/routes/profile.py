@@ -1,12 +1,13 @@
 """The brain-profile view: the locally-cached criteria the verdict stage feeds the
 LLM, read-only, plus an on-demand refresh.
 
-Faithful port of internal/web/profile.go. These never write the brain — refresh
+These never write the brain — refresh
 only re-reads /profile (distill) and updates the local cache. profile_payload makes
 at most ONE cheap Tier 0 /changes probe (same cost class as /health), so the GET
 stays a cheap read; criteria_state classifies the panel badge from already-cheap
 signals and is pure.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -31,8 +32,12 @@ def within_ttl_ceiling(verified_age_seconds: int, age_seconds: int, ttl_seconds:
 
 
 def criteria_state(
-    cursor_present: bool, verified_age_seconds: int, age_seconds: int, ttl_seconds: float,
-    changed: bool, probed: bool,
+    cursor_present: bool,
+    verified_age_seconds: int,
+    age_seconds: int,
+    ttl_seconds: float,
+    changed: bool,
+    probed: bool,
 ) -> str:
     """Derive the Criteria-panel badge (current | changed | unverified) from cheap
     signals. probed reports whether a fresh /changes result is available; changed

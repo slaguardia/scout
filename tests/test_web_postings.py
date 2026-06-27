@@ -1,17 +1,21 @@
-"""Port of internal/web/postings_test.go."""
+"""The postings web routes."""
+
 from __future__ import annotations
 
-from scout.store import postings
-
 from web_helpers import new_test_app, open_db
+
+from scout.store import postings
 
 
 def test_postings_api(tmp_path, monkeypatch):
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)
 
     def post(company_id, body):
-        return client.post(f"/api/companies/{company_id}/postings", content=body,
-                           headers={"Content-Type": "application/json"})
+        return client.post(
+            f"/api/companies/{company_id}/postings",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
 
     # Happy path: 200 + the created posting.
     rec = post(cid, '{"url":"https://acme.com/jobs/se","title":"SE"}')

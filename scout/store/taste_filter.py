@@ -1,4 +1,5 @@
-"""Singleton pre-filter rules row. Port of internal/store/taste_filter.go."""
+"""Singleton pre-filter rules row."""
+
 from __future__ import annotations
 
 import sqlite3

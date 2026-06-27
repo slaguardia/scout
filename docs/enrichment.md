@@ -75,13 +75,12 @@ call site to rewrite — it's a single function (`extract_text`) in
 
 ## Concurrency
 
-`--workers` defaults to 8. The Go design fanned fetches out across that many
-goroutines; this Python port runs them **sequentially** over the single shared
-`sqlite3` connection (not thread-safe across threads), so the worker pool isn't
-reproduced — the progress header still prints the worker count, but only one
+`--workers` defaults to 8, but fetches run **sequentially** over the single shared
+`sqlite3` connection (not thread-safe across threads), so there is no parallel
+worker pool — the progress header still prints the worker count, but only one
 fetch runs at a time and DB writes go through that one connection. The observable
-contract (Result counts, writes, progress lines) matches Go; only wall-clock
-parallelism differs.
+contract is Result counts, writes, and progress lines; the flag affects only the
+reported count, not wall-clock parallelism.
 
 ## Idempotency
 
