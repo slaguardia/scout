@@ -216,6 +216,26 @@ def mark_outreach_draft_sent(con: sqlite3.Connection, id: int) -> OutreachDraft:
     return _scan_draft(row)
 
 
+def claim_for_send(con: sqlite3.Connection, id: int, from_status: str) -> bool:
+    """Atomically flip a draft to sent from an expected prior status — the Gmail
+    send path's claim against a concurrent double-send. True when this caller won
+    the claim; False when the draft already moved (lost the race / already sent)."""
+    cur = con.execute(
+        "UPDATE outreach_drafts SET status = ?, sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = ? AND status = ?",
+        (DRAFT_SENT, id, from_status),
+    )
+    return cur.rowcount > 0
+
+
+def restore_status(con: sqlite3.Connection, id: int, status: str) -> None:
+    """Revert a claimed-but-failed send back to its prior status (clears sent_at)."""
+    con.execute(
+        "UPDATE outreach_drafts SET status = ?, sent_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (status, id),
+    )
+
+
 def reap_stuck_outreach_drafts(con: sqlite3.Connection, older_than_minutes: int) -> int:
     """Fail any draft stuck in `researching` longer than older_than_minutes
     (0 = all). Returns the number reaped."""

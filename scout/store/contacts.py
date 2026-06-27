@@ -94,6 +94,29 @@ def list_contacts(con: sqlite3.Connection, company_id: str) -> list[Contact]:
     return [_scan_contact(r) for r in rows]
 
 
+def get_contact(con: sqlite3.Connection, id: str) -> Contact | None:
+    """One active contact by id, or None when unknown/archived."""
+    row = con.execute(
+        f"SELECT {_CONTACT_COLS} FROM contacts WHERE id = ? AND archived_at IS NULL", (id,)
+    ).fetchone()
+    return _scan_contact(row) if row is not None else None
+
+
+def find_contact_by_email(con: sqlite3.Connection, email: str) -> Contact | None:
+    """The active contact with this email (case-insensitive), across all companies —
+    the read-sync's outreach-vs-application router keys on it. None when unknown.
+    The newest match wins if (improbably) two companies share an address."""
+    email = email.strip().lower()
+    if email == "":
+        return None
+    row = con.execute(
+        f"SELECT {_CONTACT_COLS} FROM contacts WHERE email = ? AND archived_at IS NULL "
+        f"ORDER BY created_at DESC LIMIT 1",
+        (email,),
+    ).fetchone()
+    return _scan_contact(row) if row is not None else None
+
+
 def create_contact(con: sqlite3.Connection, company_id: str, inp: ContactInput) -> Contact:
     """Add a company contact. Raises NotFound for an unknown company and
     DuplicateContact when an active contact already has that email. An archived
@@ -207,6 +230,11 @@ class OutreachInput:
     note: str = ""
     followup_due_at: str = ""
     no_followup: bool = False
+    # Gmail link (M55): set when the send went out via — or was synced from —
+    # Gmail. The partial unique index on a non-empty gmail_message_id dedupes a
+    # send that the read-poll later sees in the mailbox.
+    gmail_message_id: str = ""
+    gmail_thread_id: str = ""
 
 
 # sent_at is a DATE column; date() normalizes it to a bare ISO date so it
@@ -289,9 +317,11 @@ def log_outreach(
 
     with tx(con):
         cur = con.execute(
-            "INSERT INTO outreach_log (contact_id, posting_id, sent_at, body, note, followup_due_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (contact_id, posting_id, sent, inp.body.strip(), inp.note.strip(), due_val),
+            "INSERT INTO outreach_log "
+            "(contact_id, posting_id, sent_at, body, note, followup_due_at, gmail_message_id, gmail_thread_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (contact_id, posting_id, sent, inp.body.strip(), inp.note.strip(), due_val,
+             inp.gmail_message_id, inp.gmail_thread_id),
         )
         new_id = cur.lastrowid
         con.execute("UPDATE job_postings SET next_up_at = NULL WHERE id = ?", (posting_id,))
@@ -360,3 +390,50 @@ def delete_outreach_entry(con: sqlite3.Connection, id: int) -> None:
     cur = con.execute("DELETE FROM outreach_log WHERE id = ?", (id,))
     if cur.rowcount == 0:
         raise errors.NotFound()
+
+
+@dataclass
+class FollowupDue:
+    log_id: int = 0
+    posting_id: str = ""
+    contact_id: str = ""
+    contact_name: str = ""
+    role: str = ""
+    company: str = ""
+    due_at: str = ""
+
+
+def followups_due(con: sqlite3.Connection) -> list[FollowupDue]:
+    """The active follow-ups that are due/overdue — folded into the notifications
+    panel. Mirrors the jobs-view badge gating exactly: the latest send on its
+    (contact, posting), followup_due_at arrived, and the posting still awaiting a
+    reply (outreach_status blank or the first configured label). Soonest first."""
+    first_status = ""
+    labels = statuses.outreach_statuses(con)
+    if labels:
+        first_status = labels[0]
+    rows = con.execute(
+        """
+        SELECT ol.id, ol.posting_id, ol.contact_id, ol.followup_due_at,
+               COALESCE(ct.name, ''), COALESCE(ct.email, ''),
+               COALESCE(p.title, ''), COALESCE(co.name, '')
+        FROM outreach_log ol
+        JOIN job_postings p ON p.id = ol.posting_id
+        JOIN companies co ON co.id = p.company_id
+        LEFT JOIN contacts ct ON ct.id = ol.contact_id
+        WHERE ol.followup_due_at IS NOT NULL
+          AND ol.followup_due_at <= DATE('now')
+          AND COALESCE(p.outreach_status, '') IN ('', ?)
+          AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
+                       WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)
+        ORDER BY ol.followup_due_at ASC, ol.id ASC
+        """,
+        (first_status,),
+    ).fetchall()
+    return [
+        FollowupDue(
+            log_id=r[0], posting_id=r[1], contact_id=r[2], due_at=r[3],
+            contact_name=r[4] or r[5], role=r[6], company=r[7],
+        )
+        for r in rows
+    ]

@@ -86,6 +86,42 @@ Then in the browser: upload a CSV, run the stages, triage the results. The
 brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
 (criteria fall back to `taste.md`).
 
+## Gmail integration (send + read-sync)
+
+scout can send outreach from your Gmail and auto-sync replies + application status
+back onto the jobs board (a 2.5-min poll). It's scout-local: the Python backend
+owns the OAuth + Gmail calls; the brain isn't involved. See
+[`../plans/gmail-integration.md`](../plans/gmail-integration.md) for the full model.
+
+**One-time Google Cloud setup** (same GCP project as the app's Google SSO):
+
+1. Enable the **Gmail API**.
+2. OAuth consent screen → scopes `gmail.send`, `gmail.readonly`, `openid`, `email`;
+   publish **In production** (stays unverified — this is what keeps tokens non-expiring).
+3. Create an **OAuth client (Web)** with redirect URIs:
+   - prod `https://<scout-domain>/api/gmail/callback`
+   - dev `http://localhost:5173/api/gmail/callback` and `http://localhost:8765/api/gmail/callback`
+
+**Configure scout** — the client id/secret come from the environment (or `.env`),
+DB-over-env like the Anthropic key:
+
+```bash
+export GMAIL_CLIENT_ID=...apps.googleusercontent.com
+export GMAIL_CLIENT_SECRET=...
+# optional: pin the redirect (otherwise derived from the request host)
+# export GMAIL_REDIRECT_URI=https://<scout-domain>/api/gmail/callback
+```
+
+**Connect** — Settings → Integrations → **Gmail → connect** runs the consent flow
+(one "unverified app" click-through, seen once); or `scout gmail auth` runs a
+localhost loopback flow. Then sends go from the **Send via Gmail** button on a
+draft, and the poller (started by `scout serve`, `--gmail-sync-interval`) keeps the
+board current. `scout gmail sync` runs one pass by hand; **Sync now** is in the
+Inbox panel. Application-status auto-update is a Settings toggle (default off —
+scout suggests in the Inbox for one-click apply). Send rides the light `gmail.send`
+scope; if Google ever revokes unverified `gmail.readonly` self-access, the inbound
+board goes dark but **send keeps working**.
+
 ## A CLI pipeline run
 
 The same stages, headless — for automation or debugging.

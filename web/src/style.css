@@ -1023,6 +1023,33 @@
   }
   .draft-actions .btn svg { width: 13px; height: 13px; flex: none; opacity: 0.8; }
   .draft-actions .btn:hover svg, .draft-actions .btn-primary svg { opacity: 1; }
+  /* "Send via Gmail" row (M55): recipient picker + send, under the draft actions. */
+  .draft-gmail-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .draft-gmail-row .draft-gmail-to { flex: 1 1 180px; min-width: 140px; max-width: 320px; }
+  .draft-gmail-row .draft-gmail-btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font-size: 12.5px; }
+  .draft-gmail-row .draft-gmail-btn svg { width: 13px; height: 13px; flex: none; opacity: 0.9; }
+  /* notifications / inbox (M55): the sidebar bell badge + the panel items. */
+  .foot-btn { position: relative; }
+  .notif-badge {
+    margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--accent, #d94c4c); color: #fff; font-size: 11px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+  }
+  .notif-item {
+    display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
+    padding: 10px 12px; border: 1px solid var(--border, #e3e3e3); border-radius: 8px; margin-bottom: 8px;
+  }
+  .notif-item.is-unread { border-color: var(--accent, #d94c4c); background: rgba(217, 76, 76, 0.04); }
+  .notif-main { min-width: 0; flex: 1; cursor: default; }
+  .notif-item.is-unread .notif-main { cursor: pointer; }
+  .notif-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .notif-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent, #d94c4c); flex: none; }
+  .notif-ctx { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+  .notif-detail { font-size: 12px; opacity: 0.85; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+  .notif-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+  .notif-when { font-size: 11px; opacity: 0.6; white-space: nowrap; }
+  .notif-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .notif-acts .notif-link { max-width: 200px; font-size: 12px; }
   /* "skip research" — a quiet opt-out sitting beside the start button. */
   .draft-skip-research {
     display: inline-flex; align-items: center; gap: 5px;

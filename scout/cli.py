@@ -54,6 +54,8 @@ from scout.web.config import (
 # against the brain in the background. The others come from the web Config (one
 # source of truth shared with the serve path).
 DEFAULT_RECONCILE_INTERVAL = 2 * 60.0  # seconds
+# Gmail read-sync poll cadence (the plan's 2.5 minutes).
+DEFAULT_GMAIL_SYNC_INTERVAL = 150.0  # seconds
 
 
 # --- dotenv ------------------------------------------------------------------
@@ -586,8 +588,119 @@ def cmd_serve(args) -> None:
             daemon=True,
         ).start()
 
+    # Background Gmail read-sync poller (M55): pulls replies + application-status
+    # mail every 150s and updates the board. Started unconditionally — the loop
+    # self-gates per pass on a present refresh token, so connecting Gmail from the
+    # UI starts the sync within one interval, no restart. Daemon thread dies with
+    # the process on shutdown (mirrors the criteria reconciler).
+    if args.gmail_sync_interval > 0:
+        from scout.gmail import sync as gmail_sync
+
+        _stderr(f"gmail: background read-sync every {args.gmail_sync_interval}s (when connected)")
+        gstop = threading.Event()
+        threading.Thread(
+            target=gmail_sync.sync_loop,
+            args=(gstop, args.gmail_sync_interval, db_path),
+            kwargs={"anthropic": state.anthropic, "log": _stderr},
+            daemon=True,
+        ).start()
+
     print(f"scout triage UI at http://localhost{args.addr}")
     uvicorn.run(app, host=host, port=port)
+
+
+# --- gmail -------------------------------------------------------------------
+
+
+def cmd_gmail_auth(args) -> None:
+    """Connect a Gmail account via a one-shot localhost loopback OAuth flow: print
+    (and open) the consent URL, capture the redirect on --port, exchange the code,
+    and store the refresh token + address. The loopback redirect
+    (http://localhost:<port>/api/gmail/callback) must be a registered redirect URI
+    on the OAuth client."""
+    import http.server
+    import secrets
+    import urllib.parse
+    import webbrowser
+
+    from scout.gmail import oauth as gmail_oauth
+    from scout.gmail.client import GmailClient
+    from scout.store import gmail as gmail_store
+
+    con = store_db.open_db(args.db)
+    try:
+        redirect = f"http://localhost:{args.port}/api/gmail/callback"
+        cfg = gmail_oauth.load_config(con, redirect_uri=redirect)
+        if not cfg.configured():
+            _stderr("gmail: set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET (env or .env) first")
+            sys.exit(1)
+        state = secrets.token_urlsafe(24)
+        url = gmail_oauth.consent_url(cfg, state)
+
+        holder: dict = {}
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path != "/api/gmail/callback":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                q = urllib.parse.parse_qs(parsed.query)
+                holder["code"] = q.get("code", [""])[0]
+                holder["state"] = q.get("state", [""])[0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<h2>Gmail connected. You can close this tab.</h2>")
+
+            def log_message(self, *a):  # silence the access log
+                pass
+
+        srv = http.server.HTTPServer(("localhost", args.port), _Handler)
+        print(f"opening the Google consent screen; if it doesn't open, visit:\n{url}")
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - headless box: just print the URL
+            pass
+        srv.handle_request()  # serve exactly one request: the OAuth redirect
+        srv.server_close()
+
+        if not holder.get("code") or holder.get("state") != state:
+            _stderr("gmail: OAuth callback missing a code or with a mismatched state — aborted")
+            sys.exit(1)
+        tok = gmail_oauth.exchange_code(cfg, holder["code"])
+        email = tok.email
+        if not email and tok.refresh_token:
+            with GmailClient(cfg, tok.refresh_token, access_token=tok.access_token) as gc:
+                email = gc.get_profile().get("emailAddress", "")
+        gmail_store.store_credentials(con, tok.refresh_token, email)
+        print(f"connected {email or '(unknown address)'}")
+    finally:
+        con.close()
+
+
+def cmd_gmail_sync(args) -> None:
+    """Run one Gmail read-sync pass (the poller does this every 150s when serving)."""
+    from scout import anthropic as anthropic_pkg
+    from scout.gmail import oauth as gmail_oauth
+    from scout.gmail import sync as gmail_sync
+    from scout.store import gmail as gmail_store
+
+    con = store_db.open_db(args.db)
+    try:
+        if not gmail_store.is_connected(con):
+            _stderr("gmail: not connected — run `scout gmail auth` first")
+            sys.exit(1)
+        ac = anthropic_pkg.new("")
+        try:
+            res = gmail_sync.sync_once(con, anthropic=ac, log=_stderr)
+        except gmail_oauth.GmailAuthError as e:
+            _stderr(f"gmail: auth failed — reconnect with `scout gmail auth` ({e})")
+            sys.exit(1)
+        print(" ".join(f"{k}={v}" for k, v in res.items()))
+    finally:
+        con.close()
 
 
 # --- stats -------------------------------------------------------------------
@@ -772,6 +885,19 @@ def build_parser() -> argparse.ArgumentParser:
     sq.set_defaults(func=cmd_questions_detect)
     sp.set_defaults(func=lambda a: _require_sub("questions: want a subcommand: detect"))
 
+    # gmail
+    sp = sub.add_parser("gmail", help="connect a Gmail account; run a read-sync pass")
+    gsub = sp.add_subparsers(dest="gmail_cmd", metavar="<subcommand>")
+    ga = gsub.add_parser("auth", help="connect a Gmail account via a localhost loopback OAuth flow")
+    ga.add_argument("--db", default="scout.db", help="sqlite path")
+    ga.add_argument("--port", type=int, default=8765,
+                    help="loopback port for the OAuth redirect (must be a registered redirect URI)")
+    ga.set_defaults(func=cmd_gmail_auth)
+    gs = gsub.add_parser("sync", help="run one Gmail read-sync pass")
+    gs.add_argument("--db", default="scout.db", help="sqlite path")
+    gs.set_defaults(func=cmd_gmail_sync)
+    sp.set_defaults(func=lambda a: _require_sub("gmail: want a subcommand: auth | sync"))
+
     # serve
     sp = sub.add_parser("serve", help="web control surface + triage UI")
     sp.add_argument("--db", default="scout.db", help="sqlite path")
@@ -794,6 +920,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=parse_duration,
         default=DEFAULT_RECONCILE_INTERVAL,
         help="background interval to reconcile the cached brief; 0 disables",
+    )
+    sp.add_argument(
+        "--gmail-sync-interval",
+        type=parse_duration,
+        default=DEFAULT_GMAIL_SYNC_INTERVAL,
+        help="background interval to poll Gmail for replies + application mail; 0 disables",
     )
     sp.add_argument(
         "--distill-model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller"
