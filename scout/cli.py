@@ -52,6 +52,8 @@ from scout.web.config import (
 # cached brief against the brain in the background. The others come from the web
 # Config (one source of truth shared with the serve path).
 DEFAULT_RECONCILE_INTERVAL = 2 * 60.0  # seconds
+# Gmail read-sync poll cadence (the plan's 2.5 minutes).
+DEFAULT_GMAIL_SYNC_INTERVAL = 150.0  # seconds
 
 
 # --- dotenv (port of cmd/scout/dotenv.go) ------------------------------------
@@ -577,6 +579,23 @@ def cmd_serve(args) -> None:
             daemon=True,
         ).start()
 
+    # Background Gmail read-sync poller (M55): pulls replies + application-status
+    # mail every 150s and updates the board. Started unconditionally — the loop
+    # self-gates per pass on a present refresh token, so connecting Gmail from the
+    # UI starts the sync within one interval, no restart. Daemon thread dies with
+    # the process on shutdown (mirrors the criteria reconciler).
+    if args.gmail_sync_interval > 0:
+        from scout.gmail import sync as gmail_sync
+
+        _stderr(f"gmail: background read-sync every {args.gmail_sync_interval}s (when connected)")
+        gstop = threading.Event()
+        threading.Thread(
+            target=gmail_sync.sync_loop,
+            args=(gstop, args.gmail_sync_interval, db_path),
+            kwargs={"anthropic": state.anthropic, "log": _stderr},
+            daemon=True,
+        ).start()
+
     print(f"scout triage UI at http://localhost{args.addr}")
     uvicorn.run(app, host=host, port=port)
 
@@ -648,6 +667,29 @@ def cmd_gmail_auth(args) -> None:
                 email = gc.get_profile().get("emailAddress", "")
         gmail_store.store_credentials(con, tok.refresh_token, email)
         print(f"connected {email or '(unknown address)'}")
+    finally:
+        con.close()
+
+
+def cmd_gmail_sync(args) -> None:
+    """Run one Gmail read-sync pass (the poller does this every 150s when serving)."""
+    from scout import anthropic as anthropic_pkg
+    from scout.gmail import oauth as gmail_oauth
+    from scout.gmail import sync as gmail_sync
+    from scout.store import gmail as gmail_store
+
+    con = store_db.open_db(args.db)
+    try:
+        if not gmail_store.is_connected(con):
+            _stderr("gmail: not connected — run `scout gmail auth` first")
+            sys.exit(1)
+        ac = anthropic_pkg.new("")
+        try:
+            res = gmail_sync.sync_once(con, anthropic=ac, log=_stderr)
+        except gmail_oauth.GmailAuthError as e:
+            _stderr(f"gmail: auth failed — reconnect with `scout gmail auth` ({e})")
+            sys.exit(1)
+        print(" ".join(f"{k}={v}" for k, v in res.items()))
     finally:
         con.close()
 
@@ -819,6 +861,9 @@ def build_parser() -> argparse.ArgumentParser:
     ga.add_argument("--port", type=int, default=8765,
                     help="loopback port for the OAuth redirect (must be a registered redirect URI)")
     ga.set_defaults(func=cmd_gmail_auth)
+    gs = gsub.add_parser("sync", help="run one Gmail read-sync pass")
+    gs.add_argument("--db", default="scout.db", help="sqlite path")
+    gs.set_defaults(func=cmd_gmail_sync)
     sp.set_defaults(func=lambda a: _require_sub("gmail: want a subcommand: auth | sync"))
 
     # serve
@@ -832,6 +877,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="reuse a cached brain profile for this long before refetching")
     sp.add_argument("--reconcile-interval", type=parse_duration, default=DEFAULT_RECONCILE_INTERVAL,
                     help="background interval to reconcile the cached brief; 0 disables")
+    sp.add_argument("--gmail-sync-interval", type=parse_duration, default=DEFAULT_GMAIL_SYNC_INTERVAL,
+                    help="background interval to poll Gmail for replies + application mail; 0 disables")
     sp.add_argument("--distill-model", default=DEFAULT_DISTILL_MODEL, help="Anthropic model for the distiller")
     sp.add_argument("--outreach-model", default=DEFAULT_OUTREACH_MODEL,
                     help="Anthropic model for the outreach pipeline")

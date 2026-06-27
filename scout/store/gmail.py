@@ -154,9 +154,19 @@ def _scan_gmail_message(row) -> GmailMessage:
 
 
 def message_exists(con: sqlite3.Connection, message_id: str) -> bool:
-    """Whether a Gmail message id has already been synced (idempotent poll)."""
+    """Whether a Gmail message id has already been synced as inbound (idempotent poll)."""
     return con.execute(
         "SELECT 1 FROM gmail_messages WHERE id = ?", (message_id,)
+    ).fetchone() is not None
+
+
+def outreach_log_has_message(con: sqlite3.Connection, message_id: str) -> bool:
+    """Whether a logged send already carries this Gmail message id — so our own
+    sends (and re-seen mailbox messages) aren't double-logged by the poller."""
+    if not message_id:
+        return False
+    return con.execute(
+        "SELECT 1 FROM outreach_log WHERE gmail_message_id = ?", (message_id,)
     ).fetchone() is not None
 
 

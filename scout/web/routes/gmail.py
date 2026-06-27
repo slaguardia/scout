@@ -8,12 +8,14 @@ existing oauth2-proxy session (the user is already signed in) — no edge change
 from __future__ import annotations
 
 import secrets
+import sys
 
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import RedirectResponse, Response
 
 from scout.gmail import message as gmail_message
 from scout.gmail import oauth
+from scout.gmail import sync as gmail_sync
 from scout.gmail.client import GmailClient, GmailError
 from scout.outreach import template as outreach_template
 from scout.store import (
@@ -24,7 +26,7 @@ from scout.store import (
     postings as postings_store,
 )
 
-from ..deps import get_db
+from ..deps import AppState, get_db, get_state
 from ..responses import json_error, json_response
 from .core import _s, decode_json, raw_body
 
@@ -116,6 +118,23 @@ def gmail_disconnect(con=Depends(get_db)) -> Response:
     synced data stays local. The OAuth client config + autoflip pref are kept."""
     gmail_store.clear_credentials(con)
     return json_response({"connected": False, "email": ""})
+
+
+@router.post("/api/gmail/sync")
+def gmail_sync_now(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+    """Run one read-sync pass on demand ("Sync now"). The 2.5-min poller does this
+    on a schedule; this is the manual trigger."""
+    if not gmail_store.is_connected(con):
+        return json_error("connect Gmail first", 412)
+    try:
+        res = gmail_sync.sync_once(
+            con, anthropic=state.anthropic, log=lambda m: print(m, file=sys.stderr)
+        )
+    except oauth.GmailAuthError as e:
+        return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
+    except GmailError as e:
+        return json_error(f"Gmail sync failed: {e}", 502)
+    return json_response(res)
 
 
 # --- send a draft via Gmail (slice 2) ----------------------------------------

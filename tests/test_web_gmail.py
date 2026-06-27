@@ -90,6 +90,27 @@ def test_callback_rejects_bad_state(tmp_path, monkeypatch):
     con.close()
 
 
+def test_sync_now_requires_connection(tmp_path, monkeypatch):
+    _clear_oauth_env(monkeypatch)
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    assert client.post("/api/gmail/sync").status_code == 412
+
+
+def test_sync_now_runs_a_pass(tmp_path, monkeypatch):
+    from gmail_fakes import FakeGmail, oauth_env
+
+    fg = FakeGmail(profile_history_id="700")  # no cursor yet → bootstrap pass
+    with http_server(fg.handle) as base:
+        oauth_env(monkeypatch, base)
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        con = open_db(db_path)
+        gmail_store.store_credentials(con, "rt", "me@gmail.com")
+        con.close()
+        r = client.post("/api/gmail/sync")
+    assert r.status_code == 200, r.text
+    assert r.json().get("bootstrapped") is True
+
+
 def test_disconnect_clears(tmp_path, monkeypatch):
     _clear_oauth_env(monkeypatch)
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)

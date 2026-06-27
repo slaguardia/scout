@@ -93,6 +93,21 @@ def get_contact(con: sqlite3.Connection, id: str) -> Contact | None:
     return _scan_contact(row) if row is not None else None
 
 
+def find_contact_by_email(con: sqlite3.Connection, email: str) -> Contact | None:
+    """The active contact with this email (case-insensitive), across all companies —
+    the read-sync's outreach-vs-application router keys on it. None when unknown.
+    The newest match wins if (improbably) two companies share an address."""
+    email = email.strip().lower()
+    if email == "":
+        return None
+    row = con.execute(
+        f"SELECT {_CONTACT_COLS} FROM contacts WHERE email = ? AND archived_at IS NULL "
+        f"ORDER BY created_at DESC LIMIT 1",
+        (email,),
+    ).fetchone()
+    return _scan_contact(row) if row is not None else None
+
+
 def create_contact(con: sqlite3.Connection, company_id: str, inp: ContactInput) -> Contact:
     """Add a company contact. Raises NotFound for an unknown company and
     DuplicateContact when an active contact already has that email. An archived
