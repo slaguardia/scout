@@ -203,6 +203,19 @@ def update_posting_tracking(con: sqlite3.Connection, id: str, t: PostingTracking
     return _read_posting(con, id)
 
 
+def set_application_status(con: sqlite3.Connection, id: str, status: str) -> Posting:
+    """Set ONLY a posting's application_status (the Gmail application-stream auto-flip
+    + the notification one-click apply use this, leaving outreach_status/notes
+    untouched). Raises NotFound for an unknown posting; a bad label → ValueError."""
+    application_status = _clean_status_label("application_status", status)
+    cur = con.execute(
+        "UPDATE job_postings SET application_status = ? WHERE id = ?", (application_status, id)
+    )
+    if cur.rowcount == 0:
+        raise errors.NotFound()
+    return _read_posting(con, id)
+
+
 @dataclass
 class PostingEdit:
     title: str = ""

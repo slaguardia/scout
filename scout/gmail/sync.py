@@ -12,6 +12,7 @@ from typing import Callable
 
 from scout.store import contacts as contacts_store
 from scout.store import gmail as gmail_store
+from scout.store import postings as postings_store
 from scout.store import statuses as statuses_store
 from scout.store.db import connect
 
@@ -91,10 +92,61 @@ def _handle_outreach(con, routed: match.Routed, log: Callable[[str], None]) -> N
         log(f"gmail: synced an outbound send to {contact.email} on posting {posting_id}")
 
 
-def _handle_application(con, routed: match.Routed, anthropic, model: str, log) -> bool:
-    """Application stream — implemented in slice 4 (classify.py). Dropped here; the
-    return value reports whether it acted (False = nothing tracked yet)."""
-    return False
+def _handle_application(con, routed: match.Routed, anthropic_client, model: str, log) -> bool:
+    """Application stream: classify the email (Haiku) into an application stage,
+    match it to a posting, then either auto-set the status (autoflip on + a
+    confident match) or write a one-click 'suggested' notification. Returns whether
+    it acted. A missing/keyless Anthropic client drops the message (board dark)."""
+    if anthropic_client is None or not anthropic_client.has_key():
+        return False
+    from . import classify
+
+    parsed = routed.parsed
+    labels = statuses_store.application_stages(con)
+    try:
+        label, conf = classify.classify_application(anthropic_client, model, parsed.subject, parsed.body, labels)
+    except Exception as e:  # noqa: BLE001 - a classifier failure must not sink the pass
+        log(f"gmail: application classify failed: {e}")
+        return False
+    if not label:
+        return False
+
+    posting_id = classify.match_application(con, parsed)
+    gmail_store.upsert_gmail_message(
+        con,
+        gmail_store.GmailMessage(
+            id=parsed.id, thread_id=parsed.thread_id, posting_id=posting_id, contact_id="",
+            from_email=parsed.from_email, subject=parsed.subject, snippet=parsed.snippet,
+            body=parsed.body, internal_date=parsed.internal_date,
+        ),
+    )
+
+    auto = gmail_store.autoflip(con) and bool(posting_id) and conf >= classify.AUTOFLIP_CONF_THRESHOLD
+    if auto:
+        try:
+            postings_store.set_application_status(con, posting_id, label)
+        except Exception as e:  # noqa: BLE001 - log + still leave the trail notification
+            log(f"gmail: set application_status failed: {e}")
+        gmail_store.add_notification(
+            con,
+            gmail_store.Notification(
+                kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                title=f"Application status → {label}", detail=parsed.subject or parsed.snippet,
+                suggested_status="",  # FYI: already applied, no pending action
+            ),
+        )
+        log(f"gmail: auto-set application_status={label} on posting {posting_id}")
+    else:
+        gmail_store.add_notification(
+            con,
+            gmail_store.Notification(
+                kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                title=f"Suggested status: {label}", detail=parsed.subject or parsed.snippet,
+                suggested_status=label,
+            ),
+        )
+        log(f"gmail: suggested application_status={label} for posting {posting_id or '(unlinked)'}")
+    return True
 
 
 def _collect_history(gc, cursor: str):
