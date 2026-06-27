@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from httpstub import http_server
+
 from scout.gmail import oauth
 from scout.gmail.client import GmailClient, HistoryExpired
 

@@ -6,8 +6,8 @@ import json
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-
 from httpstub import http_server
+
 from scout.gmail import oauth
 
 

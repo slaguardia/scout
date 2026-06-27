@@ -8,12 +8,13 @@ tracked company/ATS (application) are stored; the general inbox is never ingeste
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from scout.store import contacts as contacts_store
 from scout.store import gmail as gmail_store
 from scout.store import postings as postings_store
 from scout.store import statuses as statuses_store
+from scout.store._helpers import tx
 from scout.store.db import connect
 
 from . import match, oauth
@@ -33,7 +34,10 @@ def replied_label(labels: list[str]) -> str:
     for label in labels:
         if label.strip().lower() == "replied":
             return label
-    return labels[2] if len(labels) > 2 else ""
+    # No literal "replied" in a customized vocabulary → don't guess a positional
+    # label (writing a wrong status is worse than not flipping); the reply still
+    # gets its message row + notification, just no auto status change.
+    return ""
 
 
 def _flip_to_replied(con, posting_id: str) -> None:
@@ -58,24 +62,28 @@ def _handle_outreach(con, routed: match.Routed, log: Callable[[str], None]) -> N
     posting_id = match.resolve_posting(con, contact.company_id, parsed)
 
     if routed.direction == match.DIRECTION_INBOUND:
-        gmail_store.upsert_gmail_message(
-            con,
-            gmail_store.GmailMessage(
-                id=parsed.id, thread_id=parsed.thread_id, posting_id=posting_id, contact_id=contact.id,
-                from_email=parsed.from_email, subject=parsed.subject, snippet=parsed.snippet,
-                body=parsed.body, internal_date=parsed.internal_date,
-            ),
-        )
-        if posting_id:
-            _flip_to_replied(con, posting_id)
         who = contact.name or contact.email or parsed.from_email
-        gmail_store.add_notification(
-            con,
-            gmail_store.Notification(
-                kind=gmail_store.NOTIF_REPLY, posting_id=posting_id, gmail_message_id=parsed.id,
-                title=f"Reply from {who}", detail=parsed.subject or parsed.snippet,
-            ),
-        )
+        # One transaction so the message row (the dedupe key) and its reply
+        # notification commit together — a notification failure can't leave the
+        # message deduped-out with no alert.
+        with tx(con):
+            gmail_store.upsert_gmail_message(
+                con,
+                gmail_store.GmailMessage(
+                    id=parsed.id, thread_id=parsed.thread_id, posting_id=posting_id, contact_id=contact.id,
+                    from_email=parsed.from_email, subject=parsed.subject, snippet=parsed.snippet,
+                    body=parsed.body, internal_date=parsed.internal_date,
+                ),
+            )
+            if posting_id:
+                _flip_to_replied(con, posting_id)
+            gmail_store.add_notification(
+                con,
+                gmail_store.Notification(
+                    kind=gmail_store.NOTIF_REPLY, posting_id=posting_id, gmail_message_id=parsed.id,
+                    title=f"Reply from {who}", detail=parsed.subject or parsed.snippet,
+                ),
+            )
         log(f"gmail: reply from {who} on posting {posting_id or '(unlinked)'}")
     else:
         # An outbound send we made from Spark (not via scout): log it so tracking +
@@ -112,39 +120,48 @@ def _handle_application(con, routed: match.Routed, anthropic_client, model: str,
         return False
 
     posting_id = classify.match_application(con, parsed)
-    gmail_store.upsert_gmail_message(
-        con,
-        gmail_store.GmailMessage(
-            id=parsed.id, thread_id=parsed.thread_id, posting_id=posting_id, contact_id="",
-            from_email=parsed.from_email, subject=parsed.subject, snippet=parsed.snippet,
-            body=parsed.body, internal_date=parsed.internal_date,
-        ),
-    )
+    want_auto = gmail_store.autoflip(con) and bool(posting_id) and conf >= classify.AUTOFLIP_CONF_THRESHOLD
 
-    auto = gmail_store.autoflip(con) and bool(posting_id) and conf >= classify.AUTOFLIP_CONF_THRESHOLD
-    if auto:
-        try:
-            postings_store.set_application_status(con, posting_id, label)
-        except Exception as e:  # noqa: BLE001 - log + still leave the trail notification
-            log(f"gmail: set application_status failed: {e}")
-        gmail_store.add_notification(
+    # Message row + status change + notification commit together (the dedupe key and
+    # the alert can't diverge). A failed auto-apply falls back to a suggestion so the
+    # user can still act, rather than an "already applied" message that misleads.
+    applied = False
+    with tx(con):
+        gmail_store.upsert_gmail_message(
             con,
-            gmail_store.Notification(
-                kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
-                title=f"Application status → {label}", detail=parsed.subject or parsed.snippet,
-                suggested_status="",  # FYI: already applied, no pending action
+            gmail_store.GmailMessage(
+                id=parsed.id, thread_id=parsed.thread_id, posting_id=posting_id, contact_id="",
+                from_email=parsed.from_email, subject=parsed.subject, snippet=parsed.snippet,
+                body=parsed.body, internal_date=parsed.internal_date,
             ),
         )
+        if want_auto:
+            try:
+                postings_store.set_application_status(con, posting_id, label)
+                applied = True
+            except Exception as e:  # noqa: BLE001 - fall back to a suggestion below
+                log(f"gmail: set application_status failed: {e}")
+        if applied:
+            gmail_store.add_notification(
+                con,
+                gmail_store.Notification(
+                    kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                    title=f"Application status → {label}", detail=parsed.subject or parsed.snippet,
+                    suggested_status="",  # FYI: already applied, no pending action
+                ),
+            )
+        else:
+            gmail_store.add_notification(
+                con,
+                gmail_store.Notification(
+                    kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                    title=f"Suggested status: {label}", detail=parsed.subject or parsed.snippet,
+                    suggested_status=label,
+                ),
+            )
+    if applied:
         log(f"gmail: auto-set application_status={label} on posting {posting_id}")
     else:
-        gmail_store.add_notification(
-            con,
-            gmail_store.Notification(
-                kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
-                title=f"Suggested status: {label}", detail=parsed.subject or parsed.snippet,
-                suggested_status=label,
-            ),
-        )
         log(f"gmail: suggested application_status={label} for posting {posting_id or '(unlinked)'}")
     return True
 

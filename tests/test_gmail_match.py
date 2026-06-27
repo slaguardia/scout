@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from gmail_fakes import gmail_message
+
 from scout.gmail import match
 from scout.store import contacts, postings
 from scout.store.companies import Company, upsert_company
@@ -82,3 +83,61 @@ def test_match_role_prefers_longest_title(db):
     p2 = postings.add_posting(db, cid, "https://acme.com/j2", "Senior Software Engineer")
     ps = postings.list_postings(db, cid)
     assert match.match_role_in_text(ps, "about the Senior Software Engineer position") == p2.id
+
+
+def test_match_role_word_boundary(db):
+    cid, p, c = _seed(db)  # "Software Engineer"
+    ps = postings.list_postings(db, cid)
+    # "engineering" must not satisfy the "engineer" phrase (boundary on both sides).
+    assert match.match_role_in_text(ps, "software engineering update") == ""
+    assert match.match_role_in_text(ps, "the Software Engineer role") == p.id
+
+
+def _b64(s):
+    import base64
+
+    return base64.urlsafe_b64encode(s.encode()).decode().rstrip("=")
+
+
+def test_extract_prefers_plain_over_html():
+    full = {"id": "m", "threadId": "t", "internalDate": "1", "payload": {
+        "mimeType": "multipart/alternative",
+        "headers": [{"name": "From", "value": "a@b.com"}, {"name": "To", "value": "me@gmail.com"}],
+        "parts": [
+            {"mimeType": "text/html", "body": {"data": _b64("<p>HTML body</p>")}},
+            {"mimeType": "text/plain", "body": {"data": _b64("Plain body")}},
+        ],
+    }}
+    assert match.parse_message(full).body == "Plain body"
+
+
+def test_extract_skips_attachment_part():
+    full = {"id": "m", "threadId": "t", "internalDate": "1", "payload": {
+        "mimeType": "multipart/mixed",
+        "headers": [{"name": "From", "value": "a@b.com"}],
+        "parts": [
+            {"mimeType": "text/plain",
+             "headers": [{"name": "Content-Disposition", "value": "attachment; filename=a.txt"}],
+             "body": {"data": _b64("ATTACHMENT")}},
+            {"mimeType": "text/plain", "body": {"data": _b64("Real body")}},
+        ],
+    }}
+    assert match.parse_message(full).body == "Real body"
+
+
+def test_route_outbound_matches_cc_contact(db):
+    _seed(db)  # contact pat@acme.com
+    full = {"id": "m", "threadId": "t", "internalDate": "1", "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+            {"name": "From", "value": "me@gmail.com"},
+            {"name": "To", "value": "someone-else@x.com"},
+            {"name": "Cc", "value": "Pat <pat@acme.com>"},
+        ],
+        "body": {"data": _b64("hi")},
+    }}
+    parsed = match.parse_message(full)
+    assert parsed.cc_emails == ["pat@acme.com"]
+    r = match.route_message(db, parsed, "me@gmail.com")
+    assert r.stream == match.STREAM_OUTREACH and r.direction == match.DIRECTION_OUTBOUND
+    assert r.contact.email == "pat@acme.com"

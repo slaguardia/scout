@@ -14,8 +14,9 @@ unlinked — the notifications panel's "link to role" control covers it.
 from __future__ import annotations
 
 import base64
+import re
 from dataclasses import dataclass, field
-from email.utils import parseaddr
+from email.utils import getaddresses
 
 from scout.store import contacts as contacts_store
 from scout.store import gmail as gmail_store
@@ -35,6 +36,7 @@ class ParsedMessage:
     thread_id: str = ""
     from_email: str = ""
     to_emails: list[str] = field(default_factory=list)
+    cc_emails: list[str] = field(default_factory=list)
     subject: str = ""
     snippet: str = ""
     body: str = ""
@@ -60,23 +62,33 @@ def _decode_b64(data: str) -> str:
         return ""
 
 
-def _extract_text(payload: dict) -> str:
-    """Best plain-text body from a messages.get payload: prefer text/plain, recurse
-    into multipart parts, fall back to the first text/* found."""
+def _disposition(payload: dict) -> str:
+    for h in payload.get("headers", []) or []:
+        if str(h.get("name", "")).lower() == "content-disposition":
+            return str(h.get("value", "") or "").split(";")[0].strip().lower()
+    return ""
+
+
+def _find_body(payload: dict, want: str) -> str:
+    """First body part of mime type `want` in the tree, skipping attachments."""
+    if _disposition(payload) == "attachment":
+        return ""
     mime = payload.get("mimeType", "") or ""
     body = payload.get("body", {}) or {}
-    if mime == "text/plain" and body.get("data"):
+    if mime == want and body.get("data"):
         return _decode_b64(body["data"])
-    parts = payload.get("parts") or []
-    # First pass: a text/plain part anywhere in the tree.
-    for p in parts:
-        t = _extract_text(p)
+    for p in payload.get("parts") or []:
+        t = _find_body(p, want)
         if t:
             return t
-    # Fallback: a top-level text/html body (decoded but not stripped).
-    if mime.startswith("text/") and body.get("data"):
-        return _decode_b64(body["data"])
     return ""
+
+
+def _extract_text(payload: dict) -> str:
+    """The message body: a real text/plain part wins anywhere in the tree; only when
+    there is none do we fall back to text/html (decoded, not stripped). Attachments
+    (a .txt/.csv part) are never returned as the body."""
+    return _find_body(payload, "text/plain") or _find_body(payload, "text/html")
 
 
 def _headers(payload: dict) -> dict:
@@ -86,15 +98,23 @@ def _headers(payload: dict) -> dict:
     return out
 
 
+def _addrs(raw: str) -> list[str]:
+    """Every email address in a recipient header, lowercased (handles commas inside
+    display names via getaddresses)."""
+    return [a.strip().lower() for _, a in getaddresses([raw or ""]) if a.strip()]
+
+
 def _addr(raw: str) -> str:
-    return parseaddr(raw)[1].strip().lower()
+    addrs = _addrs(raw)
+    return addrs[0] if addrs else ""
 
 
 def parse_message(full: dict) -> ParsedMessage:
     """Flatten a messages.get(full) response into the fields routing needs."""
     payload = full.get("payload", {}) or {}
     hdrs = _headers(payload)
-    to_emails = [a for a in (_addr(x) for x in hdrs.get("to", "").split(",")) if a]
+    to_emails = _addrs(hdrs.get("to", ""))
+    cc_emails = _addrs(hdrs.get("cc", ""))
     body = _extract_text(payload) or full.get("snippet", "") or ""
     try:
         internal = int(full.get("internalDate", 0) or 0)
@@ -105,6 +125,7 @@ def parse_message(full: dict) -> ParsedMessage:
         thread_id=full.get("threadId", "") or "",
         from_email=_addr(hdrs.get("from", "")),
         to_emails=to_emails,
+        cc_emails=cc_emails,
         subject=hdrs.get("subject", ""),
         snippet=full.get("snippet", "") or "",
         body=body,
@@ -114,25 +135,29 @@ def parse_message(full: dict) -> ParsedMessage:
 
 def route_message(con, parsed: ParsedMessage, our_address: str) -> Routed:
     """Decide the stream + counterparty. Our own address as the sender means an
-    outbound send; otherwise inbound. The counterparty (recipient if outbound, the
-    sender if inbound) is matched against the contacts table."""
+    outbound send; otherwise inbound. For an outbound message, EVERY recipient
+    (To + Cc) is checked against contacts so a recruiter who is cc'd (or not the
+    first To) still routes to the outreach stream; for inbound, the sender is."""
     our = (our_address or "").strip().lower()
     outbound = bool(our) and parsed.from_email == our
     if outbound:
-        counterparty = parsed.to_emails[0] if parsed.to_emails else ""
         direction = DIRECTION_OUTBOUND
-    else:
-        counterparty = parsed.from_email
-        direction = DIRECTION_INBOUND
+        counterparty = parsed.to_emails[0] if parsed.to_emails else ""
+        for addr in parsed.to_emails + parsed.cc_emails:
+            contact = contacts_store.find_contact_by_email(con, addr)
+            if contact is not None:
+                return Routed(STREAM_OUTREACH, parsed, contact=contact, direction=direction, counterparty=addr)
+        # An outbound message to no tracked contact isn't something we track.
+        return Routed(STREAM_DROP, parsed, direction=direction, counterparty=counterparty)
 
+    direction = DIRECTION_INBOUND
+    counterparty = parsed.from_email
     contact = contacts_store.find_contact_by_email(con, counterparty) if counterparty else None
     if contact is not None:
         return Routed(STREAM_OUTREACH, parsed, contact=contact, direction=direction, counterparty=counterparty)
-
-    # Non-contact: only an INBOUND message is an application-stream candidate; an
-    # outbound message to a stranger isn't something we track.
-    if not outbound and parsed.from_email:
-        return Routed(STREAM_APPLICATION, parsed, direction=DIRECTION_INBOUND, counterparty=parsed.from_email)
+    # An inbound message from a non-contact is an application-stream candidate.
+    if parsed.from_email:
+        return Routed(STREAM_APPLICATION, parsed, direction=direction, counterparty=parsed.from_email)
     return Routed(STREAM_DROP, parsed, direction=direction, counterparty=counterparty)
 
 
@@ -140,14 +165,23 @@ def _norm(s: str) -> str:
     return " ".join(s.lower().split())
 
 
+def contains_phrase(hay: str, needle: str) -> bool:
+    """Whether `needle` occurs in `hay` (both pre-normalized to lowercase,
+    single-spaced) delimited by non-alphanumerics — so a short name like "On"
+    doesn't match inside "constellation"."""
+    if not needle:
+        return False
+    return re.search(rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])", hay) is not None
+
+
 def match_role_in_text(postings: list, text: str) -> str:
-    """The posting whose title appears verbatim (normalized) in the email text —
+    """The posting whose title appears (as a delimited phrase) in the email text —
     longest title first so "Senior Engineer" beats "Engineer". "" on no match."""
     hay = _norm(text)
     best_id, best_len = "", 0
     for p in postings:
         title = _norm(p.title)
-        if title and len(title) > best_len and title in hay:
+        if title and len(title) > best_len and contains_phrase(hay, title):
             best_id, best_len = p.id, len(title)
     return best_id
 

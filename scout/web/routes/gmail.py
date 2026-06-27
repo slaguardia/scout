@@ -20,10 +20,16 @@ from scout.gmail.client import GmailClient, GmailError
 from scout.outreach import template as outreach_template
 from scout.store import (
     contacts,
-    detail as detail_store,
     errors,
-    gmail as gmail_store,
     outreach_drafts,
+)
+from scout.store import (
+    detail as detail_store,
+)
+from scout.store import (
+    gmail as gmail_store,
+)
+from scout.store import (
     postings as postings_store,
 )
 
@@ -110,7 +116,10 @@ def gmail_callback(
             email = ""
 
     gmail_store.store_credentials(con, tok.refresh_token, email)
-    return RedirectResponse("/?gmail=connected", status_code=303)
+    # Only report "connected" if a refresh token actually persisted (store_credentials
+    # skips a blank refresh), so the banner never claims a link that isn't established.
+    outcome = "connected" if gmail_store.is_connected(con) else "error"
+    return RedirectResponse(f"/?gmail={outcome}", status_code=303)
 
 
 @router.delete("/api/gmail/disconnect")
@@ -191,6 +200,11 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
         return json_error("contact not found", 404)
     if not contact.email:
         return json_error("that contact has no email address", 400)
+    # The recipient must belong to this posting's company — otherwise we'd send to
+    # the wrong company AND log_outreach (which re-validates) would raise after the
+    # mail already went out.
+    if contact.company_id != posting.company_id:
+        return json_error("that contact belongs to a different company", 400)
 
     draft_text = d.edited if d.edited.strip() else d.draft
     if draft_text.strip() == "":
@@ -207,6 +221,11 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     from_addr = gmail_store.address(con)
     refresh = gmail_store.refresh_token(con)
 
+    # Atomically claim the draft (flip to sent) before the network send. A concurrent
+    # duplicate POST loses the claim and 409s, so the email goes out exactly once.
+    if not outreach_drafts.claim_for_send(con, draft_id, d.status):
+        return json_error("draft already sent", 409)
+
     try:
         with GmailClient(cfg, refresh) as gc:
             in_reply_to = ""
@@ -221,8 +240,10 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
             )
             sent = gc.send_message(raw_b64, thread_id=thread_id)
     except oauth.GmailAuthError as e:
+        outreach_drafts.restore_status(con, draft_id, d.status)  # nothing sent — let them retry
         return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
     except GmailError as e:
+        outreach_drafts.restore_status(con, draft_id, d.status)
         return json_error(f"Gmail send failed: {e}", 502)
 
     msg_id = sent.get("id", "") or ""
@@ -233,7 +254,6 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
         contact_id,
         contacts.OutreachInput(body=body_text, gmail_message_id=msg_id, gmail_thread_id=thr),
     )
-    updated = outreach_drafts.mark_outreach_draft_sent(con, draft_id)
     return json_response(
         {
             "sent": True,
@@ -242,7 +262,7 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
             "contact_id": contact_id,
             "to": contact.email,
             "subject": subject,
-            "draft": updated,
+            "draft": outreach_drafts.get_outreach_draft(con, draft_id),
         }
     )
 

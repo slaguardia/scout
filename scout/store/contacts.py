@@ -7,8 +7,8 @@ import datetime
 import sqlite3
 from dataclasses import dataclass
 
-from . import errors, settings, statuses
 from . import companies as companies_mod
+from . import errors, settings, statuses
 from ._helpers import new_uuid, tx
 
 # FollowupIntervalSetting holds the default number of business days after a send

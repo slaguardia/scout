@@ -1,8 +1,10 @@
 """Subject / signature / follow-up-subject editor endpoints + render (slice 6)."""
 from __future__ import annotations
 
-from scout.store import gmail as gmail_store, outreach_template
 from web_helpers import new_test_app, open_db
+
+from scout.store import gmail as gmail_store
+from scout.store import outreach_template
 
 
 def _put(client, path, content):

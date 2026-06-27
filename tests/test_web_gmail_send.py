@@ -5,9 +5,12 @@ import base64
 import json
 
 from httpstub import http_server
-from scout.store import contacts, gmail as gmail_store, outreach_drafts, postings
-from scout.store.contacts import ContactInput, OutreachInput
 from web_helpers import new_test_app, open_db
+
+from scout.store import contacts, outreach_drafts, postings
+from scout.store import gmail as gmail_store
+from scout.store.companies import Company, upsert_company
+from scout.store.contacts import ContactInput, OutreachInput
 
 
 def _oauth_env(monkeypatch, base: str | None = None):
@@ -141,3 +144,41 @@ def test_send_already_sent_returns_409(tmp_path, monkeypatch):
     con.close()
     r = client.post(f"/api/outreach/drafts/{did}/send-gmail", json={"contact_id": contact_id})
     assert r.status_code == 409
+
+
+def test_send_rejects_foreign_contact(tmp_path, monkeypatch):
+    captured: dict = {}
+    with http_server(_stub(captured)) as base:
+        _oauth_env(monkeypatch, base)
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        _cid2, _pid, _contact_id, did = _seed(db_path)
+        con = open_db(db_path)
+        other = upsert_company(con, Company(source="t", name="Other", domain="other.com", raw_json="{}"))
+        oc = contacts.create_contact(con, other, ContactInput(email="x@other.com"))
+        con.close()
+        r = client.post(f"/api/outreach/drafts/{did}/send-gmail", json={"contact_id": oc.id})
+    assert r.status_code == 400
+    assert "send" not in captured  # nothing was sent to the wrong company
+    con = open_db(db_path)
+    assert outreach_drafts.get_outreach_draft(con, did).status != "sent"  # draft not consumed
+    con.close()
+
+
+def test_send_failure_reverts_draft(tmp_path, monkeypatch):
+    def failing(req):
+        if req.path == "/token":
+            return 200, {"Content-Type": "application/json"}, json.dumps({"access_token": "AT"})
+        if req.path.endswith("/messages/send"):
+            return 500, {}, '{"error":"boom"}'
+        return 404, {}, "{}"
+
+    with http_server(failing) as base:
+        _oauth_env(monkeypatch, base)
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        _cid2, _pid, contact_id, did = _seed(db_path)
+        r = client.post(f"/api/outreach/drafts/{did}/send-gmail", json={"contact_id": contact_id})
+    assert r.status_code == 502
+    con = open_db(db_path)
+    # The claimed-but-failed send reverts to the reviewable state so it's retryable.
+    assert outreach_drafts.get_outreach_draft(con, did).status == "awaiting_review"
+    con.close()

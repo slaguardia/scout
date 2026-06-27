@@ -4,6 +4,7 @@ from __future__ import annotations
 from gmail_fakes import gmail_message
 from httpstub import http_server
 from outreach_fakes import FakeAnthropic
+
 from scout import anthropic
 from scout.gmail import classify, match
 from scout.store import postings
@@ -69,3 +70,26 @@ def test_match_application_by_name_for_ats_sender(db):
 def test_match_application_unknown_company_is_empty(db):
     parsed = match.parse_message(gmail_message("a", "x@unknown-co.com", "me@gmail.com", "s", "b"))
     assert classify.match_application(db, parsed) == ""
+
+
+def test_company_name_word_boundary(db):
+    cid = upsert_company(db, Company(source="t", name="Ramp", domain="ramp.example", raw_json="{}"))
+    p = postings.add_posting(db, cid, "https://ramp/j", "Engineer")
+    # "trampoline" contains "ramp" but is not the company — must NOT match.
+    parsed = match.parse_message(
+        gmail_message("a", "no-reply@greenhouse.io", "me@gmail.com", "Re", "there is a trampoline here")
+    )
+    assert classify.match_application(db, parsed) == ""
+    # The actual word "Ramp" matches.
+    parsed2 = match.parse_message(
+        gmail_message("b", "no-reply@greenhouse.io", "me@gmail.com", "Update from Ramp", "Thanks for applying to Ramp")
+    )
+    assert classify.match_application(db, parsed2) == p.id
+
+
+def test_replied_label_does_not_guess():
+    from scout.gmail.sync import replied_label
+
+    assert replied_label(["initial contact", "no response", "replied", "followed up"]) == "replied"
+    # No literal 'replied' in a customized vocab → "" (don't guess a positional label).
+    assert replied_label(["a", "b", "c", "d"]) == ""

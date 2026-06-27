@@ -5,7 +5,8 @@ import sqlite3
 
 import pytest
 
-from scout.store import contacts, gmail as gmail_store, postings
+from scout.store import contacts, postings
+from scout.store import gmail as gmail_store
 from scout.store.companies import Company, upsert_company
 from scout.store.contacts import ContactInput, OutreachInput
 

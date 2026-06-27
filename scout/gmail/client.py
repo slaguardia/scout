@@ -53,7 +53,7 @@ class GmailClient:
         if self._own:
             self.http.close()
 
-    def __enter__(self) -> "GmailClient":
+    def __enter__(self) -> GmailClient:
         return self
 
     def __exit__(self, *exc) -> None:

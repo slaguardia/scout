@@ -28,17 +28,19 @@ import threading
 from datetime import datetime
 from urllib.parse import urlparse
 
-from scout import anthropic
-from scout import brainbot
-from scout import criteria
-from scout import distill
-from scout import enrich
+from scout import (
+    anthropic,
+    brainbot,
+    criteria,
+    distill,
+    enrich,
+    ingest,
+    outreach,
+    playbook,
+    taste,
+    verdict,
+)
 from scout import filter as filter_pkg
-from scout import ingest
-from scout import outreach
-from scout import playbook
-from scout import taste
-from scout import verdict
 from scout.store import db as store_db
 from scout.web.config import (
     DEFAULT_BRAIN_CACHE_TTL,

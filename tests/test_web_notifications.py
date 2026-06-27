@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import datetime
 
-from scout.store import contacts, gmail as gmail_store, postings
-from scout.store.contacts import ContactInput, OutreachInput
 from web_helpers import new_test_app, open_db
+
+from scout.store import contacts, postings
+from scout.store import gmail as gmail_store
+from scout.store.contacts import ContactInput, OutreachInput
 
 
 def _seed_posting(db_path):

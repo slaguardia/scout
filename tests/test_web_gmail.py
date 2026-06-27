@@ -6,8 +6,9 @@ import json
 from urllib.parse import parse_qs, urlparse
 
 from httpstub import http_server
-from scout.store import gmail as gmail_store
 from web_helpers import new_test_app, open_db
+
+from scout.store import gmail as gmail_store
 
 
 def _clear_oauth_env(monkeypatch):
@@ -72,6 +73,30 @@ def test_callback_exchanges_and_stores(tmp_path, monkeypatch):
     assert gmail_store.refresh_token(con) == "rt"
     assert gmail_store.address(con) == "me@gmail.com"
     assert gmail_store.oauth_state(con) == ""  # consumed
+    con.close()
+
+
+def test_callback_without_refresh_token_errors(tmp_path, monkeypatch):
+    _clear_oauth_env(monkeypatch)
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "cid")
+    monkeypatch.setenv("GMAIL_CLIENT_SECRET", "sec")
+    id_token = "h." + base64.urlsafe_b64encode(b'{"email":"me@gmail.com"}').decode().rstrip("=") + ".s"
+
+    def handle(req):
+        # an access-only exchange — no refresh_token issued
+        return 200, {"Content-Type": "application/json"}, json.dumps({"access_token": "at", "id_token": id_token})
+
+    with http_server(handle) as base:
+        monkeypatch.setenv("GMAIL_TOKEN_URL", base + "/token")
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        url = client.get("/api/gmail/connect").json()["auth_url"]
+        state = parse_qs(urlparse(url).query)["state"][0]
+        r = client.get(f"/api/gmail/callback?code=abc&state={state}", follow_redirects=False)
+
+    assert r.status_code == 303
+    assert "gmail=error" in r.headers["location"]
+    con = open_db(db_path)
+    assert not gmail_store.is_connected(con)
     con.close()
 
 

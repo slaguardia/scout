@@ -95,14 +95,15 @@ def _company_by_domain(con, domain: str) -> str:
 
 
 def _company_by_name_in_text(con, text: str) -> str:
-    """A tracked company whose name appears verbatim (normalized) in the email —
+    """A tracked company whose name appears as a delimited phrase in the email —
     the fallback when the sender is an ATS host, not the company's own domain.
-    Longest name wins. "" on no match."""
+    Word-boundary matched so a short name ("On", "Ramp") doesn't hit inside an
+    unrelated word. Longest name wins. "" on no match."""
     hay = " ".join((text or "").lower().split())
     best_id, best_len = "", 0
     for row in con.execute("SELECT id, name FROM companies WHERE name IS NOT NULL AND name != ''"):
         name = " ".join((row[1] or "").lower().split())
-        if name and len(name) > best_len and name in hay:
+        if name and len(name) > best_len and match_mod.contains_phrase(hay, name):
             best_id, best_len = row[0], len(name)
     return best_id
 

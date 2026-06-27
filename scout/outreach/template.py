@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from scout.store import outreach_template
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 from gmail_fakes import FakeGmail, gmail_message, oauth_env
 from httpstub import http_server
 from outreach_fakes import FakeAnthropic
+
 from scout import anthropic
 from scout.gmail import sync
-from scout.store import contacts, gmail as gmail_store, postings
+from scout.store import contacts, postings
+from scout.store import gmail as gmail_store
 from scout.store.companies import Company, upsert_company
 from scout.store.contacts import ContactInput, OutreachInput
 
