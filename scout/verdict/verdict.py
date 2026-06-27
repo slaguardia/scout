@@ -1,22 +1,22 @@
 """Score enriched survivors with the Anthropic API over the current criteria
-brief. Port of internal/verdict/verdict.go.
+brief.
 
 Results are persisted to verdicts. A scored company is sticky: a default run skips
 any company that already has a verdict (criteria or playbook edits do not re-score
 it). Re-scoring is always explicit — a targeted per-company run, or a force run.
 
-Concurrency note: Go's Run fans the scoring out over a goroutine worker pool. This
-port runs sequentially (the single shared sqlite3 connection is not thread-safe);
-the observable contract — Result accounting, the verdict + trace writes, and the
-progress emissions — is identical. Only wall-clock parallelism differs.
+Concurrency note: scoring runs sequentially because the single shared sqlite3
+connection is not thread-safe. Result accounting, the verdict + trace writes, and
+the progress emissions are unaffected — only wall-clock parallelism.
 """
+
 from __future__ import annotations
 
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from scout import anthropic, taste
 from scout.filter import Survivor, Taste
@@ -38,12 +38,12 @@ class Result:
 
 
 class Scorer:
-    """The verdict driver. Attributes mirror Go's Scorer struct."""
+    """The verdict driver."""
 
     def __init__(
         self,
         con=None,
-        taste: "taste.Block | None" = None,
+        taste: taste.Block | None = None,
         filter: Taste | None = None,
         client: anthropic.Client | None = None,
         model: str = "",
@@ -150,18 +150,22 @@ WHERE fetch_status = 'ok' AND company_id IN """,
         out: list[VerdictCandidate] = []
         for r in rows:
             sv = by_id[r[0]]
-            out.append(VerdictCandidate(
-                company_id=r[0],
-                name=sv.name,
-                domain=sv.domain,
-                location=sv.location,
-                vertical=sv.vertical,
-                headcount=sv.headcount,
-                stage=sv.stage,
-                website_summary=r[1],
-            ))
+            out.append(
+                VerdictCandidate(
+                    company_id=r[0],
+                    name=sv.name,
+                    domain=sv.domain,
+                    location=sv.location,
+                    vertical=sv.vertical,
+                    headcount=sv.headcount,
+                    stage=sv.stage,
+                    website_summary=r[1],
+                )
+            )
         if wanted and len(out) < len(ids):
-            self.emit(f"targeted: {len(out)} of {len(ids)} requested companies have an ok enrichment row")
+            self.emit(
+                f"targeted: {len(out)} of {len(ids)} requested companies have an ok enrichment row"
+            )
         return out
 
     def requested_companies(self, id_list: list[str]) -> list[Survivor]:
@@ -176,8 +180,15 @@ FROM companies WHERE id IN """,
         )
         rows = self.con.execute(q, args).fetchall()
         return [
-            Survivor(id=r[0], name=r[1], domain=r[2], location=r[3], vertical=r[4],
-                     headcount=r[5], stage=r[6])
+            Survivor(
+                id=r[0],
+                name=r[1],
+                domain=r[2],
+                location=r[3],
+                vertical=r[4],
+                headcount=r[5],
+                stage=r[6],
+            )
             for r in rows
         ]
 
@@ -185,7 +196,7 @@ FROM companies WHERE id IN """,
         """Score one company. Returns (verdict|None, cache_creation, cache_read,
         err) — None verdict + None err means skipped (already up to date). The
         cache token counts are returned even on a parse/write error so run() can
-        still aggregate them (mirrors the Go signature)."""
+        still aggregate them."""
         # A targeted run always re-scores — the user pointed at this company on
         # purpose, so even a sticky manual verdict is fair game.
         if not self.company_ids and (self.only_blanks or not self.force):
@@ -199,14 +210,16 @@ FROM companies WHERE id IN """,
         user = build_user_prompt(c)
 
         try:
-            resp = self.client.send(anthropic.Request(
-                model=self.model,
-                system=system,
-                max_tokens=256,
-                messages=[anthropic.Message("user", user)],
-                cached=True,  # taste + rubric are identical across all calls in a run
-                timeout=45.0,
-            ))
+            resp = self.client.send(
+                anthropic.Request(
+                    model=self.model,
+                    system=system,
+                    max_tokens=256,
+                    messages=[anthropic.Message("user", user)],
+                    cached=True,  # taste + rubric are identical across all calls in a run
+                    timeout=45.0,
+                )
+            )
         except Exception as e:  # noqa: BLE001 - surface as the run's per-company failure
             return None, 0, 0, e
 

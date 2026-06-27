@@ -1,12 +1,12 @@
 """The control surface: start pipeline stages as jobs, stream/cancel them, report
 the busy stage, and ingest a CSV upload.
 
-Faithful port of internal/web/run.go. The pipeline Runner (scout.jobs.Runner) is a
+The pipeline Runner (scout.jobs.Runner) is a
 one-at-a-time app singleton on AppState; routes 503 when it isn't wired. Each
 background stage opens its OWN sqlite connection inside the worker thread (never
-the request connection). SSE framing matches Go's writeSSE (one collapsed data
-line per event).
+the request connection). SSE framing is one collapsed data line per event.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,8 +17,7 @@ from starlette.responses import Response, StreamingResponse
 
 from scout import enrich as enrich_pkg
 from scout import filter as filter_pkg
-from scout import ingest
-from scout import jobs
+from scout import ingest, jobs
 from scout import verdict as verdict_pkg
 from scout.store.db import connect
 
@@ -51,7 +50,12 @@ def _run_opts(raw: bytes) -> dict:
 
 
 @router.post("/api/run/{stage}")
-def run_stage(stage: str, raw: bytes = Depends(raw_body), state: AppState = Depends(get_state), con=Depends(get_db)) -> Response:
+def run_stage(
+    stage: str,
+    raw: bytes = Depends(raw_body),
+    state: AppState = Depends(get_state),
+    con=Depends(get_db),
+) -> Response:
     if state.runner is None:
         return json_error("control surface disabled", 503)
     opts = _run_opts(raw)
@@ -90,16 +94,22 @@ def _enrich_job(state, db_path, force, only_blanks, company_ids, workers):
         con = connect(db_path)
         try:
             e = enrich_pkg.Enricher(
-                con=con, progress=emit, only_blanks=only_blanks,
-                company_ids=company_ids, workers=_workers_or(workers, 8),
+                con=con,
+                progress=emit,
+                only_blanks=only_blanks,
+                company_ids=company_ids,
+                workers=_workers_or(workers, 8),
             )
             # Fact extraction needs a key; without it enrichment is purely mechanical.
             if state.ensure_anthropic_key(con) != "":
                 e.llm = state.anthropic
             res = e.run(force)
             return {
-                "considered": res.considered, "fetched": res.fetched,
-                "ok": res.ok, "failed": res.failed, "filled": res.filled,
+                "considered": res.considered,
+                "fetched": res.fetched,
+                "ok": res.ok,
+                "failed": res.failed,
+                "filled": res.filled,
             }
         finally:
             con.close()
@@ -120,15 +130,25 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
             if tb is None:
                 raise RuntimeError(f"no taste loaded (check {state.config.taste_md_path})")
             sc = verdict_pkg.Scorer(
-                con=con, taste=tb, filter=ft, client=state.anthropic,
-                playbook=state.current_playbook(), run_id=run_id, force=force,
-                only_blanks=only_blanks, company_ids=company_ids,
-                workers=_workers_or(workers, 10), progress=emit,
+                con=con,
+                taste=tb,
+                filter=ft,
+                client=state.anthropic,
+                playbook=state.current_playbook(),
+                run_id=run_id,
+                force=force,
+                only_blanks=only_blanks,
+                company_ids=company_ids,
+                workers=_workers_or(workers, 10),
+                progress=emit,
             )
             res = sc.run()
             return {
-                "considered": res.considered, "scored": res.scored,
-                "skipped": res.skipped, "failed": res.failed, "by_verdict": res.by_verdict,
+                "considered": res.considered,
+                "scored": res.scored,
+                "skipped": res.skipped,
+                "failed": res.failed,
+                "by_verdict": res.by_verdict,
             }
         finally:
             con.close()
@@ -140,7 +160,7 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
 
 
 def _sse(event: str, data: str) -> bytes:
-    """One SSE message, single collapsed data line (Go's writeSSE)."""
+    """One SSE message, single collapsed data line."""
     data = data.replace("\n", " ")
     return f"event: {event}\ndata: {data}\n\n".encode()
 
@@ -227,12 +247,19 @@ async def ingest_csv(
             )
             for col in res.collision_details:
                 where = col.domain or "no domain"
-                emit(f'warn: collision on {where} — "{col.incoming_name}" overwrote "{col.overwrote_name}"')
+                emit(
+                    f'warn: collision on {where} — "{col.incoming_name}" overwrote "{col.overwrote_name}"'
+                )
             return {
-                "read": res.read, "upserted": res.upserted,
-                "inserted": res.upserted - res.merged, "merged": res.merged,
-                "collisions": res.collisions, "collision_details": res.collision_details,
-                "skipped": res.skipped, "errors": len(res.errors), "filename": filename,
+                "read": res.read,
+                "upserted": res.upserted,
+                "inserted": res.upserted - res.merged,
+                "merged": res.merged,
+                "collisions": res.collisions,
+                "collision_details": res.collision_details,
+                "skipped": res.skipped,
+                "errors": len(res.errors),
+                "filename": filename,
             }
         finally:
             try:

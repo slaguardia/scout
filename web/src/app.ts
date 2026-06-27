@@ -1,18 +1,15 @@
-// scout's UI logic, lifted VERBATIM from the <script> of internal/web/index.html.
-//
-// The original script was a flat module body: function declarations interleaved
-// with top-level `document.getElementById(...).onclick = ...` wiring and a final
-// boot sequence (loadList/loadJobs/loadStats/loadMeta/loadRuns/loadProfile).
-// Wrapping the WHOLE body in initScout() preserves behavior exactly: JS hoists
-// the nested function declarations, and the interleaved wiring + boot calls run
-// in source order AFTER main.ts has injected SCOUT_MARKUP — so every
-// getElementById target exists. The original had no import/export, no
-// DOMContentLoaded/window.onload (only one document-level keydown listener,
-// which still binds to document). All fetch("/api/...") + the SSE
-// EventSource("/api/jobs/{id}/stream") + draft-status polling are untouched.
+// scout's UI logic — a flat vanilla-JS module body: function declarations
+// interleaved with top-level `document.getElementById(...).onclick = ...` wiring
+// and a final boot sequence (loadList/loadJobs/loadStats/loadMeta/loadRuns/
+// loadProfile). The whole body is wrapped in initScout(): JS hoists the nested
+// function declarations, and the interleaved wiring + boot calls run in source
+// order AFTER main.ts has injected SCOUT_MARKUP — so every getElementById target
+// exists. One document-level keydown listener binds to document. All
+// fetch("/api/...") + the SSE EventSource("/api/jobs/{id}/stream") + draft-status
+// polling live here.
 //
 // @ts-nocheck — this is loosely-typed vanilla DOM code; esbuild transpiles it
-// without type-checking. Intentional, to de-risk the faithful port.
+// without type-checking.
 // @ts-nocheck
 
 export function initScout(_root) {
@@ -2703,7 +2700,6 @@ function renderDetail(d) {
       <dt>status</dt><dd class="small">${escapeHTML(d.fetch_status || "")}${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
       <dt>fetched</dt><dd class="small muted">${escapeHTML(d.fetched_at || "")}</dd>
     </dl>
-    ${d.website_summary ? `<div class="summary-box">${escapeHTML(d.website_summary)}</div>` : ""}
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
 
   // Per-company stage actions: targeted runs (company_ids) always re-run, so
@@ -4883,10 +4879,58 @@ function chatBlockTools(content) {
   return (content || []).filter(b => b && b.type === "tool_use").map(b => b.name);
 }
 
+// Minimal markdown → safe HTML for assistant bubbles. Escapes first, then
+// applies a small block + inline subset (fenced code, lists, headings,
+// paragraphs; bold/italic/inline-code/links). Not a full parser — just what
+// chat replies actually use. Safe by construction: every text run is
+// HTML-escaped before we introduce any of our own (known) tags.
+function chatInline(s) {
+  return s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+      (_m, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+function renderMarkdown(src) {
+  const lines = String(src || "").split("\n");
+  const out = [];
+  let list = null;                                  // "ul" | "ol" | null
+  const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {                         // fenced code block
+      closeList(); i++;
+      const buf = [];
+      while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++;                                           // skip closing fence
+      out.push("<pre><code>" + escapeHTML(buf.join("\n")) + "</code></pre>");
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const n = h[1].length; out.push("<h" + n + ">" + chatInline(escapeHTML(h[2])) + "</h" + n + ">"); i++; continue; }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    if (ul) { if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; } out.push("<li>" + chatInline(escapeHTML(ul[1])) + "</li>"); i++; continue; }
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) { if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; } out.push("<li>" + chatInline(escapeHTML(ol[1])) + "</li>"); i++; continue; }
+    if (line.trim() === "") { closeList(); i++; continue; }
+    closeList();                                     // paragraph: gather until a blank/special line
+    const para = [];
+    while (i < lines.length && lines[i].trim() !== "" && !/^```|^#{1,6}\s|^\s*[-*]\s+|^\s*\d+\.\s+/.test(lines[i])) {
+      para.push(chatInline(escapeHTML(lines[i]))); i++;
+    }
+    out.push("<p>" + para.join("<br>") + "</p>");
+  }
+  closeList();
+  return out.join("");
+}
+
 function chatBubbleEl(role, text) {
   const div = document.createElement("div");
   div.className = "chat-msg chat-" + role;
-  div.textContent = text || "";
+  if (role === "assistant") div.innerHTML = renderMarkdown(text || "");
+  else div.textContent = text || "";
   return div;
 }
 

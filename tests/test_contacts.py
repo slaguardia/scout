@@ -1,4 +1,5 @@
-"""Port of internal/store/contacts_test.go."""
+"""Tests for scout.store.contacts."""
+
 import datetime
 
 import pytest
@@ -29,7 +30,9 @@ def test_contacts_and_outreach_log(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
 
-    jane = contacts.create_contact(db, cid, ContactInput(name="Jane", role="Recruiter", email="Jane@Acme.com"))
+    jane = contacts.create_contact(
+        db, cid, ContactInput(name="Jane", role="Recruiter", email="Jane@Acme.com")
+    )
     assert jane.email == "jane@acme.com"
 
     with pytest.raises(ValueError):
@@ -49,7 +52,9 @@ def test_contacts_and_outreach_log(db):
     assert _job_row(db).outreach_count == 2
     assert _job_row(db).followups_due == 1
 
-    contacts.update_outreach_entry(db, e1.id, OutreachEntryEdit(note="intro sent", followup_due_at=past, done=True))
+    contacts.update_outreach_entry(
+        db, e1.id, OutreachEntryEdit(note="intro sent", followup_due_at=past, done=True)
+    )
     assert _job_row(db).followups_due == 0
 
     contacts.log_outreach(db, p.id, jane.id, OutreachInput(sent_at=past, followup_due_at=past))
@@ -134,7 +139,9 @@ def test_followup_alerts_gated_by_status(db):
     postings.update_posting_tracking(db, p.id, PostingTracking(outreach_status="replied"))
     assert due() == 0
 
-    postings.update_posting_tracking(db, p.id, PostingTracking(outreach_status=DEFAULT_OUTREACH_STATUSES[0]))
+    postings.update_posting_tracking(
+        db, p.id, PostingTracking(outreach_status=DEFAULT_OUTREACH_STATUSES[0])
+    )
     assert due() == 1
 
 
@@ -144,7 +151,9 @@ def test_outreach_entry_sent_at_round_trips(db):
     jane = contacts.create_contact(db, cid, ContactInput(email="jane@acme.com"))
     e = contacts.log_outreach(db, p.id, jane.id, OutreachInput())  # sent_at defaults to today
     assert len(e.sent_at) == 10
-    contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(sent_at=e.sent_at, followup_due_at=e.followup_due_at, done=True))
+    contacts.update_outreach_entry(
+        db, e.id, OutreachEntryEdit(sent_at=e.sent_at, followup_due_at=e.followup_due_at, done=True)
+    )
 
 
 def test_followed_up_bumps_last_outreach(db):
@@ -164,7 +173,7 @@ def test_followed_up_bumps_last_outreach(db):
     # Tick "followed up" — last outreach now reflects the follow-up (today, UTC
     # from followup_done_at's CURRENT_TIMESTAMP), not the original send.
     contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(followup_due_at=past, done=True))
-    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
     assert last() == today
 
 
@@ -182,7 +191,9 @@ def test_outreach_escalation(db):
     e = contacts.log_outreach(db, p.id, jane.id, OutreachInput(sent_at=past, followup_due_at=past))
     assert due() == 1
 
-    done = contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(followup_due_at=past, done=True))
+    done = contacts.update_outreach_entry(
+        db, e.id, OutreachEntryEdit(followup_due_at=past, done=True)
+    )
     assert done.followup_done_at != ""
     assert done.followup_due_at > today
     assert due() == 0
@@ -199,12 +210,16 @@ def test_outreach_body_persists(db):
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
     jane = contacts.create_contact(db, cid, ContactInput(email="jane@acme.com"))
 
-    e = contacts.log_outreach(db, p.id, jane.id, OutreachInput(body="Hi Jane, intro re SE", note="first touch"))
+    e = contacts.log_outreach(
+        db, p.id, jane.id, OutreachInput(body="Hi Jane, intro re SE", note="first touch")
+    )
     assert e.body == "Hi Jane, intro re SE"
     entries = contacts.list_outreach_for_posting(db, p.id)
     assert len(entries) == 1 and entries[0].body == "Hi Jane, intro re SE"
 
-    upd = contacts.update_outreach_entry(db, e.id, OutreachEntryEdit(body=e.body, note=e.note, followup_due_at=e.followup_due_at))
+    upd = contacts.update_outreach_entry(
+        db, e.id, OutreachEntryEdit(body=e.body, note=e.note, followup_due_at=e.followup_due_at)
+    )
     assert upd.body == "Hi Jane, intro re SE"
 
 

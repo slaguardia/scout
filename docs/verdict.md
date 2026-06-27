@@ -18,7 +18,7 @@ candidate ──▶ build_system_prompt(playbook, criteria)  (cached system bloc
 
 ## The call
 
-```go
+```
 POST https://api.anthropic.com/v1/messages
 Headers:  x-api-key: $ANTHROPIC_API_KEY · anthropic-version: 2023-06-01
 Body:
@@ -32,7 +32,7 @@ Body:
 ```
 
 Per-call timeout: 45s, set per request. No streaming. The `--workers` flag
-defaults to 4 (see **Concurrency** — this port scores sequentially).
+defaults to 4 (see **Concurrency** — scoring is sequential).
 
 ## System prompt — three layers
 
@@ -272,13 +272,14 @@ state; rebuild it from a CSV anytime.
 
 ## Concurrency
 
-`--workers` (default 4) survives as a flag, but this Python port scores
-**sequentially** over the single per-run `sqlite3` connection — one shared
-connection isn't thread-safe, so the Go goroutine worker pool isn't reproduced.
+`--workers` (default 4) is accepted as a flag, but scoring runs
+**sequentially** over the single per-run `sqlite3` connection — that one shared
+connection isn't thread-safe, so there is no parallel worker pool.
 DB upserts go through that one connection. A failure logs to stderr and bumps a
-counter but doesn't stop the run. The observable contract — `Result` accounting,
+counter but doesn't stop the run. The observable contract is `Result` accounting,
 the verdict + trace writes, and the progress lines (the header still prints the
-worker count) — is identical to Go; only wall-clock parallelism differs.
+worker count); the flag affects only the reported count, not wall-clock
+parallelism.
 
 ## Failure modes
 

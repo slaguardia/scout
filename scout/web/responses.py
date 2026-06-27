@@ -1,11 +1,11 @@
 """JSON helpers + the store-exception → HTTP-status mapping.
 
-Go's web layer writes JSON with writeJSON and surfaces errors as a small
-`{"error": msg}` body (the frontend reads `JSON.parse(txt).error`, falling back
-to plain text). We mirror that: json_response for success payloads, json_error
-for failures, and a set of exception handlers that turn the ported store
-sentinels into the right status with that same body shape.
+The web layer surfaces errors as a small `{"error": msg}` body (the frontend
+reads `JSON.parse(txt).error`, falling back to plain text): json_response for
+success payloads, json_error for failures, and a set of exception handlers that
+turn the store sentinels into the right status with that same body shape.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -18,27 +18,27 @@ from scout.store import errors
 
 
 def _default(o):
-    """json.dumps hook: serialize a dataclass instance the way Go marshals its
-    struct — by field name (the fields are snake_case = the Go JSON tags)."""
+    """json.dumps hook: serialize a dataclass instance by field name (the
+    snake_case field names are the JSON keys)."""
     if dataclasses.is_dataclass(o) and not isinstance(o, type):
         return dataclasses.asdict(o)
     raise TypeError(f"object of type {type(o).__name__} is not JSON serializable")
 
 
 def json_response(data, status_code: int = 200) -> Response:
-    """The analogue of Go's writeJSON: a JSON body with an explicit status. Accepts
-    plain dicts/lists and (possibly nested) store dataclasses."""
+    """Write a JSON body with an explicit status. Accepts plain dicts/lists and
+    (possibly nested) store dataclasses."""
     body = json.dumps(data, default=_default)
     return Response(content=body, media_type="application/json", status_code=status_code)
 
 
 def json_error(message: str, status_code: int) -> Response:
-    """The error body shape Go surfaces: {"error": msg} at the given status."""
+    """The standard error body shape: {"error": msg} at the given status."""
     return json_response({"error": message}, status_code)
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Map the ported store exceptions to HTTP statuses with the json_error body.
+    """Map the store exceptions to HTTP statuses with the json_error body.
 
     NotFound→404, DomainTaken→409, UnknownCompany→400, and a field-prefixed
     ValueError→400 (the validation idiom the store uses, e.g. "website …" /

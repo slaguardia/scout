@@ -1,8 +1,5 @@
 """The dashboard's Anthropic-key integration.
 
-Faithful port of internal/web/integrations.go (+ anthropickey.go, ported onto
-AppState in deps.py):
-
     GET    /api/integrations/anthropic -> {has_key, key_source}   (never the key)
     PUT    /api/integrations/anthropic {key} -> verify, store, re-key the client
     DELETE /api/integrations/anthropic       -> remove the DB key, fall back to env
@@ -12,6 +9,7 @@ key wins over ANTHROPIC_API_KEY; removing it falls back to the env. PUT validate
 the key against the API before storing (a reject → 400) so a typo can't silently
 disable scoring.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -28,7 +26,7 @@ router = APIRouter()
 
 
 def _nullable(s: str):
-    """"" -> JSON null; any other string -> itself (key_source serializes as
+    """ "" -> JSON null; any other string -> itself (key_source serializes as
     null / "db" / "env")."""
     return s if s != "" else None
 

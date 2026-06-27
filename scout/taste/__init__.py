@@ -1,5 +1,5 @@
 """Package taste loads the criteria block (what the user wants) fed to the verdict
-stage. Port of internal/taste/taste.go.
+stage.
 
 The primary source is the brain: the distilled company-fit brief, rendered into a
 criteria block; see from_brain. A local markdown file (taste.md) is the offline
@@ -8,6 +8,7 @@ hex chars of sha256(content) — it changes whenever the criteria change (brain
 learns something, or the file is edited), which re-scores cached verdicts on the
 next run.
 """
+
 from __future__ import annotations
 
 import hashlib

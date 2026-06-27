@@ -1,21 +1,20 @@
-"""Brain knowledge discovery + change-aware auto-sync. Port of
-internal/outreach/discover.go.
+"""Brain knowledge discovery + change-aware auto-sync.
 
 A knowledge Need is a general, method-level question the outreach pipeline asks of
 the brain. Discovery maps each need to the brain pages that answer it; the pages'
 whole text is the knowledge the fill step and honesty checker reason over.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from scout import anthropic, brainbot
 from scout.store import outreach_sources, settings
 
-from .jdfetch import trunc
 from .jsonutil import extract_json_object
 
 
@@ -32,15 +31,21 @@ class Need:
 # KnowledgeNeeds is the fixed list. Experience is hard because it is the honesty
 # checker's ground truth; voice and logistics degrade gracefully.
 KNOWLEDGE_NEEDS = [
-    Need("experience", True,
-         "the user's professional experience: roles, durations, projects, team scope, "
-         "skills, achievements, credentials, clearances"),
+    Need(
+        "experience",
+        True,
+        "the user's professional experience: roles, durations, projects, team scope, "
+        "skills, achievements, credentials, clearances",
+    ),
     Need("voice", False, "the user's writing voice, tone, and style"),
-    Need("logistics", False,
-         "the user's application logistics / biographical facts: current location (city, "
-         "state, country), work authorization or visa status, citizenship, availability or "
-         "start date, salary or compensation expectations, willingness to relocate, and "
-         "portfolio/profile links"),
+    Need(
+        "logistics",
+        False,
+        "the user's application logistics / biographical facts: current location (city, "
+        "state, country), work authorization or visa status, citizenship, availability or "
+        "start date, salary or compensation expectations, willingness to relocate, and "
+        "portfolio/profile links",
+    ),
 ]
 
 
@@ -115,12 +120,14 @@ def discover(
     need_lines = "".join(f"- {n.key}: {n.desc}\n" for n in KNOWLEDGE_NEEDS)
     user = f"NEEDS:\n{need_lines}\nMAP (id | title | path):\n{''.join(listing)}"
 
-    resp = client.send(anthropic.Request(
-        model=model,
-        system=DISCOVERY_SYSTEM,
-        max_tokens=1000,
-        messages=[anthropic.Message("user", user)],
-    ))
+    resp = client.send(
+        anthropic.Request(
+            model=model,
+            system=DISCOVERY_SYSTEM,
+            max_tokens=1000,
+            messages=[anthropic.Message("user", user)],
+        )
+    )
     cleaned = extract_json_object(resp.text())
     picks = json.loads(cleaned)
 
@@ -129,7 +136,7 @@ def discover(
         sources: list[outreach_sources.OutreachSource] = []
         pages: list[SourcePage] = []
         seen: set[str] = set()
-        for id in (picks.get(need.key) or []):
+        for id in picks.get(need.key) or []:
             if id not in valid or id in seen:  # ignore ids the model invented
                 continue
             seen.add(id)
@@ -137,8 +144,15 @@ def discover(
                 doc = brain.doc(id)
             except Exception:  # noqa: BLE001 - a listed-but-unfetchable page: skip, don't fail the pass
                 continue
-            sources.append(outreach_sources.OutreachSource(
-                need=need.key, page_id=id, title=doc.title, content=doc.text, version=doc.version))
+            sources.append(
+                outreach_sources.OutreachSource(
+                    need=need.key,
+                    page_id=id,
+                    title=doc.title,
+                    content=doc.text,
+                    version=doc.version,
+                )
+            )
             pages.append(SourcePage(page_id=id, title=doc.title))
         outreach_sources.replace_outreach_sources(con, need.key, sources)
         result.needs.append(NeedResult(need=need.key, hard=need.hard, pages=pages))

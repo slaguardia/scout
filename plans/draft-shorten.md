@@ -62,10 +62,10 @@ Two options, ship the first:
 
 ## Implementation sketch
 
-- `internal/outreach`: a `Shorten(ctx, email)` engine method (one `callJSON` to
+- `scout/outreach`: a `Shorten(ctx, email)` engine method (one `callJSON` to
   Haiku with the prompt above) — reuses the existing Anthropic client + JSON-free
   text path.
-- `internal/web/outreach.go`: the `POST …/shorten` handler; load the draft, take
+- `scout/web/routes/outreach.py`: the `POST …/shorten` handler; load the draft, take
   the current text (edited ?? draft), call `Shorten`, return `{text, lint}`.
 - `web/src/app.ts`: word count + the conditional button in the draft card; on
   click, POST, swap the textarea, save via the existing edit PUT, stash for

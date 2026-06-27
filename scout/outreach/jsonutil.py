@@ -1,6 +1,6 @@
-"""JSON-object extraction shared by the outreach stages. Port of the
-extractJSONObject helper in internal/outreach/engine.go (kept in its own module
+"""JSON-object extraction shared by the outreach stages (kept in its own module
 so both engine.py and discover.py can use it without a cycle)."""
+
 from __future__ import annotations
 
 import json

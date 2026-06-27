@@ -1,11 +1,10 @@
 """Core read/triage + company/posting routes.
 
-Faithful port of internal/web/server.go and me.go (plus the handlePostings GET,
-handlePosting PUT/DELETE, and handlePostingRecapture dispatch from capture.go).
-Go's prefix handlers that parse sub-paths/methods become explicit FastAPI routes
-here. Each handler is a sync `def` taking a per-request connection from get_db
+Covers the dashboard reads, /api/me, and the posting list/PUT/DELETE/recapture
+routes. Each handler is a sync `def` taking a per-request connection from get_db
 (and AppState from get_state where it needs the clients / taste cache).
 """
+
 from __future__ import annotations
 
 import json
@@ -18,12 +17,18 @@ from scout import capture as capture_pkg
 from scout import ingest
 from scout.store import (
     detail as detail_store,
+)
+from scout.store import (
     marks,
     overrides,
-    postings as postings_store,
-    trace as trace_store,
     triage,
     verdicts,
+)
+from scout.store import (
+    postings as postings_store,
+)
+from scout.store import (
+    trace as trace_store,
 )
 from scout.store._helpers import null
 from scout.store.companies import EditableCompany
@@ -44,8 +49,8 @@ async def raw_body(request: Request) -> bytes:
 
 
 def decode_json(raw: bytes) -> dict:
-    """Parse a JSON object body, mirroring Go's json.Decoder: a malformed/empty
-    body is a 400 with an "invalid JSON" message (ValueError → 400 handler)."""
+    """Parse a JSON object body: a malformed/empty body is a 400 with an
+    "invalid JSON" message (ValueError → 400 handler)."""
     try:
         data = json.loads(raw)
     except Exception as e:  # noqa: BLE001
@@ -221,7 +226,9 @@ def company_reviewed(company_id: str, con=Depends(get_db)) -> Response:
 
 
 @router.api_route("/api/companies/{company_id}/flagged", methods=["PUT", "POST"])
-def company_flagged(company_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def company_flagged(
+    company_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     body = decode_json(raw)
     marks.set_flagged(con, company_id, bool(body.get("flagged")))
     return _detail_or_404(con, company_id)
@@ -254,8 +261,11 @@ def company_verdict(
     verdicts.upsert_verdict(
         con,
         verdicts.Verdict(
-            company_id=company_id, verdict=v, reason=reason,
-            taste_version=version, model=verdicts.MANUAL_MODEL,
+            company_id=company_id,
+            verdict=v,
+            reason=reason,
+            taste_version=version,
+            model=verdicts.MANUAL_MODEL,
         ),
     )
     # Durable override log (record of intent); a failure must not sink the write.
@@ -263,8 +273,11 @@ def company_verdict(
         overrides.insert_verdict_override(
             con,
             overrides.VerdictOverride(
-                company_id=company_id, from_verdict=from_verdict, to_verdict=v,
-                reason=reason, criteria_version=version,
+                company_id=company_id,
+                from_verdict=from_verdict,
+                to_verdict=v,
+                reason=reason,
+                criteria_version=version,
             ),
         )
     except Exception as e:  # noqa: BLE001
@@ -274,8 +287,12 @@ def company_verdict(
         trace_store.insert_verdict_trace(
             con,
             trace_store.VerdictTrace(
-                company_id=company_id, model=verdicts.MANUAL_MODEL, taste_version=version,
-                criteria_source="manual override", verdict=v, reason=reason,
+                company_id=company_id,
+                model=verdicts.MANUAL_MODEL,
+                taste_version=version,
+                criteria_source="manual override",
+                verdict=v,
+                reason=reason,
             ),
         )
     except Exception:  # noqa: BLE001
@@ -289,7 +306,9 @@ def company_trace(company_id: str, con=Depends(get_db)) -> Response:
 
 
 @router.put("/api/companies/{company_id}/domain")
-def company_domain(company_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def company_domain(
+    company_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """Attach/change a company's website/domain — re-keys the row (and folds a
     twin). Returns the refreshed detail under the (possibly new) id. 409 when a
     different company already owns the domain."""
@@ -326,7 +345,9 @@ def company_add_posting(
         c = capture_pkg.Capturer(db=con, client=state.anthropic)
         res = c.capture_ats_posting_for_company(
             company_id,
-            capture_pkg.Request(url=url, kind=capture_pkg.KIND_JOB, fields=capture_pkg.Fields(title=title)),
+            capture_pkg.Request(
+                url=url, kind=capture_pkg.KIND_JOB, fields=capture_pkg.Fields(title=title)
+            ),
         )
         if res is not None and res.posting is not None:
             return json_response(res.posting)
@@ -355,7 +376,9 @@ def list_postings(con=Depends(get_db)) -> Response:
 
 
 @router.api_route("/api/postings/{posting_id}", methods=["PUT", "POST"])
-def posting_tracking(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+def posting_tracking(
+    posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
     """Update one posting's application-lifecycle fields (the tracker half of the
     jobs view). Returns the refreshed posting."""
     body = decode_json(raw)
@@ -394,7 +417,8 @@ def posting_recapture(
     try:
         res = c.run(
             capture_pkg.Request(
-                url=p.url, kind=capture_pkg.KIND_JOB,
+                url=p.url,
+                kind=capture_pkg.KIND_JOB,
                 fields=capture_pkg.Fields(name=name, title=p.title),
             )
         )

@@ -2188,6 +2188,30 @@
     border: 1px solid var(--line);
     color: var(--fg);
   }
+  /* markdown blocks rendered inside an assistant bubble — tame default margins
+     and give code its own surface. The first/last child sit flush so the bubble
+     padding owns the outer spacing. */
+  .chat-assistant > :first-child { margin-top: 0; }
+  .chat-assistant > :last-child { margin-bottom: 0; }
+  .chat-assistant p { margin: 0 0 8px; }
+  .chat-assistant ul, .chat-assistant ol { margin: 0 0 8px; padding-left: 20px; }
+  .chat-assistant li { margin: 2px 0; }
+  .chat-assistant h1, .chat-assistant h2, .chat-assistant h3,
+  .chat-assistant h4, .chat-assistant h5, .chat-assistant h6 {
+    margin: 10px 0 6px; font-size: 13.5px; font-weight: 600;
+  }
+  .chat-assistant a { color: var(--link); }
+  .chat-assistant code {
+    font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px;
+    background: var(--bg); padding: 1px 4px; border-radius: 4px;
+  }
+  .chat-assistant pre {
+    margin: 0 0 8px; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md);
+    overflow-x: auto; white-space: pre;
+  }
+  .chat-assistant pre code { background: none; padding: 0; font-size: 12.5px; }
+
   .chat-tools {
     margin-top: 6px; font-size: 11px; color: var(--fg-dim);
   }

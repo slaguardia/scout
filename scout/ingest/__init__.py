@@ -1,4 +1,4 @@
-"""scout.ingest — CSV ingest + dedup-aware company writes (port of internal/ingest).
+"""scout.ingest — CSV ingest + dedup-aware company writes.
 
 Public surface (imported by capture, the web layer, and the CLI):
     CSV, Result, Collision               — the CSV ingester and its report
@@ -8,6 +8,7 @@ Public surface (imported by capture, the web layer, and the CLI):
     identity_domain                       — shared identity rules for hosts
     parse_headcount                       — free-form employee-count parser
 """
+
 from .capture import CapturedCompany, ensure_company
 from .csv import (
     CSV,

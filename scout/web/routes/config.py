@@ -3,12 +3,12 @@ narrative fallback (a file), the structured pre-filter rules (a DB singleton),
 the verdict playbook (a DB singleton), and the read-only filter-options
 vocabularies.
 
-Faithful port of the taste/playbook/taste-filter/filter-options handlers in
-internal/web/editor.go, filter_options.go, and server.go. None of these touch the
+None of these touch the
 brain. A taste.md or playbook save re-folds the active criteria version
 (state.reload_taste) so new verdicts use the edit immediately; the pre-filter is a
 mechanical gate the verdict provenance hash doesn't track, so it has no version.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
@@ -52,11 +52,15 @@ def get_taste(con=Depends(get_db), state: AppState = Depends(get_state)) -> Resp
         content = ""
     except OSError as e:
         return json_error(str(e), 500)
-    return json_response(_criteria_stamp(state, {"kind": "taste", "path": path, "content": content}))
+    return json_response(
+        _criteria_stamp(state, {"kind": "taste", "path": path, "content": content})
+    )
 
 
 @router.put("/api/taste")
-def put_taste(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+def put_taste(
+    raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)
+) -> Response:
     path = state.config.taste_md_path
     if path == "":
         return json_error("taste path not configured", 503)
@@ -67,7 +71,9 @@ def put_taste(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppSta
     except OSError as e:
         return json_error("write taste: " + str(e), 500)
     state.reload_taste()  # adopt the edited criteria for new scores immediately
-    return json_response(_criteria_stamp(state, {"kind": "taste", "path": path, "content": content}))
+    return json_response(
+        _criteria_stamp(state, {"kind": "taste", "path": path, "content": content})
+    )
 
 
 # --- playbook (DB singleton) -------------------------------------------------
@@ -80,7 +86,9 @@ def get_playbook(con=Depends(get_db), state: AppState = Depends(get_state)) -> R
 
 
 @router.put("/api/playbook")
-def put_playbook(raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+def put_playbook(
+    raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)
+) -> Response:
     content = _s(decode_json(raw), "content")
     playbook_store.put_playbook(con, content)
     state.reload_taste()  # re-fold the provenance hash so new scores use the edit
@@ -101,7 +109,9 @@ def _taste_from_rules(d: dict) -> filter_pkg.Taste:
         location=filter_pkg.Location(
             allowed=list(loc.get("allowed") or []), remote_ok=bool(loc.get("remote_ok", False))
         ),
-        headcount=filter_pkg.Headcount(min=int(hc.get("min", 0) or 0), max=int(hc.get("max", 0) or 0)),
+        headcount=filter_pkg.Headcount(
+            min=int(hc.get("min", 0) or 0), max=int(hc.get("max", 0) or 0)
+        ),
         verticals=filter_pkg.Verticals(
             allowed=list(vert.get("allowed") or []), excluded=list(vert.get("excluded") or [])
         ),
@@ -120,7 +130,9 @@ def get_taste_filter(request: Request, con=Depends(get_db)) -> Response:
         rules = filter_pkg.parse_taste(content)
     except Exception as e:  # noqa: BLE001 - a corrupt saved row, surfaced not swallowed
         return json_error("parse saved pre-filter: " + str(e), 500)
-    return json_response({"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled})
+    return json_response(
+        {"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled}
+    )
 
 
 @router.put("/api/taste-filter")
@@ -149,7 +161,9 @@ def put_taste_filter(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Res
         enabled = bool(body["enabled"])
     taste_filter_store.put_taste_filter(con, content, enabled)
     rules = filter_pkg.parse_taste(content)
-    return json_response({"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled})
+    return json_response(
+        {"kind": "taste-filter", "content": content, "rules": rules, "enabled": enabled}
+    )
 
 
 # --- filter-options vocabularies (read-only) ---------------------------------
@@ -160,13 +174,15 @@ def filter_options(con=Depends(get_db)) -> Response:
     """The vertical tags + funding stages present in the company data (with counts),
     for the pre-filter form's multi-selects. Derived live; the vertical field is a
     comma-separated tag set, so whole tags are split and counted."""
-    rows = con.execute("SELECT COALESCE(vertical,''), COALESCE(funding_stage,'') FROM companies").fetchall()
+    rows = con.execute(
+        "SELECT COALESCE(vertical,''), COALESCE(funding_stage,'') FROM companies"
+    ).fetchall()
 
-    vert_count: dict[str, int] = {}      # lowercased tag -> count
-    vert_display: dict[str, str] = {}    # lowercased tag -> first-seen display casing
-    stage_count: dict[str, int] = {}     # canonical stage -> count
+    vert_count: dict[str, int] = {}  # lowercased tag -> count
+    vert_display: dict[str, str] = {}  # lowercased tag -> first-seen display casing
+    stage_count: dict[str, int] = {}  # canonical stage -> count
     for v, st in rows:
-        seen: set[str] = set()           # dedup tags within one company
+        seen: set[str] = set()  # dedup tags within one company
         for p in v.split(","):
             p = p.strip()
             if p == "":

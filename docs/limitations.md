@@ -50,10 +50,9 @@ until residue actually corrupts verdicts.
 
 ### SQLite single-writer
 
-Enrich and verdict run sequentially over a single SQLite connection (the Go
-worker pools became sequential loops in the Python port — one shared `sqlite3`
-connection isn't thread-safe to share across threads). WAL helps, but there's
-still a serial write point. Invisible at low thousands of rows; visible at
+Enrich and verdict run sequentially over a single SQLite connection (one shared
+`sqlite3` connection isn't thread-safe to share across threads). WAL helps, but
+there's still a serial write point. Invisible at low thousands of rows; visible at
 hundreds of thousands. The fix (a per-request/pooled connection layer) is
 straightforward when the scale arrives.
 

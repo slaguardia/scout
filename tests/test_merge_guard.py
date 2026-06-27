@@ -1,14 +1,16 @@
-"""Port of internal/store/merge_guard_test.go.
+"""Guard that COMPANY_CHILD_TABLES stays in sync with the schema.
 
-companyChildTables is hand-maintained and drives merge_company / _fold_children.
+COMPANY_CHILD_TABLES is hand-maintained and drives merge_company / _fold_children.
 This derives the truth from the live schema and fails if the list drifts.
 """
+
 from scout.store import companies
 
 
 def test_company_child_tables_match_schema(db):
     tables = [
-        r[0] for r in db.execute(
+        r[0]
+        for r in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     ]

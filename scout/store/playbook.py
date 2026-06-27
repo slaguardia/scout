@@ -1,4 +1,5 @@
-"""Singleton verdict playbook row. Port of internal/store/playbook.go."""
+"""Singleton verdict playbook row."""
+
 from __future__ import annotations
 
 import sqlite3

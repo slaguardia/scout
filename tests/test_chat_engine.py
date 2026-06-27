@@ -1,4 +1,5 @@
-"""Port of internal/chat/engine_test.go."""
+"""Tests for the scout.chat engine."""
+
 from __future__ import annotations
 
 import re
@@ -67,17 +68,21 @@ def _tool_use_sse(name: str, escaped_input: str) -> str:
     """A one-tool-call assistant turn (stop_reason tool_use) whose tool input is the
     given escaped-JSON string."""
     return (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
-        'event: content_block_start\n'
-        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_x","name":"' + name + '","input":{}}}\n\n'
-        'event: content_block_delta\n'
-        'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"' + escaped_input + '"}}\n\n'
-        'event: content_block_stop\n'
+        "event: content_block_start\n"
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_x","name":"'
+        + name
+        + '","input":{}}}\n\n'
+        "event: content_block_delta\n"
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"'
+        + escaped_input
+        + '"}}\n\n'
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n\n'
-        'event: message_delta\n'
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":15}}\n\n'
-        'event: message_stop\n'
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n\n'
     )
 
@@ -105,8 +110,13 @@ def test_engine_tool_round_trip(db):
         client = anthropic.Client(api_key="k", endpoint=url)
         eng = chat.new(db, client)
         th = chat_store.open_or_create_thread(db, CHAT_SCOPE_GLOBAL, "")
-        chat_store.append_message(db, th.id, "user",
-                                  '[{"type":"text","text":"did I already add Ramp?"}]', "did I already add Ramp?")
+        chat_store.append_message(
+            db,
+            th.id,
+            "user",
+            '[{"type":"text","text":"did I already add Ramp?"}]',
+            "did I already add Ramp?",
+        )
         system = chat.system_prompt(CHAT_SCOPE_GLOBAL, "", datetime(2026, 6, 8))
         eng.run(th.id, system, lambda s: streamed.append(s))
 
@@ -152,11 +162,15 @@ _CAPTURE_EXTRACTION = (
 def test_engine_applied_to_link_flow(db):
     # A job-posting page with enough text to pass capture's content gate.
     def page_handle(req):
-        html = "<html><body><h1>Platform Engineer</h1>" + \
-               ("<p>Acme builds AI infrastructure for teams. </p>" * 30) + "</body></html>"
+        html = (
+            "<html><body><h1>Platform Engineer</h1>"
+            + ("<p>Acme builds AI infrastructure for teams. </p>" * 30)
+            + "</body></html>"
+        )
         return 200, {"Content-Type": "text/html"}, html
 
     with http_server(page_handle) as page_url:
+
         def chat_handle(req):
             body = req.body
             # capture's extraction is a non-stream Send → return the JSON extraction.
@@ -172,8 +186,10 @@ def test_engine_applied_to_link_flow(db):
                 if m is None:
                     return 200, {"Content-Type": "text/event-stream"}, END_TURN_STREAM
                 pid = m.group(1).decode()
-                sse = _tool_use_sse("track_application",
-                                    '{\\"posting_id\\":\\"' + pid + '\\",\\"stage\\":\\"applied\\"}')
+                sse = _tool_use_sse(
+                    "track_application",
+                    '{\\"posting_id\\":\\"' + pid + '\\",\\"stage\\":\\"applied\\"}',
+                )
             else:
                 sse = END_TURN_STREAM
             return 200, {"Content-Type": "text/event-stream"}, sse
@@ -181,13 +197,19 @@ def test_engine_applied_to_link_flow(db):
         with http_server(chat_handle) as chat_url:
             eng = chat.new(db, anthropic.Client(api_key="k", endpoint=chat_url))
             th = chat_store.open_or_create_thread(db, CHAT_SCOPE_GLOBAL, "")
-            chat_store.append_message(db, th.id, "user",
-                                      '[{"type":"text","text":"I applied to ' + page_url + '"}]', "applied")
+            chat_store.append_message(
+                db,
+                th.id,
+                "user",
+                '[{"type":"text","text":"I applied to ' + page_url + '"}]',
+                "applied",
+            )
             system = chat.system_prompt(CHAT_SCOPE_GLOBAL, "", datetime(2026, 6, 8))
             eng.run(th.id, system, None)
 
     # A company was created and a posting tracked with the 'applied' stage set.
     from scout.store import postings
+
     jobs = postings.list_job_rows(db)
     assert len(jobs) == 1, f"got {len(jobs)} postings, want 1"
     assert jobs[0].company == "Acme"

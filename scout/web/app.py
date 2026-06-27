@@ -1,7 +1,6 @@
 """The FastAPI app factory.
 
-create_app(config) stands up the whole web layer the way cmd/scout/main.go's
-cmdServe builds the Go web.Server:
+create_app(config) stands up the whole web layer:
 
   1. Run migrations ONCE (open_db then close); per-request connections come from
      store.db.connect via the get_db dependency.
@@ -11,16 +10,15 @@ cmdServe builds the Go web.Server:
   3. Register the store-exception handlers, include the feature routers, and mount
      the SPA fallback last.
 
-Part 1 wires the core router; part 2 adds the remaining feature routers by
-calling app.include_router on its own APIRouter (see PORTING.md → "Web layer
-conventions").
+Feature routers are auto-discovered: each module under scout/web/routes/ that
+exposes a top-level ``router = APIRouter()`` is included automatically.
 """
+
 from __future__ import annotations
 
 import importlib
 import mimetypes
 import pkgutil
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from starlette.responses import FileResponse, Response
@@ -36,8 +34,8 @@ from .config import Config
 from .deps import AppState
 from .responses import install_error_handlers, json_error
 
-# Go's default MIME table has no .webmanifest entry; register it so the PWA
-# manifest is served as application/manifest+json (matching server.go's init()).
+# The stdlib MIME table has no .webmanifest entry; register it so the PWA
+# manifest is served as application/manifest+json.
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
@@ -47,7 +45,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # 1. Migrate once, then close. Requests open their own connections.
     db_module.open_db(config.db_path).close()
 
-    # 2. Process-lifetime singletons (mirrors cmdServe's wiring).
+    # 2. Process-lifetime singletons.
     ac = anthropic_pkg.new(config.anthropic_api_key)  # key falls back to env
     bc = None
     resolver = None
@@ -78,8 +76,7 @@ def create_app(config: Config | None = None) -> FastAPI:
 def _include_routers(app: FastAPI) -> None:
     """Auto-discover every feature router: include `router` from each module in
     scout/web/routes/. Dropping a new routes/<feature>.py with a top-level
-    `router = APIRouter()` registers it — no edit here (see PORTING.md → "Web
-    layer conventions")."""
+    `router = APIRouter()` registers it — no edit here."""
     for info in pkgutil.iter_modules(routes_pkg.__path__):
         module = importlib.import_module(f"{routes_pkg.__name__}.{info.name}")
         router = getattr(module, "router", None)
@@ -100,13 +97,13 @@ def _seed_key(state: AppState) -> None:
 def _mount_spa(app: FastAPI, config: Config) -> None:
     """Serve the built PWA from config.static_dir: existing files directly, any
     other non-/api path falls back to index.html (the client-side hash router owns
-    navigation). Mirrors server.go's handleIndex.
+    navigation).
 
     Implemented as a 404 handler rather than a catch-all route on purpose: a
     catch-all GET would full-match a method-mismatched /api path and turn its 405
     into a 404. The router raises 404 only for genuinely unmatched paths (a
     method mismatch raises 405, which never reaches here), so the SPA fallback
-    fires exactly where Go's handleIndex would. Absent dist → plain 404s, no
+    fires exactly where it should. Absent dist → plain 404s, no
     crash."""
     static_dir = config.static_path()  # resolved Path, or None when absent
 

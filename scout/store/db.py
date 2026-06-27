@@ -1,10 +1,10 @@
 """SQLite connection + migration runner.
 
-Faithful port of internal/store/store.go. Opens (or creates) the database,
-applies any pending migrations atomically, and exposes the backup +
-integrity-check helpers. Everything above this in the stack gets its connection
-from open_db().
+Opens (or creates) the database, applies any pending migrations atomically, and
+exposes the backup + integrity-check helpers. Everything above this in the stack
+gets its connection from open_db().
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -24,10 +24,10 @@ def connect(path: str) -> sqlite3.Connection:
     caller/test keeps the same one-call behavior.
     """
     # isolation_level=None puts the driver in autocommit mode, so WE drive
-    # transactions with explicit BEGIN/COMMIT — the direct analogue of Go's
-    # db.Begin()/Commit(). Without this, Python's sqlite3 silently opens a hidden
-    # transaction before every INSERT/UPDATE/DELETE (but NOT before DDL or
-    # SELECT), which is a classic source of "why didn't my write commit?" bugs.
+    # transactions with explicit BEGIN/COMMIT. Without this, Python's sqlite3
+    # silently opens a hidden transaction before every INSERT/UPDATE/DELETE (but
+    # NOT before DDL or SELECT), which is a classic source of "why didn't my
+    # write commit?" bugs.
     #
     # check_same_thread=False: FastAPI runs the get_db dependency and the sync
     # endpoint in a threadpool, and anyio may land them on different worker
@@ -37,9 +37,9 @@ def connect(path: str) -> sqlite3.Connection:
     # store tests.
     con = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
     # Make rows behave like dicts (row["title"]) instead of bare positional
-    # tuples — the closest equivalent to scanning into a Go struct.
+    # tuples, so callers read columns by name.
     con.row_factory = sqlite3.Row
-    # Same pragmas as Go's Open():
+    # Connection pragmas:
     #  - foreign_keys: SQLite leaves FK enforcement OFF by default; turn it on.
     #  - WAL: readers don't block the single writer (the verdict pass fans out).
     #  - busy_timeout: a blocked writer waits up to 5s for the lock instead of
@@ -83,12 +83,7 @@ def _migrate(con: sqlite3.Connection) -> None:
         # we can't wrap it in a BEGIN/COMMIT issued from Python. Instead we put the
         # BEGIN/COMMIT *inside* the script string. `name` is a trusted local
         # filename (no SQL-injection surface), so inlining it is safe.
-        script = (
-            "BEGIN;\n"
-            f"{body}\n"
-            f"INSERT INTO schema_migrations (name) VALUES ('{name}');\n"
-            "COMMIT;"
-        )
+        script = f"BEGIN;\n{body}\nINSERT INTO schema_migrations (name) VALUES ('{name}');\nCOMMIT;"
         try:
             con.executescript(script)
         except Exception:

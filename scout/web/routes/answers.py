@@ -1,18 +1,20 @@
 """Application-question answers: the per-posting queue, redetect, and per-answer
 edit/regenerate/delete.
 
-Faithful port of internal/web/answers.go. Detection (cheap, no key for ATS links)
+Detection (cheap, no key for ATS links)
 runs synchronously on the request connection; generation (the LLM spend) is
 fire-and-forget via state.answers.generate(posting_id), exactly like outreach
 drafts — the runner owns the background thread + its own connection.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from starlette.responses import Response
 
 from scout import capture as capture_pkg
-from scout.store import errors, posting_answers, postings as postings_store
+from scout.store import errors, posting_answers
+from scout.store import postings as postings_store
 
 from ..deps import AppState, get_db, get_state
 from ..responses import json_error, json_response
@@ -22,7 +24,9 @@ from .outreach import _experience_gate
 router = APIRouter()
 
 
-def _answers_payload(con, posting_id: str, questions_status: str, status_code: int = 200) -> Response:
+def _answers_payload(
+    con, posting_id: str, questions_status: str, status_code: int = 200
+) -> Response:
     """The standard {answers, questions_status} payload at the given status."""
     return json_response(
         {
@@ -114,7 +118,9 @@ def delete_answer(raw_id: str, con=Depends(get_db)) -> Response:
 
 @router.put("/api/answers/{raw_id}")
 def edit_or_regenerate_answer(
-    raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db),
+    raw_id: str,
+    raw: bytes = Depends(raw_body),
+    con=Depends(get_db),
     state: AppState = Depends(get_state),
 ) -> Response:
     """PUT {edited} inline-saves (200); PUT {regenerate:true} re-drafts this one

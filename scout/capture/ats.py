@@ -1,4 +1,4 @@
-"""ATS resolvers: the no-LLM capture path. Port of internal/capture/ats.go.
+"""ATS resolvers: the no-LLM capture path.
 
 Ashby, Greenhouse, Lever, Rippling and Dover all publish their job boards as
 public JSON APIs, so a posting link on one of those hosts resolves to exact
@@ -6,13 +6,14 @@ structured fields with one unauthenticated GET — no page fetch, no model call.
 Links the resolvers don't recognize (or that fail to resolve) fall through to
 the generic fetch + Haiku path in `Capturer.run`.
 """
+
 from __future__ import annotations
 
 import html
 import re
 import urllib.parse
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -102,8 +103,10 @@ def ats_target_for(raw_url: str) -> ATSTarget | None:
             base = lever_eu_api_base if host == "jobs.eu.lever.co" else lever_api_base
             return ATSTarget("lever", base, segs[0], segs[1])
     elif host in (
-        "boards.greenhouse.io", "job-boards.greenhouse.io",
-        "boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io",
+        "boards.greenhouse.io",
+        "job-boards.greenhouse.io",
+        "boards.eu.greenhouse.io",
+        "job-boards.eu.greenhouse.io",
     ):
         org, jid = greenhouse_org_job(segs, urllib.parse.parse_qs(u.query))
         if org != "":
@@ -151,6 +154,7 @@ def greenhouse_org_job(segs: list[str], q: dict) -> tuple[str, str]:
     """Pull the board slug and numeric job id out of the two URL shapes Greenhouse
     serves: /{org}/jobs/{id} on the board hosts, and the embed form
     /embed/job_app?for={org}&token={id}."""
+
     def is_num(s: str) -> bool:
         return s != "" and s.isascii() and s.isdigit()
 
@@ -166,15 +170,23 @@ def greenhouse_org_job(segs: list[str], q: dict) -> tuple[str, str]:
 
 # --- Ashby -----------------------------------------------------------------
 
+
 def resolve_ashby(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> ATSJob:
     """Read the org's whole public board (Ashby has no per-posting endpoint) and
     pick the pasted job out of it."""
-    url = api_base + "/posting-api/job-board/" + urllib.parse.quote(org, safe="") + "?includeCompensation=true"
+    url = (
+        api_base
+        + "/posting-api/job-board/"
+        + urllib.parse.quote(org, safe="")
+        + "?includeCompensation=true"
+    )
     board = fetch_ats_json(httpc, url)
     for j in board.get("jobs") or []:
         if (j.get("id", "") or "").lower() != job_id.lower():
             continue
-        workplace = {"OnSite": "On-site"}.get(j.get("workplaceType", ""), j.get("workplaceType", "") or "")
+        workplace = {"OnSite": "On-site"}.get(
+            j.get("workplaceType", ""), j.get("workplaceType", "") or ""
+        )
         if workplace == "" and j.get("isRemote"):
             workplace = "Remote"
         comp = j.get("compensation") or {}
@@ -210,6 +222,7 @@ def resolve_ashby(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
 
 # --- Greenhouse --------------------------------------------------------------
 
+
 def resolve_greenhouse(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> ATSJob:
     base = api_base + "/v1/boards/" + urllib.parse.quote(org, safe="")
     j = fetch_ats_json(httpc, base + "/jobs/" + urllib.parse.quote(job_id, safe=""))
@@ -236,8 +249,10 @@ def resolve_greenhouse(httpc: httpx.Client, api_base: str, org: str, job_id: str
     if ranges:
         r = ranges[0]
         comp = money_range(
-            (r.get("min_cents", 0) or 0) / 100, (r.get("max_cents", 0) or 0) / 100,
-            r.get("currency_type", "") or "", "year",
+            (r.get("min_cents", 0) or 0) / 100,
+            (r.get("max_cents", 0) or 0) / 100,
+            r.get("currency_type", "") or "",
+            "year",
         )
         if len(ranges) > 1:
             comp += " +"  # geo tiers beyond the first
@@ -257,8 +272,15 @@ def resolve_greenhouse(httpc: httpx.Client, api_base: str, org: str, job_id: str
 
 # --- Lever -------------------------------------------------------------------
 
+
 def resolve_lever(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> ATSJob:
-    url = api_base + "/v0/postings/" + urllib.parse.quote(org, safe="") + "/" + urllib.parse.quote(job_id, safe="")
+    url = (
+        api_base
+        + "/v0/postings/"
+        + urllib.parse.quote(org, safe="")
+        + "/"
+        + urllib.parse.quote(job_id, safe="")
+    )
     j = fetch_ats_json(httpc, url)
 
     # Lever splits the posting into a lead paragraph plus titled lists — stitch
@@ -275,11 +297,16 @@ def resolve_lever(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
             desc += "\n\n" + body
 
     wt = (j.get("workplaceType", "") or "").lower()
-    workplace = {"remote": "Remote", "hybrid": "Hybrid", "on-site": "On-site", "onsite": "On-site"}.get(wt, "")
+    workplace = {
+        "remote": "Remote",
+        "hybrid": "Hybrid",
+        "on-site": "On-site",
+        "onsite": "On-site",
+    }.get(wt, "")
     created = j.get("createdAt", 0) or 0
     posted = ""
     if created > 0:
-        posted = datetime.fromtimestamp(created / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        posted = datetime.fromtimestamp(created / 1000, tz=UTC).strftime("%Y-%m-%d")
     cats = j.get("categories") or {}
     dept = cats.get("department", "") or ""
     if dept == "":
@@ -294,7 +321,12 @@ def resolve_lever(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
         department=dept,
         employment_type=cats.get("commitment", "") or "",
         workplace_type=workplace,
-        comp_range=money_range(sal.get("min", 0) or 0, sal.get("max", 0) or 0, sal.get("currency", "") or "", sal.get("interval", "") or ""),
+        comp_range=money_range(
+            sal.get("min", 0) or 0,
+            sal.get("max", 0) or 0,
+            sal.get("currency", "") or "",
+            sal.get("interval", "") or "",
+        ),
         posted_at=posted,
         description=desc.strip(),
     )
@@ -302,8 +334,15 @@ def resolve_lever(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
 
 # --- Rippling ----------------------------------------------------------------
 
+
 def resolve_rippling(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> ATSJob:
-    url = api_base + "/platform/api/ats/v1/board/" + urllib.parse.quote(org, safe="") + "/jobs/" + urllib.parse.quote(job_id, safe="")
+    url = (
+        api_base
+        + "/platform/api/ats/v1/board/"
+        + urllib.parse.quote(org, safe="")
+        + "/jobs/"
+        + urllib.parse.quote(job_id, safe="")
+    )
     j = fetch_ats_json(httpc, url)
 
     name = (j.get("companyName", "") or "").strip()
@@ -318,7 +357,12 @@ def resolve_rippling(httpc: httpx.Client, api_base: str, org: str, job_id: str) 
     pr = j.get("payRangeDetails") or []
     if pr:
         p = pr[0]
-        comp = money_range(p.get("rangeStart", 0) or 0, p.get("rangeEnd", 0) or 0, p.get("currency", "") or "", p.get("frequency", "") or "")
+        comp = money_range(
+            p.get("rangeStart", 0) or 0,
+            p.get("rangeEnd", 0) or 0,
+            p.get("currency", "") or "",
+            p.get("frequency", "") or "",
+        )
         if len(pr) > 1:
             comp += " +"  # geo tiers beyond the first
     return ATSJob(
@@ -337,6 +381,7 @@ def resolve_rippling(httpc: httpx.Client, api_base: str, org: str, job_id: str) 
 
 # --- Dover -------------------------------------------------------------------
 
+
 def resolve_dover(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> ATSJob:
     url = api_base + "/api/v1/inbound/application-portal-job/" + urllib.parse.quote(job_id, safe="")
     j = fetch_ats_json(httpc, url)
@@ -348,7 +393,9 @@ def resolve_dover(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
         n = (ls.get("name", "") or "").strip()
         if n != "":
             locs.append(n)
-        wp = {"IN_OFFICE": "On-site", "REMOTE": "Remote", "HYBRID": "Hybrid"}.get(ls.get("location_type", ""), "")
+        wp = {"IN_OFFICE": "On-site", "REMOTE": "Remote", "HYBRID": "Hybrid"}.get(
+            ls.get("location_type", ""), ""
+        )
         if wp != "" and wp not in seen_wp:
             seen_wp.add(wp)
             workplaces.append(wp)
@@ -369,7 +416,12 @@ def resolve_dover(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
         location=location,
         employment_type=dover_employment_label(comp.get("employment_type", "") or ""),
         workplace_type=" / ".join(workplaces),
-        comp_range=money_range(comp.get("lower_bound", 0) or 0, comp.get("upper_bound", 0) or 0, comp.get("currency_code", "") or "", comp.get("salary_range_type", "") or ""),
+        comp_range=money_range(
+            comp.get("lower_bound", 0) or 0,
+            comp.get("upper_bound", 0) or 0,
+            comp.get("currency_code", "") or "",
+            comp.get("salary_range_type", "") or "",
+        ),
         posted_at=iso_date(j.get("created", "") or ""),
         description=strip_html(j.get("user_provided_description", "") or ""),
     )
@@ -379,12 +431,17 @@ def dover_employment_label(s: str) -> str:
     """Map Dover's SCREAMING_SNAKE employment enum to the human label; unknown
     values pass through as-is."""
     return {
-        "FULL_TIME": "Full-time", "PART_TIME": "Part-time", "INTERN": "Internship",
-        "INTERNSHIP": "Internship", "CONTRACT": "Contract", "TEMPORARY": "Temporary",
+        "FULL_TIME": "Full-time",
+        "PART_TIME": "Part-time",
+        "INTERN": "Internship",
+        "INTERNSHIP": "Internship",
+        "CONTRACT": "Contract",
+        "TEMPORARY": "Temporary",
     }.get(s, s)
 
 
 # --- shared helpers ----------------------------------------------------------
+
 
 def fetch_ats_json(httpc: httpx.Client, url: str) -> dict:
     """GET url and decode the JSON reply; raise ATSError on a non-200."""
@@ -398,7 +455,9 @@ def fetch_ats_json(httpc: httpx.Client, url: str) -> dict:
 # company name is recoverable even when the posting API omits it.
 _re_board_og_title = re.compile(r"<meta[^>]+og:title[^>]+content=[\"']([^\"']*)[\"']", re.I | re.S)
 _re_board_title = re.compile(r"<title[^>]*>([^<]*)</title>", re.I | re.S)
-_re_board_suffix = re.compile(r"\s*[-–|·:]?\s*(jobs|careers|open roles|openings|job board)\s*$", re.I)
+_re_board_suffix = re.compile(
+    r"\s*[-–|·:]?\s*(jobs|careers|open roles|openings|job board)\s*$", re.I
+)
 
 
 def fetch_board_name(httpc: httpx.Client, page_url: str) -> str:
@@ -406,12 +465,14 @@ def fetch_board_name(httpc: httpx.Client, page_url: str) -> str:
     <title>): "Chai Discovery Jobs" → "Chai Discovery". Best-effort — "" on any
     fetch/parse failure, so the caller keeps its slug fallback."""
     try:
-        resp = httpc.get(page_url, headers={"User-Agent": "Mozilla/5.0 (scout)"}, timeout=ATS_CALL_TIMEOUT)
+        resp = httpc.get(
+            page_url, headers={"User-Agent": "Mozilla/5.0 (scout)"}, timeout=ATS_CALL_TIMEOUT
+        )
     except httpx.HTTPError:
         return ""
     if resp.status_code != 200:
         return ""
-    body = resp.text[:64 << 10]
+    body = resp.text[: 64 << 10]
 
     def name(rex: re.Pattern) -> str:
         m = rex.search(body)
@@ -452,7 +513,7 @@ def iso_date(s: str) -> str:
 
 
 def _fmt_num(n: float) -> str:
-    """Go's strconv.FormatFloat(n, 'f', -1, 64): shortest non-exponential form."""
+    """Shortest non-exponential decimal form (e.g. 12 not 12.0, 1.5 not 1.50)."""
     if n == int(n):
         return str(int(n))
     return repr(n)

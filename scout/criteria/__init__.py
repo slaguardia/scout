@@ -1,6 +1,5 @@
 """Package criteria resolves the user's criteria block (what the user wants) for
 the verdict stage, with a locally-cached distilled brief in front of the brain.
-Port of internal/criteria/resolver.go.
 
 Resolution follows the change-propagation cost cascade rather than a dumb TTL:
 each tier only pays for the next when something genuinely changed.
@@ -19,21 +18,22 @@ each tier only pays for the next when something genuinely changed.
     is within the TTL ceiling; past the ceiling (or with no cache), fall back to
     the offline taste.md file.
 """
+
 from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
 from scout import taste
 from scout.brainbot import Chunk, Client
 from scout.store import brain_profile
 from scout.store.brain_profile import BrainProfile
 
-# healthTimeout bounds the liveness probe before a (potentially slow)
-# distillation. The Python brainbot client applies its own client-level timeout;
-# this constant is kept for parity with the Go resolver.
+# HEALTH_TIMEOUT bounds the liveness probe before a (potentially slow)
+# distillation. The brainbot client also applies its own client-level timeout.
 HEALTH_TIMEOUT = 5.0  # seconds
 
 
@@ -118,10 +118,15 @@ class Resolver:
                 return blk
             except Exception as err:  # noqa: BLE001 - couldn't refresh; try the cache, then taste.md
                 if has_cache and self._within_ceiling(cp):
-                    self._log("criteria: %s; serving cached brief within ttl ceiling (verified %s)",
-                              err, _verified_ago(cp))
+                    self._log(
+                        "criteria: %s; serving cached brief within ttl ceiling (verified %s)",
+                        err,
+                        _verified_ago(cp),
+                    )
                     return _block_from_cache(cp, url)
-                self._log("criteria: %s; no usable cache — falling back to %s", err, self.taste_md_path)
+                self._log(
+                    "criteria: %s; no usable cache — falling back to %s", err, self.taste_md_path
+                )
 
         # Offline fallback.
         return taste.load_file(self.taste_md_path)
@@ -136,8 +141,11 @@ class Resolver:
             cr = self.brain.changes(cp.cursor)
         except Exception as err:  # noqa: BLE001 - brain unreachable for the change signal
             if self._within_ceiling(cp):
-                self._log("criteria: Tier 0 unreachable (%s); serving cached brief within ttl ceiling (verified %s)",
-                          err, _verified_ago(cp))
+                self._log(
+                    "criteria: Tier 0 unreachable (%s); serving cached brief within ttl ceiling (verified %s)",
+                    err,
+                    _verified_ago(cp),
+                )
                 return _block_from_cache(cp, url)
             raise RuntimeError(
                 f"brain change-signal unreachable at {url} and cached brief past ttl ceiling: {err}"
@@ -145,7 +153,9 @@ class Resolver:
         if not cr.changed:
             # Tier 0 hit: nothing moved. Stamp confirmed-current; serve verbatim.
             self._touch(url, cr.cursor)
-            self._log("criteria: Tier 0 — brain unchanged since cursor; cached brief served verbatim")
+            self._log(
+                "criteria: Tier 0 — brain unchanged since cursor; cached brief served verbatim"
+            )
             return _block_from_cache(cp, url)
 
         # changed=True → Tier 1: re-run the recall gather and compare the basis.
@@ -229,7 +239,9 @@ class Resolver:
             cr = self.brain.changes("")
             cursor = cr.cursor
         except Exception as cerr:  # noqa: BLE001
-            self._log("criteria: cursor read failed during distill (%s); storing empty cursor", cerr)
+            self._log(
+                "criteria: cursor read failed during distill (%s); storing empty cursor", cerr
+            )
         brief, basis = self.distiller.distill()
         brief = brief.strip()
         if brief == "":
@@ -258,9 +270,8 @@ def reconcile_loop(stop: threading.Event, interval: float, reconcile: Callable[[
     once after a short startup delay, then every interval. A non-positive interval
     or None reconcile disables the loop.
 
-    Go translation note: Go's ctx-per-pass timeout is dropped — the Python port has
-    no ctx propagation into reconcile yet (the web layer, the only consumer, is not
-    yet ported)."""
+    There is no per-pass timeout or cancellation propagated into reconcile; the web
+    layer, its only consumer, does not need one."""
     if interval <= 0 or reconcile is None:
         return
     startup_delay = 15.0  # let the server finish coming up

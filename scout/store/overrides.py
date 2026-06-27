@@ -1,4 +1,5 @@
-"""Durable hand-set verdict overrides (record of intent). Port of internal/store/overrides.go."""
+"""Durable hand-set verdict overrides (record of intent)."""
+
 from __future__ import annotations
 
 import sqlite3

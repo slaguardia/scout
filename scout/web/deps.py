@@ -1,25 +1,24 @@
 """Shared dependencies + the server-held state.
 
-Go's web.Server is one long-lived struct holding the clients, the job Runner, and
-the mu-guarded taste/playbook cache, with a pooled *sql.DB handed a fresh
-connection per request. Python's sqlite3 connection is not safe to share across
-threads, so we split that:
+Python's sqlite3 connection is not safe to share across threads, so the
+long-lived process state and the per-request database handle are kept separate:
 
   - AppState holds the process-lifetime singletons (clients, runner, optional
     engines, and the taste/playbook cache behind a lock). One instance lives on
     app.state.scout.
   - get_db opens a FRESH connection per request via store.db.connect (migrations
-    already ran once at create_app time) and closes it in finally — the analogue
-    of Go's pooled connection.
+    already ran once at create_app time) and closes it in finally — each request
+    owns its own connection, never shared.
 
 Sync `def` endpoints run in the threadpool, so the blocking sqlite3/httpx calls
 never stall the event loop.
 """
+
 from __future__ import annotations
 
 import os
 import threading
-from typing import Iterator
+from collections.abc import Iterator
 
 from fastapi import Request
 
@@ -35,8 +34,8 @@ from .config import Config
 class AppState:
     """Process-lifetime singletons + the taste/playbook cache.
 
-    Mirrors the fields of the Go web.Server that outlive a request. Per-request
-    SQLite connections come from get_db, never from here. The optional engines
+    Holds the state that outlives a request. Per-request SQLite connections come
+    from get_db, never from here. The optional engines
     (runner/outreach/answers/chat) stay None in part 1 — meta reports them off
     until they are wired.
     """
@@ -69,7 +68,7 @@ class AppState:
         self._taste: taste_pkg.Block | None = None
         self._playbook: str = ""
 
-    # --- taste / playbook cache (Go's ReloadTaste + currentTaste/Playbook) -----
+    # --- taste / playbook cache ------------------------------------------------
 
     def reload_taste(self) -> None:
         """Resolve the criteria block (cached brain brief → taste.md, via the
@@ -114,7 +113,7 @@ class AppState:
         with self._lock:
             return self._taste.version if self._taste is not None else ""
 
-    # --- Anthropic key resolution (Go's anthropickey.go) -----------------------
+    # --- Anthropic key resolution ----------------------------------------------
 
     def active_anthropic_key(self, con) -> tuple[str, str]:
         """The key in effect and its source: a UI-stored key ("db") wins over
@@ -139,7 +138,7 @@ class AppState:
             self.anthropic.set_api_key(key)
         return key
 
-    # --- brain health (Go's brainHealthy) --------------------------------------
+    # --- brain health ----------------------------------------------------------
 
     def brain_healthy(self) -> bool:
         """Whether the brain is configured AND currently reachable."""
@@ -158,8 +157,8 @@ def get_state(request: Request) -> AppState:
 
 
 def get_db(request: Request) -> Iterator:
-    """A fresh per-request SQLite connection, closed in finally. Mirrors Go's
-    pooled connection: each request owns one, never shared across requests."""
+    """A fresh per-request SQLite connection, closed in finally. Each request
+    owns one, never shared across requests."""
     state: AppState = request.app.state.scout
     con = db_module.connect(state.config.db_path)
     try:

@@ -1,4 +1,4 @@
-"""Application-answer generation. Port of internal/outreach/answers.go.
+"""Application-answer generation.
 
 Application-answer generation reuses the outreach Engine wholesale — the Anthropic
 client, the cached context blocks, and (critically) the honesty checker. These
@@ -8,6 +8,7 @@ honesty gate the email drafter uses. See docs/pipeline.md (`scout questions`).
 
 The Engine methods live here as a mixin folded into Engine (engine.py).
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,7 @@ from scout.store import posting_answers, postings
 
 from .jdfetch import JD_MAX_CHARS, fetch_jd, trunc
 
-# answerMaxTokens covers one essay answer (a few hundred words).
+# ANSWER_MAX_TOKENS covers one essay answer (a few hundred words).
 ANSWER_MAX_TOKENS = 1200
 
 
@@ -47,10 +48,10 @@ def format_violations(vs: list[dict]) -> str:
     return "\n".join(f"- {v['claim']} ({v['why']})" for v in vs).strip()
 
 
-# answerSystem is the application-answer drafter's system prompt. It leans on the
+# ANSWER_SYSTEM is the application-answer drafter's system prompt. It leans on the
 # honesty rule harder than the email drafter: an answer is a direct claim to a
-# recruiter, so a thinner true answer beats an impressive invented one. Copied
-# VERBATIM from the Go const.
+# recruiter, so a thinner true answer beats an impressive invented one. Treat the
+# prompt text as VERBATIM — do not reflow or edit it.
 ANSWER_SYSTEM = """You write one applicant's answer to a single job-application essay question, in the applicant's own voice. The applicant is applying for this role; you are filling in their application.
 
 Ground every factual claim in the provided experience card — roles, skills, scope, durations, domains. NEVER invent or inflate experience the card does not support: an honesty reviewer will reject anything beyond it, and a false claim to a recruiter is worse than a thinner answer. The company-fit brief is the applicant's OWN values — use it only to make "why this company" specific and true, never to claim a fit you cannot back up.
@@ -70,11 +71,13 @@ class _AnswersMixin:
         """Fire-and-forget: draft answers for all of a posting's pending questions
         in a background thread and return immediately (the panel polls each row).
         The web AnswersRunner entry point."""
+
         def _go() -> None:
             try:
                 self.generate_answers(posting_id)
             except Exception as e:  # noqa: BLE001 - background task: log only
                 self._log(f"answers: posting {posting_id}: {e}")
+
         threading.Thread(target=_go, daemon=True).start()
 
     def generate_answers(self, posting_id: str) -> None:
@@ -115,7 +118,12 @@ class _AnswersMixin:
                 if status != posting_answers.ANSWER_FAILED:
                     try:
                         posting_answers.update_answer(
-                            self.con, a.id, "", posting_answers.ANSWER_FAILED, "save failed: " + str(e))
+                            self.con,
+                            a.id,
+                            "",
+                            posting_answers.ANSWER_FAILED,
+                            "save failed: " + str(e),
+                        )
                     except Exception:  # noqa: BLE001
                         pass
 
@@ -176,27 +184,37 @@ class _AnswersMixin:
         if ac.jd != "":
             b.append(f"Job description:\n{trunc(ac.jd, JD_MAX_CHARS)}\n\n")
         if ac.brief != "":
-            b.append('Company-fit brief (the applicant\'s own values — use ONLY to make "why this company" '
-                     f"specific and true, never to invent fit):\n{ac.brief}\n\n")
-        b.append("Applicant experience (the applicant's work history — the source for every claim about what "
-                 f"they have done):\n{ac.experience}\n\n")
+            b.append(
+                'Company-fit brief (the applicant\'s own values — use ONLY to make "why this company" '
+                f"specific and true, never to invent fit):\n{ac.brief}\n\n"
+            )
+        b.append(
+            "Applicant experience (the applicant's work history — the source for every claim about what "
+            f"they have done):\n{ac.experience}\n\n"
+        )
         if ac.logistics != "":
-            b.append("Applicant profile (biographical & logistics facts — current location, work authorization, "
-                     "availability, comp, links; the ONLY source for any such fact):\n"
-                     f"{ac.logistics}\n\n")
+            b.append(
+                "Applicant profile (biographical & logistics facts — current location, work authorization, "
+                "availability, comp, links; the ONLY source for any such fact):\n"
+                f"{ac.logistics}\n\n"
+            )
         if ac.voice != "":
             b.append(f"Voice rules (write like this):\n{ac.voice}\n\n")
         b.append(answer_length_guide(a.max_length))
         if violation_note != "":
-            b.append("\n\nA reviewer flagged these claims in your last draft — fix them without inventing "
-                     f"anything:\n{violation_note}")
+            b.append(
+                "\n\nA reviewer flagged these claims in your last draft — fix them without inventing "
+                f"anything:\n{violation_note}"
+            )
 
-        resp = self.client.send(anthropic.Request(
-            model=self._resolved_model(),
-            system=ANSWER_SYSTEM,
-            max_tokens=ANSWER_MAX_TOKENS,
-            messages=[anthropic.Message("user", "".join(b))],
-        ))
+        resp = self.client.send(
+            anthropic.Request(
+                model=self._resolved_model(),
+                system=ANSWER_SYSTEM,
+                max_tokens=ANSWER_MAX_TOKENS,
+                messages=[anthropic.Message("user", "".join(b))],
+            )
+        )
         text = resp.text().strip()
         if text == "":
             raise RuntimeError("empty answer")
@@ -207,6 +225,8 @@ class _AnswersMixin:
         precondition (missing block, missing posting) dooms the whole batch."""
         for a in pending:
             try:
-                posting_answers.update_answer(self.con, a.id, "", posting_answers.ANSWER_FAILED, str(err))
+                posting_answers.update_answer(
+                    self.con, a.id, "", posting_answers.ANSWER_FAILED, str(err)
+                )
             except Exception:  # noqa: BLE001
                 pass

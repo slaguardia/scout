@@ -37,8 +37,7 @@ scout serve            # the primary interface — drive everything from the bro
 
 The CLI stages (`ingest`, `filter`, `enrich`, `verdict`, …) still exist as a
 secondary automation/debug surface, but the web UI is the way in. Run the tests
-with `pytest`. See [`PORTING.md`](./PORTING.md) for the conventions and the
-Go→Python mapping (this backend was ported from Go).
+with `pytest`.
 
 ## Layout
 
@@ -51,7 +50,7 @@ scout/            the Python package (the backend)
   outreach/ chat/ criteria/ filter/ jobs/ taste/ playbook/   the rest
   web/            FastAPI app (app.py + routes/, serves the PWA + /api)
   cli.py          the `scout` command (serve, ingest, verdict, outreach, …)
-tests/            pytest, ported from the Go *_test.go suite
+tests/            pytest suite covering the store, pipeline, and web layers
 web/              Vite/TypeScript PWA (source) → builds to web/dist/
 ```
 

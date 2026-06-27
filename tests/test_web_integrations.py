@@ -1,10 +1,10 @@
-"""Port of internal/web/integrations_test.go — the Anthropic-key resolver and the
-write-only key integration endpoint."""
+"""The Anthropic-key resolver and the write-only key integration endpoint."""
+
 from __future__ import annotations
 
-from scout.store import settings as settings_store
-
 from web_helpers import new_test_app, open_db
+
+from scout.store import settings as settings_store
 
 
 def test_active_anthropic_key(tmp_path, monkeypatch):
@@ -49,8 +49,9 @@ def test_anthropic_key_endpoint(tmp_path, monkeypatch):
     assert rec.status_code == 200
     assert rec.json() == {"has_key": False, "key_source": None}
 
-    put = lambda body: client.put("/api/integrations/anthropic", content=body,
-                                  headers={"Content-Type": "application/json"})
+    put = lambda body: client.put(
+        "/api/integrations/anthropic", content=body, headers={"Content-Type": "application/json"}
+    )
 
     # PUT a rejected key -> 400, nothing stored.
     flags["fail"] = True
@@ -92,7 +93,8 @@ def test_anthropic_key_endpoint(tmp_path, monkeypatch):
 def test_missing_key_field_is_400(tmp_path, monkeypatch):
     client, _cid, _db_path = new_test_app(tmp_path, monkeypatch)
     client.app.state.scout.key_verifier = lambda _key: None
-    rec = client.put("/api/integrations/anthropic", content="{}",
-                     headers={"Content-Type": "application/json"})
+    rec = client.put(
+        "/api/integrations/anthropic", content="{}", headers={"Content-Type": "application/json"}
+    )
     assert rec.status_code == 400
     assert "missing required field: key" in rec.json()["error"]

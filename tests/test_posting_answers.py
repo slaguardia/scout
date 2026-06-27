@@ -1,4 +1,5 @@
-"""Port of internal/store/posting_answers_test.go."""
+"""Tests for scout.store.posting_answers."""
+
 import pytest
 
 from scout.store import errors, posting_answers, postings
@@ -27,8 +28,11 @@ def test_upsert_detected_questions_idempotent(db):
 
     answers = posting_answers.list_answers(db, pid)
     assert len(answers) == 2
-    assert (answers[0].status == ANSWER_DETECTED and answers[0].prompt == "Why us?"
-            and answers[0].max_length == 500)
+    assert (
+        answers[0].status == ANSWER_DETECTED
+        and answers[0].prompt == "Why us?"
+        and answers[0].max_length == 500
+    )
 
     p = postings.get_posting(db, pid)
     assert p.questions_status == "ok"
@@ -46,10 +50,15 @@ def test_upsert_detected_questions_idempotent(db):
 
 def test_answer_generation_lifecycle(db):
     pid = _seed(db)
-    posting_answers.upsert_detected_questions(db, pid, [
-        DetectedQuestion(key="k1", prompt="Q1"),
-        DetectedQuestion(key="k2", prompt="Q2"),
-    ], "ok")
+    posting_answers.upsert_detected_questions(
+        db,
+        pid,
+        [
+            DetectedQuestion(key="k1", prompt="Q1"),
+            DetectedQuestion(key="k2", prompt="Q2"),
+        ],
+        "ok",
+    )
 
     pending = posting_answers.mark_answers_generating(db, pid)
     assert len(pending) == 2
@@ -91,7 +100,9 @@ def test_delete_answer_comes_back_on_redetect(db):
 
 def test_reap_stuck_answers(db):
     pid = _seed(db)
-    posting_answers.upsert_detected_questions(db, pid, [DetectedQuestion(key="k", prompt="Q")], "ok")
+    posting_answers.upsert_detected_questions(
+        db, pid, [DetectedQuestion(key="k", prompt="Q")], "ok"
+    )
     posting_answers.mark_answers_generating(db, pid)
     n = posting_answers.reap_stuck_answers(db, 0)
     assert n == 1

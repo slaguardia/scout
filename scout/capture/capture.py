@@ -1,5 +1,4 @@
-"""Package capture turns a pasted link into structured rows. Port of
-internal/capture/capture.go.
+"""Turn a pasted link into structured rows.
 
 Two paths: posting links on a supported ATS (ashby/greenhouse/lever/rippling/
 dover) resolve through the platform's public JSON API — exact fields, no page
@@ -9,6 +8,7 @@ classify it and extract fields. Either way the company is upserted — and the
 posting, when it's a job. All writes stay scout-local; the brain is never
 touched.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,8 +25,8 @@ from scout.store import companies, enrichment, posting_answers, postings
 
 from . import questions
 from .ats import (
-    ATSJob,
     DESC_CAP_RUNES,
+    ATSJob,
     is_ats_posting,
     resolve_ats,
     trunc_runes,
@@ -91,7 +91,7 @@ class Result:
 class FetchError(Exception):
     """A page that couldn't be fetched as real content; status is the enrichment
     fetch-taxonomy value ("challenge", "http_403", ...). The web layer maps it to
-    a 422. result carries the no-write Result (Go returns both)."""
+    a 422. result carries the no-write Result so the caller can read what was attempted."""
 
     def __init__(self, status: str, result: Result | None = None):
         super().__init__("fetch failed: " + status)
@@ -199,13 +199,23 @@ class Capturer:
         name = ext.company_name.strip()
         domain = resolve_company_domain(ext.company_domain, raw_url, final_url)
         if name == "" and domain == "":
-            res.note = "couldn't identify the company behind the page — type a company name and retry"
+            res.note = (
+                "couldn't identify the company behind the page — type a company name and retry"
+            )
             return res
 
-        cid, created = ingest.ensure_company(self.db, CapturedCompany(
-            name=name, domain=domain, location=ext.company_location, vertical=ext.vertical,
-            source_url=final_url, headcount=req.fields.headcount, funding_stage=req.fields.funding_stage,
-        ))
+        cid, created = ingest.ensure_company(
+            self.db,
+            CapturedCompany(
+                name=name,
+                domain=domain,
+                location=ext.company_location,
+                vertical=ext.vertical,
+                source_url=final_url,
+                headcount=req.fields.headcount,
+                funding_stage=req.fields.funding_stage,
+            ),
+        )
         res.company_id = cid
         res.company_created = created
         if name == "":
@@ -216,20 +226,30 @@ class Capturer:
             # Seed the enrichment row so the next verdict run can score without a
             # separate Enrich pass. Only when no enrichment exists.
             if enrichment.get_enrichment(self.db, cid) is None:
-                enrichment.upsert_enrichment(self.db, enrichment.Enrichment(
-                    company_id=cid,
-                    website_url=final_url or None,
-                    website_summary=trunc_runes(text, ENRICH_SEED_RUNES) or None,
-                    fetch_status=status,
-                ))
+                enrichment.upsert_enrichment(
+                    self.db,
+                    enrichment.Enrichment(
+                        company_id=cid,
+                        website_url=final_url or None,
+                        website_summary=trunc_runes(text, ENRICH_SEED_RUNES) or None,
+                        fetch_status=status,
+                    ),
+                )
         elif ext.kind == KIND_JOB:
             # Keep the fetched page text itself as the posting body (up to
             # descCapRunes), matching the ATS path.
-            p, updated = postings.upsert_captured_posting(self.db, postings.CapturedPosting(
-                company_id=cid, url=final_url, pasted_url=raw_url,
-                title=ext.job_title, location=ext.job_location,
-                description=text.strip(), fetch_status=status,
-            ))
+            p, updated = postings.upsert_captured_posting(
+                self.db,
+                postings.CapturedPosting(
+                    company_id=cid,
+                    url=final_url,
+                    pasted_url=raw_url,
+                    title=ext.job_title,
+                    location=ext.job_location,
+                    description=text.strip(),
+                    fetch_status=status,
+                ),
+            )
             res.posting = p
             res.posting_updated = updated
             self._detect_and_store(p.id, final_url)
@@ -266,8 +286,12 @@ class Capturer:
         except Exception:
             return None
         return Result(
-            kind=KIND_JOB, fetch_status="ok", url=job.url,
-            company_id=company_id, posting=p, posting_updated=updated,
+            kind=KIND_JOB,
+            fetch_status="ok",
+            url=job.url,
+            company_id=company_id,
+            posting=p,
+            posting_updated=updated,
             note="details from the " + job.ats + " posting API — no LLM pass needed",
         )
 
@@ -289,22 +313,35 @@ class Capturer:
             return None
         ext.apply(req.fields)  # user-typed Title wins over the extraction
         try:
-            p, updated = postings.upsert_captured_posting(self.db, postings.CapturedPosting(
-                company_id=company_id, url=final_url, pasted_url=raw_url,
-                title=ext.job_title, location=ext.job_location,
-                description=text.strip(), fetch_status=status,
-            ))
+            p, updated = postings.upsert_captured_posting(
+                self.db,
+                postings.CapturedPosting(
+                    company_id=company_id,
+                    url=final_url,
+                    pasted_url=raw_url,
+                    title=ext.job_title,
+                    location=ext.job_location,
+                    description=text.strip(),
+                    fetch_status=status,
+                ),
+            )
         except Exception:
             return None
         self._detect_and_store(p.id, final_url)
         return Result(
-            kind=KIND_JOB, fetch_status=status, url=final_url,
-            company_id=company_id, posting=p, posting_updated=updated,
+            kind=KIND_JOB,
+            fetch_status=status,
+            url=final_url,
+            company_id=company_id,
+            posting=p,
+            posting_updated=updated,
         )
 
     # --- write helpers --------------------------------------------------------
 
-    def _add_bare_company(self, req: Request, raw_url: str, final_url: str, status: str) -> tuple[Result | None, bool]:
+    def _add_bare_company(
+        self, req: Request, raw_url: str, final_url: str, status: str
+    ) -> tuple[Result | None, bool]:
         """Land a company without any page content — the graceful path for a
         user-pinned company link that can't be fetched. ok=False means there was
         nothing to identify the company by, so the caller reports the fetch
@@ -314,11 +351,18 @@ class Capturer:
         if name == "" and domain == "":
             return None, False
         res = Result(kind=KIND_COMPANY, fetch_status=status, url=final_url)
-        cid, created = ingest.ensure_company(self.db, CapturedCompany(
-            name=name, domain=domain, location=req.fields.location.strip(),
-            vertical=req.fields.vertical.strip(), source_url=final_url,
-            headcount=req.fields.headcount, funding_stage=req.fields.funding_stage,
-        ))
+        cid, created = ingest.ensure_company(
+            self.db,
+            CapturedCompany(
+                name=name,
+                domain=domain,
+                location=req.fields.location.strip(),
+                vertical=req.fields.vertical.strip(),
+                source_url=final_url,
+                headcount=req.fields.headcount,
+                funding_stage=req.fields.funding_stage,
+            ),
+        )
         res.company_id = cid
         res.company_created = created
         if name == "":
@@ -336,12 +380,21 @@ class Capturer:
         if name == "":
             name = job.company_name
         if name == "":
-            res.note = "couldn't identify the company behind the page — type a company name and retry"
+            res.note = (
+                "couldn't identify the company behind the page — type a company name and retry"
+            )
             return res
-        cid, created = ingest.ensure_company(self.db, CapturedCompany(
-            name=name, location=req.fields.location, vertical=req.fields.vertical,
-            source_url=job.url, headcount=req.fields.headcount, funding_stage=req.fields.funding_stage,
-        ))
+        cid, created = ingest.ensure_company(
+            self.db,
+            CapturedCompany(
+                name=name,
+                location=req.fields.location,
+                vertical=req.fields.vertical,
+                source_url=job.url,
+                headcount=req.fields.headcount,
+                funding_stage=req.fields.funding_stage,
+            ),
+        )
         res.company_id = cid
         res.company_created = created
         res.company_name = name
@@ -352,7 +405,9 @@ class Capturer:
         res.note = "details from the " + job.ats + " posting API — no LLM pass needed"
         return res
 
-    def _run_job_posting_ld(self, raw_url: str, final_url: str, status: str, req: Request, jp: JobPostingLD) -> Result:
+    def _run_job_posting_ld(
+        self, raw_url: str, final_url: str, status: str, req: Request, jp: JobPostingLD
+    ) -> Result:
         """The same writes the generic job path makes, from a page's embedded
         schema.org JobPosting. A careers page identifies its company, so the
         hiring org's own site resolves a real domain. The JobPosting's location is
@@ -363,14 +418,22 @@ class Capturer:
             name = jp.company_name.strip()
         domain = resolve_company_domain(jp.company_url, raw_url, final_url)
         if name == "" and domain == "":
-            res.note = "couldn't identify the company behind the page — type a company name and retry"
+            res.note = (
+                "couldn't identify the company behind the page — type a company name and retry"
+            )
             return res
-        cid, created = ingest.ensure_company(self.db, CapturedCompany(
-            name=name, domain=domain,
-            location=req.fields.location.strip(),  # company HQ — the JobPosting states the role's location
-            vertical=req.fields.vertical.strip(), source_url=final_url,
-            headcount=req.fields.headcount, funding_stage=req.fields.funding_stage,
-        ))
+        cid, created = ingest.ensure_company(
+            self.db,
+            CapturedCompany(
+                name=name,
+                domain=domain,
+                location=req.fields.location.strip(),  # company HQ — the JobPosting states the role's location
+                vertical=req.fields.vertical.strip(),
+                source_url=final_url,
+                headcount=req.fields.headcount,
+                funding_stage=req.fields.funding_stage,
+            ),
+        )
         res.company_id = cid
         res.company_created = created
         if name == "":
@@ -380,32 +443,53 @@ class Capturer:
         title = req.fields.title.strip()
         if title == "":
             title = jp.title
-        p, updated = postings.upsert_captured_posting(self.db, postings.CapturedPosting(
-            company_id=cid, url=final_url, pasted_url=raw_url,
-            title=title, location=jp.location, fetch_status=status,
-            posted_at=jp.posted_at, employment_type=jp.employment_type,
-            workplace_type=jp.workplace_type, comp_range=jp.comp_range,
-            description=jp.description,
-        ))
+        p, updated = postings.upsert_captured_posting(
+            self.db,
+            postings.CapturedPosting(
+                company_id=cid,
+                url=final_url,
+                pasted_url=raw_url,
+                title=title,
+                location=jp.location,
+                fetch_status=status,
+                posted_at=jp.posted_at,
+                employment_type=jp.employment_type,
+                workplace_type=jp.workplace_type,
+                comp_range=jp.comp_range,
+                description=jp.description,
+            ),
+        )
         res.posting = p
         res.posting_updated = updated
         res.note = "details from the page's embedded job-posting data — no LLM pass needed"
         self._detect_and_store(p.id, final_url)
         return res
 
-    def _write_ats_posting(self, company_id: str, raw_url: str, title: str, job: ATSJob) -> tuple[postings.Posting, bool]:
+    def _write_ats_posting(
+        self, company_id: str, raw_url: str, title: str, job: ATSJob
+    ) -> tuple[postings.Posting, bool]:
         """Upsert the posting row from a resolved ATS job, then kick off
         best-effort question detection. title is the user-typed value (which
         wins); the platform's title fills a blank."""
         if title.strip() == "":
             title = job.title
-        p, updated = postings.upsert_captured_posting(self.db, postings.CapturedPosting(
-            company_id=company_id, url=job.url, pasted_url=raw_url,
-            title=title, location=job.location, fetch_status="ok",
-            posted_at=job.posted_at, employment_type=job.employment_type,
-            workplace_type=job.workplace_type, department=job.department,
-            comp_range=job.comp_range, description=job.description,
-        ))
+        p, updated = postings.upsert_captured_posting(
+            self.db,
+            postings.CapturedPosting(
+                company_id=company_id,
+                url=job.url,
+                pasted_url=raw_url,
+                title=title,
+                location=job.location,
+                fetch_status="ok",
+                posted_at=job.posted_at,
+                employment_type=job.employment_type,
+                workplace_type=job.workplace_type,
+                department=job.department,
+                comp_range=job.comp_range,
+                description=job.description,
+            ),
+        )
         self._detect_and_store(p.id, job.url)
         return p, updated
 
@@ -434,10 +518,14 @@ class Capturer:
             pass
         user = f"{hint}URL: {final_url}\n\nPage text (truncated):\n{text}\n\nReturn the JSON now."
 
-        resp = self.client.send(anthropic.Request(
-            model=model, system=_CAPTURE_CONTRACT, max_tokens=LLM_MAX_TOKENS,
-            messages=[anthropic.Message(role="user", content=user)],
-        ))
+        resp = self.client.send(
+            anthropic.Request(
+                model=model,
+                system=_CAPTURE_CONTRACT,
+                max_tokens=LLM_MAX_TOKENS,
+                messages=[anthropic.Message(role="user", content=user)],
+            )
+        )
         return parse_extraction(resp.text())
 
     # --- question detection (delegates to questions.py) -----------------------
@@ -459,8 +547,10 @@ class Capturer:
         idempotent upsert plus the posting's questions_status. Raises NotFound
         when the posting id is unknown."""
         scan = self.resolve_questions(raw_url)
-        dqs = [posting_answers.DetectedQuestion(key=q.key, prompt=q.prompt, max_length=q.max_length)
-               for q in scan.questions]
+        dqs = [
+            posting_answers.DetectedQuestion(key=q.key, prompt=q.prompt, max_length=q.max_length)
+            for q in scan.questions
+        ]
         posting_answers.upsert_detected_questions(self.db, posting_id, dqs, scan.status)
         return scan
 
@@ -528,14 +618,30 @@ def parse_extraction(s: str) -> _Extraction:
 # carries the posting but is never the company's own identity. Complements
 # ingest's aggregator list with the hiring-specific platforms. Suffix-matched.
 _ATS_HOSTS = {
-    "greenhouse.io", "lever.co", "ashbyhq.com",
-    "workable.com", "workday.com", "myworkdayjobs.com",
-    "icims.com", "smartrecruiters.com", "jobvite.com",
-    "bamboohr.com", "breezy.hr", "recruitee.com",
-    "teamtailor.com", "applytojob.com", "rippling-ats.com",
-    "greenhouse.com", "jazz.co", "jazzhr.com",
-    "workatastartup.com", "ycombinator.com", "otta.com",
-    "builtin.com", "simplify.jobs", "hired.com",
+    "greenhouse.io",
+    "lever.co",
+    "ashbyhq.com",
+    "workable.com",
+    "workday.com",
+    "myworkdayjobs.com",
+    "icims.com",
+    "smartrecruiters.com",
+    "jobvite.com",
+    "bamboohr.com",
+    "breezy.hr",
+    "recruitee.com",
+    "teamtailor.com",
+    "applytojob.com",
+    "rippling-ats.com",
+    "greenhouse.com",
+    "jazz.co",
+    "jazzhr.com",
+    "workatastartup.com",
+    "ycombinator.com",
+    "otta.com",
+    "builtin.com",
+    "simplify.jobs",
+    "hired.com",
     "dover.com",
 }
 

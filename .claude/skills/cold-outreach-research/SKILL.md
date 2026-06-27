@@ -6,7 +6,7 @@ description: Research evidence and best practices on cold outreach (reply rates,
 # Cold-outreach research
 
 Scout's outreach writing lives in the **editable stage prompts** in
-`internal/outreach` (researcher / writer-fill / humanizer / honesty) and the
+`scout/outreach` (researcher / writer-fill / humanizer / honesty) and the
 **email template's holes** — a stack of opinionated decisions, with no separate
 "doctrine" doc anymore. When one of those decisions is in doubt, don't argue it
 from taste — research it and let the evidence settle it. This skill is the
@@ -47,7 +47,7 @@ disciplined way to do that and feed the answer back into the pipeline.
    transfer to job-seeking, which is the actual use case here).
 
 4. **Translate findings into concrete pipeline edits**, mapped to where they live:
-   - the editable stage prompts (`internal/outreach`: researcher / fill / humanizer)
+   - the editable stage prompts (`scout/outreach`: researcher / fill / humanizer)
    - the email-template holes (the localized DB singleton, or the `template.go`
      compiled default)
    Say which finding drives which edit, and flag where evidence is thin so we

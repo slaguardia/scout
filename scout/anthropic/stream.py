@@ -1,4 +1,4 @@
-"""SSE stream parsing for the Messages API. Port of internal/anthropic/stream.go.
+"""SSE stream parsing for the Messages API.
 
 The streamed blocks are RECONSTRUCTED, not handed over whole — a tool_use block's
 input arrives as input_json_delta fragments and a thinking block as
@@ -8,13 +8,15 @@ at content_block_stop. StopReason / Usage come from message_delta.
 This module holds the protocol machinery; Client.stream (in client.py) owns the
 HTTP + retry scaffolding and feeds the decoded line iterator here.
 """
+
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Callable, Iterable
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # avoid a circular import at runtime — only for type hints
-    from .client import Response
+    from .client import ContentBlock, Response
 
 
 class _BlockAcc:
@@ -34,7 +36,7 @@ class _BlockAcc:
         self.input_json: list[str] = []
         self.has_input: bool = False
 
-    def finalize(self) -> "ContentBlock":
+    def finalize(self) -> ContentBlock:
         from .client import ContentBlock
 
         m: dict = dict(self.base) if self.base is not None else {}
@@ -65,7 +67,7 @@ class StreamError(Exception):
     """A malformed or error SSE stream."""
 
 
-def parse_sse(lines: Iterable[str], on_text: Callable[[str], None] | None) -> "Response":
+def parse_sse(lines: Iterable[str], on_text: Callable[[str], None] | None) -> Response:
     """Read the event stream, reconstruct the content blocks, and return the
     assembled Response. on_text (None-safe) is invoked with each text delta for
     live forwarding to the UI."""
@@ -146,7 +148,7 @@ def parse_sse(lines: Iterable[str], on_text: Callable[[str], None] | None) -> "R
         elif line.startswith("data:"):
             # Anthropic sends one data line per event; concatenate defensively in
             # case a payload is ever split across multiple data: lines.
-            data_buf.append(line[len("data:"):].removeprefix(" "))
+            data_buf.append(line[len("data:") :].removeprefix(" "))
         else:
             # `event:` lines and comments — the payload carries its own type.
             pass

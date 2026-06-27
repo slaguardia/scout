@@ -1,5 +1,4 @@
 """The email template: fixed prose plus {{var}} / {{name: instructions}} tokens.
-Port of internal/outreach/template.go.
 
   {{var}}                — a simple substitution resolved in code from the posting
                            (e.g. {{role}}, {{company}}). The LLM never sees these.
@@ -10,6 +9,7 @@ Port of internal/outreach/template.go.
 It lives in the DB (a singleton row) so a dashboard save can't clobber it and git
 never touches it. Parsing fails loud on a malformed template.
 """
+
 from __future__ import annotations
 
 import re
@@ -18,10 +18,10 @@ from dataclasses import dataclass
 
 from scout.store import outreach_template
 
-# DefaultTemplate is the compiled-in starting template, used until the user saves
+# DEFAULT_TEMPLATE is the compiled-in starting template, used until the user saves
 # their own. "Your Name" stays a placeholder the user localizes. (The subject
 # line's em dash is intentional — see voice.py's note about never linting the
-# subject.) Copied VERBATIM from the Go const.
+# subject.) Treat the template text as VERBATIM — do not reflow or edit it.
 DEFAULT_TEMPLATE = """Subject: [Recipient] | Your Name — intro re {{role}}
 
 Hi [Recipient],
@@ -112,16 +112,16 @@ def template_or_default(con: sqlite3.Connection | None) -> str:
 
 # Segment kinds.
 _SEG_LITERAL = 0  # verbatim prose
-_SEG_VAR = 1      # {{name}} — substituted from vars
-_SEG_HOLE = 2     # {{name: instructions}} — filled by the LLM
+_SEG_VAR = 1  # {{name}} — substituted from vars
+_SEG_HOLE = 2  # {{name: instructions}} — filled by the LLM
 
 
 @dataclass
 class _Segment:
     kind: int
-    text: str = ""    # literal text (SEG_LITERAL)
-    name: str = ""    # var/hole name
-    instr: str = ""   # hole instructions, with nested {{var}} still unresolved
+    text: str = ""  # literal text (SEG_LITERAL)
+    name: str = ""  # var/hole name
+    instr: str = ""  # hole instructions, with nested {{var}} still unresolved
 
 
 _IDENT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
@@ -204,12 +204,14 @@ def parse_template(tmpl: str) -> Template:
                     j += 1
             if depth != 0:
                 raise ValueError(f"template: unterminated {{{{ near offset {i}")
-            inner = tmpl[i + 2:j]
+            inner = tmpl[i + 2 : j]
             flush()
             name, sep, instr = inner.partition(":")
             name = name.strip()
             if not _IDENT_RE.fullmatch(name):
-                raise ValueError(f"template: malformed token {{{{{inner}}}}} — {name!r} is not an identifier")
+                raise ValueError(
+                    f"template: malformed token {{{{{inner}}}}} — {name!r} is not an identifier"
+                )
             if sep:  # had a colon → hole
                 segs.append(_Segment(_SEG_HOLE, name=name, instr=instr.strip()))
             else:
@@ -251,7 +253,9 @@ def dewrap(s: str) -> str:
 
 def subst_vars(s: str, vars: dict[str, str]) -> str:
     """Replace {{var}} tokens in s from vars; unknown vars are left as-is."""
+
     def repl(m: re.Match) -> str:
         name = m.group(1)
         return vars[name] if name in vars else m.group(0)
+
     return _BARE_VAR_RE.sub(repl, s)

@@ -1,10 +1,11 @@
-"""Deterministic job-description pre-fetch. Port of internal/outreach/jdfetch.go.
+"""Deterministic job-description pre-fetch.
 
 Prefers the ATS JSON APIs (Ashby / Greenhouse / Lever) and falls back to a plain
 browser-UA GET with crude tag stripping. A failed fetch is not an error — the
 engine passes the Status to the researcher and carries on with fewer hooks.
-Transport is httpx (the project standard) in place of Go's net/http.
+Transport is httpx, the project standard.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,11 +15,11 @@ from dataclasses import dataclass
 
 import httpx
 
-# jdMaxChars caps the JD text handed to the researcher: enough to carry the
+# JD_MAX_CHARS caps the JD text handed to the researcher: enough to carry the
 # distinctive lines, small enough to keep the prompt cheap.
 JD_MAX_CHARS = 20000
 
-# browserUA spoofs a real browser so ATS HTML pages that block scripted clients
+# BROWSER_UA spoofs a real browser so ATS HTML pages that block scripted clients
 # still return the posting. The JD fetch is best-effort, so a failure just yields
 # the researcher less context.
 BROWSER_UA = (
@@ -27,7 +28,7 @@ BROWSER_UA = (
 )
 
 _HEADERS = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/json,*/*"}
-_MAX_BODY = 4 << 20  # 4 MiB read cap, matching Go's io.LimitReader
+_MAX_BODY = 4 << 20  # 4 MiB read cap on the response body
 
 
 @dataclass
@@ -113,7 +114,7 @@ def _fetch_ashby(httpc: httpx.Client, org: str, posting_id: str) -> JDResult | N
     _status, ok, board = _get_json(httpc, url)
     if not ok:
         return None
-    for j in (board.get("jobs") or []):
+    for j in board.get("jobs") or []:
         if (j.get("id") or "").lower() != posting_id.lower():
             continue
         desc = j.get("descriptionPlain") or ""
@@ -128,12 +129,14 @@ def _fetch_ashby(httpc: httpx.Client, org: str, posting_id: str) -> JDResult | N
 def _fetch_greenhouse(httpc: httpx.Client, org: str, id: str) -> JDResult | None:
     """Read one job from the board API (content=true returns the full HTML
     description)."""
-    url = "https://boards-api.greenhouse.io/v1/boards/%s/jobs/%s?content=true" % (_esc(org), _esc(id))
+    url = f"https://boards-api.greenhouse.io/v1/boards/{_esc(org)}/jobs/{_esc(id)}?content=true"
     _status, ok, job = _get_json(httpc, url)
     if not ok:
         return None
     location = (job.get("location") or {}).get("name") or ""
-    text = join_jd(job.get("title") or "", location, strip_tags(unescape_html(job.get("content") or "")))
+    text = join_jd(
+        job.get("title") or "", location, strip_tags(unescape_html(job.get("content") or ""))
+    )
     if text == "":
         return None
     return JDResult(text=trunc(text, JD_MAX_CHARS), status="ok (greenhouse)")
@@ -141,7 +144,7 @@ def _fetch_greenhouse(httpc: httpx.Client, org: str, id: str) -> JDResult | None
 
 def _fetch_lever(httpc: httpx.Client, org: str, id: str) -> JDResult | None:
     """Read one posting from the v0 postings API."""
-    url = "https://api.lever.co/v0/postings/%s/%s" % (_esc(org), _esc(id))
+    url = f"https://api.lever.co/v0/postings/{_esc(org)}/{_esc(id)}"
     _status, ok, post = _get_json(httpc, url)
     if not ok:
         return None
@@ -203,9 +206,18 @@ def strip_tags(html: str) -> str:
 
 
 _HTML_ENTITIES = {
-    "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
-    "&#39;": "'", "&#x27;": "'", "&nbsp;": " ", "&rsquo;": "'",
-    "&ldquo;": '"', "&rdquo;": '"', "&mdash;": "-", "&ndash;": "-",
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&#x27;": "'",
+    "&nbsp;": " ",
+    "&rsquo;": "'",
+    "&ldquo;": '"',
+    "&rdquo;": '"',
+    "&mdash;": "-",
+    "&ndash;": "-",
 }
 
 

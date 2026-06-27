@@ -1,13 +1,14 @@
-"""Port of internal/web/chat_test.go — open-or-create threads, the key gate, and a
-kick-then-stream round trip over the real engine driven by a stubbed SSE LLM."""
+"""Open-or-create threads, the key gate, and a kick-then-stream round trip over
+the real engine driven by a stubbed SSE LLM."""
+
 from __future__ import annotations
+
+from httpstub import http_server
+from web_helpers import new_test_app, open_db
 
 from scout import anthropic, chat
 from scout.store import chat as chat_store
 from scout.store.db import connect
-
-from httpstub import http_server
-from web_helpers import new_test_app, open_db
 
 # A minimal end_turn SSE turn for the stubbed Anthropic endpoint.
 CHAT_END_TURN_SSE = """event: message_start
@@ -47,13 +48,35 @@ def test_chat_threads_open_or_create(tmp_path, monkeypatch):
     assert client.get("/api/chat/threads?scope=company").status_code == 400
 
 
+def test_chat_threads_content_is_parsed_array(tmp_path, monkeypatch):
+    # Regression: the API must return each message's content as a real
+    # content-block array, not the raw JSON string it's stored as. The frontend
+    # calls .filter() on it; a string there throws and blanks the chat pane.
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    con = open_db(db_path)
+    th = chat_store.open_or_create_thread(con, chat_store.CHAT_SCOPE_GLOBAL, "")
+    chat_store.append_message(
+        con, th.id, "user", '[{"type": "text", "text": "hello"}]', "hello"
+    )
+    con.close()
+
+    out = client.get("/api/chat/threads?scope=global").json()
+    assert len(out["messages"]) == 1
+    content = out["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "text" and content[0]["text"] == "hello"
+
+
 def test_chat_message_needs_key(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)  # no Chat engine wired
     con = open_db(db_path)
     th = chat_store.open_or_create_thread(con, chat_store.CHAT_SCOPE_GLOBAL, "")
     con.close()
-    rec = client.post(f"/api/chat/{th.id}/message", content='{"text":"hi"}',
-                      headers={"Content-Type": "application/json"})
+    rec = client.post(
+        f"/api/chat/{th.id}/message",
+        content='{"text":"hi"}',
+        headers={"Content-Type": "application/json"},
+    )
     assert rec.status_code == 412, (rec.status_code, rec.text)
 
 
@@ -72,8 +95,11 @@ def test_chat_message_and_stream(tmp_path, monkeypatch):
         client.app.state.scout.chat = chat.Engine(con=connect(db_path), client=ac)
 
         # Kick a turn.
-        rec = client.post(f"/api/chat/{th.id}/message", content='{"text":"hello"}',
-                          headers={"Content-Type": "application/json"})
+        rec = client.post(
+            f"/api/chat/{th.id}/message",
+            content='{"text":"hello"}',
+            headers={"Content-Type": "application/json"},
+        )
         assert rec.status_code == 202, (rec.status_code, rec.text)
 
         # Consume the stream to the end (blocks until the turn finishes).

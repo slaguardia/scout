@@ -1,4 +1,4 @@
-"""scout.distill — the brain distiller (port of internal/distill).
+"""scout.distill — the brain distiller.
 
 Public surface (imported by the criteria resolver in the web/CLI run paths):
     Distiller  — the driver. Phases:
@@ -10,6 +10,7 @@ Public surface (imported by the criteria resolver in the web/CLI run paths):
     basis_of   — the stable version key over (prompts + chunk content)
     COMPANY_QUESTIONS, DEFAULT_K
 """
+
 from .distill import (
     COMPANY_QUESTIONS,
     DEFAULT_K,

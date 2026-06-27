@@ -1,7 +1,3 @@
-# pyproject.toml is the modern Python project descriptor — the rough equivalent
-# of go.mod. It names the package, lists runtime dependencies, and configures the
-# test runner. `pip install -e .` reads this and installs scout in "editable"
-# mode so `import scout` works from anywhere without copying files around.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -9,32 +5,43 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scout"
 version = "0.1.0"
-description = "Personal job-fit scorer (Python port of the Go backend)"
+description = "A personal job-fit scorer: ingest companies, enrich them, and score role fit with an LLM."
+readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Steven LaGuardia", email = "stevenlaguardia@gmail.com" }]
+keywords = ["job-search", "llm", "fastapi", "sqlite", "anthropic"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Private :: Do Not Upload",
+]
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
-    "python-multipart",  # FastAPI multipart form parsing (the /api/ingest CSV upload)
+    "python-multipart",  # multipart form parsing for the /api/ingest CSV upload
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]
 
-# Console entry point: `scout` on the PATH dispatches to the argparse CLI
-# (cmd/scout/main.go's equivalent). Installed by `pip install -e .`.
+[project.urls]
+Repository = "https://github.com/slaguardia/scout"
+
+# `scout` on the PATH dispatches to the argparse CLI.
 [project.scripts]
 scout = "scout.cli:main"
 
-# Tell setuptools the importable package lives in scout/ (not auto-discovered,
-# because tests/ sits alongside it).
+# The importable package is scout/ (not auto-discovered, since tests/ sits beside it).
 [tool.setuptools.packages.find]
 include = ["scout*"]
 
-# Non-Python files that must ship inside the package — they're read at runtime
-# via Path(__file__).parent, so an installed wheel (the Docker deploy) needs them
-# packaged alongside the code: the .sql migrations, the pre-filter default
-# (filter/__init__.py), and the playbook default (playbook/__init__.py).
+# Non-Python files read at runtime via Path(__file__).parent — an installed wheel
+# needs them packaged alongside the code: the .sql migrations, the pre-filter
+# default (filter/__init__.py), and the playbook default (playbook/__init__.py).
 [tool.setuptools.package-data]
 scout = [
     "store/migrations/*.sql",
@@ -44,3 +51,24 @@ scout = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the repo root on sys.path so `from tests.<helper> import ...` resolves under
+# a bare `pytest` invocation (not just `python -m pytest`).
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# pyflakes (F), pycodestyle (E/W), isort (I), pyupgrade (UP), flake8-bugbear (B).
+select = ["E", "W", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # line length — handled by the formatter, not a hard error
+    "B008",  # function call in default arg — this is FastAPI's required Depends() pattern
+    "B904",  # raise without `from` in except — the store/clients deliberately translate
+             # low-level errors into domain/HTTP errors without chaining the cause
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally assert on broad exceptions and use throwaway lambdas.
+"tests/**" = ["B017", "E731"]

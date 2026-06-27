@@ -1,4 +1,4 @@
-"""scout.anthropic — SDK-free Anthropic Messages API client (port of internal/anthropic).
+"""scout.anthropic — SDK-free Anthropic Messages API client.
 
 Public surface (imported by capture, chat, distill, enrich, outreach, verdict):
     Client, new, verify
@@ -6,6 +6,7 @@ Public surface (imported by capture, chat, distill, enrich, outreach, verdict):
     ToolDef, WebSearchTool, new_web_search_tool
     DEFAULT_MODEL, ADAPTIVE_THINKING, AnthropicError
 """
+
 from .client import (
     ADAPTIVE_THINKING,
     DEFAULT_MODEL,

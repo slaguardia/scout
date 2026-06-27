@@ -27,9 +27,8 @@ data-model, operations, limitations).
 
 Python · FastAPI (on uvicorn) · SQLite (stdlib `sqlite3`, raw SQL, no ORM) ·
 httpx · Anthropic Messages API (direct HTTP, no SDK) · the brain over HTTP/JSON.
-The backend was ported from Go in 2026-06; see [`PORTING.md`](./PORTING.md) for
-the conventions and the Go→Python mapping. The package is `scout/`, tests in
-`tests/`, run with `pytest`; the `scout` CLI installs via `pip install -e .`.
+The package is `scout/`, tests in `tests/`, run with `pytest`; the `scout` CLI
+installs via `pip install -e .`.
 
 ## Dev servers
 

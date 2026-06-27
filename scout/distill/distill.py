@@ -1,4 +1,4 @@
-"""scout's intelligence layer in front of the brain. Port of internal/distill/distill.go.
+"""scout's intelligence layer in front of the brain.
 
 The brain is a librarian: recall(query) returns the prose most related to a
 question, and with the user's small corpus that retrieval is coarse — it returns
@@ -15,10 +15,11 @@ back, and never a verdict.
 
 Scope: COMPANIES ONLY. Role/title fit is a separate, later concern.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from scout import anthropic, brainbot
 
@@ -107,7 +108,9 @@ class Distiller:
         """The shared classify→synthesize body; also returns the intermediate
         classified Items so run() can expose them on Result for the CLI debug path."""
         items = self._classify(chunks)
-        self.log("distill: classified %d chunks → %d chars of tagged items", len(chunks), len(items))
+        self.log(
+            "distill: classified %d chunks → %d chars of tagged items", len(chunks), len(items)
+        )
         brief = self._synthesize(items)
         self.log("distill: brief synthesized (%d chars)", len(brief))
         return items, brief
@@ -127,7 +130,7 @@ class Distiller:
         for q in COMPANY_QUESTIONS:
             try:
                 rr = self.brain.recall(q, k)
-            except Exception as e:  # noqa: BLE001 - mirror Go's wrapped recall error
+            except Exception as e:  # noqa: BLE001 - wrap any recall failure with its query
                 raise RuntimeError(f"recall {q!r}: {e}") from e
             self.log("distill: recall %r → %d chunks", q, len(rr.chunks))
             for c in rr.chunks:
@@ -139,20 +142,24 @@ class Distiller:
         out = list(best.values())
         out.sort(key=lambda c: (-c.score, c.path, c.heading))
         for c in out:
-            self.log("distill:   chunk %s (score %.4f, %d chars)", chunk_label(c), c.score, len(c.text))
+            self.log(
+                "distill:   chunk %s (score %.4f, %d chars)", chunk_label(c), c.score, len(c.text)
+            )
         return out
 
     def _classify(self, chunks: list[brainbot.Chunk]) -> str:
         """Step 1: tag every preference in the excerpts as COMPANY vs
         ROLE_OR_OTHER, with a verbatim quote and polarity."""
-        resp = self.client.send(anthropic.Request(
-            model=self.model,
-            system=CLASSIFY_SYSTEM_PROMPT,
-            max_tokens=CLASSIFY_MAX_TOKENS,
-            messages=[anthropic.Message("user", format_chunks(chunks))],
-            cached=True,
-            temperature=0.0,
-        ))
+        resp = self.client.send(
+            anthropic.Request(
+                model=self.model,
+                system=CLASSIFY_SYSTEM_PROMPT,
+                max_tokens=CLASSIFY_MAX_TOKENS,
+                messages=[anthropic.Message("user", format_chunks(chunks))],
+                cached=True,
+                temperature=0.0,
+            )
+        )
         items = resp.text().strip()
         if items == "":
             raise RuntimeError("distill classify returned nothing")
@@ -160,14 +167,16 @@ class Distiller:
 
     def _synthesize(self, items: str) -> str:
         """Step 2: write the brief from the COMPANY-tagged items only."""
-        resp = self.client.send(anthropic.Request(
-            model=self.model,
-            system=SYNTH_SYSTEM_PROMPT,
-            max_tokens=SYNTH_MAX_TOKENS,
-            messages=[anthropic.Message("user", items)],
-            cached=True,
-            temperature=0.0,
-        ))
+        resp = self.client.send(
+            anthropic.Request(
+                model=self.model,
+                system=SYNTH_SYSTEM_PROMPT,
+                max_tokens=SYNTH_MAX_TOKENS,
+                messages=[anthropic.Message("user", items)],
+                cached=True,
+                temperature=0.0,
+            )
+        )
         brief = resp.text().strip()
         if brief == "":
             raise RuntimeError("distill synthesis returned empty brief")

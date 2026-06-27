@@ -1,4 +1,5 @@
-"""Port of internal/taste/taste_test.go."""
+"""Tests for scout.taste."""
+
 from scout import taste
 
 

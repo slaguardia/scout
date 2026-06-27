@@ -1,14 +1,15 @@
-"""Key/value settings table. Port of internal/store/settings.go.
+"""Key/value settings table.
 
 This is the canonical example of the store-module pattern: free functions that
 take the sqlite3 connection as their first argument (no DB class), parameterized
-SQL with ? placeholders, and the Go method name lower_snake_cased.
+SQL with ? placeholders, and lower_snake_case function names.
 """
+
 from __future__ import annotations
 
 import sqlite3
 
-# Settings keys used across the app (Go's exported string consts).
+# Settings keys used across the app.
 ANTHROPIC_KEY_SETTING = "anthropic_api_key"
 OUTREACH_CURSOR_SETTING = "outreach_knowledge_cursor"
 

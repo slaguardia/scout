@@ -1,11 +1,12 @@
 """Fact extraction: an optional one-shot LLM pass over the fetched page text that
-fills in company columns still blank after ingest. Port of internal/enrich/facts.go.
+fills in company columns still blank after ingest.
 
 Fills the name (when it's just the domain placeholder from a bare "Add by
 website"), vertical, location, headcount, and funding stage. Fill-only-blanks: a
 value the CSV or the user already supplied is never overwritten. Runs only when
 the Enricher has an Anthropic client and the fetch came back "ok".
 """
+
 from __future__ import annotations
 
 import json
@@ -74,8 +75,8 @@ def parse_facts(s: str) -> _Facts:
 
 
 def _facts_from_json(c: str) -> _Facts | None:
-    """Mirror Go's strict struct unmarshal: a type mismatch fails the candidate
-    (returns None) rather than coercing."""
+    """Strictly parse one candidate JSON object: a type mismatch fails the
+    candidate (returns None) rather than coercing the value."""
     try:
         data = json.loads(c)
     except (ValueError, json.JSONDecodeError):
@@ -87,12 +88,12 @@ def _facts_from_json(c: str) -> _Facts | None:
         if fld in data:
             v = data[fld]
             if not isinstance(v, str):
-                return None  # Go's json.Unmarshal into a string field would error
+                return None  # a non-string value for a string field is a hard fail
             setattr(f, fld, v.strip())
     if "headcount" in data:
         hc = data["headcount"]
         if isinstance(hc, bool) or not isinstance(hc, int):
-            return None  # Go unmarshals headcount into int64; a non-int fails
+            return None  # headcount must be a real integer; a bool or non-int fails
         f.headcount = hc if hc > 0 else 0
     return f
 
@@ -127,13 +128,15 @@ def fill_facts(e, t, page_text: str) -> bool:
             pass
 
     try:
-        resp = e.llm.send(anthropic.Request(
-            model=e.model,
-            system=FACTS_CONTRACT,
-            max_tokens=256,
-            messages=[anthropic.Message("user", user)],
-            timeout=30.0,
-        ))
+        resp = e.llm.send(
+            anthropic.Request(
+                model=e.model,
+                system=FACTS_CONTRACT,
+                max_tokens=256,
+                messages=[anthropic.Message("user", user)],
+                timeout=30.0,
+            )
+        )
     except anthropic.AnthropicError as err:
         e.emit(f"facts {t.name} — extract failed: {err}")
         return False

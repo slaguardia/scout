@@ -1,15 +1,15 @@
-"""Port of internal/capture/jsonld_test.go — the JSON-LD JobPosting resolver."""
+"""The JSON-LD JobPosting resolver."""
+
 from __future__ import annotations
 
 import httpx
+from httpstub import http_server
 
 from scout import capture
 from scout.capture.capture import KIND_JOB, Request
 from scout.capture.jsonld import parse_job_posting_ld
 from scout.store import db as db_module
 from scout.store import detail
-
-from httpstub import http_server
 
 # A full, realistic Google-for-Jobs JobPosting blob.
 JOB_POSTING_LD_FIXTURE = """{
@@ -29,8 +29,11 @@ JOB_POSTING_LD_FIXTURE = """{
 
 
 def test_parse_job_posting_ld():
-    html = ('<html><head><script type="application/ld+json">' + JOB_POSTING_LD_FIXTURE
-            + '</script></head><body>...</body></html>')
+    html = (
+        '<html><head><script type="application/ld+json">'
+        + JOB_POSTING_LD_FIXTURE
+        + "</script></head><body>...</body></html>"
+    )
     jp = parse_job_posting_ld(html)
     assert jp is not None
     assert jp.title == "Senior Backend Engineer"
@@ -53,13 +56,19 @@ def test_parse_job_posting_ld_graph_and_array_type():
     ]}</script>"""
     jp = parse_job_posting_ld(html)
     assert jp is not None
-    assert jp.title == "Founding Designer" and jp.company_name == "Beta" and jp.company_url == "https://beta.io"
+    assert (
+        jp.title == "Founding Designer"
+        and jp.company_name == "Beta"
+        and jp.company_url == "https://beta.io"
+    )
     assert jp.workplace_type == "Remote" and jp.location == "United States"
 
 
 def test_parse_job_posting_ld_flat_salary():
-    html = ('<script type="application/ld+json">{"@type":"JobPosting","title":"X",'
-            '"baseSalary":{"currency":"USD","value":{"value":"60","unitText":"HOUR"}}}</script>')
+    html = (
+        '<script type="application/ld+json">{"@type":"JobPosting","title":"X",'
+        '"baseSalary":{"currency":"USD","value":{"value":"60","unitText":"HOUR"}}}</script>'
+    )
     jp = parse_job_posting_ld(html)
     assert jp is not None and jp.comp_range == "$60 / hour"
 
@@ -69,7 +78,7 @@ def test_parse_job_posting_ld_none():
         '<script type="application/ld+json">{"@type":"Organization","name":"Acme"}</script>',
         '<script type="application/ld+json">{"@type":"JobPosting"}</script>',  # no title
         '<script type="application/ld+json">not json</script>',
-        '<html><body>no ld+json here</body></html>',
+        "<html><body>no ld+json here</body></html>",
     ]:
         assert parse_job_posting_ld(h) is None, h
 
@@ -78,15 +87,21 @@ def test_run_resolves_jsonld_without_llm(tmp_path):
     body_tail = "<p>We build robots for warehouses. </p>" * 20
 
     def handle(req):
-        return 200, {"Content-Type": "text/html"}, (
-            f'<html><head><script type="application/ld+json">{JOB_POSTING_LD_FIXTURE}</script></head>'
-            f'<body><h1>Senior Backend Engineer</h1>{body_tail}</body></html>'
+        return (
+            200,
+            {"Content-Type": "text/html"},
+            (
+                f'<html><head><script type="application/ld+json">{JOB_POSTING_LD_FIXTURE}</script></head>'
+                f"<body><h1>Senior Backend Engineer</h1>{body_tail}</body></html>"
+            ),
         )
 
     with http_server(handle) as page_url:
         con = db_module.open_db(str(tmp_path / "scout.db"))
         try:
-            c = capture.Capturer(db=con, http=httpx.Client(timeout=5, follow_redirects=True))  # no Client: keyless
+            c = capture.Capturer(
+                db=con, http=httpx.Client(timeout=5, follow_redirects=True)
+            )  # no Client: keyless
             res = c.run(Request(url=page_url + "/careers/eng"))
             assert res.kind == KIND_JOB
             assert res.company_name == "Acme Robotics" and res.company_created

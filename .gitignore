@@ -35,6 +35,9 @@ __pycache__/
 # Claude Code worktrees (harness-managed checkouts)
 .claude/worktrees/
 
+# Local planning scratch (not part of the shipped project)
+.tasks/
+
 # IDE
 .idea/
 .vscode/

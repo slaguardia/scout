@@ -1,10 +1,11 @@
-"""scout.verdict — the verdict engine (port of internal/verdict).
+"""scout.verdict — the verdict engine.
 
 Public surface (imported by the web/CLI run paths):
     Scorer  — the run driver: Scorer(con=, taste=, filter=, client=, ...).run() -> Result
     Result  — run summary (scored/skipped/failed/by_verdict + cache token totals)
     build_system_prompt, build_user_prompt, parse_verdict  — prompt + parse helpers
 """
+
 from .verdict import (
     BUILTIN_RUBRIC,
     HARD_CONTRACT,

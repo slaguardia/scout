@@ -1,10 +1,10 @@
-"""Package filter applies the pre-filter rules against the companies table. Port
-of internal/filter/filter.go.
+"""Package filter applies the pre-filter rules against the companies table.
 
 The rules live in the DB as a singleton (edited from the dashboard); this package
 parses the raw TOML and evaluates it. The compiled-in default is used until the
 user saves their own.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -53,11 +53,11 @@ class Taste:
     funding_stage: FundingStage = field(default_factory=FundingStage)
 
     # enabled is the master on/off switch, set from the DB (not the TOML) — a
-    # disabled filter passes every company. A directly constructed zero Taste is
-    # disabled (matches Go's zero value); parse_taste / taste_from_db set it.
+    # disabled filter passes every company. A directly constructed Taste defaults
+    # to disabled; parse_taste / taste_from_db set it.
     enabled: bool = False
 
-    def apply(self, con: sqlite3.Connection) -> "Result":
+    def apply(self, con: sqlite3.Connection) -> Result:
         """Run the rules and return survivors, plus a breakdown of why rows dropped."""
         total = companies.count_companies(con)
 
@@ -73,8 +73,15 @@ FROM companies"""
 
         res = Result(total=total)
         for r in rows:
-            s = Survivor(id=r[0], name=r[1], domain=r[2], location=r[3],
-                         vertical=r[4], headcount=r[5], stage=r[6])
+            s = Survivor(
+                id=r[0],
+                name=r[1],
+                domain=r[2],
+                location=r[3],
+                vertical=r[4],
+                headcount=r[5],
+                stage=r[6],
+            )
             reason = self.evaluate(s)
             if reason != "":
                 res.dropped_by[reason] = res.dropped_by.get(reason, 0) + 1
@@ -82,7 +89,7 @@ FROM companies"""
             res.survivors.append(s)
         return res
 
-    def evaluate(self, s: "Survivor") -> str:
+    def evaluate(self, s: Survivor) -> str:
         """Return "" if the row passes, or the reason it was dropped."""
         # Master switch: a disabled pre-filter passes everything, so a bulk verdict
         # run scores every company.
@@ -186,8 +193,8 @@ def _toml_list(xs: list[str]) -> str:
 
 def encode_toml(t: Taste) -> str:
     """Serialize a Taste's rules back to canonical TOML (the inverse of
-    parse_taste; the master `enabled` switch lives in the DB, not the TOML). Port
-    of Go's (*Taste).EncodeTOML — round-trips through parse_taste."""
+    parse_taste; the master `enabled` switch lives in the DB, not the TOML).
+    Round-trips through parse_taste."""
     lines = [
         "[location]",
         f"allowed = {_toml_list(t.location.allowed)}",
@@ -219,9 +226,13 @@ def parse_taste(content: str) -> Taste:
     vert = data.get("verticals") or {}
     fund = data.get("funding_stage") or {}
     t = Taste(
-        location=Location(allowed=list(loc.get("allowed") or []), remote_ok=bool(loc.get("remote_ok", False))),
+        location=Location(
+            allowed=list(loc.get("allowed") or []), remote_ok=bool(loc.get("remote_ok", False))
+        ),
         headcount=Headcount(min=int(hc.get("min", 0)), max=int(hc.get("max", 0))),
-        verticals=Verticals(allowed=list(vert.get("allowed") or []), excluded=list(vert.get("excluded") or [])),
+        verticals=Verticals(
+            allowed=list(vert.get("allowed") or []), excluded=list(vert.get("excluded") or [])
+        ),
         funding_stage=FundingStage(allowed=list(fund.get("allowed") or [])),
     )
     t.enabled = True
@@ -263,7 +274,17 @@ def _vertical_tags(s: str) -> list[str]:
 # latest. The dashboard's stage multi-select offers these; matching compares the
 # canonical labels (see normalize_stage), so raw data like "Pre Seed" and a saved
 # rule "Pre-Seed" line up.
-CANONICAL_STAGES = ["Pre-Seed", "Seed", "Series A", "Series B", "Series C", "Series D", "Series E+", "Growth", "Public"]
+CANONICAL_STAGES = [
+    "Pre-Seed",
+    "Seed",
+    "Series A",
+    "Series B",
+    "Series C",
+    "Series D",
+    "Series E+",
+    "Growth",
+    "Public",
+]
 
 
 def normalize_stage(raw: str) -> str:

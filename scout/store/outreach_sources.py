@@ -1,4 +1,5 @@
-"""Cached brain pages bound to outreach knowledge needs. Port of internal/store/outreach_sources.go."""
+"""Cached brain pages bound to outreach knowledge needs."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -24,7 +25,9 @@ def list_outreach_sources(con: sqlite3.Connection) -> list[OutreachSource]:
         "FROM outreach_sources ORDER BY need, title"
     ).fetchall()
     return [
-        OutreachSource(need=r[0], page_id=r[1], title=r[2], content=r[3], version=r[4], resolved_at=r[5])
+        OutreachSource(
+            need=r[0], page_id=r[1], title=r[2], content=r[3], version=r[4], resolved_at=r[5]
+        )
         for r in rows
     ]
 
@@ -46,7 +49,9 @@ def outreach_knowledge(con: sqlite3.Connection, need: str) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def replace_outreach_sources(con: sqlite3.Connection, need: str, sources: list[OutreachSource]) -> None:
+def replace_outreach_sources(
+    con: sqlite3.Connection, need: str, sources: list[OutreachSource]
+) -> None:
     """Swap the cached set for one need in a transaction (delete-all + insert)."""
     with tx(con):
         con.execute("DELETE FROM outreach_sources WHERE need = ?", (need,))

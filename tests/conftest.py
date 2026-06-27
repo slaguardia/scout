@@ -1,8 +1,9 @@
 """Shared pytest fixtures.
 
-`db` is the analogue of the Go store's openTestDB(t): a fresh, fully-migrated
-database per test, backed by a temp file that pytest cleans up automatically.
+`db` is a fresh, fully-migrated database per test, backed by a temp file that
+pytest cleans up automatically.
 """
+
 import pytest
 
 from scout.store import db as db_module

@@ -1,4 +1,5 @@
-"""Port of internal/store/settings_test.go (folds in the earlier smoke test)."""
+"""Tests for scout.store.settings."""
+
 from scout.store import settings
 from scout.store.settings import ANTHROPIC_KEY_SETTING
 

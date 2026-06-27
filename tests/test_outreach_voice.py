@@ -1,4 +1,5 @@
-"""Port of internal/outreach/voice_test.go."""
+"""Tests for the scout.outreach voice handling."""
+
 from __future__ import annotations
 
 from scout.outreach.voice import length_findings, voice_findings
@@ -21,7 +22,9 @@ def test_voice_findings():
         "I just applied for the FDE role.",
         "Acme is a leader in the observability space.",
     ]:
-        assert "banned_phrase" in _codes(voice_findings(bad)), f"kill-list phrase not flagged: {bad!r}"
+        assert "banned_phrase" in _codes(voice_findings(bad)), (
+            f"kill-list phrase not flagged: {bad!r}"
+        )
 
 
 def _words(n: int) -> str:

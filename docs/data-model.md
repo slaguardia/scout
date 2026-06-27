@@ -11,7 +11,7 @@ apply in filename order on every `open_db()`, and are tracked in
 `schema_migrations`.
 
 Two pragmas, set on every connection: `foreign_keys=ON`, `journal_mode=WAL`. WAL because
-most stages do bursts of writes from worker pools and it handles that better
+most stages do bursts of writes and it handles that better
 than the default rollback journal.
 
 ## Tables

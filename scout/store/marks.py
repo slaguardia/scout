@@ -1,8 +1,9 @@
-"""Hand-set company marks (flagged / reviewed). Port of internal/store/marks.go.
+"""Hand-set company marks (flagged / reviewed).
 
 Both raise NotFound for an unknown company so handlers can answer 404 rather
 than silently no-op.
 """
+
 from __future__ import annotations
 
 import sqlite3

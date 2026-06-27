@@ -1,4 +1,5 @@
-"""Port of internal/anthropic/client_test.go + stream_test.go."""
+"""Tests for scout.anthropic — the Messages client and the SSE stream parser."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ def _client(base: str) -> anthropic.Client:
     return anthropic.Client(api_key="k", endpoint=base)
 
 
-# --- client_test.go ---
+# --- client ---
 
 
 def test_send_marshals_web_search_tool():
@@ -22,17 +23,22 @@ def test_send_marshals_web_search_tool():
 
     def handle(req):
         captured.append(req)
-        return 200, {"Content-Type": "application/json"}, \
-            '{"id":"msg_1","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}'
+        return (
+            200,
+            {"Content-Type": "application/json"},
+            '{"id":"msg_1","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}',
+        )
 
     with http_server(handle) as base:
         c = _client(base)
         # With the tool: tools array carries one entry with the version + cap.
-        c.send(anthropic.Request(
-            model="m",
-            messages=[anthropic.Message("user", "hi")],
-            tools=[anthropic.new_web_search_tool(6)],
-        ))
+        c.send(
+            anthropic.Request(
+                model="m",
+                messages=[anthropic.Message("user", "hi")],
+                tools=[anthropic.new_web_search_tool(6)],
+            )
+        )
         # Without the tool: the field is omitted entirely.
         c.send(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]))
 
@@ -56,14 +62,16 @@ def test_text_skips_non_text_blocks():
         '{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"acme funding"}},'
         '{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","title":"Acme raises","url":"https://x"}]},'
         '{"type":"text","text":"Acme raised a Series B."}'
-        ']}'
+        "]}"
     )
 
     def handle(req):
         return 200, {"Content-Type": "application/json"}, mixed
 
     with http_server(handle) as base:
-        resp = _client(base).send(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]))
+        resp = _client(base).send(
+            anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")])
+        )
     assert resp.text() == "Here is what I found. Acme raised a Series B."
 
 
@@ -77,11 +85,16 @@ def test_send_retries_transient():
             return 429, {"retry-after": "0"}, '{"type":"error","error":{"type":"rate_limit_error"}}'
         if n == 2:
             return 529, {}, '{"type":"error"}'  # overloaded
-        return 200, {"Content-Type": "application/json"}, \
-            '{"id":"m","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}'
+        return (
+            200,
+            {"Content-Type": "application/json"},
+            '{"id":"m","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}',
+        )
 
     with http_server(handle) as base:
-        resp = _client(base).send(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]))
+        resp = _client(base).send(
+            anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")])
+        )
     assert resp.text() == "ok"
     assert state["n"] == 3  # two retries
 
@@ -95,11 +108,13 @@ def test_send_no_retry_on_400():
 
     with http_server(handle) as base:
         with pytest.raises(anthropic.AnthropicError):
-            _client(base).send(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]))
+            _client(base).send(
+                anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")])
+            )
     assert state["n"] == 1  # no retry on 400
 
 
-# --- stream_test.go ---
+# --- stream ---
 
 # A turn with thinking + text + a tool_use. The \" sequences are JSON-escaped
 # quotes inside the partial_json string value (a raw string keeps the backslash).
@@ -183,6 +198,7 @@ def _sse_handler(body: str, captured: list | None = None):
         if captured is not None:
             captured.append(req)
         return 200, {"Content-Type": "text/event-stream"}, body
+
     return handle
 
 
@@ -195,7 +211,11 @@ def test_stream_tool_use_round_trip():
                 model="claude-sonnet-4-6",
                 messages=[anthropic.Message("user", "did I add Ramp?")],
                 thinking=anthropic.ADAPTIVE_THINKING,
-                tools=[anthropic.ToolDef(name="search", description="search", input_schema={"type": "object"})],
+                tools=[
+                    anthropic.ToolDef(
+                        name="search", description="search", input_schema={"type": "object"}
+                    )
+                ],
             ),
             lambda s: streamed.append(s),
         )
@@ -235,7 +255,9 @@ def test_stream_tool_use_round_trip():
 def test_stream_plain_text():
     with http_server(_sse_handler(TEXT_STREAM)) as base:
         resp = _client(base).stream(
-            anthropic.Request(model="claude-sonnet-4-6", messages=[anthropic.Message("user", "hi")]),
+            anthropic.Request(
+                model="claude-sonnet-4-6", messages=[anthropic.Message("user", "hi")]
+            ),
             None,
         )
     assert resp.text() == "Yes, Ramp is tracked."
@@ -244,16 +266,18 @@ def test_stream_plain_text():
 
 def test_stream_error_event():
     body = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"m","model":"m","usage":{"input_tokens":1,"output_tokens":1}}}\n'
-        '\n'
-        'event: error\n'
+        "\n"
+        "event: error\n"
         'data: {"type":"error","error":{"type":"overloaded_error","message":"overloaded"}}\n'
-        '\n'
+        "\n"
     )
     with http_server(_sse_handler(body)) as base:
         with pytest.raises(anthropic.StreamError):
-            _client(base).stream(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]), None)
+            _client(base).stream(
+                anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]), None
+            )
 
 
 def test_stream_retries_transient():
@@ -266,6 +290,8 @@ def test_stream_retries_transient():
         return 200, {"Content-Type": "text/event-stream"}, TEXT_STREAM
 
     with http_server(handle) as base:
-        resp = _client(base).stream(anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]), None)
+        resp = _client(base).stream(
+            anthropic.Request(model="m", messages=[anthropic.Message("user", "hi")]), None
+        )
     assert resp.stop_reason == "end_turn"
     assert state["n"] == 2  # one retry

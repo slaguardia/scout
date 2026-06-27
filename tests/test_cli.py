@@ -1,10 +1,11 @@
 """Smoke tests for the argparse CLI (scout/cli.py).
 
-There are no Go CLI tests to port, so these verify the wiring: argparse parses
-the top-level and every subcommand's --help, the helper parsers behave, the
-dotenv loader matches the Go semantics, and a couple of commands run end-to-end
-against a temp DB with no network (stats, backup).
+These verify the wiring: argparse parses the top-level and every subcommand's
+--help, the helper parsers behave, the dotenv loader has the expected semantics,
+and a couple of commands run end-to-end against a temp DB with no network
+(stats, backup).
 """
+
 from __future__ import annotations
 
 import os
@@ -12,7 +13,6 @@ import os
 import pytest
 
 from scout import cli
-
 
 # --- helper parsers ----------------------------------------------------------
 
@@ -47,18 +47,13 @@ def test_url_host():
     assert cli.url_host("not a url") == "(unknown)"
 
 
-# --- dotenv (port of dotenv.go) ---------------------------------------------
+# --- dotenv ------------------------------------------------------------------
 
 
 def test_load_dotenv(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text(
-        "# a comment\n"
-        "\n"
-        "export FOO=bar\n"
-        'QUOTED="hello world"\n'
-        "SINGLE='x'\n"
-        "PREEXISTING=fromfile\n"
+        "# a comment\n\nexport FOO=bar\nQUOTED=\"hello world\"\nSINGLE='x'\nPREEXISTING=fromfile\n"
     )
     monkeypatch.delenv("FOO", raising=False)
     monkeypatch.delenv("QUOTED", raising=False)
@@ -113,7 +108,7 @@ def test_subcommand_help_parses(argv, capsys):
 
 
 def test_flag_defaults_wired():
-    """A representative parse pins the Go flag defaults onto the namespace."""
+    """A representative parse pins the flag defaults onto the namespace."""
     p = cli.build_parser()
     a = p.parse_args(["serve"])
     assert a.addr == ":8765"
@@ -131,7 +126,7 @@ def test_flag_defaults_wired():
     assert a.model  # haiku default present
 
 
-# --- a parent command with no subcommand errors like Go (exit 1) -------------
+# --- a parent command with no subcommand errors (exit 1) ---------------------
 
 
 @pytest.mark.parametrize(
@@ -180,7 +175,7 @@ def test_backup_writes_snapshot(tmp_path, capsys, monkeypatch):
     assert snap.exists()
     assert "backup written" in capsys.readouterr().out
 
-    # Refuses to overwrite an existing snapshot (Go's os.Stat guard).
+    # Refuses to overwrite an existing snapshot.
     with pytest.raises(SystemExit) as exc:
         cli.main(["backup", "--db", str(db), "--out", str(snap)])
     assert exc.value.code != 0
