@@ -2649,7 +2649,6 @@ function renderDetail(d) {
       <dt>status</dt><dd class="small">${escapeHTML(d.fetch_status || "")}${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
       <dt>fetched</dt><dd class="small muted">${escapeHTML(d.fetched_at || "")}</dd>
     </dl>
-    ${d.website_summary ? `<div class="summary-box">${escapeHTML(d.website_summary)}</div>` : ""}
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
 
   // Per-company stage actions: targeted runs (company_ids) always re-run, so

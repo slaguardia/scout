@@ -1185,7 +1185,6 @@ Return the JSON verdict now.</pre>
       <dt>status</dt><dd class="small">${r(e.fetch_status||"")}${e.fetch_error?` <span class="muted">(${r(e.fetch_error)})</span>`:""}</dd>
       <dt>fetched</dt><dd class="small muted">${r(e.fetched_at||"")}</dd>
     </dl>
-    ${e.website_summary?`<div class="summary-box">${r(e.website_summary)}</div>`:""}
   `:'<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>',c=!i.meta||i.meta.control!==!1,l=c&&i.meta&&i.meta.verdict?'<button class="h3-action" id="rescore-btn" title="re-score just this company — replaces the current verdict, manual or not">↻ re-score</button>':"",u=c&&e.domain?'<button class="h3-action" id="reenrich-btn" title="re-fetch this company’s site now">↻ re-enrich</button>':"",p=Object.keys(e.raw_json||{}).sort(),h=p.length===0?"":`
     <details class="raw-json">
       <summary>Raw row <span class="dim">(${p.length} fields)</span></summary>
