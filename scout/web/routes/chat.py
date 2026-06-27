@@ -141,7 +141,13 @@ def chat_threads(request: Request, con=Depends(get_db)) -> Response:
     scope_id = request.query_params.get("scope_id", "")
     th = chat_store.open_or_create_thread(con, scope, scope_id)  # ValueError -> 400
     msgs = chat_store.thread_messages(con, th.id)
-    return json_response({"thread": th, "messages": msgs})
+    # content is stored as a JSON content-block array (always json.dumps'd on
+    # write); parse it back so the client receives a real array, not a string.
+    out = [
+        {"id": m.id, "role": m.role, "content": json.loads(m.content), "created_at": m.created_at}
+        for m in msgs
+    ]
+    return json_response({"thread": th, "messages": out})
 
 
 # --- POST /api/chat/{thread}/message -----------------------------------------

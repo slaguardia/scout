@@ -48,6 +48,25 @@ def test_chat_threads_open_or_create(tmp_path, monkeypatch):
     assert client.get("/api/chat/threads?scope=company").status_code == 400
 
 
+def test_chat_threads_content_is_parsed_array(tmp_path, monkeypatch):
+    # Regression: the API must return each message's content as a real
+    # content-block array, not the raw JSON string it's stored as. The frontend
+    # calls .filter() on it; a string there throws and blanks the chat pane.
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    con = open_db(db_path)
+    th = chat_store.open_or_create_thread(con, chat_store.CHAT_SCOPE_GLOBAL, "")
+    chat_store.append_message(
+        con, th.id, "user", '[{"type": "text", "text": "hello"}]', "hello"
+    )
+    con.close()
+
+    out = client.get("/api/chat/threads?scope=global").json()
+    assert len(out["messages"]) == 1
+    content = out["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "text" and content[0]["text"] == "hello"
+
+
 def test_chat_message_needs_key(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)  # no Chat engine wired
     con = open_db(db_path)

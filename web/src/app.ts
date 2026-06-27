@@ -4584,10 +4584,58 @@ function chatBlockTools(content) {
   return (content || []).filter(b => b && b.type === "tool_use").map(b => b.name);
 }
 
+// Minimal markdown → safe HTML for assistant bubbles. Escapes first, then
+// applies a small block + inline subset (fenced code, lists, headings,
+// paragraphs; bold/italic/inline-code/links). Not a full parser — just what
+// chat replies actually use. Safe by construction: every text run is
+// HTML-escaped before we introduce any of our own (known) tags.
+function chatInline(s) {
+  return s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+      (_m, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+function renderMarkdown(src) {
+  const lines = String(src || "").split("\n");
+  const out = [];
+  let list = null;                                  // "ul" | "ol" | null
+  const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {                         // fenced code block
+      closeList(); i++;
+      const buf = [];
+      while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++;                                           // skip closing fence
+      out.push("<pre><code>" + escapeHTML(buf.join("\n")) + "</code></pre>");
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const n = h[1].length; out.push("<h" + n + ">" + chatInline(escapeHTML(h[2])) + "</h" + n + ">"); i++; continue; }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    if (ul) { if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; } out.push("<li>" + chatInline(escapeHTML(ul[1])) + "</li>"); i++; continue; }
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) { if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; } out.push("<li>" + chatInline(escapeHTML(ol[1])) + "</li>"); i++; continue; }
+    if (line.trim() === "") { closeList(); i++; continue; }
+    closeList();                                     // paragraph: gather until a blank/special line
+    const para = [];
+    while (i < lines.length && lines[i].trim() !== "" && !/^```|^#{1,6}\s|^\s*[-*]\s+|^\s*\d+\.\s+/.test(lines[i])) {
+      para.push(chatInline(escapeHTML(lines[i]))); i++;
+    }
+    out.push("<p>" + para.join("<br>") + "</p>");
+  }
+  closeList();
+  return out.join("");
+}
+
 function chatBubbleEl(role, text) {
   const div = document.createElement("div");
   div.className = "chat-msg chat-" + role;
-  div.textContent = text || "";
+  if (role === "assistant") div.innerHTML = renderMarkdown(text || "");
+  else div.textContent = text || "";
   return div;
 }
 
