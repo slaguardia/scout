@@ -1016,6 +1016,11 @@
   }
   .draft-actions .btn svg { width: 13px; height: 13px; flex: none; opacity: 0.8; }
   .draft-actions .btn:hover svg, .draft-actions .btn-primary svg { opacity: 1; }
+  /* "Send via Gmail" row (M55): recipient picker + send, under the draft actions. */
+  .draft-gmail-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .draft-gmail-row .draft-gmail-to { flex: 1 1 180px; min-width: 140px; max-width: 320px; }
+  .draft-gmail-row .draft-gmail-btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font-size: 12.5px; }
+  .draft-gmail-row .draft-gmail-btn svg { width: 13px; height: 13px; flex: none; opacity: 0.9; }
   /* "skip research" — a quiet opt-out sitting beside the start button. */
   .draft-skip-research {
     display: inline-flex; align-items: center; gap: 5px;

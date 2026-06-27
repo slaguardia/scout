@@ -85,6 +85,14 @@ def list_contacts(con: sqlite3.Connection, company_id: str) -> list[Contact]:
     return [_scan_contact(r) for r in rows]
 
 
+def get_contact(con: sqlite3.Connection, id: str) -> Contact | None:
+    """One active contact by id, or None when unknown/archived."""
+    row = con.execute(
+        f"SELECT {_CONTACT_COLS} FROM contacts WHERE id = ? AND archived_at IS NULL", (id,)
+    ).fetchone()
+    return _scan_contact(row) if row is not None else None
+
+
 def create_contact(con: sqlite3.Connection, company_id: str, inp: ContactInput) -> Contact:
     """Add a company contact. Raises NotFound for an unknown company and
     DuplicateContact when an active contact already has that email. An archived
@@ -198,6 +206,11 @@ class OutreachInput:
     note: str = ""
     followup_due_at: str = ""
     no_followup: bool = False
+    # Gmail link (M55): set when the send went out via — or was synced from —
+    # Gmail. The partial unique index on a non-empty gmail_message_id dedupes a
+    # send that the read-poll later sees in the mailbox.
+    gmail_message_id: str = ""
+    gmail_thread_id: str = ""
 
 
 # sent_at is a DATE column; date() normalizes it to a bare ISO date so it
@@ -270,9 +283,11 @@ def log_outreach(con: sqlite3.Connection, posting_id: str, contact_id: str, inp:
 
     with tx(con):
         cur = con.execute(
-            "INSERT INTO outreach_log (contact_id, posting_id, sent_at, body, note, followup_due_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (contact_id, posting_id, sent, inp.body.strip(), inp.note.strip(), due_val),
+            "INSERT INTO outreach_log "
+            "(contact_id, posting_id, sent_at, body, note, followup_due_at, gmail_message_id, gmail_thread_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (contact_id, posting_id, sent, inp.body.strip(), inp.note.strip(), due_val,
+             inp.gmail_message_id, inp.gmail_thread_id),
         )
         new_id = cur.lastrowid
         con.execute("UPDATE job_postings SET next_up_at = NULL WHERE id = ?", (posting_id,))

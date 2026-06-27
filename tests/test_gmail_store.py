@@ -1,7 +1,13 @@
 """Migration 0055 schema + the Gmail store accessors."""
 from __future__ import annotations
 
-from scout.store import gmail as gmail_store
+import sqlite3
+
+import pytest
+
+from scout.store import contacts, gmail as gmail_store, postings
+from scout.store.companies import Company, upsert_company
+from scout.store.contacts import ContactInput, OutreachInput
 
 
 def test_migration_0055_schema(db):
@@ -45,6 +51,25 @@ def test_autoflip_toggle_defaults_off(db):
     assert gmail_store.autoflip(db) is True
     gmail_store.set_autoflip(db, False)
     assert gmail_store.autoflip(db) is False
+
+
+def test_gmail_message_id_unique_dedupe(db):
+    cid = upsert_company(db, Company(source="t", name="Acme", domain="acme.com", raw_json="{}"))
+    p = postings.add_posting(db, cid, "https://acme.com/j", "SE")
+    c = contacts.create_contact(db, cid, ContactInput(email="r@acme.com"))
+
+    contacts.log_outreach(db, p.id, c.id, OutreachInput(gmail_message_id="m1", gmail_thread_id="t1"))
+    # A second send with the same Gmail message id is rejected by the partial index.
+    with pytest.raises(sqlite3.IntegrityError):
+        contacts.log_outreach(db, p.id, c.id, OutreachInput(gmail_message_id="m1", gmail_thread_id="t1"))
+
+    # Blank gmail_message_id rows are exempt — several manual logs may coexist.
+    contacts.log_outreach(db, p.id, c.id, OutreachInput())
+    contacts.log_outreach(db, p.id, c.id, OutreachInput())
+
+    # latest_send_thread returns the most recent threaded send's ids.
+    thr, msg = gmail_store.latest_send_thread(db, p.id, c.id)
+    assert thr == "t1" and msg == "m1"
 
 
 def test_oauth_state_roundtrip(db):

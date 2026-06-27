@@ -177,6 +177,19 @@ def upsert_gmail_message(con: sqlite3.Connection, m: GmailMessage) -> None:
     )
 
 
+def latest_send_thread(con: sqlite3.Connection, posting_id: str, contact_id: str) -> tuple[str, str]:
+    """(gmail_thread_id, gmail_message_id) of the most recent logged send on this
+    (posting, contact) carrying Gmail ids — so a follow-up threads onto it. ("","")
+    when there's no prior threaded send."""
+    row = con.execute(
+        "SELECT gmail_thread_id, gmail_message_id FROM outreach_log "
+        "WHERE posting_id = ? AND contact_id = ? AND gmail_thread_id <> '' "
+        "ORDER BY id DESC LIMIT 1",
+        (posting_id, contact_id),
+    ).fetchone()
+    return (row[0], row[1]) if row is not None else ("", "")
+
+
 def thread_posting(con: sqlite3.Connection, thread_id: str) -> str:
     """The posting a thread is already pinned to, via a prior send (outreach_log)
     or a prior synced message; "" when the thread is unseen."""

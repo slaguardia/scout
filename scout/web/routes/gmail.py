@@ -12,13 +12,30 @@ import secrets
 from fastapi import APIRouter, Depends, Request
 from starlette.responses import RedirectResponse, Response
 
+from scout.gmail import message as gmail_message
 from scout.gmail import oauth
-from scout.store import gmail as gmail_store
+from scout.gmail.client import GmailClient, GmailError
+from scout.outreach import template as outreach_template
+from scout.store import (
+    contacts,
+    detail as detail_store,
+    gmail as gmail_store,
+    outreach_drafts,
+    postings as postings_store,
+)
 
 from ..deps import get_db
 from ..responses import json_error, json_response
+from .core import _s, decode_json, raw_body
 
 router = APIRouter()
+
+
+def _parse_int_id(raw_id: str) -> int | None:
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        return None
 
 
 def _effective_redirect(request: Request, cfg: oauth.OAuthConfig) -> str:
@@ -99,3 +116,103 @@ def gmail_disconnect(con=Depends(get_db)) -> Response:
     synced data stays local. The OAuth client config + autoflip pref are kept."""
     gmail_store.clear_credentials(con)
     return json_response({"connected": False, "email": ""})
+
+
+# --- send a draft via Gmail (slice 2) ----------------------------------------
+
+
+@router.post("/api/outreach/drafts/{raw_id}/send-gmail")
+def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Send a reviewed draft from the connected Gmail account to a contact, log the
+    send with its Gmail ids (the follow-up auto-arms via log_outreach), and mark the
+    draft sent. Threads onto the most recent prior send to the same contact.
+
+    Body: {"contact_id": "..."} — defaults to the company's first emailable contact.
+    """
+    draft_id = _parse_int_id(raw_id)
+    if draft_id is None:
+        return json_error("not found", 404)
+    d = outreach_drafts.get_outreach_draft(con, draft_id)
+    if d is None:
+        return json_error("not found", 404)
+    if d.status == outreach_drafts.DRAFT_SENT:
+        return json_error("draft already sent", 409)
+    if d.status == outreach_drafts.DRAFT_RESEARCHING:
+        return json_error("draft is still being written", 409)
+
+    if not gmail_store.is_connected(con):
+        return json_error("connect Gmail first (Settings → Gmail)", 412)
+    cfg = oauth.load_config(con)
+    if not cfg.configured():
+        return json_error("Gmail OAuth client not configured", 412)
+
+    posting = postings_store.get_posting(con, d.posting_id)
+    if posting is None:
+        return json_error("posting not found", 404)
+
+    body = decode_json(raw) if raw.strip() else {}
+    contact_id = _s(body, "contact_id").strip()
+    if not contact_id:
+        cand = next((c for c in contacts.list_contacts(con, posting.company_id) if c.email), None)
+        if cand is None:
+            return json_error("no recipient — add a contact with an email to this company", 400)
+        contact_id = cand.id
+    contact = contacts.get_contact(con, contact_id)
+    if contact is None:
+        return json_error("contact not found", 404)
+    if not contact.email:
+        return json_error("that contact has no email address", 400)
+
+    draft_text = d.edited if d.edited.strip() else d.draft
+    if draft_text.strip() == "":
+        return json_error("draft is empty", 400)
+
+    company_name, _ = detail_store.get_company_name(con, posting.company_id)
+    default_subject = outreach_template.render_subject(con, posting.title, company_name)
+    subject, body_text = gmail_message.split_subject(draft_text, default_subject)
+    signature = outreach_template.signature_or_default(con)
+    if signature.strip():
+        body_text = body_text.rstrip() + "\n\n" + signature.strip()
+
+    thread_id, prior_msg = gmail_store.latest_send_thread(con, d.posting_id, contact_id)
+    from_addr = gmail_store.address(con)
+    refresh = gmail_store.refresh_token(con)
+
+    try:
+        with GmailClient(cfg, refresh) as gc:
+            in_reply_to = ""
+            if prior_msg:
+                try:
+                    meta = gc.get_message(prior_msg, fmt="metadata")
+                    in_reply_to = gmail_message.header_value(meta, "Message-Id")
+                except Exception:  # noqa: BLE001 - threading header is best-effort
+                    in_reply_to = ""
+            raw_b64, _mid = gmail_message.build_raw(
+                from_addr, contact.email, subject, body_text, in_reply_to, in_reply_to
+            )
+            sent = gc.send_message(raw_b64, thread_id=thread_id)
+    except oauth.GmailAuthError as e:
+        return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
+    except GmailError as e:
+        return json_error(f"Gmail send failed: {e}", 502)
+
+    msg_id = sent.get("id", "") or ""
+    thr = sent.get("threadId", "") or thread_id
+    contacts.log_outreach(
+        con,
+        d.posting_id,
+        contact_id,
+        contacts.OutreachInput(body=body_text, gmail_message_id=msg_id, gmail_thread_id=thr),
+    )
+    updated = outreach_drafts.mark_outreach_draft_sent(con, draft_id)
+    return json_response(
+        {
+            "sent": True,
+            "gmail_message_id": msg_id,
+            "thread_id": thr,
+            "contact_id": contact_id,
+            "to": contact.email,
+            "subject": subject,
+            "draft": updated,
+        }
+    )

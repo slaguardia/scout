@@ -51,6 +51,52 @@ Your Name
 {{last_message}}"""
 
 
+# M55 send-path pieces. The subject is pure {{role}}/{{company}} substitution (no
+# LLM); the signature is an appended block (empty by default — the DEFAULT_TEMPLATE
+# body still carries its own sign-off until the slice-6 restructure moves it here).
+DEFAULT_SUBJECT = "Reaching out about the {{role}} role"
+DEFAULT_SIGNATURE = ""
+DEFAULT_FOLLOWUP_SUBJECT = "Following up — {{role}} at {{company}}"
+
+
+def subject_or_default(con: sqlite3.Connection | None) -> str:
+    if con is not None:
+        try:
+            c = outreach_template.get_subject_template(con)
+            if c.strip() != "":
+                return c
+        except Exception:  # noqa: BLE001 - fall back to the default
+            pass
+    return DEFAULT_SUBJECT
+
+
+def signature_or_default(con: sqlite3.Connection | None) -> str:
+    if con is not None:
+        try:
+            c = outreach_template.get_signature_template(con)
+            if c.strip() != "":
+                return c
+        except Exception:  # noqa: BLE001
+            pass
+    return DEFAULT_SIGNATURE
+
+
+def followup_subject_or_default(con: sqlite3.Connection | None) -> str:
+    if con is not None:
+        try:
+            c = outreach_template.get_followup_subject_template(con)
+            if c.strip() != "":
+                return c
+        except Exception:  # noqa: BLE001
+            pass
+    return DEFAULT_FOLLOWUP_SUBJECT
+
+
+def render_subject(con: sqlite3.Connection | None, role: str, company: str) -> str:
+    """The configured (or default) send subject with {{role}}/{{company}} filled."""
+    return subst_vars(subject_or_default(con), {"role": role, "company": company}).strip()
+
+
 def template_or_default(con: sqlite3.Connection | None) -> str:
     """Return the user's saved template, or the compiled-in default when none is
     saved (or on a read error — a draft never blocks on this)."""

@@ -32,6 +32,7 @@ const state = {
   followupTemplate: "",                     // the follow-up email template (M53; loaded at boot, default applied server-side)
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
+  gmail: null,                             // {connected, email, configured, autoflip} from /api/gmail/status (M55)
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
@@ -1905,6 +1906,23 @@ function outreachProgressHTML(stage) {
 
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
+// gmailSendControlsHTML renders the "Send via Gmail" row on an editable draft —
+// a recipient picker (the posting's emailable contacts) + the send button — only
+// when a Gmail account is connected (M55). The actual subject/body/signature are
+// assembled server-side from the draft + the email template.
+function gmailSendControlsHTML() {
+  if (!(state.gmail && state.gmail.connected)) return "";
+  const cs = (pursuit.contacts || []).filter(c => c.email);
+  if (!cs.length) return `<div class="draft-note dim">Add a contact with an email to send via Gmail.</div>`;
+  const opts = cs.map(c =>
+    `<option value="${c.id}">${escapeHTML(c.name || c.email)}${c.email ? ` &lt;${escapeHTML(c.email)}&gt;` : ""}</option>`
+  ).join("");
+  return `<div class="draft-gmail-row">
+    <select class="input draft-gmail-to" title="recipient" aria-label="recipient">${opts}</select>
+    <button class="btn btn-primary draft-gmail-btn" title="send this email from your Gmail and log it">${ICON_SEND}Send via Gmail</button>
+  </div>`;
+}
+
 function draftCardHTML(d, readonly) {
   const head = (cls, label, extra = "") => `
     <div class="draft-head">
@@ -1982,7 +2000,8 @@ function draftCardHTML(d, readonly) {
     <div class="draft-actions">
       <button class="btn btn-primary draft-sent-btn" title="mark this email sent — bumps the outreach count">${ICON_SEND}Mark sent</button>
       <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">${REFRESH}Regenerate</button>
-    </div>` : `<div class="draft-actions">
+    </div>
+    ${gmailSendControlsHTML()}` : `<div class="draft-actions">
       <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">${REFRESH}Regenerate</button>
     </div>`}
     ${renderTrace(d)}
@@ -2080,6 +2099,11 @@ function wireOutreach() {
     if (ta) wireInlineField(ta, (v) => saveDraftEdit(id, v), { multiline: true });
     const sent = card.querySelector(".draft-sent-btn");
     if (sent) sent.addEventListener("click", () => markDraftSent(id));
+    const gsend = card.querySelector(".draft-gmail-btn");
+    if (gsend) gsend.addEventListener("click", () => {
+      const sel = card.querySelector(".draft-gmail-to") as HTMLSelectElement | null;
+      sendDraftViaGmail(id, sel ? sel.value : "", gsend as HTMLButtonElement);
+    });
     // Copy the email — the live textarea value (unsaved edits included) when the
     // card is editable, else the rendered body.
     const copy = card.querySelector(".draft-copy-btn");
@@ -2215,6 +2239,32 @@ async function saveDraftEdit(id, val) {
 
 // markDraftSent flips the draft to sent and bumps the posting's outreach count
 // server-side; refresh the row from the response and re-render.
+// sendDraftViaGmail sends the reviewed draft from the connected Gmail account to
+// the picked contact (server-side: builds the MIME from the template, sends, logs
+// the outreach with the Gmail ids, arms the follow-up, marks the draft sent).
+async function sendDraftViaGmail(id, contactId, btn?: HTMLButtonElement) {
+  if (btn) { btn.disabled = true; btn.dataset.t = btn.textContent || ""; btn.textContent = "Sending…"; }
+  const restore = () => { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.t || "Send via Gmail"; } };
+  let resp;
+  try {
+    resp = await fetch(`/api/outreach/drafts/${id}/send-gmail`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contact_id: contactId || "" }),
+    });
+  } catch (e) { toast(`send failed: ${e.message}`); restore(); return; }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => "")).trim();
+    toast(`send failed: ${txt || "HTTP " + resp.status}`);
+    restore();
+    return;
+  }
+  let body: any = {};
+  try { body = await resp.json(); } catch { /* tolerate empty */ }
+  toast(body.to ? `sent via Gmail to ${body.to}` : "sent via Gmail");
+  await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
+  await loadJobs();     // the posting's outreach moved server-side
+}
+
 async function markDraftSent(id) {
   let resp;
   try {
@@ -4321,6 +4371,23 @@ function renderCriteria() {
     act: "edit-anthropic-key", actIcon: PENCIL, actTitle: "set the Anthropic API key", actLabel: "set Anthropic API key",
   });
 
+  // Gmail link (M55): send outreach from the user's Gmail + auto-sync replies and
+  // application status. Connect/disconnect rides the OAuth flow on the backend.
+  const gm = state.gmail || {};
+  let gdot = "off", gnote = "not connected", gact = "gmail-connect", gactLabel = "connect Gmail", gactTitle = "connect a Gmail account to send + sync";
+  if (!gm.configured) { gnote = "OAuth client not set (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)"; }
+  else if (gm.connected) {
+    gdot = "ok"; gnote = `connected as ${gm.email || "(unknown)"}`;
+    gact = "gmail-disconnect"; gactLabel = "disconnect Gmail"; gactTitle = "disconnect this Gmail account";
+  } else { gnote = "configured — not connected"; }
+  const gmailCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: `<span class="edit-link" data-act="${gact}" title="${gactTitle}">Gmail</span>`,
+    dot: gdot, note: gnote,
+    desc: "Send outreach from your Gmail and auto-sync replies + application status.",
+    act: gact, actIcon: PENCIL, actTitle: gactTitle, actLabel: gactLabel,
+  });
+
   // The two configurable jobs-view vocabularies: the application-stage pipeline
   // labels and the outreach reply-status labels. Edited as one-per-line lists.
   const stagesCard = critCard({
@@ -4360,7 +4427,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Integrations</div>
-       ${keyCard}
+       ${keyCard}${gmailCard}
      </div>`;
 
   // Wire every clickable (name links AND action buttons) by its data-act key.
@@ -4378,6 +4445,8 @@ function renderCriteria() {
     "edit-template": () => openEditor("outreach-template"),
     "edit-followup-template": () => openEditor("followup-template"),
     "edit-anthropic-key": openKeyModal,
+    "gmail-connect": gmailConnect,
+    "gmail-disconnect": gmailDisconnect,
   };
   for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
   el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
@@ -4406,6 +4475,37 @@ async function loadKeyState() {
     state.anthropicKey = await (await fetch("/api/integrations/anthropic")).json();
   } catch { state.anthropicKey = null; }
   renderCriteria();
+}
+
+// ---- Gmail link (Integrations card) ----
+//
+// Status is {connected, email, configured, autoflip}. Connect kicks off the
+// backend OAuth flow (a redirect to Google's consent screen); disconnect drops
+// the stored token. The synced data stays local either way.
+async function loadGmailState() {
+  try {
+    state.gmail = await (await fetch("/api/gmail/status")).json();
+  } catch { state.gmail = null; }
+  renderCriteria();
+}
+async function gmailConnect() {
+  let resp;
+  try { resp = await fetch("/api/gmail/connect"); }
+  catch (e) { toast(`connect failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  let body: any = {};
+  try { body = await resp.json(); } catch { /* */ }
+  if (body.auth_url) window.location.href = body.auth_url;  // off to Google's consent screen
+  else toast("could not start the Gmail connect flow");
+}
+async function gmailDisconnect() {
+  if (!confirm("Disconnect Gmail? Sending and sync stop; already-synced data stays.")) return;
+  let resp;
+  try { resp = await fetch("/api/gmail/disconnect", { method: "DELETE" }); }
+  catch (e) { toast(`disconnect failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  toast("Gmail disconnected");
+  await loadGmailState();
 }
 async function openKeyModal() {
   document.getElementById("key-scrim").classList.add("open");
@@ -4800,5 +4900,15 @@ loadMeta();
 loadRuns();
 loadProfile();
 loadKeyState();
+loadGmailState();  // M55: Gmail connection status for the Integrations card + send button
 loadStatusVocab(); // the configurable stage/status vocabularies drive the jobs dropdowns + filter chips
+
+// Surface the OAuth round-trip result (the callback redirects to /?gmail=…), then
+// clean the query so a refresh doesn't re-toast.
+(function gmailReturn() {
+  const m = /[?&]gmail=(connected|error)/.exec(location.search);
+  if (!m) return;
+  toast(m[1] === "connected" ? "Gmail connected" : "Gmail connection failed");
+  history.replaceState(null, "", location.pathname + location.hash);
+})();
 }
