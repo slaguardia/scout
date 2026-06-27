@@ -468,6 +468,13 @@
     padding: 5px 8px 3px; font-size: 10px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-dim);
   }
+  .fdrop-head--toggle { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .fdrop-all {
+    font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    background: none; border: none; padding: 0; cursor: pointer; color: var(--link);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .fdrop-all:hover { color: var(--fg); text-decoration: underline; }
   .fdrop-sep { height: 1px; margin: 4px 0; background: var(--line); }
   .fdrop-item {
     display: flex; align-items: center; gap: 8px; width: 100%;
