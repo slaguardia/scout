@@ -37,7 +37,36 @@ def put_outreach_template(raw: bytes = Depends(raw_body), con=Depends(get_db)) -
     return json_response({"kind": "outreach-template", "content": content})
 
 
-# --- follow-up template: /api/followup-template ------------------------------
+# --- email subject + signature: /api/outreach-{subject,signature} (M55) ------
+
+
+@router.get("/api/outreach-subject")
+def get_outreach_subject(con=Depends(get_db)) -> Response:
+    content = outreach_template.get_subject_template(con) or outreach_pkg.DEFAULT_SUBJECT
+    return json_response({"kind": "outreach-subject", "content": content})
+
+
+@router.put("/api/outreach-subject")
+def put_outreach_subject(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    content = _s(decode_json(raw), "content")
+    outreach_template.put_subject_template(con, content)
+    return json_response({"kind": "outreach-subject", "content": content})
+
+
+@router.get("/api/outreach-signature")
+def get_outreach_signature(con=Depends(get_db)) -> Response:
+    content = outreach_template.get_signature_template(con) or outreach_pkg.DEFAULT_SIGNATURE
+    return json_response({"kind": "outreach-signature", "content": content})
+
+
+@router.put("/api/outreach-signature")
+def put_outreach_signature(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    content = _s(decode_json(raw), "content")
+    outreach_template.put_signature_template(con, content)
+    return json_response({"kind": "outreach-signature", "content": content})
+
+
+# --- follow-up template + subject: /api/followup-{template,subject} -----------
 
 
 @router.get("/api/followup-template")
@@ -51,6 +80,19 @@ def put_followup_template(raw: bytes = Depends(raw_body), con=Depends(get_db)) -
     content = _s(decode_json(raw), "content")
     outreach_template.put_followup_template(con, content)
     return json_response({"kind": "followup-template", "content": content})
+
+
+@router.get("/api/followup-subject")
+def get_followup_subject(con=Depends(get_db)) -> Response:
+    content = outreach_template.get_followup_subject_template(con) or outreach_pkg.DEFAULT_FOLLOWUP_SUBJECT
+    return json_response({"kind": "followup-subject", "content": content})
+
+
+@router.put("/api/followup-subject")
+def put_followup_subject(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    content = _s(decode_json(raw), "content")
+    outreach_template.put_followup_subject_template(con, content)
+    return json_response({"kind": "followup-subject", "content": content})
 
 
 # --- pipeline prompts: /api/outreach-prompts[/{stage}] -----------------------

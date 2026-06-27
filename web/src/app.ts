@@ -3552,8 +3552,11 @@ function isStatusListKind(kind) {
   return kind === "application-stages" || kind === "outreach-statuses";
 }
 function editorLabel(kind) {
-  if (kind === "outreach-template") return "outreach template";
+  if (kind === "outreach-template") return "email body";
+  if (kind === "outreach-subject") return "email subject";
+  if (kind === "outreach-signature") return "email signature";
   if (kind === "followup-template") return "follow-up template";
+  if (kind === "followup-subject") return "follow-up subject";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
   if (kind === "outreach-statuses") return "outreach statuses";
@@ -4312,17 +4315,35 @@ function renderCriteria() {
     desc: "How scout judges — the reasoning rules behind every verdict.",
     act: "edit-playbook", actIcon: PENCIL, actTitle: "edit the verdict playbook", actLabel: "edit playbook",
   });
+  const subjectCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" data-act="edit-subject" title="edit the email subject">email subject</span>',
+    desc: "The send subject — plain {{role}} / {{company}} substitution, no LLM.",
+    act: "edit-subject", actIcon: PENCIL, actTitle: "edit the email subject", actLabel: "edit email subject",
+  });
   const templateCard = critCard({
     icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-template" title="edit the outreach email template">email template</span>',
-    desc: "The outreach email format — verbatim prose with fill-in holes.",
-    act: "edit-template", actIcon: PENCIL, actTitle: "edit the outreach email template", actLabel: "edit email template",
+    nameHTML: '<span class="edit-link" data-act="edit-template" title="edit the email body">email body</span>',
+    desc: "The email body — verbatim prose with the writer's fill-in holes.",
+    act: "edit-template", actIcon: PENCIL, actTitle: "edit the email body", actLabel: "edit email body",
+  });
+  const signatureCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" data-act="edit-signature" title="edit the email signature">email signature</span>',
+    desc: "A fixed sign-off block appended to every sent email (blank = none).",
+    act: "edit-signature", actIcon: PENCIL, actTitle: "edit the email signature", actLabel: "edit email signature",
   });
   const followupTemplateCard = critCard({
     icon: ICON_EMAIL,
     nameHTML: '<span class="edit-link" data-act="edit-followup-template" title="edit the follow-up template">follow-up template</span>',
     desc: "Copy-paste follow-up — variables {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.",
     act: "edit-followup-template", actIcon: PENCIL, actTitle: "edit the follow-up template", actLabel: "edit follow-up template",
+  });
+  const followupSubjectCard = critCard({
+    icon: ICON_EMAIL,
+    nameHTML: '<span class="edit-link" data-act="edit-followup-subject" title="edit the follow-up subject">follow-up subject</span>',
+    desc: "The follow-up subject — {{role}} / {{company}} substitution.",
+    act: "edit-followup-subject", actIcon: PENCIL, actTitle: "edit the follow-up subject", actLabel: "edit follow-up subject",
   });
   // Follow-up reminder interval — a global setting (PUT /api/followup-interval),
   // edited here rather than per-contact. The number input sits in the action slot.
@@ -4388,6 +4409,17 @@ function renderCriteria() {
     desc: "Send outreach from your Gmail and auto-sync replies + application status.",
     act: gact, actIcon: PENCIL, actTitle: gactTitle, actLabel: gactLabel,
   });
+  // Auto-update application status: when on, scout sets a posting's stage from
+  // incoming ATS/company mail; off (default) it suggests it in the Inbox.
+  const autoflipOn = !!(state.gmail && state.gmail.autoflip);
+  const autoflipCard = `<div class="settings-item">
+    <span class="settings-item-icon">${ICON_BELL}</span>
+    <div class="settings-item-main">
+      <div class="settings-item-name">auto-update application status</div>
+      <div class="settings-item-desc">On: scout sets a job's application status from incoming ATS/company mail. Off (default): it suggests it in the Inbox for one-click apply.</div>
+    </div>
+    <input type="checkbox" class="set-autoflip" ${autoflipOn ? "checked" : ""} title="auto-update application status" aria-label="auto-update application status">
+  </div>`;
 
   // The two configurable jobs-view vocabularies: the application-stage pipeline
   // labels and the outreach reply-status labels. Edited as one-per-line lists.
@@ -4420,7 +4452,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${templateCard}${followupTemplateCard}${intervalCard}
+       ${subjectCard}${templateCard}${signatureCard}${followupTemplateCard}${followupSubjectCard}${intervalCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4428,7 +4460,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Integrations</div>
-       ${keyCard}${gmailCard}
+       ${keyCard}${gmailCard}${autoflipCard}
      </div>`;
 
   // Wire every clickable (name links AND action buttons) by its data-act key.
@@ -4444,7 +4476,10 @@ function renderCriteria() {
     "edit-outreach-statuses": () => openEditor("outreach-statuses"),
     "edit-playbook": () => openEditor("playbook"),
     "edit-template": () => openEditor("outreach-template"),
+    "edit-subject": () => openEditor("outreach-subject"),
+    "edit-signature": () => openEditor("outreach-signature"),
     "edit-followup-template": () => openEditor("followup-template"),
+    "edit-followup-subject": () => openEditor("followup-subject"),
     "edit-anthropic-key": openKeyModal,
     "gmail-connect": gmailConnect,
     "gmail-disconnect": gmailDisconnect,
@@ -4462,6 +4497,23 @@ function renderCriteria() {
     fuInterval.value = String(days);
     const r = await contactApi("PUT", "/api/followup-interval", { days });
     if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
+  });
+
+  // Auto-update application status toggle (PUT /api/gmail/autoflip).
+  const autoflip = el.querySelector<HTMLInputElement>(".set-autoflip");
+  if (autoflip) autoflip.addEventListener("change", async () => {
+    let ok = false;
+    try {
+      const r = await fetch("/api/gmail/autoflip", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: autoflip.checked }),
+      });
+      ok = r.ok;
+    } catch { ok = false; }
+    if (ok) {
+      if (state.gmail) state.gmail.autoflip = autoflip.checked;
+      toast(`auto-update application status ${autoflip.checked ? "on" : "off"}`);
+    } else { autoflip.checked = !autoflip.checked; toast("failed to save"); }
   });
 }
 

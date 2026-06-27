@@ -121,6 +121,15 @@ def gmail_disconnect(con=Depends(get_db)) -> Response:
     return json_response({"connected": False, "email": ""})
 
 
+@router.put("/api/gmail/autoflip")
+def gmail_autoflip(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Toggle whether application-status changes are auto-applied (default off:
+    suggest-and-confirm via the Inbox)."""
+    body = decode_json(raw) if raw.strip() else {}
+    gmail_store.set_autoflip(con, bool(body.get("enabled")))
+    return json_response({"autoflip": gmail_store.autoflip(con)})
+
+
 @router.post("/api/gmail/sync")
 def gmail_sync_now(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
     """Run one read-sync pass on demand ("Sync now"). The 2.5-min poller does this
