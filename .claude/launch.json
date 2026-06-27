@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "scout-serve",
-      "runtimeExecutable": "go",
-      "runtimeArgs": ["run", "./cmd/scout", "serve", "--db", "/tmp/scout-v3ui.db", "--addr", ":8765", "--taste-md", "taste.md", "--playbook", "playbook.md"],
+      "runtimeExecutable": ".venv/bin/scout",
+      "runtimeArgs": ["serve", "--db", "/tmp/scout-dev.db", "--addr", ":8765", "--brainbot", "http://127.0.0.1:8100"],
       "port": 8765
     }
   ]

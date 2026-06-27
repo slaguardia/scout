@@ -15,7 +15,7 @@ only; the **pre-filter** is a purely mechanical gate (location, headcount,
 vertical, stage) that runs before the LLM verdict on a bulk run. Its rules live
 in the DB as a singleton (`taste_filter`, with a master on/off switch), edited
 from the dashboard (Criteria → "pre-filter"), with a compiled-in default in
-`internal/filter/taste_default.toml` — there is no longer a `taste.toml` file.
+`scout/filter/taste_default.toml` — there is no longer a `taste.toml` file.
 It gates only which companies a **bulk** verdict run scores; it never deletes
 data, hides rows, or gates ingest/enrich. Disable it (or run a targeted
 per-company re-score, which bypasses it) to score everything.
@@ -66,8 +66,8 @@ canonical port defeats that safety net — don't.
   on a supported ATS (ashby/greenhouse/lever) resolves through the platform's
   public JSON API — exact title, location, department, employment/workplace
   type, published comp range, posted date, full description, **no LLM**
-  (`internal/capture/ats.go`); any other link gets the one-shot Haiku pass
-  (`internal/capture`). Either way the dialog's kind pin overrides the
+  (`scout/capture/ats.py`); any other link gets the one-shot Haiku pass
+  (`scout/capture`). Either way the dialog's kind pin overrides the
   classifier and typed fields win over extraction. Unticked → plain
   writes with no fetch/LLM: `POST /api/companies` (manual add, 409 on dup) or
   `POST /api/postings` (company resolved from the typed name and/or the link's
@@ -113,7 +113,7 @@ canonical port defeats that safety net — don't.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
-  tags). Scout's **distiller** (`internal/distill`) fans out a few company-fit
+  tags). Scout's **distiller** (`scout/distill`) fans out a few company-fit
   recalls, dedups, then runs a two-step pass — classify each excerpt as COMPANY
   vs ROLE_OR_OTHER (quarantines role/career leak), then synthesize a
   **company-fit brief** (Hard dealbreakers / Strong preferences / Context, in
@@ -134,7 +134,7 @@ canonical port defeats that safety net — don't.
   The pipeline is **four editable LLM stages — researcher · writer (fill) ·
   humanizer · honesty — each a system prompt fully editable from the dashboard**
   (Settings → *Outreach pipeline*). Each has a compiled default in
-  `internal/outreach` (registry: `stages.go`); an override lives in the
+  `scout/outreach` (registry: `stages.py`); an override lives in the
   `prompt_overrides` table (`GET /api/outreach-prompts`, `GET/PUT
   /api/outreach-prompts/{stage}`), resolved at draft time by `Engine.stagePrompt`
   (Reset-to-default reverts). The JSON contract lives inside each default prompt,
@@ -150,7 +150,7 @@ canonical port defeats that safety net — don't.
   with the only generated holes a leashed **opener** (reference one real specific
   thing + a genuine reaction, else a plain intro) and a short **closer**
   (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Brain
-  knowledge** (experience + voice + logistics) is *discovered* not pinned (`discover.go`:
+  knowledge** (experience + voice + logistics) is *discovered* not pinned (`discover.py`:
   Haiku over `/map`, fetched via `/doc`, cached in `outreach_sources` (M35);
   fail-loud `ErrNoExperience`) and **auto-syncs** — there is no manual "Refresh
   sources" button: every draft/answer run first calls `outreach.EnsureKnowledge`,
@@ -174,7 +174,7 @@ canonical port defeats that safety net — don't.
 - **Application answers, built:** [`docs/pipeline.md`](./docs/pipeline.md)
   (`scout questions`) is the reference; it reuses the outreach engine.
   **Detection** runs at capture time
-  (`internal/capture/questions.go`) via per-platform resolvers — Greenhouse
+  (`scout/capture/questions.py`) via per-platform resolvers — Greenhouse
   `?questions=true` (official) and Ashby `applicationForm` over the unofficial
   `non-user-graphql` endpoint (fail-soft to `unsupported` on schema drift),
   plus a Haiku HTML fallback for the server-rendered tail; identity / EEO /
@@ -220,4 +220,4 @@ real **Crunchbase CSV run** end-to-end
 the primary interface; the CLI is the secondary automation/debug surface.
 `north-star.md` is the canonical architecture.
 
-**Platform migration (FEAT-20260607_155517-3c84), done:** scout's web delivery has been re-homed from `go:embed index.html` to a toolkit-built PWA — the UI is now a Vite + vanilla-TS app in `web/` consuming `@brainbot/web-toolkit`, built to `internal/web/dist/` and still `go:embed`-ed into the one Go binary (US-003). Go `/api/*` + local SQLite unchanged; `GET /api/me` reads the edge identity. The shared Caddy/SSO edge config is authored + verified (US-004) and lives on brainbot branch `feat/scout-edge`; it applies when the stack is deployed (separate ops). See [brainbot/docs/app-platform.md](../brainbot/docs/app-platform.md).
+**Platform migration (FEAT-20260607_155517-3c84), done:** scout's web delivery is a toolkit-built PWA — a Vite + vanilla-TS app in `web/` consuming `@brainbot/web-toolkit`, built to `web/dist/` and served as static files by the FastAPI app (US-003). `/api/*` + local SQLite unchanged; `GET /api/me` reads the edge identity. The shared Caddy/SSO edge config is authored + verified (US-004) and lives on brainbot branch `feat/scout-edge`; it applies when the stack is deployed (separate ops). See [brainbot/docs/app-platform.md](../brainbot/docs/app-platform.md).
