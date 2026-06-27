@@ -21,6 +21,7 @@ from scout.outreach import template as outreach_template
 from scout.store import (
     contacts,
     detail as detail_store,
+    errors,
     gmail as gmail_store,
     outreach_drafts,
     postings as postings_store,
@@ -235,3 +236,91 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
             "draft": updated,
         }
     )
+
+
+# --- notifications feed + manual link (slice 5) ------------------------------
+
+
+def _notification_view(con, n: gmail_store.Notification) -> dict:
+    """A notification enriched with its posting's company + role for display."""
+    company = role = ""
+    if n.posting_id:
+        p = postings_store.get_posting(con, n.posting_id)
+        if p is not None:
+            role = p.title
+            company = detail_store.get_company_name(con, p.company_id)[0]
+    return {
+        "id": n.id, "kind": n.kind, "posting_id": n.posting_id,
+        "gmail_message_id": n.gmail_message_id, "title": n.title, "detail": n.detail,
+        "suggested_status": n.suggested_status, "created_at": n.created_at,
+        "seen": n.seen_at != "", "actioned": n.actioned_at != "",
+        "company": company, "role": role,
+    }
+
+
+@router.get("/api/notifications")
+def list_notifications(con=Depends(get_db)) -> Response:
+    """The unified feed (replies + application-status), the unread count for the
+    bell badge, and the follow-ups-due folded in (derived from outreach_log)."""
+    notifs = [_notification_view(con, n) for n in gmail_store.list_notifications(con)]
+    followups = [
+        {
+            "log_id": f.log_id, "posting_id": f.posting_id, "contact_id": f.contact_id,
+            "contact_name": f.contact_name, "role": f.role, "company": f.company, "due_at": f.due_at,
+        }
+        for f in contacts.followups_due(con)
+    ]
+    return json_response(
+        {"notifications": notifs, "unread": gmail_store.unread_count(con), "followups": followups}
+    )
+
+
+@router.post("/api/notifications/{raw_id}/seen")
+def notification_seen(raw_id: str, con=Depends(get_db)) -> Response:
+    """Mark a notification read (clears it from the unread badge count)."""
+    nid = _parse_int_id(raw_id)
+    if nid is None:
+        return json_error("not found", 404)
+    gmail_store.mark_seen(con, nid)
+    return json_response({"unread": gmail_store.unread_count(con)})
+
+
+@router.post("/api/notifications/{raw_id}/apply")
+def notification_apply(raw_id: str, con=Depends(get_db)) -> Response:
+    """Apply a suggested application status to the linked posting + stamp the
+    notification actioned (the one-click confirm when autoflip is off)."""
+    nid = _parse_int_id(raw_id)
+    if nid is None:
+        return json_error("not found", 404)
+    n = gmail_store.get_notification(con, nid)
+    if n is None:
+        return json_error("not found", 404)
+    if not n.posting_id:
+        return json_error("no role linked — link this to a role first", 400)
+    if not n.suggested_status:
+        return json_error("nothing to apply", 400)
+    try:
+        postings_store.set_application_status(con, n.posting_id, n.suggested_status)
+    except errors.NotFound:
+        return json_error("posting no longer exists", 404)
+    gmail_store.mark_actioned(con, nid)
+    return json_response({"applied": n.suggested_status, "posting_id": n.posting_id})
+
+
+@router.post("/api/notifications/{raw_id}/link")
+def notification_link(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Re-point a mis-matched notification (and its synced message) at the right
+    posting — the manual-link control."""
+    nid = _parse_int_id(raw_id)
+    if nid is None:
+        return json_error("not found", 404)
+    if gmail_store.get_notification(con, nid) is None:
+        return json_error("not found", 404)
+    body = decode_json(raw) if raw.strip() else {}
+    posting_id = _s(body, "posting_id").strip()
+    if not posting_id:
+        return json_error("posting_id is required", 400)
+    if postings_store.get_posting(con, posting_id) is None:
+        return json_error("posting not found", 404)
+    gmail_store.relink_notification(con, nid, posting_id)
+    return json_response({"id": nid, "posting_id": posting_id})

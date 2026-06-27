@@ -33,6 +33,7 @@ const state = {
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
   gmail: null,                             // {connected, email, configured, autoflip} from /api/gmail/status (M55)
+  notifications: { notifications: [], unread: 0, followups: [] }, // /api/notifications (M55)
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
@@ -4651,6 +4652,149 @@ document.getElementById("settings-scrim").onclick = e => {
   if (e.target.id === "settings-scrim") closeSettings();
 };
 
+// ---- notifications / inbox (M55) ----
+//
+// The bell in the sidebar shows an unread count; the panel lists Gmail-synced
+// updates (replies + application-status suggestions) and the follow-ups due
+// (derived from the outreach log, folded in — not duplicated into the table).
+function renderNotifBadge() {
+  const b = document.getElementById("notif-badge");
+  if (!b) return;
+  const n = (state.notifications && state.notifications.unread) | 0;
+  if (n > 0) { b.textContent = n > 99 ? "99+" : String(n); b.style.display = ""; }
+  else b.style.display = "none";
+}
+async function loadNotifications() {
+  try { state.notifications = await (await fetch("/api/notifications")).json(); }
+  catch { return; }
+  renderNotifBadge();
+  if (document.getElementById("notifications-scrim").classList.contains("open")) renderNotifications();
+}
+function openNotifications() {
+  document.getElementById("notifications-scrim").classList.add("open");
+  renderNotifications();   // show what we have, then refresh from the server
+  loadNotifications();
+}
+function closeNotifications() { document.getElementById("notifications-scrim").classList.remove("open"); }
+
+// The link-to-role picker options come from the jobs table state.
+function jobOptionsHTML() {
+  const opts = (state.jobs || []).map(j =>
+    `<option value="${escapeHTML(j.posting_id)}">${escapeHTML((j.company || "") + " — " + (j.title || "(untitled)"))}</option>`
+  ).join("");
+  return `<option value="">link to role…</option>` + opts;
+}
+
+function notifItemHTML(n) {
+  const ctx = (n.company || n.role)
+    ? `<div class="notif-ctx">${escapeHTML([n.company, n.role].filter(Boolean).join(" · "))}</div>`
+    : `<div class="notif-ctx dim">not linked to a role</div>`;
+  const when = n.created_at ? `<span class="notif-when">${escapeHTML((n.created_at || "").replace("T", " ").slice(0, 16))}</span>` : "";
+  const apply = (n.kind === "app_status" && n.suggested_status && !n.actioned && n.posting_id)
+    ? `<button class="btn btn-primary notif-apply" data-id="${n.id}">Apply: ${escapeHTML(n.suggested_status)}</button>`
+    : "";
+  const link = !n.posting_id
+    ? `<select class="input notif-link" data-id="${n.id}" title="link this to a role">${jobOptionsHTML()}</select>`
+    : "";
+  return `<div class="notif-item${n.seen ? "" : " is-unread"}" data-id="${n.id}" data-seen="${n.seen ? 1 : 0}">
+    <div class="notif-main">
+      <div class="notif-title">${n.seen ? "" : '<span class="notif-dot" aria-label="unread"></span>'}${escapeHTML(n.title)}</div>
+      ${ctx}
+      ${n.detail ? `<div class="notif-detail">${escapeHTML(n.detail)}</div>` : ""}
+    </div>
+    <div class="notif-side">${when}<div class="notif-acts">${apply}${link}</div></div>
+  </div>`;
+}
+
+function followupItemHTML(f) {
+  return `<div class="notif-item notif-followup">
+    <div class="notif-main">
+      <div class="notif-title">Follow up: ${escapeHTML(f.contact_name || "contact")}</div>
+      <div class="notif-ctx">${escapeHTML([f.company, f.role].filter(Boolean).join(" · "))}</div>
+      <div class="notif-detail dim">due ${escapeHTML(f.due_at || "")}</div>
+    </div>
+    <div class="notif-side"><button class="btn notif-open" data-pid="${escapeHTML(f.posting_id)}">Open</button></div>
+  </div>`;
+}
+
+function renderNotifications() {
+  const host = document.getElementById("notifications-body");
+  if (!host) return;
+  const s = state.notifications || { notifications: [], followups: [] };
+  const notifs = s.notifications || [];
+  const fus = s.followups || [];
+  if (!notifs.length && !fus.length) {
+    host.innerHTML = `<div class="cc-empty dim">Nothing here yet. Replies, application updates, and follow-ups show up as Gmail syncs.</div>`;
+    return;
+  }
+  let html = "";
+  if (notifs.length) html += `<div class="settings-group-h">Updates</div>` + notifs.map(notifItemHTML).join("");
+  if (fus.length) html += `<div class="settings-group-h">Follow-ups due</div>` + fus.map(followupItemHTML).join("");
+  host.innerHTML = html;
+  wireNotifications();
+}
+
+function wireNotifications() {
+  const host = document.getElementById("notifications-body");
+  if (!host) return;
+  host.querySelectorAll(".notif-item[data-id]").forEach(item => {
+    const id = (item as HTMLElement).dataset.id;
+    const main = item.querySelector(".notif-main");
+    // Opening (clicking) an unread item marks it read — a reply "sets seen".
+    if (main && (item as HTMLElement).dataset.seen === "0") main.addEventListener("click", () => markNotifSeen(id));
+  });
+  host.querySelectorAll<HTMLElement>(".notif-apply").forEach(b =>
+    b.addEventListener("click", e => { e.stopPropagation(); applyNotif(b.dataset.id); }));
+  host.querySelectorAll<HTMLSelectElement>(".notif-link").forEach(sel =>
+    sel.addEventListener("change", e => { e.stopPropagation(); if (sel.value) linkNotif(sel.dataset.id, sel.value); }));
+  host.querySelectorAll<HTMLElement>(".notif-open").forEach(b =>
+    b.addEventListener("click", () => { const pid = b.dataset.pid; closeNotifications(); openPursuit(pid); }));
+}
+
+async function markNotifSeen(id) {
+  try { await fetch(`/api/notifications/${id}/seen`, { method: "POST" }); } catch { return; }
+  await loadNotifications();
+}
+async function applyNotif(id) {
+  let resp;
+  try { resp = await fetch(`/api/notifications/${id}/apply`, { method: "POST" }); }
+  catch (e) { toast(`apply failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  const j = await resp.json().catch(() => ({}));
+  toast(`status set to ${j.applied || "updated"}`);
+  await loadNotifications();
+  await loadJobs();   // reflect the new application_status in the table
+}
+async function linkNotif(id, postingId) {
+  let resp;
+  try {
+    resp = await fetch(`/api/notifications/${id}/link`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ posting_id: postingId }),
+    });
+  } catch (e) { toast(`link failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  toast("linked to role");
+  await loadNotifications();
+}
+async function syncGmailNow() {
+  const btn = document.getElementById("notifications-sync") as HTMLButtonElement | null;
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+  try {
+    const r = await fetch("/api/gmail/sync", { method: "POST" });
+    toast(r.ok ? "synced" : ((await r.text().catch(() => "")).trim() || `HTTP ${r.status}`));
+  } catch (e) { toast(`sync failed: ${e.message}`); }
+  if (btn) { btn.disabled = false; btn.textContent = "Sync now"; }
+  await loadNotifications();
+  await loadJobs();
+}
+document.getElementById("open-notifications").onclick = openNotifications;
+document.getElementById("notifications-close").onclick = closeNotifications;
+document.getElementById("notifications-sync").onclick = syncGmailNow;
+document.getElementById("notifications-scrim").onclick = e => {
+  if (e.target.id === "notifications-scrim") closeNotifications();
+};
+
 document.querySelectorAll("#docs-nav a").forEach(a => {
   a.onclick = () => {
     const el = document.getElementById("doc-" + a.dataset.sec);
@@ -4901,6 +5045,8 @@ loadRuns();
 loadProfile();
 loadKeyState();
 loadGmailState();  // M55: Gmail connection status for the Integrations card + send button
+loadNotifications();  // M55: inbox bell badge (replies / application updates / follow-ups due)
+setInterval(loadNotifications, 90000);  // keep the bell fresh as the poller syncs
 loadStatusVocab(); // the configurable stage/status vocabularies drive the jobs dropdowns + filter chips
 
 // Surface the OAuth round-trip result (the callback redirects to /?gmail=…), then

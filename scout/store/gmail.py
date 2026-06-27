@@ -299,8 +299,10 @@ def relink_notification(con: sqlite3.Connection, id: int, posting_id: str) -> No
     cur = con.execute("UPDATE notifications SET posting_id = ? WHERE id = ?", (posting_id, id))
     if cur.rowcount == 0:
         return
+    # The synced message (if any) follows the notification to the new posting. The
+    # subquery yields the notification's gmail id, or NULL when it has none → no-op.
     con.execute(
         "UPDATE gmail_messages SET posting_id = ? WHERE id = "
-        "(SELECT gmail_message_id FROM notifications WHERE id = ?) AND gmail_message_id <> ''",
+        "(SELECT gmail_message_id FROM notifications WHERE id = ? AND gmail_message_id <> '')",
         (posting_id, id),
     )

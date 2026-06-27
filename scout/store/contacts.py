@@ -369,3 +369,50 @@ def delete_outreach_entry(con: sqlite3.Connection, id: int) -> None:
     cur = con.execute("DELETE FROM outreach_log WHERE id = ?", (id,))
     if cur.rowcount == 0:
         raise errors.NotFound()
+
+
+@dataclass
+class FollowupDue:
+    log_id: int = 0
+    posting_id: str = ""
+    contact_id: str = ""
+    contact_name: str = ""
+    role: str = ""
+    company: str = ""
+    due_at: str = ""
+
+
+def followups_due(con: sqlite3.Connection) -> list[FollowupDue]:
+    """The active follow-ups that are due/overdue — folded into the notifications
+    panel. Mirrors the jobs-view badge gating exactly: the latest send on its
+    (contact, posting), followup_due_at arrived, and the posting still awaiting a
+    reply (outreach_status blank or the first configured label). Soonest first."""
+    first_status = ""
+    labels = statuses.outreach_statuses(con)
+    if labels:
+        first_status = labels[0]
+    rows = con.execute(
+        """
+        SELECT ol.id, ol.posting_id, ol.contact_id, ol.followup_due_at,
+               COALESCE(ct.name, ''), COALESCE(ct.email, ''),
+               COALESCE(p.title, ''), COALESCE(co.name, '')
+        FROM outreach_log ol
+        JOIN job_postings p ON p.id = ol.posting_id
+        JOIN companies co ON co.id = p.company_id
+        LEFT JOIN contacts ct ON ct.id = ol.contact_id
+        WHERE ol.followup_due_at IS NOT NULL
+          AND ol.followup_due_at <= DATE('now')
+          AND COALESCE(p.outreach_status, '') IN ('', ?)
+          AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
+                       WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)
+        ORDER BY ol.followup_due_at ASC, ol.id ASC
+        """,
+        (first_status,),
+    ).fetchall()
+    return [
+        FollowupDue(
+            log_id=r[0], posting_id=r[1], contact_id=r[2], due_at=r[3],
+            contact_name=r[4] or r[5], role=r[6], company=r[7],
+        )
+        for r in rows
+    ]

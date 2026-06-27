@@ -132,6 +132,11 @@ export const SCOUT_MARKUP = `
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
         <span>How it works</span>
       </button>
+      <button class="doc-btn foot-btn" id="open-notifications" title="Inbox — replies, application updates, follow-ups due" aria-label="notifications">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>
+        <span>Inbox</span>
+        <span class="notif-badge" id="notif-badge" style="display:none">0</span>
+      </button>
     </div>
   </div>
 </aside>
@@ -425,6 +430,29 @@ export const SCOUT_MARKUP = `
     </div>
     <div class="modal-foot">
       <button class="btn" id="settings-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- the notifications / inbox panel: Gmail replies, application-status updates,
+     and follow-ups due (M55) -->
+<div class="modal-scrim" id="notifications-scrim">
+  <div class="modal modal-settings">
+    <div class="modal-head">
+      <div class="modal-head-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>
+      </div>
+      <div class="modal-head-text">
+        <h2>Inbox</h2>
+        <div class="modal-head-sub">Replies, application updates, and follow-ups due — synced from Gmail.</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="notifications-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="notifications-sync" title="check Gmail now for new mail">Sync now</button>
+      <button class="btn" id="notifications-close">Close</button>
     </div>
   </div>
 </div>
