@@ -336,11 +336,27 @@ def _notification_view(con, n: gmail_store.Notification) -> dict:
     }
 
 
+def _suggestion_redundant(con, n: gmail_store.Notification) -> bool:
+    """A pending status suggestion the posting already satisfies — noise, not an
+    action. Catches the reverse of the sync-time guard: a status marked by hand
+    AFTER the suggestion landed (and any rows created before that guard shipped).
+    An applied-via-button suggestion is actioned, so it stays as history."""
+    if n.kind != gmail_store.NOTIF_APP_STATUS or n.actioned_at or not n.suggested_status or not n.posting_id:
+        return False
+    p = postings_store.get_posting(con, n.posting_id)
+    return p is not None and p.application_status.strip().casefold() == n.suggested_status.strip().casefold()
+
+
 @router.get("/api/notifications")
 def list_notifications(con=Depends(get_db)) -> Response:
     """The unified feed (replies + application-status), the unread count for the
     bell badge, and the follow-ups-due folded in (derived from outreach_log)."""
-    notifs = [_notification_view(con, n) for n in gmail_store.list_notifications(con)]
+    notifs = []
+    for n in gmail_store.list_notifications(con):
+        if _suggestion_redundant(con, n):
+            gmail_store.mark_seen(con, n.id)  # drop from the feed + clear the badge
+            continue
+        notifs.append(_notification_view(con, n))
     followups = [
         {
             "log_id": f.log_id, "posting_id": f.posting_id, "contact_id": f.contact_id,

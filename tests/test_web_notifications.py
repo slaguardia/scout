@@ -63,6 +63,44 @@ def test_notification_apply_sets_status(tmp_path, monkeypatch):
     con.close()
 
 
+def test_redundant_suggestion_is_hidden_and_uncounted(tmp_path, monkeypatch):
+    # A suggestion for a status the posting already has (e.g. marked by hand after
+    # the email landed) is noise — dropped from the feed and cleared from the badge.
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    postings.set_application_status(con, pid, "applied")
+    nid = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="a1",
+                                      title="Suggested status: applied", suggested_status="applied")
+    )
+    con.close()
+
+    j = client.get("/api/notifications").json()
+    assert j["notifications"] == [] and j["unread"] == 0
+    con = open_db(db_path)
+    assert gmail_store.get_notification(con, nid).seen_at != ""  # marked seen, not actioned
+    assert gmail_store.get_notification(con, nid).actioned_at == ""
+    con.close()
+
+
+def test_non_redundant_suggestion_still_shows(tmp_path, monkeypatch):
+    # A suggestion that would actually move the posting stays actionable.
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    postings.set_application_status(con, pid, "applied")
+    gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="a2",
+                                      title="Suggested status: interview", suggested_status="interview")
+    )
+    con.close()
+
+    j = client.get("/api/notifications").json()
+    assert len(j["notifications"]) == 1 and j["notifications"][0]["suggested_status"] == "interview"
+    assert j["unread"] == 1
+
+
 def test_notification_apply_guards(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
     _cid2, pid = _seed_posting(db_path)
