@@ -451,24 +451,16 @@ export const SCOUT_MARKUP = `
 
 <!-- the notifications / inbox panel: Gmail replies, application-status updates,
      and follow-ups due (M55) -->
-<div class="modal-scrim" id="notifications-scrim">
-  <div class="modal modal-settings">
-    <div class="modal-head">
-      <div class="modal-head-icon">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>
-      </div>
-      <div class="modal-head-text">
+<div class="main-view" id="inbox-view" style="display:none">
+  <div class="settings-page">
+    <div class="settings-page-head settings-page-head--row">
+      <div>
         <h2>Inbox</h2>
-        <div class="modal-head-sub">Replies, application updates, and follow-ups due — synced from Gmail.</div>
+        <div class="settings-page-sub">Replies, application updates, and follow-ups due — synced from Gmail.</div>
       </div>
-    </div>
-    <div class="modal-body">
-      <div id="notifications-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
-    </div>
-    <div class="modal-foot">
       <button class="btn" id="notifications-sync" title="check Gmail now for new mail">Sync now</button>
-      <button class="btn" id="notifications-close">Close</button>
     </div>
+    <div id="notifications-body"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
   </div>
 </div>
 
@@ -669,16 +661,13 @@ export const SCOUT_MARKUP = `
 </div>
 
 <!-- docs overlay ("how it works") -->
-<div class="docs-scrim" id="docs-scrim">
-  <div class="docs" role="dialog" aria-modal="true" aria-label="How scout works">
+<div class="main-view" id="docs-view" style="display:none">
+  <div class="docs" aria-label="How scout works">
     <div class="docs-head">
       <span class="dot" aria-hidden="true"></span>
       <h2>How scout works</h2>
       <span class="sub">a guided tour of the pipeline</span>
       <span class="spacer"></span>
-      <button class="close-btn" id="docs-close" aria-label="close">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
-      </button>
     </div>
     <div class="docs-grid">
       <nav class="docs-nav" id="docs-nav">

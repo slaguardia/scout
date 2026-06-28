@@ -141,20 +141,29 @@ function setView(v, { render = true } = {}) {
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
-  // Settings is a full-page view (like companies/jobs), not a modal.
-  const sv = document.getElementById("settings-view");
-  if (sv) sv.style.display = v === "settings" ? "" : "none";
-  const sbtn = document.getElementById("open-settings");
-  if (sbtn) sbtn.classList.toggle("is-active", v === "settings");
-  // Each data view owns its Filter block; Columns is table-only — both hide in settings.
+  // Settings / Inbox / How-it-works are full-page views (like companies/jobs), not modals.
+  const toggleView = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? "" : "none"; };
+  toggleView("settings-view", v === "settings");
+  toggleView("inbox-view", v === "inbox");
+  toggleView("docs-view", v === "docs");
+  // Each sidebar foot button lights up while its view is active (like an active tab).
+  document.getElementById("open-settings").classList.toggle("is-active", v === "settings");
+  const nbtn = document.getElementById("open-notifications");
+  if (nbtn) nbtn.classList.toggle("is-active", v === "inbox");
+  const dbtn = document.getElementById("open-docs");
+  if (dbtn) dbtn.classList.toggle("is-active", v === "docs");
+  // Filter + Columns blocks are table-only — they hide on the non-table views.
+  const tableView = v === "companies" || v === "jobs";
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
   const bcols = document.getElementById("block-columns");
-  if (bcols) bcols.style.display = v === "settings" ? "none" : "";
+  if (bcols) bcols.style.display = tableView ? "" : "none";
   renderColumnsMenu(); // the Columns dropdown follows the active view
   if (render) {
     if (v === "jobs") renderJobs();
     else if (v === "settings") renderCriteria();
+    else if (v === "inbox") { renderNotifications(); loadNotifications(); }
+    else if (v === "docs") onDocsShown();
     else renderList();
   }
 }
@@ -3999,7 +4008,6 @@ document.addEventListener("keydown", e => {
   if (document.querySelector(".fdrop.is-open")) { closeAllDropdowns(); return; }
   // Chat sits on top of whatever opened it (a pane or the global view) — peel it first.
   if (document.getElementById("chat-pane").classList.contains("open")) { closeChat(); return; }
-  if (docsOpen()) { closeDocs(); return; }
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
@@ -4128,7 +4136,7 @@ function openHelp(key) {
     const link = document.createElement("a");
     link.className = "help-link";
     link.textContent = "Learn more →";
-    link.onclick = () => { closeHelp(); openDocs(); goToDocSection(it.sec); };
+    link.onclick = () => { closeHelp(); setView("docs"); goToDocSection(it.sec); };
     row.appendChild(name); row.appendChild(desc); row.appendChild(link);
     wrap.appendChild(row);
   });
@@ -4774,31 +4782,24 @@ document.getElementById("profile-scrim").onclick = e => {
   if (e.target.id === "profile-scrim") closeProfileModal();
 };
 
-// ---- docs overlay ("how it works") ----
-function openDocs() {
-  document.getElementById("docs-scrim").classList.add("open");
-  const first = document.querySelector("#docs-nav a");
+// ---- docs ("how it works"): a full-page view, reached from the sidebar ----
+function onDocsShown() {
+  const first = document.querySelector("#docs-nav a") as HTMLElement | null;
   setActiveDoc(first ? first.dataset.sec : null);
   const body = document.getElementById("docs-body");
   if (body) body.scrollTop = 0;
 }
-function closeDocs() { document.getElementById("docs-scrim").classList.remove("open"); }
-function docsOpen() { return document.getElementById("docs-scrim").classList.contains("open"); }
 function setActiveDoc(sec) {
   document.querySelectorAll("#docs-nav a").forEach(a =>
-    a.classList.toggle("active", a.dataset.sec === sec));
+    a.classList.toggle("active", (a as HTMLElement).dataset.sec === sec));
 }
-// jump the (already-open) docs overlay to a section by its nav id
+// jump the (already-shown) docs view to a section by its nav id
 function goToDocSection(sec) {
   const el = document.getElementById("doc-" + sec);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   setActiveDoc(sec);
 }
-document.getElementById("open-docs").onclick = openDocs;
-document.getElementById("docs-close").onclick = closeDocs;
-document.getElementById("docs-scrim").onclick = e => {
-  if (e.target.id === "docs-scrim") closeDocs();
-};
+document.getElementById("open-docs").onclick = () => setView("docs");
 
 // ---- settings: a full-page view (like companies/jobs), reached from the sidebar ----
 function openSettings() { setView("settings"); }
@@ -4828,14 +4829,8 @@ async function loadNotifications() {
   try { state.notifications = await (await fetch("/api/notifications")).json(); }
   catch { return; }
   renderNotifBadge();
-  if (document.getElementById("notifications-scrim").classList.contains("open")) renderNotifications();
+  if (state.view === "inbox") renderNotifications();
 }
-function openNotifications() {
-  document.getElementById("notifications-scrim").classList.add("open");
-  renderNotifications();   // show what we have, then refresh from the server
-  loadNotifications();
-}
-function closeNotifications() { document.getElementById("notifications-scrim").classList.remove("open"); }
 
 // The link-to-role picker options come from the jobs table state.
 function jobOptionsHTML() {
@@ -4908,7 +4903,7 @@ function wireNotifications() {
   host.querySelectorAll<HTMLSelectElement>(".notif-link").forEach(sel =>
     sel.addEventListener("change", e => { e.stopPropagation(); if (sel.value) linkNotif(sel.dataset.id, sel.value); }));
   host.querySelectorAll<HTMLElement>(".notif-open").forEach(b =>
-    b.addEventListener("click", () => { const pid = b.dataset.pid; closeNotifications(); openPursuit(pid); }));
+    b.addEventListener("click", () => { const pid = b.dataset.pid; setView("jobs"); openPursuit(pid); }));
 }
 
 async function markNotifSeen(id) {
@@ -4948,12 +4943,8 @@ async function syncGmailNow() {
   await loadNotifications();
   await loadJobs();
 }
-document.getElementById("open-notifications").onclick = openNotifications;
-document.getElementById("notifications-close").onclick = closeNotifications;
+document.getElementById("open-notifications").onclick = () => setView("inbox");
 document.getElementById("notifications-sync").onclick = syncGmailNow;
-document.getElementById("notifications-scrim").onclick = e => {
-  if (e.target.id === "notifications-scrim") closeNotifications();
-};
 
 document.querySelectorAll("#docs-nav a").forEach(a => {
   a.onclick = () => {
