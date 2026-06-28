@@ -8,9 +8,20 @@ export const SCOUT_MARKUP = `
 <aside class="sidebar">
   <div class="sidebar-brand"><div class="brand">scout</div></div>
   <div class="block" id="block-view">
-    <div class="view-switch" title="which table the main area shows">
-      <button class="tab active" id="tab-companies">companies</button>
-      <button class="tab" id="tab-jobs">jobs</button>
+    <div class="view-switch" title="switch the main area">
+      <button class="tab active" id="tab-companies" title="companies" aria-label="companies">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.5" width="10" height="11.5" rx="1"/><path d="M6 5.5h1M9 5.5h1M6 8h1M9 8h1M6 10.5h1M9 10.5h1"/></svg>
+        <span class="tab-label">companies</span>
+      </button>
+      <button class="tab" id="tab-jobs" title="jobs" aria-label="jobs">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="8" rx="1.2"/><path d="M5.8 5V3.8a1 1 0 011-1h2.4a1 1 0 011 1V5"/><path d="M2.5 8.5h11"/></svg>
+        <span class="tab-label">jobs</span>
+      </button>
+      <button class="tab" id="tab-inbox" title="Inbox — replies, application updates, follow-ups due" aria-label="inbox">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>
+        <span class="tab-label">inbox</span>
+        <span class="notif-badge" id="notif-badge" style="display:none">0</span>
+      </button>
     </div>
   </div>
 
@@ -130,11 +141,6 @@ export const SCOUT_MARKUP = `
       <button class="doc-btn foot-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage" aria-label="how it works">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
         <span>How it works</span>
-      </button>
-      <button class="doc-btn foot-btn" id="open-notifications" title="Inbox — replies, application updates, follow-ups due" aria-label="notifications">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>
-        <span>Inbox</span>
-        <span class="notif-badge" id="notif-badge" style="display:none">0</span>
       </button>
     </div>
   </div>

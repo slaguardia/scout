@@ -216,17 +216,31 @@
 
   /* view switch (companies | jobs) — top of the sidebar; the whole main area
      follows it. */
+  /* The view tabs collapse to icons and expand the active one to show its label,
+     so three tabs (companies / jobs / inbox) cost barely more room than two. */
   .view-switch { display: flex; gap: 6px; }
   .tab {
-    flex: 1;
+    flex: 0 1 auto;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
     background: var(--panel); color: var(--fg-mute);
     border: 1px solid var(--line); border-radius: var(--r-md);
-    padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer;
-    text-align: center;
+    padding: 7px 9px; font: inherit; font-size: 13px; cursor: pointer;
     transition: all var(--dur-fast) var(--ease);
   }
+  .tab svg { width: 15px; height: 15px; flex: none; }
+  .tab .tab-label {
+    max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
+    transition: max-width var(--dur-base) var(--ease),
+                opacity var(--dur-fast) var(--ease),
+                margin-left var(--dur-base) var(--ease);
+  }
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
-  .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+  .tab.active {
+    flex: 1 1 auto;
+    background: var(--link-bg); border-color: var(--link); color: var(--link);
+  }
+  .tab.active .tab-label { max-width: 140px; opacity: 1; margin-left: 7px; }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background-color: var(--link-bg); color: var(--link); }

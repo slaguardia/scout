@@ -140,6 +140,7 @@ function setView(v, { render = true } = {}) {
   try { localStorage.setItem("scout-view", v); } catch {}
   document.getElementById("tab-companies").classList.toggle("active", v === "companies");
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
+  document.getElementById("tab-inbox").classList.toggle("active", v === "inbox");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
   // Settings / Inbox / How-it-works are full-page views (like companies/jobs), not modals.
@@ -149,8 +150,6 @@ function setView(v, { render = true } = {}) {
   toggleView("docs-view", v === "docs");
   // Each sidebar foot button lights up while its view is active (like an active tab).
   document.getElementById("open-settings").classList.toggle("is-active", v === "settings");
-  const nbtn = document.getElementById("open-notifications");
-  if (nbtn) nbtn.classList.toggle("is-active", v === "inbox");
   const dbtn = document.getElementById("open-docs");
   if (dbtn) dbtn.classList.toggle("is-active", v === "docs");
   // Filter + Columns blocks are table-only — they hide on the non-table views.
@@ -4057,6 +4056,7 @@ document.querySelectorAll("#jt thead th[data-jk]").forEach(th => {
 });
 document.getElementById("tab-companies").onclick = () => setView("companies");
 document.getElementById("tab-jobs").onclick = () => setView("jobs");
+document.getElementById("tab-inbox").onclick = () => setView("inbox");
 // Companies filter block — search plus the Filters dropdown.
 document.getElementById("q").oninput = renderList;
 // Companies Filters menu: the verdict checklist plus the flagged / enriched toggles.
@@ -5136,7 +5136,6 @@ async function syncGmailNow() {
   await loadNotifications();
   await loadJobs();
 }
-document.getElementById("open-notifications").onclick = () => setView("inbox");
 document.getElementById("notifications-sync").onclick = syncGmailNow;
 
 document.querySelectorAll("#docs-nav a").forEach(a => {
