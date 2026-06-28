@@ -1347,11 +1347,16 @@ Return the JSON verdict now.</pre>
     </div>`:o=Y("taste","Taste (local fallback)","Local fallback criteria used when the brain is unreachable.",12,!1),e.innerHTML=o+Y("playbook","Playbook","How scout judges — the reasoning rules behind every verdict.",12,!1)+xa(),Bt(e);const i=e.querySelector("#brief-refresh");i&&i.addEventListener("click",Wa),On();const d=e.querySelector("#pf-save");d&&d.addEventListener("click",Ia);const u=e.querySelector("#pf-reset");u&&u.addEventListener("click",()=>On(!0))}function Da(e){const t=e.callback_uri||"(your scout URL)/api/gmail/callback",n=e.scopes||["openid","email","https://www.googleapis.com/auth/gmail.send","https://www.googleapis.com/auth/gmail.readonly"];return`<details class="set-help"${e.configured?"":" open"}>
     <summary>Set up the Google OAuth client (one-time)</summary>
     <div class="set-help-body">
-      <p>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:</p>
-      <div class="set-copy-row"><code id="gm-cb">${l(t)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
-      <p>On the <strong>OAuth consent screen</strong>, add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:</p>
-      <ul class="set-help-scopes">${n.map(s=>`<li><code>${l(s)}</code></li>`).join("")}</ul>
-      <p class="dim">Enable the API once — <code>gcloud services enable gmail.googleapis.com</code> (or Console → Library → Gmail API → Enable). Then paste the client ID + secret below, Save, and Connect.</p>
+      <ol class="set-steps">
+        <li><strong>Enable the Gmail API.</strong> In <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">APIs &amp; Services → Library → Gmail API</a>, click <strong>Enable</strong> — or run <code>gcloud services enable gmail.googleapis.com</code>.</li>
+        <li><strong>Configure the OAuth consent screen.</strong> Add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:
+          <ul class="set-help-scopes">${n.map(s=>`<li><code>${l(s)}</code></li>`).join("")}</ul>
+        </li>
+        <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
+          <div class="set-copy-row"><code id="gm-cb">${l(t)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
+        </li>
+        <li><strong>Connect.</strong> Paste the client ID &amp; secret below, click <strong>Save</strong>, then <strong>Connect</strong>.</li>
+      </ol>
     </div>
   </details>`}function Ua(e){const t=c.anthropicKey||{};let n="Not set — verdict, capture & outreach disabled.";t.key_source==="db"?n="Set here · active.":t.key_source==="env"&&(n="Using the ANTHROPIC_API_KEY environment variable.");const s=c.gmail||{},a=!!s.connected,o=!!s.configured,i=a?"ok":o?"warn":"off",d=a?`Connected as ${l(s.email||"your account")}`:o?"Not connected":"Not set up";e.innerHTML=`
     <div class="set-field">
