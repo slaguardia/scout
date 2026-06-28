@@ -1715,7 +1715,7 @@ function gmailTrackingBarHTML() {
   }
   const last = gm.last_sync_at ? `synced ${escapeHTML(fmtSyncTime(gm.last_sync_at))}` : "not synced yet";
   return `<div class="cc-gmailbar">
-    <span class="cc-gmail-on" title="${escapeHTML(gm.email || "")}">↳ Gmail tracking on${gm.email ? ` · ${escapeHTML(gm.email)}` : ""}</span>
+    <span class="cc-gmail-on" title="${escapeHTML(gm.email || "")}">Gmail tracking on${gm.email ? ` · ${escapeHTML(gm.email)}` : ""}</span>
     <span class="cc-gmail-sync dim">${last}</span>
     <button class="btn btn-sm cc-sync-now" type="button" title="re-check Gmail (source of truth) — pulls new replies + restores any missing sends">Sync now</button>
   </div>`;
@@ -1774,7 +1774,7 @@ function contactCardHTML(c) {
       <textarea class="input cc-l-body" rows="5" placeholder="email body — what you sent (optional)" spellcheck="false"></textarea>
       <div class="cc-form-actions"><button class="btn btn-primary cc-l-save" type="button">Log</button><button class="btn cc-l-cancel" type="button">Cancel</button></div>
     </div>`}
-    ${entries.length ? `<details class="cc-history"><summary>${entries.length} send${entries.length > 1 ? "s" : ""}</summary><div class="cc-entries">${entries.map(outreachEntryHTML).join("")}</div></details>` : ""}
+    ${entries.length ? `<details class="cc-history"><summary>${entries.length} email${entries.length === 1 ? "" : "s"} sent</summary><div class="cc-entries">${entries.map(outreachEntryHTML).join("")}</div></details>` : ""}
   </div>`;
 }
 
@@ -1816,19 +1816,21 @@ function outreachEntryHTML(e) {
   // would just re-add it, so it isn't deletable here. Only hand-logged sends, which
   // scout owns, keep the × delete.
   const del = e.gmail_message_id ? ""
-    : `<button class="cc-e-del" type="button" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>`;
-  const body = e.body
-    ? `<details class="cc-e-body"><summary>email sent</summary><pre>${escapeHTML(e.body)}</pre></details>` : "";
-  return `<div class="cc-entry-wrap">
-      <div class="cc-entry" data-eid="${e.id}">
-        <span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
+    : `<button class="cc-e-del" type="button" data-eid="${e.id}" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>`;
+  const view = e.body ? `<span class="cc-e-view">view email</span>` : "";
+  const actions = (view || del) ? `<span class="cc-e-actions">${view}${del}</span>` : "";
+  const meta = `<span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
         ${prov}
         ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
-        ${fu}
-        ${del}
-      </div>
-      ${body}
-    </div>`;
+        ${fu}`;
+  // With a saved body the whole row is the <summary> of a <details>, so clicking
+  // it expands the email beneath; without one it's a plain (non-expanding) row.
+  return e.body
+    ? `<details class="cc-entry-d">
+        <summary class="cc-entry">${meta}${actions}</summary>
+        <pre class="cc-e-body">${escapeHTML(e.body)}</pre>
+      </details>`
+    : `<div class="cc-entry">${meta}${actions}</div>`;
 }
 
 // contactApi is a thin fetch wrapper for the contact/outreach-log endpoints:
@@ -1989,9 +1991,10 @@ function wireContacts() {
 
     // Delete a logged send — guarded: this is a destructive hard-delete that
     // also drops the send's follow-up, so confirm before firing.
-    card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async () => {
+    card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async (ev) => {
+      ev.preventDefault(); ev.stopPropagation();   // × lives in the row's <summary>; don't toggle it
       if (!confirm("Delete this logged send? Its follow-up is removed too. This can't be undone.")) return;
-      const eid = b.closest(".cc-entry").dataset.eid;
+      const eid = b.dataset.eid;
       const r = await contactApi("DELETE", `/api/outreach-log/${eid}`);
       if (r) { toast("send deleted"); refreshAfterContactChange(); }
     }));
