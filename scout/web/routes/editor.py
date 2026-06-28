@@ -13,11 +13,14 @@ from fastapi import APIRouter, Depends
 from starlette.responses import Response
 
 from scout import outreach as outreach_pkg
-from scout.store import outreach_template, prompt_overrides
+from scout.store import outreach_template, prompt_overrides, settings
 
 from ..deps import get_db
 from ..responses import json_error, json_response
 from .core import _s, decode_json, raw_body
+
+# "1" ⇒ follow-ups reuse the outreach signature instead of their own field.
+FOLLOWUP_SIG_SAME_SETTING = "followup_signature_same"
 
 router = APIRouter()
 
@@ -81,6 +84,24 @@ def put_followup_template(raw: bytes = Depends(raw_body), con=Depends(get_db)) -
     content = _s(decode_json(raw), "content")
     outreach_template.put_followup_template(con, content)
     return json_response({"kind": "followup-template", "content": content})
+
+
+@router.get("/api/followup-signature")
+def get_followup_signature(con=Depends(get_db)) -> Response:
+    """The follow-up sign-off + whether to reuse the outreach signature instead."""
+    content = outreach_template.get_followup_signature(con) or outreach_pkg.DEFAULT_FOLLOWUP_SIGNATURE
+    same = settings.get_setting(con, FOLLOWUP_SIG_SAME_SETTING) == "1"
+    return json_response({"kind": "followup-signature", "content": content, "same": same})
+
+
+@router.put("/api/followup-signature")
+def put_followup_signature(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    body = decode_json(raw)
+    content = _s(body, "content")
+    same = bool(body.get("same"))
+    outreach_template.put_followup_signature(con, content)
+    settings.set_setting(con, FOLLOWUP_SIG_SAME_SETTING, "1" if same else "")
+    return json_response({"kind": "followup-signature", "content": content, "same": same})
 
 
 # --- pipeline prompts: /api/outreach-prompts[/{stage}] -----------------------

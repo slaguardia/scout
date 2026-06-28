@@ -29,6 +29,7 @@ from .prompts import (
 )
 from .stages import Stage, stage_by_key, stages
 from .template import (
+    DEFAULT_FOLLOWUP_SIGNATURE,
     DEFAULT_FOLLOWUP_TEMPLATE,
     DEFAULT_SIGNATURE,
     DEFAULT_SUBJECT,
@@ -63,6 +64,7 @@ __all__ = [
     "template_or_default",
     "DEFAULT_TEMPLATE",
     "DEFAULT_FOLLOWUP_TEMPLATE",
+    "DEFAULT_FOLLOWUP_SIGNATURE",
     "DEFAULT_SUBJECT",
     "DEFAULT_SIGNATURE",
     "render_subject",
