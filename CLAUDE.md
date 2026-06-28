@@ -108,7 +108,10 @@ canonical port defeats that safety net — don't.
   copies the filled template to the clipboard and pre-fills the log. Endpoints:
   `GET/POST /api/companies/{id}/contacts`, `PUT/DELETE /api/contacts/{id}`,
   `GET/POST /api/postings/{id}/outreach-log`, `PUT/DELETE /api/outreach-log/{id}`,
-  `GET/PUT /api/followup-template`. "Hide rejected" is on by default.
+  `GET/PUT /api/followup-template`. The jobs filters default to **every**
+  application stage and reply status selected (rejected included); the "★ Next
+  up" filter is a standalone button beside the "N follow-ups due" button (below
+  Filters), not a dropdown item.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
