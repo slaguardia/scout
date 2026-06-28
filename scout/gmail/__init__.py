@@ -2,7 +2,7 @@
 
 scout-local and single-user. The Python backend owns the OAuth code-exchange/
 refresh and the Gmail REST calls (no SDK, httpx + stdlib); the brain is not
-involved. See plans/gmail-integration.md.
+involved.
 """
 from __future__ import annotations
 

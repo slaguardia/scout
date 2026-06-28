@@ -243,24 +243,36 @@
 
   /* Collapsible nav labels: hidden by default, revealed when the control is the
      active view — shared by the top view tabs (.tab/.active) and the footer
-     buttons (.foot-btn/.is-active). Only one width drives the reveal (the label's
-     max-width; no flex-grow reflow), and each label's expanded cap is set snugly
-     to its text below — so the reveal animates across the whole duration instead
-     of snapping open against an oversized cap. That is what keeps it smooth. */
+     buttons (.foot-btn/.is-active). The reveal animates the label's real WIDTH
+     0 -> content (overflow:hidden gives a 0 min so it can fully collapse), so the
+     tab grows in lockstep with one true, full-duration interpolation — no
+     max-width dead-tail that snaps open early, which is what felt rough. */
   .tab .tab-label,
   .foot-btn .ft-label {
-    max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
-    transition: max-width var(--dur-base) var(--ease),
+    width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
+    transition: width var(--dur-base) var(--ease),
                 opacity var(--dur-base) var(--ease),
                 margin-left var(--dur-base) var(--ease);
   }
   .tab.active .tab-label,
   .foot-btn.is-active .ft-label { opacity: 1; margin-left: 7px; }
-  #tab-companies.active .tab-label { max-width: 72px; }
-  #tab-jobs.active .tab-label { max-width: 36px; }
-  #tab-inbox.active .tab-label { max-width: 42px; }
-  #open-settings.is-active .ft-label { max-width: 60px; }
-  #open-docs.is-active .ft-label { max-width: 88px; }
+  /* Chromium (incl. Brave): interpolate-size lets width animate straight to the
+     text's own size — exact fit, zero hand-tuned caps, the cleanest path. */
+  @supports (interpolate-size: allow-keywords) {
+    .view-switch, .sidebar-foot { interpolate-size: allow-keywords; }
+    .tab.active .tab-label,
+    .foot-btn.is-active .ft-label { width: auto; }
+  }
+  /* Engines without interpolate-size yet (Safari/Firefox): same smooth
+     transition:width, but the target must be a px value per label. Slightly
+     generous so a label never clips; transition:width is smooth everywhere. */
+  @supports not (interpolate-size: allow-keywords) {
+    #tab-companies.active .tab-label { width: 66px; }
+    #tab-jobs.active .tab-label { width: 32px; }
+    #tab-inbox.active .tab-label { width: 38px; }
+    #open-settings.is-active .ft-label { width: 56px; }
+    #open-docs.is-active .ft-label { width: 82px; }
+  }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background-color: var(--link-bg); color: var(--link); }
