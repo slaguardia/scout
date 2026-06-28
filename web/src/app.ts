@@ -1496,16 +1496,16 @@ function roleEditHTML(j) {
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${escapeHTML(j.description || "")}</textarea></div>
     </div>
     <div class="role-meta">
-      ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
-      <span class="role-company-wrap">
-        <span class="role-company-row">
-          <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                  title="open the company panel">${escapeHTML(j.company)} ↗</button>
-          ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">verdict</span> <span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
-        </span>
+      <div class="role-company-row">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
+      </div>
+      <div class="role-submeta">
+        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span><span class="role-submeta-dot" aria-hidden="true">·</span>` : ""}
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
                 title="move this job to a different company">change</button>
-      </span>
+      </div>
     </div>`;
 }
 

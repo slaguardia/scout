@@ -988,16 +988,16 @@ Return the JSON verdict now.</pre>
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${l(e.description||"")}</textarea></div>
     </div>
     <div class="role-meta">
-      ${e.posted_at?`<span>posted ${l(e.posted_at)}</span>`:""}
-      <span class="role-company-wrap">
-        <span class="role-company-row">
-          <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                  title="open the company panel">${l(e.company)} ↗</button>
-          ${e.verdict?`<span class="role-verdict"><span class="role-verdict-label">verdict</span> <span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span></span>`:""}
-        </span>
+      <div class="role-company-row">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${l(e.company)} ↗</button>
+        ${e.verdict?`<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span></span>`:""}
+      </div>
+      <div class="role-submeta">
+        ${e.posted_at?`<span>posted ${l(e.posted_at)}</span><span class="role-submeta-dot" aria-hidden="true">·</span>`:""}
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
                 title="move this job to a different company">change</button>
-      </span>
+      </div>
     </div>`}function Ts(){const e=document.querySelector("#pursuit-body .pl-appstatus");e&&e.addEventListener("change",s=>hn({application_status:s.target.value}));const t=document.querySelector("#pursuit-body .pl-ostatus");t&&t.addEventListener("change",s=>hn({outreach_status:s.target.value}));const n=document.querySelector("#pursuit-body .pt-nextup");n&&n.addEventListener("click",()=>pn(h.row,!0))}async function pn(e,t){let n;try{n=await fetch(`/api/postings/${e.posting_id}/next-up`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({next_up:!e.next_up})})}catch(a){r(`save failed: ${a.message}`);return}if(!n.ok){const a=(await n.text().catch(()=>"")).trim();r(`save failed: ${a||"HTTP "+n.status}`);return}const s=await n.json();e.next_up=s.next_up,j(),he(e.posting_id,{next_up:s.next_up}),t&&X(),r(e.next_up?"queued next up":"removed from the queue")}async function mn(e,t){const n={application_status:e.application_status||"",outreach_status:e.outreach_status||"",notes:e.notes||"",...t};let s;try{s=await fetch(`/api/postings/${e.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)})}catch(o){return r(`save failed: ${o.message}`),null}if(!s.ok){const o=(await s.text().catch(()=>"")).trim();return r(`save failed: ${o||"HTTP "+s.status}`),null}const a=await s.json();return Object.assign(e,{application_status:a.application_status,application_status_at:a.application_status_at,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,outreach_status:a.outreach_status,contacts:a.contacts,notes:a.notes,next_up:a.next_up}),he(e.posting_id,{application_status:a.application_status,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,next_up:a.next_up}),a}async function Ls(e){const t=h.row,n={application_status:t.application_status||"",outreach_status:t.outreach_status||"",notes:e},s=await fetch(`/api/postings/${t.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)});if(!s.ok)throw new Error((await s.text().catch(()=>"")).trim()||"HTTP "+s.status);const a=await s.json();t.notes=a.notes,j()}async function hn(e){await mn(h.row,e)&&(j(),X(),r("tracking saved"))}async function fn(e,t){await mn(e,t)&&(j(),h.postingId===e.posting_id&&(h.row=e,X()),r("tracking saved"))}function de(){const e=document.getElementById("outreach-section");if(!e)return;const t=h.drafts,n=t[0]||null,s=t.slice(1),o=n&&(Os(n.status)||n.status==="failed")?"":`<button class="btn btn-primary" id="draft-start-btn">${n?"Draft again":"Draft outreach"}</button><label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`,i=s.length?`
     <details class="draft-history" ${h.openHist?"open":""}>
       <summary>${s.length} earlier draft${s.length>1?"s":""}</summary>
