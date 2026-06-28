@@ -33,6 +33,19 @@ _DEFAULT_MAX_ITERS = 8  # tool round-trips before we stop (runaway guard)
 _DEFAULT_MAX_CONTINUATIONS = 6  # pause_turn resumes of the hosted web_search loop
 _DEFAULT_MAX_TOKENS = 8192  # per assistant turn
 
+# Human-readable verbs for the live activity feed (on_event), so the UI can show
+# "· saving notes…" while a tool runs. Unmapped tools fall back to "using <name>".
+_TOOL_VERB = {
+    "capture_link": "capturing the link",
+    "track_application": "updating the application",
+    "search": "searching scout",
+    "get_company": "reading the company",
+    "get_posting": "reading the posting",
+    "set_notes": "saving notes",
+    "set_verdict": "setting the verdict",
+    "update_company": "updating the company",
+}
+
 
 class Engine:
     """Runs chat turns against the store. Construct with new(); it builds the tool
@@ -60,20 +73,28 @@ class Engine:
         if self.log is not None:
             self.log(fmt % args if args else fmt)
 
-    def run(self, thread_id: str, system: str, on_text: Callable[[str], None] | None) -> None:
+    def run(
+        self,
+        thread_id: str,
+        system: str,
+        on_text: Callable[[str], None] | None,
+        on_event: Callable[[str], None] | None = None,
+    ) -> None:
         """Execute one assistant turn over the thread's stored history plus the
         per-request system prompt (built by the caller — see system_prompt),
         streaming text deltas to on_text (None-safe) and persisting every assistant
-        turn and tool_result turn it produces. The kicking user message must already
-        be appended to the thread. Returns when the model reaches end_turn (or
-        another terminal stop), or when the iteration cap is hit."""
+        turn and tool_result turn it produces. on_event (None-safe) receives a
+        short human-readable line each time a tool runs or a web search starts, for
+        a live activity feed. The kicking user message must already be appended to
+        the thread. Returns when the model reaches end_turn (or another terminal
+        stop), or when the iteration cap is hit."""
         stored = chat_store.thread_messages(self.con, thread_id)
         # m.content is the raw content-block JSON array; parse it so the wire encoder
         # serializes it back as an array rather than re-encoding it as a string.
         msgs = [Message(role=m.role, content=json.loads(m.content)) for m in stored]
 
         for _ in range(self._max_iters()):
-            content, stop = self._stream_turn(system, msgs, on_text)
+            content, stop = self._stream_turn(system, msgs, on_text, on_event)
             # Persist + append the assistant turn (merged across any pause_turn
             # resumes) so it replays verbatim on the next turn.
             chat_store.append_message(self.con, thread_id, "assistant", json.dumps(content), "")
@@ -82,7 +103,7 @@ class Engine:
             if stop != "tool_use":
                 return  # end_turn / max_tokens / stop_sequence / refusal — done
 
-            results = self._run_tools(content)
+            results = self._run_tools(content, on_event)
             if len(results) == 0:
                 # tool_use stop with no custom tool calls would deadlock the loop (a
                 # re-send with no tool_result 400s). Bail cleanly.
@@ -93,7 +114,7 @@ class Engine:
             msgs.append(Message(role="user", content=results))
         self._logf("chat: hit iteration cap (%d) — ending turn", self._max_iters())
 
-    def _stream_turn(self, system: str, msgs: list[Message], on_text):
+    def _stream_turn(self, system: str, msgs: list[Message], on_text, on_event=None):
         """Stream one complete assistant turn, resuming the hosted web_search server
         tool's pause_turn internally so the result is a single merged content array.
         Returns (merged content-block list, final stop_reason)."""
@@ -116,6 +137,16 @@ class Engine:
             )
             for b in resp.content:
                 blocks.append(b.raw)
+                # Surface each hosted web_search call as live activity. The API runs
+                # the search server-side; we only see the server_tool_use block.
+                if (
+                    on_event is not None
+                    and isinstance(b.raw, dict)
+                    and b.raw.get("type") == "server_tool_use"
+                    and b.raw.get("name") == "web_search"
+                ):
+                    q = (b.raw.get("input") or {}).get("query") or ""
+                    on_event("searching the web" + (f": {q}" if q else ""))
             if resp.stop_reason != "pause_turn":
                 return blocks, resp.stop_reason
             if cont >= _DEFAULT_MAX_CONTINUATIONS:
@@ -128,7 +159,7 @@ class Engine:
             turn = turn + [Message(role="assistant", content=resp.raw_content())]
             cont += 1
 
-    def _run_tools(self, content: list) -> list[dict]:
+    def _run_tools(self, content: list, on_event=None) -> list[dict]:
         """Execute every custom tool_use block in the assistant content and return
         the matching tool_result blocks (one per tool_use). Server-tool blocks
         (server_tool_use / web_search_tool_result) are the API's to resolve and are
@@ -143,6 +174,8 @@ class Engine:
             if impl is None:
                 results.append(tool_result(tool_use_id, f'unknown tool "{name}"', True))
                 continue
+            if on_event is not None:
+                on_event(_TOOL_VERB.get(name, f"using {name}"))
             self._logf("chat: tool %s", name)
             try:
                 out = impl(b.get("input") or {})
@@ -154,6 +187,6 @@ class Engine:
 
 
 def new(con: sqlite3.Connection, client: Client) -> Engine:
-    """Build an engine with the eight-tool registry wired to con + client. The
+    """Build an engine with the nine-tool registry wired to con + client. The
     client must carry an API key for the chat (and the LLM capture path) to work."""
     return Engine(con, client)

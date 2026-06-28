@@ -36,27 +36,39 @@ router = APIRouter()
 
 
 class ChatTurn:
-    """One streaming turn's broadcast state: the accumulated text backlog plus live
-    subscriber queues, closed (None sentinel) when the turn finishes."""
+    """One streaming turn's broadcast state: the accumulated event backlog plus live
+    subscriber queues, closed (None sentinel) when the turn finishes. Each backlog
+    item is a (kind, data) pair — "delta" for streamed text, "activity" for a live
+    tool/web-search status line."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._backlog: list[str] = []
+        self._backlog: list[tuple[str, str]] = []
         self._subs: list[queue.Queue] = []
         self._done = False
         self._status = ""  # "done" | "error: ..."
 
-    def emit(self, s: str) -> None:
-        if s == "":
-            return
+    def _broadcast(self, item: tuple[str, str]) -> None:
         with self._lock:
-            self._backlog.append(s)
+            self._backlog.append(item)
             subs = list(self._subs)
         for ch in subs:
             try:
-                ch.put_nowait(s)
+                ch.put_nowait(item)
             except queue.Full:  # a slow subscriber must not stall the engine
                 pass
+
+    def emit(self, s: str) -> None:
+        """Stream a text fragment (SSE `delta`)."""
+        if s == "":
+            return
+        self._broadcast(("delta", s))
+
+    def emit_activity(self, s: str) -> None:
+        """Stream a live tool/web-search status line (SSE `activity`)."""
+        if s == "":
+            return
+        self._broadcast(("activity", s))
 
     def finish(self, status: str) -> None:
         with self._lock:
@@ -199,7 +211,7 @@ def chat_message(
         try:
             engine = chat_pkg.Engine(con=worker_con, client=client)
             engine.model = model
-            engine.run(thread_id, system, turn.emit)
+            engine.run(thread_id, system, turn.emit, turn.emit_activity)
             turn.finish("done")
         except Exception as e:  # noqa: BLE001
             turn.finish("error: " + str(e))
@@ -224,8 +236,9 @@ def _chat_sse(event: str, data: str) -> bytes:
 
 @router.get("/api/chat/{thread_id}/stream")
 def chat_stream(thread_id: str, request: Request) -> Response:
-    """Stream the active turn's text deltas as SSE: a `delta` event per fragment,
-    then a final `end` event carrying the status. No turn running -> `end: idle`."""
+    """Stream the active turn as SSE: a `delta` event per text fragment, an
+    `activity` event per tool/web-search status line, then a final `end` event
+    carrying the status. No turn running -> `end: idle`."""
     turn = _hub(request).get(thread_id)
 
     def gen():
@@ -233,8 +246,8 @@ def chat_stream(thread_id: str, request: Request) -> Response:
             yield _chat_sse("end", "idle")
             return
         backlog, ch, done, status = turn.subscribe()
-        for line in backlog:
-            yield _chat_sse("delta", line)
+        for kind, data in backlog:
+            yield _chat_sse(kind, data)
         if done:
             yield _chat_sse("end", status or "done")
             return
@@ -243,7 +256,8 @@ def chat_stream(thread_id: str, request: Request) -> Response:
             if item is None:
                 yield _chat_sse("end", turn.status_safe())
                 return
-            yield _chat_sse("delta", item)
+            kind, data = item
+            yield _chat_sse(kind, data)
 
     return StreamingResponse(
         gen(),
