@@ -123,7 +123,7 @@
   .sidebar-chat { width: 100%; justify-content: center; margin-bottom: 14px; }
   .sidebar-foot {
     padding-top: 16px; border-top: 1px solid var(--line);
-    display: flex; gap: 8px; justify-content: center;
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
   }
   .foot-btn { flex: none; justify-content: center; }
   .foot-btn svg { width: 14px; height: 14px; flex: none; }
@@ -1028,12 +1028,16 @@
   .draft-gmail-row .draft-gmail-to { flex: 1 1 180px; min-width: 140px; max-width: 320px; }
   .draft-gmail-row .draft-gmail-btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font-size: 12.5px; }
   .draft-gmail-row .draft-gmail-btn svg { width: 13px; height: 13px; flex: none; opacity: 0.9; }
-  /* notifications / inbox (M55): the sidebar bell badge + the panel items. */
+  /* notifications / inbox (M55): the sidebar bell badge + the panel items. The
+     unread count sits as a bubble on the button's top-right corner so it never
+     widens the button (which would push the footer row past the sidebar edge). */
   .foot-btn { position: relative; }
   .notif-badge {
-    margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
-    background: var(--accent, #d94c4c); color: #fff; font-size: 11px; font-weight: 600;
+    position: absolute; top: -6px; right: -6px;
+    min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+    background: var(--accent, #d94c4c); color: #fff; font-size: 10px; font-weight: 600;
     display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+    pointer-events: none; box-shadow: 0 0 0 2px var(--bg-2);
   }
   .notif-item {
     display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
@@ -1961,6 +1965,20 @@
     color: var(--fg-dim); margin: 0 0 9px;
   }
 
+  /* full-page Settings view (like companies/jobs) — a readable centered column. */
+  .settings-page { padding: 26px 30px 70px; max-width: 780px; margin: 0 auto; }
+  .settings-page-head { margin-bottom: 22px; }
+  .settings-page-head h2 { margin: 0; font-size: 19px; font-weight: 650; color: var(--fg); }
+  .settings-page-sub { margin-top: 4px; font-size: 12.5px; color: var(--fg-mute); }
+  /* the sidebar Settings button, lit while the Settings view is active. */
+  .foot-btn.is-active { color: var(--fg); border-color: var(--link); background: var(--panel-2); }
+  /* Gmail integration card actions (set up / connect / disconnect). */
+  .gmail-acts { display: flex; gap: 6px; align-items: center; flex: none; }
+  .gmail-acts .btn { padding: 5px 12px; font-size: 12.5px; }
+  /* modal field labels (Gmail OAuth client config). */
+  .field-label { display: block; font-size: 12px; font-weight: 600; color: var(--fg-mute); margin: 13px 0 5px; }
+  .field-label:first-of-type { margin-top: 0; }
+
   /* settings modal chrome: icon + subtitle in the head, narrower body width */
   .modal-settings { width: 560px; }
   .modal-head-icon {
@@ -2015,7 +2033,7 @@
     color: var(--fg-mute); background: var(--panel-2); border-color: var(--line);
   }
 
-  #settings-scrim .crit-row { padding: 5px 0; font-size: 14px; }
+  #settings-view .crit-row { padding: 5px 0; font-size: 14px; }
   .crit-row {
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; padding: 3px 0; font-size: 13px;

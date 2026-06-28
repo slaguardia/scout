@@ -197,6 +197,15 @@ export const SCOUT_MARKUP = `
     <div class="hidden-note" id="jobs-hidden-note" style="display:none"></div>
   </div>
 
+  <!-- settings: a full-page view (like companies/jobs), reached from the sidebar -->
+  <div class="settings-page" id="settings-view" style="display:none">
+    <div class="settings-page-head">
+      <h2>Settings</h2>
+      <div class="settings-page-sub">What scout uses to judge companies and write your outreach.</div>
+    </div>
+    <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+  </div>
+
 </main>
 </div>
 
@@ -413,22 +422,29 @@ export const SCOUT_MARKUP = `
 </div>
 
 <!-- settings: criteria, playbook, email template -->
-<div class="modal-scrim" id="settings-scrim">
-  <div class="modal modal-settings">
+<!-- Gmail OAuth client config: paste the Google Cloud client id/secret so the
+     Connect flow works without a server env var (M55). -->
+<div class="modal-scrim" id="gmail-config-scrim">
+  <div class="modal" style="width:540px">
     <div class="modal-head">
-      <div class="modal-head-icon">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3 3.2 3.2"/></svg>
-      </div>
-      <div class="modal-head-text">
-        <h2>Settings</h2>
-        <div class="modal-head-sub">What scout uses to judge companies and write your outreach.</div>
-      </div>
+      <h2>Gmail — Google OAuth client</h2>
     </div>
     <div class="modal-body">
-      <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
+      <div class="modal-note">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
+        <span>In Google Cloud, create an <strong>OAuth client (Web)</strong> with redirect <code>&lt;this app&gt;/api/gmail/callback</code> and the <code>gmail.send</code> + <code>gmail.readonly</code> scopes, then paste its id + secret here. See <code>docs/operations.md</code>.</span>
+      </div>
+      <label class="field-label" for="gmail-client-id">Client ID</label>
+      <input id="gmail-client-id" class="key-input" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+      <label class="field-label" for="gmail-client-secret">Client secret</label>
+      <input id="gmail-client-secret" class="key-input" type="password" placeholder="(leave blank to keep the current secret)" autocomplete="off" spellcheck="false">
+      <label class="field-label" for="gmail-redirect">Redirect URI <span class="dim">(optional — derived from this host if blank)</span></label>
+      <input id="gmail-redirect" class="key-input" placeholder="https://…/api/gmail/callback" autocomplete="off" spellcheck="false">
     </div>
     <div class="modal-foot">
-      <button class="btn" id="settings-close">Close</button>
+      <button class="btn" id="gmail-config-remove" style="display:none">Remove</button>
+      <button class="btn" id="gmail-config-cancel">Cancel</button>
+      <button class="btn btn-primary" id="gmail-config-save">Save</button>
     </div>
   </div>
 </div>

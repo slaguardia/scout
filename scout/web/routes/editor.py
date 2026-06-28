@@ -83,19 +83,6 @@ def put_followup_template(raw: bytes = Depends(raw_body), con=Depends(get_db)) -
     return json_response({"kind": "followup-template", "content": content})
 
 
-@router.get("/api/followup-subject")
-def get_followup_subject(con=Depends(get_db)) -> Response:
-    content = outreach_template.get_followup_subject_template(con) or outreach_pkg.DEFAULT_FOLLOWUP_SUBJECT
-    return json_response({"kind": "followup-subject", "content": content})
-
-
-@router.put("/api/followup-subject")
-def put_followup_subject(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
-    content = _s(decode_json(raw), "content")
-    outreach_template.put_followup_subject_template(con, content)
-    return json_response({"kind": "followup-subject", "content": content})
-
-
 # --- pipeline prompts: /api/outreach-prompts[/{stage}] -----------------------
 
 

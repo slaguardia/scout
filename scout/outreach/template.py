@@ -56,7 +56,6 @@ Your Name
 # body still carries its own sign-off until the slice-6 restructure moves it here).
 DEFAULT_SUBJECT = "Reaching out about the {{role}} role"
 DEFAULT_SIGNATURE = ""
-DEFAULT_FOLLOWUP_SUBJECT = "Following up — {{role}} at {{company}}"
 
 
 def subject_or_default(con: sqlite3.Connection | None) -> str:
@@ -79,17 +78,6 @@ def signature_or_default(con: sqlite3.Connection | None) -> str:
         except Exception:  # noqa: BLE001
             pass
     return DEFAULT_SIGNATURE
-
-
-def followup_subject_or_default(con: sqlite3.Connection | None) -> str:
-    if con is not None:
-        try:
-            c = outreach_template.get_followup_subject_template(con)
-            if c.strip() != "":
-                return c
-        except Exception:  # noqa: BLE001
-            pass
-    return DEFAULT_FOLLOWUP_SUBJECT
 
 
 def render_subject(con: sqlite3.Connection | None, role: str, company: str) -> str:

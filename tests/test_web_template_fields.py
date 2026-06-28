@@ -25,13 +25,6 @@ def test_signature_default_empty_and_roundtrip(tmp_path, monkeypatch):
     assert client.get("/api/outreach-signature").json()["content"] == "Best,\nSteven"
 
 
-def test_followup_subject_roundtrip(tmp_path, monkeypatch):
-    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
-    assert client.get("/api/followup-subject").json()["content"] == "Following up — {{role}} at {{company}}"
-    _put(client, "/api/followup-subject", "Following up on {{role}}")
-    assert client.get("/api/followup-subject").json()["content"] == "Following up on {{role}}"
-
-
 def test_render_subject_substitutes(db):
     from scout.outreach import template
 

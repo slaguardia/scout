@@ -59,6 +59,43 @@ def oauth_redirect_uri(con: sqlite3.Connection) -> str:
     return _db_or_env(con, GMAIL_REDIRECT_URI_SETTING, GMAIL_REDIRECT_URI_ENV)
 
 
+def set_oauth_config(
+    con: sqlite3.Connection, client_id: str, client_secret: str = "", redirect_uri: str = ""
+) -> None:
+    """Store the Google OAuth client config entered from the dashboard (DB-over-env).
+    The secret is write-only: a blank secret leaves any existing one intact, so the
+    id or redirect can be edited without re-pasting the secret. A blank redirect
+    clears the override (the connect route then derives it from the request host)."""
+    cid = client_id.strip()
+    if cid:
+        settings.set_setting(con, GMAIL_CLIENT_ID_SETTING, cid)
+    sec = client_secret.strip()
+    if sec:
+        settings.set_setting(con, GMAIL_CLIENT_SECRET_SETTING, sec)
+    redir = redirect_uri.strip()
+    if redir:
+        settings.set_setting(con, GMAIL_REDIRECT_URI_SETTING, redir)
+    else:
+        settings.delete_setting(con, GMAIL_REDIRECT_URI_SETTING)
+
+
+def clear_oauth_config(con: sqlite3.Connection) -> None:
+    """Remove the dashboard-stored OAuth client config (falls back to env)."""
+    settings.delete_setting(con, GMAIL_CLIENT_ID_SETTING)
+    settings.delete_setting(con, GMAIL_CLIENT_SECRET_SETTING)
+    settings.delete_setting(con, GMAIL_REDIRECT_URI_SETTING)
+
+
+def oauth_config_source(con: sqlite3.Connection) -> str:
+    """Where the OAuth client id+secret come from: "db", "env", or "" (unset).
+    Drives the dashboard's "set here / from the environment" hint."""
+    if settings.get_setting(con, GMAIL_CLIENT_ID_SETTING) and settings.get_setting(con, GMAIL_CLIENT_SECRET_SETTING):
+        return "db"
+    if os.environ.get(GMAIL_CLIENT_ID_ENV) and os.environ.get(GMAIL_CLIENT_SECRET_ENV):
+        return "env"
+    return ""
+
+
 # --- stored credentials / cursor / toggle ------------------------------------
 
 

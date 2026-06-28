@@ -21,13 +21,47 @@ def test_status_unconfigured(tmp_path, monkeypatch):
     client, _cid, _db = new_test_app(tmp_path, monkeypatch)
     r = client.get("/api/gmail/status")
     assert r.status_code == 200
-    assert r.json() == {"connected": False, "email": "", "configured": False, "autoflip": False}
+    assert r.json() == {
+        "connected": False, "email": "", "configured": False, "autoflip": False,
+        "client_id": "", "redirect_uri": "", "config_source": "",
+    }
 
 
 def test_connect_requires_oauth_config(tmp_path, monkeypatch):
     _clear_oauth_env(monkeypatch)
     client, _cid, _db = new_test_app(tmp_path, monkeypatch)
     assert client.get("/api/gmail/connect").status_code == 412
+
+
+def test_config_from_dashboard_lights_up_connect(tmp_path, monkeypatch):
+    _clear_oauth_env(monkeypatch)
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    # Unconfigured → connect 412.
+    assert client.get("/api/gmail/connect").status_code == 412
+
+    # Store creds from the dashboard → configured, connect works, secret never echoed.
+    r = client.put("/api/gmail/config", json={"client_id": "abc.apps.googleusercontent.com", "client_secret": "shh"})
+    assert r.status_code == 200 and r.json()["configured"] is True
+    st = client.get("/api/gmail/status").json()
+    assert st["configured"] is True and st["client_id"] == "abc.apps.googleusercontent.com"
+    assert st["config_source"] == "db" and "client_secret" not in st
+    assert client.get("/api/gmail/connect").status_code == 200
+
+    # The secret is write-only: editing the id with a blank secret keeps connect working.
+    assert client.put("/api/gmail/config", json={"client_id": "def.apps.googleusercontent.com"}).status_code == 200
+    con = open_db(db_path)
+    assert gmail_store.oauth_client_secret(con) == "shh"
+    con.close()
+
+    # Clearing reverts to env (none here) → 412.
+    assert client.delete("/api/gmail/config").status_code == 200
+    assert client.get("/api/gmail/connect").status_code == 412
+
+
+def test_config_requires_client_id(tmp_path, monkeypatch):
+    _clear_oauth_env(monkeypatch)
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    assert client.put("/api/gmail/config", json={"client_secret": "shh"}).status_code == 400
 
 
 def test_connect_builds_url_and_persists_state(tmp_path, monkeypatch):

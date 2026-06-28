@@ -141,11 +141,22 @@ function setView(v, { render = true } = {}) {
   document.getElementById("tab-jobs").classList.toggle("active", v === "jobs");
   document.getElementById("companies-view").style.display = v === "companies" ? "" : "none";
   document.getElementById("jobs-view").style.display = v === "jobs" ? "" : "none";
-  // Each view owns its own Filter block — state stays put across switches.
+  // Settings is a full-page view (like companies/jobs), not a modal.
+  const sv = document.getElementById("settings-view");
+  if (sv) sv.style.display = v === "settings" ? "" : "none";
+  const sbtn = document.getElementById("open-settings");
+  if (sbtn) sbtn.classList.toggle("is-active", v === "settings");
+  // Each data view owns its Filter block; Columns is table-only — both hide in settings.
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
   document.getElementById("block-filter-jobs").style.display = v === "jobs" ? "" : "none";
+  const bcols = document.getElementById("block-columns");
+  if (bcols) bcols.style.display = v === "settings" ? "none" : "";
   renderColumnsMenu(); // the Columns dropdown follows the active view
-  if (render) { if (v === "jobs") renderJobs(); else renderList(); }
+  if (render) {
+    if (v === "jobs") renderJobs();
+    else if (v === "settings") renderCriteria();
+    else renderList();
+  }
 }
 
 async function loadStats() {
@@ -3594,7 +3605,6 @@ function editorLabel(kind) {
   if (kind === "outreach-subject") return "email subject";
   if (kind === "outreach-signature") return "email signature";
   if (kind === "followup-template") return "follow-up template";
-  if (kind === "followup-subject") return "follow-up subject";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
   if (kind === "outreach-statuses") return "outreach statuses";
@@ -4014,7 +4024,7 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
   if (document.getElementById("prefilter-scrim").classList.contains("open")) { closePrefilter(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
-  if (document.getElementById("settings-scrim").classList.contains("open")) { closeSettings(); return; }
+  if (document.getElementById("gmail-config-scrim").classList.contains("open")) { closeGmailConfig(); return; }
 });
 
 // run controls — Enrich / Verdict open a confirmation modal that carries the
@@ -4391,12 +4401,6 @@ function renderCriteria() {
     desc: "Copy-paste follow-up — variables {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.",
     act: "edit-followup-template", actIcon: PENCIL, actTitle: "edit the follow-up template", actLabel: "edit follow-up template",
   });
-  const followupSubjectCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-followup-subject" title="edit the follow-up subject">follow-up subject</span>',
-    desc: "The follow-up subject — {{role}} / {{company}} substitution.",
-    act: "edit-followup-subject", actIcon: PENCIL, actTitle: "edit the follow-up subject", actLabel: "edit follow-up subject",
-  });
   // Follow-up reminder interval — a global setting (PUT /api/followup-interval),
   // edited here rather than per-contact. The number input sits in the action slot.
   const intervalCard = `<div class="settings-item">
@@ -4448,19 +4452,29 @@ function renderCriteria() {
   // Gmail link (M55): send outreach from the user's Gmail + auto-sync replies and
   // application status. Connect/disconnect rides the OAuth flow on the backend.
   const gm = state.gmail || {};
-  let gdot = "off", gnote = "not connected", gact = "gmail-connect", gactLabel = "connect Gmail", gactTitle = "connect a Gmail account to send + sync";
-  if (!gm.configured) { gnote = "OAuth client not set (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)"; }
-  else if (gm.connected) {
-    gdot = "ok"; gnote = `connected as ${gm.email || "(unknown)"}`;
-    gact = "gmail-disconnect"; gactLabel = "disconnect Gmail"; gactTitle = "disconnect this Gmail account";
-  } else { gnote = "configured — not connected"; }
-  const gmailCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: `<span class="edit-link" data-act="${gact}" title="${gactTitle}">Gmail</span>`,
-    dot: gdot, note: gnote,
-    desc: "Send outreach from your Gmail and auto-sync replies + application status.",
-    act: gact, actIcon: PENCIL, actTitle: gactTitle, actLabel: gactLabel,
-  });
+  const gConfigured = !!gm.configured, gConnected = !!gm.connected, gSrc = gm.config_source || "";
+  const gdot = gConnected ? "ok" : "off";
+  let gnote;
+  if (!gConfigured) gnote = "not set up — add your Google OAuth client to connect";
+  else if (gConnected) gnote = `connected as ${gm.email || "(unknown)"}`;
+  else gnote = gSrc === "env" ? "configured (env) — not connected" : "configured — not connected";
+  let gbtns;
+  if (!gConfigured) {
+    gbtns = `<button class="btn btn-primary" data-act="gmail-config">Set up</button>`;
+  } else if (gConnected) {
+    gbtns = `<button class="btn" data-act="gmail-config" title="edit the OAuth client">Credentials</button><button class="btn" data-act="gmail-disconnect">Disconnect</button>`;
+  } else {
+    gbtns = `<button class="btn" data-act="gmail-config" title="edit the OAuth client">Credentials</button><button class="btn btn-primary" data-act="gmail-connect">Connect</button>`;
+  }
+  const gmailCard = `<div class="settings-item">
+    <span class="settings-item-icon">${ICON_EMAIL}</span>
+    <div class="settings-item-main">
+      <div class="settings-item-name">Gmail</div>
+      <div class="settings-item-desc">Send outreach from your Gmail and auto-sync replies + application status.</div>
+      <div class="crit-status"><span class="pf-dot ${gdot}"></span><span class="crit-note-t">${escapeHTML(gnote)}</span></div>
+    </div>
+    <div class="gmail-acts">${gbtns}</div>
+  </div>`;
   // Auto-update application status: when on, scout sets a posting's stage from
   // incoming ATS/company mail; off (default) it suggests it in the Inbox.
   const autoflipOn = !!(state.gmail && state.gmail.autoflip);
@@ -4504,7 +4518,7 @@ function renderCriteria() {
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach</div>
-       ${subjectCard}${templateCard}${signatureCard}${followupTemplateCard}${followupSubjectCard}${intervalCard}
+       ${subjectCard}${templateCard}${signatureCard}${followupTemplateCard}${intervalCard}
      </div>
      <div class="settings-section">
        <div class="settings-group-h">Outreach pipeline</div>
@@ -4531,8 +4545,8 @@ function renderCriteria() {
     "edit-subject": () => openEditor("outreach-subject"),
     "edit-signature": () => openEditor("outreach-signature"),
     "edit-followup-template": () => openEditor("followup-template"),
-    "edit-followup-subject": () => openEditor("followup-subject"),
     "edit-anthropic-key": openKeyModal,
+    "gmail-config": openGmailConfig,
     "gmail-connect": gmailConnect,
     "gmail-disconnect": gmailDisconnect,
   };
@@ -4610,6 +4624,48 @@ async function gmailDisconnect() {
   catch (e) { toast(`disconnect failed: ${e.message}`); return; }
   if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
   toast("Gmail disconnected");
+  await loadGmailState();
+}
+// Gmail OAuth client config — paste the Google Cloud client id/secret so the
+// Connect flow works without a server env var. The secret is write-only.
+async function openGmailConfig() {
+  await loadGmailState();
+  const gm = state.gmail || {};
+  document.getElementById("gmail-config-scrim").classList.add("open");
+  (document.getElementById("gmail-client-id") as HTMLInputElement).value = gm.client_id || "";
+  (document.getElementById("gmail-client-secret") as HTMLInputElement).value = "";
+  (document.getElementById("gmail-redirect") as HTMLInputElement).value = gm.redirect_uri || "";
+  const rm = document.getElementById("gmail-config-remove");
+  if (rm) rm.style.display = gm.config_source === "db" ? "" : "none";
+  const inp = document.getElementById("gmail-client-id");
+  if (inp) (inp as HTMLInputElement).focus();
+}
+function closeGmailConfig() { document.getElementById("gmail-config-scrim").classList.remove("open"); }
+async function saveGmailConfig() {
+  const client_id = (document.getElementById("gmail-client-id") as HTMLInputElement).value.trim();
+  const client_secret = (document.getElementById("gmail-client-secret") as HTMLInputElement).value;
+  const redirect_uri = (document.getElementById("gmail-redirect") as HTMLInputElement).value.trim();
+  if (!client_id) { toast("client ID is required"); return; }
+  let resp;
+  try {
+    resp = await fetch("/api/gmail/config", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id, client_secret, redirect_uri }),
+    });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  toast("Gmail OAuth client saved — click Connect");
+  closeGmailConfig();
+  await loadGmailState();
+}
+async function removeGmailConfig() {
+  if (!confirm("Remove the stored Google OAuth client? Connecting needs it re-entered (or set via env).")) return;
+  let resp;
+  try { resp = await fetch("/api/gmail/config", { method: "DELETE" }); }
+  catch (e) { toast(`remove failed: ${e.message}`); return; }
+  if (!resp.ok) { toast((await resp.text().catch(() => "")).trim() || `HTTP ${resp.status}`); return; }
+  toast("OAuth client removed");
+  closeGmailConfig();
   await loadGmailState();
 }
 async function openKeyModal() {
@@ -4744,16 +4800,16 @@ document.getElementById("docs-scrim").onclick = e => {
   if (e.target.id === "docs-scrim") closeDocs();
 };
 
-// ---- settings overlay (the moved Criteria panel) ----
-function openSettings() {
-  document.getElementById("settings-scrim").classList.add("open");
-  renderCriteria(); // ensure the rows reflect current state
-}
-function closeSettings() { document.getElementById("settings-scrim").classList.remove("open"); }
+// ---- settings: a full-page view (like companies/jobs), reached from the sidebar ----
+function openSettings() { setView("settings"); }
 document.getElementById("open-settings").onclick = openSettings;
-document.getElementById("settings-close").onclick = closeSettings;
-document.getElementById("settings-scrim").onclick = e => {
-  if (e.target.id === "settings-scrim") closeSettings();
+
+// ---- Gmail OAuth client config modal ----
+document.getElementById("gmail-config-cancel").onclick = closeGmailConfig;
+document.getElementById("gmail-config-save").onclick = saveGmailConfig;
+document.getElementById("gmail-config-remove").onclick = removeGmailConfig;
+document.getElementById("gmail-config-scrim").onclick = e => {
+  if ((e.target as HTMLElement).id === "gmail-config-scrim") closeGmailConfig();
 };
 
 // ---- notifications / inbox (M55) ----

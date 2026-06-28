@@ -58,16 +58,42 @@ def _effective_redirect(request: Request, cfg: oauth.OAuthConfig) -> str:
 
 @router.get("/api/gmail/status")
 def gmail_status(con=Depends(get_db)) -> Response:
-    """Whether a Gmail account is connected, its address, whether the OAuth client
-    is configured at all, and the application-status autoflip preference."""
+    """Connection state + the OAuth client config (never the secret), so the
+    dashboard can show where the creds come from and pre-fill the id/redirect."""
+    cfg = oauth.load_config(con)
     return json_response(
         {
             "connected": gmail_store.is_connected(con),
             "email": gmail_store.address(con),
-            "configured": oauth.load_config(con).configured(),
+            "configured": cfg.configured(),
             "autoflip": gmail_store.autoflip(con),
+            "client_id": cfg.client_id,  # not secret; lets the UI show/pre-fill it
+            "redirect_uri": gmail_store.oauth_redirect_uri(con),
+            "config_source": gmail_store.oauth_config_source(con),  # "db" | "env" | ""
         }
     )
+
+
+@router.put("/api/gmail/config")
+def gmail_set_config(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Store the Google OAuth client config from the dashboard (DB-over-env), so
+    Gmail can be initialized without a server env var or redeploy. The secret is
+    write-only (blank leaves any existing one intact)."""
+    body = decode_json(raw) if raw.strip() else {}
+    client_id = _s(body, "client_id").strip()
+    client_secret = _s(body, "client_secret")
+    redirect_uri = _s(body, "redirect_uri")
+    if not client_id and not gmail_store.oauth_client_id(con):
+        return json_error("client_id is required", 400)
+    gmail_store.set_oauth_config(con, client_id, client_secret, redirect_uri)
+    return json_response({"configured": oauth.load_config(con).configured()})
+
+
+@router.delete("/api/gmail/config")
+def gmail_clear_config(con=Depends(get_db)) -> Response:
+    """Remove the dashboard-stored OAuth client config (falls back to env)."""
+    gmail_store.clear_oauth_config(con)
+    return json_response({"configured": oauth.load_config(con).configured()})
 
 
 @router.get("/api/gmail/connect")
