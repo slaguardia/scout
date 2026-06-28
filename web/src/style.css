@@ -129,10 +129,10 @@
   }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
-  aside.sidebar .block { padding: 18px 0; }
+  aside.sidebar .block { padding: 12px 0; }
   aside.sidebar .block + .block { border-top: 1px solid var(--line); }
   aside.sidebar h3 {
-    margin: 0 0 12px;
+    margin: 0 0 8px;
     font-size: 10.5px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--fg-dim);
