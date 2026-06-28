@@ -35,6 +35,17 @@ def test_bootstrap_records_cursor_and_address(db, monkeypatch):
     assert res["bootstrapped"] is True
     assert gmail_store.cursor(db) == "500"
     assert gmail_store.address(db) == "me@gmail.com"
+    assert gmail_store.last_sync_at(db) != ""  # stamped on bootstrap
+
+
+def test_sync_stamps_last_sync_at(db, monkeypatch):
+    _seed(db)
+    assert gmail_store.last_sync_at(db) == ""  # never synced yet
+    fg = FakeGmail(profile_history_id="200", history=[], messages={})
+    with http_server(fg.handle) as base:
+        oauth_env(monkeypatch, base)
+        sync.sync_once(db)
+    assert gmail_store.last_sync_at(db) != ""  # stamped after an incremental pass
 
 
 def test_inbound_reply_writes_message_notification_and_flips_status(db, monkeypatch):

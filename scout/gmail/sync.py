@@ -8,6 +8,7 @@ tracked company/ATS (application) are stored; the general inbox is never ingeste
 """
 from __future__ import annotations
 
+import datetime
 from collections.abc import Callable
 
 from scout.store import contacts as contacts_store
@@ -26,6 +27,12 @@ _STARTUP_DELAY = 20.0  # let the server finish coming up before the first pass
 
 def _noop(_msg: str) -> None:
     pass
+
+
+def _now_utc() -> str:
+    """UTC wall-clock in the same 'YYYY-MM-DD HH:MM:SS' shape SQLite's
+    CURRENT_TIMESTAMP uses, so it round-trips with the other stored timestamps."""
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def replied_label(labels: list[str]) -> str:
@@ -217,6 +224,7 @@ def sync_once(con, anthropic=None, model: str = "", log: Callable[[str], None] |
                 gmail_store.store_credentials(con, "", our)
             hid = str(prof.get("historyId", "") or "")
             gmail_store.set_cursor(con, hid)
+            gmail_store.set_last_sync_at(con, _now_utc())
             return {"bootstrapped": True, "cursor": hid}
 
         try:
@@ -247,6 +255,7 @@ def sync_once(con, anthropic=None, model: str = "", log: Callable[[str], None] |
 
         if new_cursor:
             gmail_store.set_cursor(con, new_cursor)
+        gmail_store.set_last_sync_at(con, _now_utc())
         return {
             "scanned": len(ids), "replies": replies, "sends": sends,
             "apps": apps, "relisted": relisted, "cursor": new_cursor,

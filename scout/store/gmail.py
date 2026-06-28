@@ -22,6 +22,7 @@ from . import settings
 GMAIL_REFRESH_TOKEN_SETTING = "gmail_refresh_token"
 GMAIL_ADDRESS_SETTING = "gmail_address"
 GMAIL_CURSOR_SETTING = "gmail_sync_cursor"  # the last-seen Gmail historyId
+GMAIL_LAST_SYNC_SETTING = "gmail_last_sync_at"  # ISO timestamp of the last sync pass
 GMAIL_OAUTH_STATE_SETTING = "gmail_oauth_state"  # in-flight CSRF nonce
 GMAIL_AUTOFLIP_SETTING = "application_status_autoflip"  # "1" → auto-apply app status
 
@@ -136,6 +137,15 @@ def cursor(con: sqlite3.Connection) -> str:
 
 def set_cursor(con: sqlite3.Connection, history_id: str) -> None:
     settings.set_setting(con, GMAIL_CURSOR_SETTING, history_id)
+
+
+def last_sync_at(con: sqlite3.Connection) -> str:
+    """ISO timestamp of the last completed sync pass, or "" if never synced."""
+    return settings.get_setting(con, GMAIL_LAST_SYNC_SETTING)
+
+
+def set_last_sync_at(con: sqlite3.Connection, when: str) -> None:
+    settings.set_setting(con, GMAIL_LAST_SYNC_SETTING, when)
 
 
 def set_oauth_state(con: sqlite3.Connection, state: str) -> None:
