@@ -4722,19 +4722,21 @@ function wireFollowupSignature(c) {
   const same = field.querySelector<HTMLInputElement>("#fu-sig-same");
   const ta = field.querySelector<HTMLTextAreaElement>("#fu-sig-body");
   if (!same || !ta) return;
-  const applyDisabled = () => { ta.disabled = same.checked; ta.style.opacity = same.checked ? "0.5" : ""; };
+  // "Same as email signature" hides the follow-up's own box entirely — the
+  // outreach signature is used, so there's nothing to edit here.
+  const applyVisibility = () => { ta.style.display = same.checked ? "none" : ""; };
   fetch("/api/followup-signature").then(r => r.ok ? r.json() : null).then(d => {
     if (!d) return;
     ta.value = d.content || "";
     same.checked = !!d.same;
     ta.dataset.orig = ta.value;
-    applyDisabled();
+    applyVisibility();
   }).catch(() => {});
   const save = async () => {
     const r = await contactApi("PUT", "/api/followup-signature", { content: ta.value, same: same.checked });
     if (r) { state.followupSignature = ta.value; state.followupSigSame = same.checked; flashSaved(field); }
   };
-  same.addEventListener("change", () => { applyDisabled(); save(); });
+  same.addEventListener("change", () => { applyVisibility(); save(); });
   ta.addEventListener("blur", () => { if (ta.value !== ta.dataset.orig) { ta.dataset.orig = ta.value; save(); } });
 }
 
