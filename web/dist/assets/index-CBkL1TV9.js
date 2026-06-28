@@ -1361,10 +1361,17 @@ Return the JSON verdict now.</pre>
         <li><strong>Configure the OAuth consent screen.</strong> Add these scopes:
           <ul class="set-help-scopes">${n.map(s=>`<li><code>${l(s)}</code></li>`).join("")}</ul>
           Then authorize your mailbox — pick one:
-          <ul class="set-choice">
-            <li class="sc-go"><span class="sc-mark">✓</span><span><strong>Publish app</strong><span class="sc-tag">recommended</span> — self-hosting your own mailbox needs no Google verification.</span></li>
-            <li class="sc-alt"><span class="sc-mark">↳</span><span><strong>Add Test users</strong> instead — add your own Google account; no publishing.</span></li>
-          </ul>
+          <div class="set-choice">
+            <div class="sc-opt sc-go">
+              <div class="sc-opt-head"><strong>Publish app</strong><span class="sc-tag">recommended</span></div>
+              <div class="sc-opt-desc">Self-hosting your own mailbox needs no Google verification.</div>
+            </div>
+            <div class="sc-or">or</div>
+            <div class="sc-opt sc-alt">
+              <div class="sc-opt-head"><strong>Add Test users</strong></div>
+              <div class="sc-opt-desc">Add your own Google account as a test user — no publishing.</div>
+            </div>
+          </div>
         </li>
         <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
           <div class="set-copy-row"><code id="gm-cb">${l(t)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
