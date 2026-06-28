@@ -319,6 +319,12 @@ def build_user_prompt(c: VerdictCandidate) -> str:
         parts.append(f"Headcount: {c.headcount}\n")
     if c.stage != "":
         parts.append(f"Funding stage: {c.stage}\n")
+    else:
+        # Make the blank explicit. Omitting the field lets a weak model fill the
+        # void — e.g. inferring "Series B" from a valuation in the website text.
+        parts.append(
+            "Funding stage: unknown (not in the data — do NOT infer a round from a valuation, raise, or headcount)\n"
+        )
     if c.website_summary != "":
         parts.append(f"\nWebsite text (truncated):\n{c.website_summary}\n")
     parts.append("\nReturn the JSON verdict now.")
