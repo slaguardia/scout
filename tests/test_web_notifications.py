@@ -84,6 +84,51 @@ def test_redundant_suggestion_is_hidden_and_uncounted(tmp_path, monkeypatch):
     con.close()
 
 
+def test_duplicate_suggestions_collapse_to_newest(tmp_path, monkeypatch):
+    # A meeting thread surfaces several emails that all classify the same way —
+    # only one suggestion should show (the newest), the rest collapsed.
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    older = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="m1",
+                                      title="Suggested status: interview", suggested_status="interview")
+    )
+    newer = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="m2",
+                                      title="Suggested status: interview", suggested_status="interview")
+    )
+    con.close()
+
+    j = client.get("/api/notifications").json()
+    assert [n["id"] for n in j["notifications"]] == [newer]  # only the newest survives
+    assert j["unread"] == 1
+    con = open_db(db_path)
+    assert gmail_store.get_notification(con, older).seen_at != ""  # collapsed: seen, not actioned
+    assert gmail_store.get_notification(con, older).actioned_at == ""
+    con.close()
+
+
+def test_distinct_status_suggestions_both_show(tmp_path, monkeypatch):
+    # Two pending suggestions for the same posting but DIFFERENT statuses are not
+    # duplicates — both stay (e.g. a thread that escalated interview -> offer).
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="m1",
+                                      title="Suggested status: interview", suggested_status="interview")
+    )
+    gmail_store.add_notification(
+        con, gmail_store.Notification(kind="app_status", posting_id=pid, gmail_message_id="m2",
+                                      title="Suggested status: offer", suggested_status="offer")
+    )
+    con.close()
+
+    statuses = {n["suggested_status"] for n in client.get("/api/notifications").json()["notifications"]}
+    assert statuses == {"interview", "offer"}
+
+
 def test_non_redundant_suggestion_still_shows(tmp_path, monkeypatch):
     # A suggestion that would actually move the posting stays actionable.
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)

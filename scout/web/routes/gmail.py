@@ -336,15 +336,24 @@ def _notification_view(con, n: gmail_store.Notification) -> dict:
     }
 
 
+def _pending_suggestion_key(n: gmail_store.Notification) -> tuple[str, str] | None:
+    """The (posting, status) identity of a still-pending status suggestion, else
+    None. An applied-via-button suggestion is actioned, so it has no key and stays
+    as history."""
+    if n.kind != gmail_store.NOTIF_APP_STATUS or n.actioned_at or not n.suggested_status or not n.posting_id:
+        return None
+    return (n.posting_id, n.suggested_status.strip().casefold())
+
+
 def _suggestion_redundant(con, n: gmail_store.Notification) -> bool:
     """A pending status suggestion the posting already satisfies — noise, not an
     action. Catches the reverse of the sync-time guard: a status marked by hand
-    AFTER the suggestion landed (and any rows created before that guard shipped).
-    An applied-via-button suggestion is actioned, so it stays as history."""
-    if n.kind != gmail_store.NOTIF_APP_STATUS or n.actioned_at or not n.suggested_status or not n.posting_id:
+    AFTER the suggestion landed (and any rows created before that guard shipped)."""
+    key = _pending_suggestion_key(n)
+    if key is None:
         return False
     p = postings_store.get_posting(con, n.posting_id)
-    return p is not None and p.application_status.strip().casefold() == n.suggested_status.strip().casefold()
+    return p is not None and p.application_status.strip().casefold() == key[1]
 
 
 @router.get("/api/notifications")
@@ -352,10 +361,21 @@ def list_notifications(con=Depends(get_db)) -> Response:
     """The unified feed (replies + application-status), the unread count for the
     bell badge, and the follow-ups-due folded in (derived from outreach_log)."""
     notifs = []
+    seen_suggestions: set[tuple[str, str]] = set()
     for n in gmail_store.list_notifications(con):
+        # Drop a suggestion the posting already satisfies, and collapse duplicate
+        # pending suggestions to one per (posting, status) — a meeting thread surfaces
+        # several emails that all classify the same way. Newest-first keeps the latest;
+        # mark_seen drops the rest from the feed and clears the badge.
         if _suggestion_redundant(con, n):
-            gmail_store.mark_seen(con, n.id)  # drop from the feed + clear the badge
+            gmail_store.mark_seen(con, n.id)
             continue
+        key = _pending_suggestion_key(n)
+        if key is not None:
+            if key in seen_suggestions:
+                gmail_store.mark_seen(con, n.id)
+                continue
+            seen_suggestions.add(key)
         notifs.append(_notification_view(con, n))
     followups = [
         {
