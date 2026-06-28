@@ -693,13 +693,16 @@
     border: 2px solid var(--bg-2);
   }
 
-  .pane-section { margin-bottom: 26px; }
+  .pane-section { margin-bottom: 24px; }
   .pane-section:last-child { margin-bottom: 0; }
+  /* hairline divider + breathing room between adjacent sections, so each reads
+     as a real boundary instead of blending into one scroll. */
+  .pane-section + .pane-section { border-top: 1px solid var(--line); padding-top: 24px; }
   .pane-section h3 {
-    margin: 0 0 10px;
-    font-size: 10.5px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.1em;
-    color: var(--fg-dim);
+    margin: 0 0 12px;
+    font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--fg-mute);
     display: flex; align-items: center; gap: 6px;
   }
   .pane-section h3 svg { width: 12px; height: 12px; opacity: 0.85; }
@@ -821,44 +824,24 @@
   /* "↻ re-enrich" — re-fetch the posting's details from its link. Reuses the
      .h3-action pill so it matches the company pane's re-enrich button; pushed to
      the right of the link row, leaving the link-out "↗" next to the link. */
-  /* company block: a prominent row (name + its fit verdict, pushed to the right
-     edge) over a quiet metadata row (posted · change). */
-  .role-head .role-meta {
-    margin-top: 8px; display: flex; flex-direction: column; gap: 4px;
-    color: var(--fg-mute); font-size: 12.5px;
-  }
-  .role-head .role-company { color: var(--fg-dim); }
-  /* the company name doubles as the affordance to open the company panel
-     (replaces the old "View company" button). */
-  .role-head .role-company-link {
+  /* posted date — small dim metadata under the role fields. */
+  .role-head .role-posted { margin-top: 8px; color: var(--fg-dim); font-size: 12px; }
+
+  /* company section — the company name (links to its panel) sits next to the
+     fit verdict on one row; "change" (relink) is the section's h3 action. */
+  .company-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .company-row .role-company-link {
     background: none; border: none; padding: 0; margin: 0;
     font: inherit; font-size: 15px; font-weight: 550; color: var(--link); cursor: pointer;
     transition: color var(--dur-fast) var(--ease);
   }
-  .role-head .role-company-link:hover { text-decoration: underline; }
-  /* row 1: company link on the left, fit verdict pushed to the right edge. */
-  .role-head .role-company-row { display: flex; align-items: center; gap: 8px; }
-  .role-head .role-verdict {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
-  }
-  /* the "fit" caption reuses the panel's eyebrow label idiom (cf. .ie-field
-     label / .role-url-head label) so it reads as native, not bolted-on. */
-  .role-head .role-verdict-label {
+  .company-row .role-company-link:hover { text-decoration: underline; }
+  .company-row .role-verdict { display: inline-flex; align-items: center; gap: 6px; }
+  /* the "fit" caption reuses the panel's eyebrow label idiom so it reads native. */
+  .company-row .role-verdict-label {
     color: var(--fg-mute); font-size: 11px; font-weight: 500;
     text-transform: uppercase; letter-spacing: 0.05em;
   }
-  /* row 2: quiet metadata — posted date and the rare "change" relink action. */
-  .role-head .role-submeta {
-    display: flex; align-items: center; gap: 8px;
-    color: var(--fg-dim); font-size: 12px;
-  }
-  .role-head .role-submeta-dot { opacity: 0.55; }
-  .role-head .role-company-relink-btn {
-    background: none; border: none; padding: 0; margin: 0;
-    font: inherit; font-size: 12px; color: var(--fg-dim); cursor: pointer;
-    transition: color var(--dur-fast) var(--ease);
-  }
-  .role-head .role-company-relink-btn:hover { color: var(--link); text-decoration: underline; }
   .role-head .role-comp { color: var(--fg-dim); }
   .role-head .role-summary {
     margin-top: 10px; color: var(--fg-mute);

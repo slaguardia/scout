@@ -1381,6 +1381,19 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
+        Company
+        <button type="button" class="h3-action" id="pursuit-company-edit"
+                title="move this job to a different company">change</button>
+      </h3>
+      <div class="company-row">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
+      </div>
+    </section>
+
+    <section class="pane-section">
+      <h3>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -1495,18 +1508,7 @@ function roleEditHTML(j) {
       <div class="ie-field"><label>description</label>
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${escapeHTML(j.description || "")}</textarea></div>
     </div>
-    <div class="role-meta">
-      <div class="role-company-row">
-        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                title="open the company panel">${escapeHTML(j.company)} ↗</button>
-        ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
-      </div>
-      <div class="role-submeta">
-        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span><span class="role-submeta-dot" aria-hidden="true">·</span>` : ""}
-        <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
-                title="move this job to a different company">change</button>
-      </div>
-    </div>`;
+    ${j.posted_at ? `<div class="role-posted">posted ${escapeHTML(j.posted_at)}</div>` : ""}`;
 }
 
 // wirePipeline binds the tracker controls; they PUT the posting and keep
