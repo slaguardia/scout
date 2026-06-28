@@ -851,21 +851,26 @@
   .outreach-meta .om-count { color: var(--fg); font-weight: 600; }
   .outreach-meta strong { color: var(--fg); font-weight: 600; }
 
-  /* jobs filter block "follow-ups due" toggle (sidebar, below Filters) */
-  .followup-nav-btn {
-    display: flex; align-items: center; gap: 6px; width: 100%;
+  /* jobs filter block queue toggles (sidebar, below Filters): next-up + follow-ups
+     due, side by side. --qn is the per-toggle accent (amber default, purple for
+     next-up). */
+  #jobs-followup-nav { display: flex; gap: 6px; }
+  .queue-nav-btn {
+    --qn: var(--maybe);
+    display: flex; align-items: center; gap: 6px; flex: 1;
     padding: 6px 10px; font: inherit; font-size: 12px;
-    background: color-mix(in srgb, var(--maybe) 12%, var(--panel));
-    border: 1px solid color-mix(in srgb, var(--maybe) 35%, var(--line));
+    background: color-mix(in srgb, var(--qn) 12%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--qn) 35%, var(--line));
     border-radius: var(--r-md); color: var(--fg); cursor: pointer;
     transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
-  .followup-nav-btn:hover { border-color: color-mix(in srgb, var(--maybe) 55%, var(--line)); }
-  .followup-nav-btn.is-active { background: color-mix(in srgb, var(--maybe) 22%, var(--panel)); border-color: var(--maybe); }
-  .followup-nav-btn .fn-icon { display: inline-flex; flex: none; color: var(--maybe); }
-  .followup-nav-btn .fn-icon svg { width: 14px; height: 14px; }
-  .followup-nav-btn .fn-text { flex: 1; text-align: left; white-space: nowrap; }
-  .followup-nav-btn .fn-text strong { color: var(--fg); font-weight: 600; }
+  .queue-nav-btn--nextup { --qn: var(--accent); }
+  .queue-nav-btn:hover { border-color: color-mix(in srgb, var(--qn) 55%, var(--line)); }
+  .queue-nav-btn.is-active { background: color-mix(in srgb, var(--qn) 22%, var(--panel)); border-color: var(--qn); }
+  .queue-nav-btn .fn-icon { display: inline-flex; flex: none; color: var(--qn); }
+  .queue-nav-btn .fn-icon svg { width: 14px; height: 14px; }
+  .queue-nav-btn .fn-text { flex: 1; text-align: left; white-space: nowrap; }
+  .queue-nav-btn .fn-text strong { color: var(--fg); font-weight: 600; }
 
   /* jobs-table follow-up-due badge (outreach cell) */
   .jt-out { display: flex; align-items: center; gap: 7px; }
@@ -2053,6 +2058,13 @@
   .set-help-body { padding: 12px 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
   .set-help-body p { margin: 0 0 9px; }
   .set-help-body a { color: var(--link); }
+  /* The setup walk-through reads as a numbered guide: bright text, accent
+     numerals, bold action lead-ins — no step buried as dim subtext. */
+  .set-steps { margin: 0; padding-left: 26px; color: var(--fg); }
+  .set-steps > li { margin-bottom: 12px; padding-left: 4px; }
+  .set-steps > li::marker { color: var(--accent); font-weight: 700; }
+  .set-steps > li strong { color: var(--fg); font-weight: 600; }
+  .set-steps > li:last-child { margin-bottom: 0; }
   .set-copy-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
   .set-copy-row code { flex: 1; padding: 7px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); font-size: 12px; word-break: break-all; }
   .set-help-scopes { margin: 4px 0 10px; padding-left: 18px; }

@@ -457,12 +457,12 @@ async function updateCompanyRows(ids) {
 // a search box (matches title/company/location/description/contacts) plus two
 // multi-select dropdowns —
 //   • Application — an explicit-inclusion stage checklist, including a
-//     "not applied" item (the empty stage). Default is every stage except
-//     "rejected", plus "not applied" (this folds in the old "hide rejected"
-//     default while still showing un-applied roles).
-//   • Outreach — a "next up" queue toggle plus an explicit-inclusion
-//     reply-status checklist, including a "not reached out" item (the blank
-//     status). Default is every status — the same model as Application stage.
+//     "not applied" item (the empty stage). Default is every stage, plus
+//     "not applied".
+//   • Outreach — an explicit-inclusion reply-status checklist, including a
+//     "not reached out" item (the blank status). Default is every status —
+//     the same model as Application stage. (The next-up queue toggle lives
+//     outside this menu, beside the "follow-ups due" button.)
 let jobStageSel = null;          // Set<stage>; null until the first vocab load seeds it
 let knownStages = null;          // last vocab seen, so new stages can default visible
 let nextUpOnly = false;          // postings queued next up for outreach
@@ -471,16 +471,16 @@ let outreachSel = null;          // Set<status>; null until seeded — mirrors j
 let knownStatuses = null;        // last reply-status vocab seen
 
 // reconcileStageSel keeps jobStageSel sensible across vocab changes: seed it to
-// all-but-rejected on first run, then on a vocab edit drop stages that are gone
-// and default genuinely-new stages to visible (a new "rejected" stays hidden).
+// every stage on first run, then on a vocab edit drop stages that are gone and
+// default genuinely-new stages to visible.
 function reconcileStageSel() {
   const all = state.applicationStages;
   if (jobStageSel === null) {
     // "" is the "not applied" bucket — shown by default (was: no-stage always shows).
-    jobStageSel = new Set(["", ...all.filter(s => s !== "rejected")]);
+    jobStageSel = new Set(["", ...all]);
   } else {
     for (const s of [...jobStageSel]) if (s !== "" && !all.includes(s)) jobStageSel.delete(s);
-    if (knownStages) for (const s of all) if (s !== "rejected" && !knownStages.has(s)) jobStageSel.add(s);
+    if (knownStages) for (const s of all) if (!knownStages.has(s)) jobStageSel.add(s);
   }
   knownStages = new Set(all);
 }
@@ -536,10 +536,10 @@ function fdropHeadToggle(label, which, allOn) {
     + `<button type="button" class="fdrop-all" data-all="${which}">${allOn ? "none" : "all"}</button></div>`;
 }
 
-// renderFilterMenus rebuilds the jobs "Filters" menu — application stage, the
-// next-up queue toggle, and the reply-status checklist, all in one panel. Called
-// on vocab load and on structural selection changes (e.g. the footer's "show
-// rejected" link flipping a selection the user didn't click).
+// renderFilterMenus rebuilds the jobs "Filters" menu — application stage and the
+// reply-status checklist, in one panel. Called on vocab load and on structural
+// selection changes (e.g. the footer's "show rejected" link flipping a selection
+// the user didn't click). (The next-up filter is its own button outside the menu.)
 function renderFilterMenus() {
   reconcileStageSel();
   reconcileStatusSel();
@@ -550,8 +550,6 @@ function renderFilterMenus() {
   menu.innerHTML = fdropHeadToggle("Application stage", "stage", stageItems.every(s => jobStageSel.has(s)))
     + fdropItem("data-stage", "", "not applied", "", jobStageSel.has(""))
     + state.applicationStages.map(s => fdropItem("data-stage", s, s, stageColorClass(s), jobStageSel.has(s))).join("")
-    + `<div class="fdrop-sep"></div><div class="fdrop-head">Outreach queue</div>`
-    + fdropItem("data-toggle", "nextup", "★ Next up", "", nextUpOnly)
     + `<div class="fdrop-sep"></div>`
     + fdropHeadToggle("Reply status", "status", statusItems.every(s => outreachSel.has(s)))
     + [["", "not reached out", ""]].concat(state.outreachStatuses.map(s => [s, s, statusColorClass(s)]))
@@ -563,25 +561,21 @@ function renderFilterMenus() {
 // from the full jobs list — cheap, called on every renderJobs so counts track edits.
 function syncFilterCounts() {
   const stageN = {}, statusN = {};
-  let nextN = 0;
   for (const j of state.jobs) {
     const st = j.application_status || "";
     stageN[st] = (stageN[st] | 0) + 1;   // includes "" (not applied)
     const os = j.outreach_status || "";
     statusN[os] = (statusN[os] | 0) + 1;
-    if (j.next_up) nextN++;
   }
   writeItemCounts("#fdrop-jfilters-menu [data-stage]", "data-stage", stageN);
   writeItemCounts("#fdrop-jfilters-menu [data-status]", "data-status", statusN);
-  setToggleCount("nextup", nextN);
   // The badge counts every active narrowing in the panel: stages (when changed
-  // from the all-but-rejected default) + the next-up toggle + reply-status picks.
-  const def = ["", ...state.applicationStages.filter(s => s !== "rejected")];
+  // from the every-stage default) + reply-status picks.
+  const def = ["", ...state.applicationStages];
   const appDefault = jobStageSel && jobStageSel.size === def.length && def.every(s => jobStageSel.has(s));
   const statusDef = ["", ...state.outreachStatuses];
   const statusDefault = outreachSel && outreachSel.size === statusDef.length && statusDef.every(s => outreachSel.has(s));
   const n = (appDefault ? 0 : (jobStageSel ? jobStageSel.size : 0))
-    + (nextUpOnly ? 1 : 0)
     + (statusDefault ? 0 : (outreachSel ? outreachSel.size : 0));
   setFilterBadge("fdrop-jfilters-btn", n, n > 0);
 }
@@ -590,10 +584,6 @@ function writeItemCounts(sel, attr, counts) {
     const span = el.querySelector("[data-count]");
     if (span) { const c = counts[el.getAttribute(attr)] | 0; span.textContent = c || ""; }
   });
-}
-function setToggleCount(toggle, n) {
-  const span = document.querySelector(`#fdrop-jfilters-menu [data-toggle="${toggle}"] [data-count]`);
-  if (span) span.textContent = n || "";
 }
 function setFilterBadge(btnId, n, active) {
   const btn = document.getElementById(btnId);
@@ -755,33 +745,50 @@ function compareJobs(a, b, k) {
   return String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 }
 
-// renderFollowupNav shows the "N follow-ups due" toggle in the jobs filter block
-// (sidebar, below Filters): one click filters the table to just those postings
-// (M51), with an active state. Total is over ALL postings (not the current
-// filter); when it drops to zero the button hides and the due-only filter
-// releases so the table never strands empty.
-function renderFollowupNav() {
+// renderQueueNav shows the jobs-view queue toggles in the filter block (sidebar,
+// below Filters): a "★ Next up" filter and an "N follow-ups due" filter, side by
+// side. One click filters the table to just those postings, with an active state.
+// Counts are over ALL postings (not the current filter); each button appears only
+// while it has matches, and when its count drops to zero the button hides and its
+// filter releases so the table never strands empty.
+function renderQueueNav() {
   const nav = document.getElementById("jobs-followup-nav");
   if (!nav) return;
-  const due = state.jobs.reduce((n, j) => n + (j.followups_due | 0), 0);
-  if (!due) {
-    nav.style.display = "none";
-    dueOnly = false;
-    return;
-  }
+  let nextN = 0, due = 0;
+  for (const j of state.jobs) { if (j.next_up) nextN++; due += (j.followups_due | 0); }
+  if (!nextN) nextUpOnly = false;
+  if (!due) dueOnly = false;
+  if (!nextN && !due) { nav.style.display = "none"; nav.innerHTML = ""; return; }
   nav.style.display = "";
-  nav.innerHTML =
-    `<button class="followup-nav-btn${dueOnly ? " is-active" : ""}" title="${dueOnly ? "showing only these — click to show all jobs" : "show only jobs owing a follow-up"}">`
-    + `<span class="fn-icon">${ICON_BELL}</span>`
-    + `<span class="fn-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
-    + `</button>`;
-  nav.querySelector(".followup-nav-btn").onclick = () => { dueOnly = !dueOnly; renderJobs(); };
+  const btns = [];
+  if (nextN) {
+    btns.push(
+      `<button class="queue-nav-btn queue-nav-btn--nextup${nextUpOnly ? " is-active" : ""}" data-q="nextup" title="${nextUpOnly ? "showing only these — click to show all jobs" : "show only jobs queued next up for outreach"}">`
+      + `<span class="fn-icon">${ICON_NEXTUP}</span>`
+      + `<span class="fn-text"><strong>${nextN}</strong> next up</span>`
+      + `</button>`);
+  }
+  if (due) {
+    btns.push(
+      `<button class="queue-nav-btn${dueOnly ? " is-active" : ""}" data-q="due" title="${dueOnly ? "showing only these — click to show all jobs" : "show only jobs owing a follow-up"}">`
+      + `<span class="fn-icon">${ICON_BELL}</span>`
+      + `<span class="fn-text"><strong>${due}</strong> follow-up${due > 1 ? "s" : ""} due</span>`
+      + `</button>`);
+  }
+  nav.innerHTML = btns.join("");
+  nav.querySelectorAll(".queue-nav-btn").forEach(btn => {
+    btn.onclick = () => {
+      if (btn.dataset.q === "nextup") nextUpOnly = !nextUpOnly;
+      else dueOnly = !dueOnly;
+      renderJobs();
+    };
+  });
 }
 
 function renderJobs() {
   const tbody = document.querySelector("#jt tbody");
   tbody.innerHTML = "";
-  renderFollowupNav();
+  renderQueueNav();
   const rows = filteredJobs().sort((a, b) => state.jsort.dir * compareJobs(a, b, state.jsort.k));
   document.getElementById("jobs-empty").style.display = rows.length ? "none" : "block";
   // Refresh the dropdown item counts + button badges against the live data.
@@ -4096,7 +4103,7 @@ for (const id of ["fdrop-cfilters", "fdrop-columns", "fdrop-jfilters"]) {
   drop.querySelector(".fdrop-menu").addEventListener("click", e => e.stopPropagation());
 }
 document.addEventListener("click", closeAllDropdowns);
-// Jobs Filters menu: stage checklist + next-up toggle + reply status.
+// Jobs Filters menu: stage checklist + reply status.
 document.getElementById("fdrop-jfilters-menu").addEventListener("click", e => {
   const all = e.target.closest(".fdrop-all");
   if (all) {
@@ -4117,8 +4124,7 @@ document.getElementById("fdrop-jfilters-menu").addEventListener("click", e => {
     const s = it.getAttribute("data-stage");
     if (jobStageSel.has(s)) jobStageSel.delete(s); else jobStageSel.add(s);
     setItemChecked(it, jobStageSel.has(s));
-  } else if (it.dataset.toggle === "nextup") { nextUpOnly = !nextUpOnly; setItemChecked(it, nextUpOnly); }
-  else if (it.hasAttribute("data-status")) {
+  } else if (it.hasAttribute("data-status")) {
     const v = it.getAttribute("data-status");
     if (outreachSel.has(v)) outreachSel.delete(v); else outreachSel.add(v);
     setItemChecked(it, outreachSel.has(v));
@@ -4430,6 +4436,7 @@ const ICON_EMAIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" s
 const ICON_PROMPT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.2h5.4l2.6 2.6v9H4z"/><path d="M9.4 2.2v2.6H12"/><path d="M6 7h4M6 9.2h4M6 11.4h2.4"/></svg>';
 const ICON_FILTER = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 3.4h11.2L9.4 8.4v4.2l-2.8 1.4V8.4z"/></svg>';
 const ICON_BELL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 7a3.8 3.8 0 0 1 7.6 0c0 3 1.2 4 1.2 4H3s1.2-1 1.2-4z"/><path d="M6.7 13a1.5 1.5 0 0 0 2.6 0"/></svg>';
+const ICON_NEXTUP = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg>';
 
 // One settings card: icon tile, name (optionally a clickable link), description,
 // a status line (dot + note) for brain-backed items, and a trailing action.
@@ -4675,11 +4682,16 @@ function gmailSetupHTML(gm) {
   return `<details class="set-help"${gm.configured ? "" : " open"}>
     <summary>Set up the Google OAuth client (one-time)</summary>
     <div class="set-help-body">
-      <p>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:</p>
-      <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
-      <p>On the <strong>OAuth consent screen</strong>, add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:</p>
-      <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
-      <p class="dim">Enable the API once — <code>gcloud services enable gmail.googleapis.com</code> (or Console → Library → Gmail API → Enable). Then paste the client ID + secret below, Save, and Connect.</p>
+      <ol class="set-steps">
+        <li><strong>Enable the Gmail API.</strong> In <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">APIs &amp; Services → Library → Gmail API</a>, click <strong>Enable</strong> — or run <code>gcloud services enable gmail.googleapis.com</code>.</li>
+        <li><strong>Configure the OAuth consent screen.</strong> Add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:
+          <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
+        </li>
+        <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
+          <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
+        </li>
+        <li><strong>Connect.</strong> Paste the client ID &amp; secret below, click <strong>Save</strong>, then <strong>Connect</strong>.</li>
+      </ol>
     </div>
   </details>`;
 }
