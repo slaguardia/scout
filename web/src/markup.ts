@@ -538,7 +538,11 @@ export const SCOUT_MARKUP = `
       </div>
     </div>
     <div class="modal-body">
-      <div class="form-field">
+      <div class="subtabs" id="add-cmode" style="display:none">
+        <button type="button" class="subtab is-on" data-cmode="single">One company</button>
+        <button type="button" class="subtab" data-cmode="csv">CSV</button>
+      </div>
+      <div class="form-field" id="add-url-field">
         <label for="add-url" id="add-url-label">Website<span class="req">*</span></label>
         <input class="input" id="add-url" placeholder="acme.com" autocomplete="off" spellcheck="false">
       </div>
@@ -579,9 +583,12 @@ export const SCOUT_MARKUP = `
           <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
           <div class="vchips" id="add-vertical-chips"></div>
         </div>
-        <button type="button" class="add-csv-btn" id="add-csv" title="upload a CSV export (e.g. Crunchbase) to create many companies at once">
+      </div>
+      <div id="add-csv-panel" style="display:none">
+        <button type="button" class="add-csv-drop" id="add-csv" title="upload a CSV export (e.g. Crunchbase) to create many companies at once">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
-          <span>Bulk-import companies from a CSV</span>
+          <span class="add-csv-main">Choose a CSV file to import</span>
+          <span class="add-csv-hint">a CSV export (e.g. Crunchbase) — columns map to company fields; new companies are created</span>
         </button>
       </div>
       <label class="enrich-row" id="add-enrich-row">
@@ -589,11 +596,11 @@ export const SCOUT_MARKUP = `
         <span class="cbox" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span>
         <span>fill in the blanks — ATS links (ashby/greenhouse/lever) read the platform's API directly, anything else gets one cheap agent pass</span>
       </label>
-      <div class="modal-note">
+      <div class="modal-note" id="add-note-row">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
         <span id="add-note"></span>
       </div>
-      <a class="help-link" id="add-learn" style="display:inline-block;margin-top:8px">How adding works →</a>
+      <a class="help-link" id="add-learn">How adding works →</a>
     </div>
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>

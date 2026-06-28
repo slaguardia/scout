@@ -1644,19 +1644,33 @@
     display: flex; align-items: flex-start; gap: 6px;
   }
   .modal-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
-  /* bulk CSV import, inside the Add modal's company fields — a dashed "drop a
-     file" affordance distinct from the single-add form above it. */
-  .add-csv-btn {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    margin-top: 6px; padding: 8px 10px;
+  /* Add modal sub-tabs (One company | CSV) — underline tabs under the kind
+     toggle, distinct from the pill kind-toggle in the head. */
+  .subtabs { display: flex; gap: 2px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .subtab {
+    padding: 6px 10px; margin-bottom: -1px;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    font: inherit; font-size: 12.5px; color: var(--fg-dim); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .subtab:hover { color: var(--fg-mute); }
+  .subtab.is-on { color: var(--link); border-bottom-color: var(--link); }
+  #add-learn { display: inline-block; margin-top: 8px; }
+  /* CSV bulk import — the "CSV" sub-tab's whole panel is one dashed drop target. */
+  .add-csv-drop {
+    display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%;
+    padding: 28px 16px; text-align: center;
     background: transparent; color: var(--fg-mute);
-    border: 1px dashed var(--line-2); border-radius: var(--r-md);
-    font: inherit; font-size: 12.5px; cursor: pointer;
+    border: 1.5px dashed var(--line-2); border-radius: var(--r-md);
+    font: inherit; cursor: pointer;
     transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
-  .add-csv-btn:hover:not(:disabled) { border-color: var(--link); color: var(--fg); background: var(--panel); }
-  .add-csv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .add-csv-btn svg { width: 14px; height: 14px; flex: none; }
+  .add-csv-drop:hover:not(:disabled) { border-color: var(--link); color: var(--fg); background: var(--panel); }
+  .add-csv-drop:disabled { opacity: 0.5; cursor: not-allowed; }
+  .add-csv-drop svg { width: 22px; height: 22px; flex: none; }
+  .add-csv-main { font-size: 13px; font-weight: 600; color: var(--fg); }
+  .add-csv-drop:disabled .add-csv-main { color: var(--fg-mute); }
+  .add-csv-hint { font-size: 12px; color: var(--fg-dim); line-height: 1.5; max-width: 360px; }
   /* amber pre-run warning (e.g. verdict with un-enriched companies in scope) */
   .run-warn {
     display: flex; align-items: flex-start; gap: 7px;

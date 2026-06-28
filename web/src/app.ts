@@ -3520,13 +3520,11 @@ const ADD_FIELDS = ["add-url","add-name","add-location","add-headcount","add-tit
 let addVerticals = [];               // available tags from the DB (sorted)
 let addVerticalsSel = new Set();     // currently selected tags (original spelling)
 let addKind = "company";             // set from the current view on each open
+let addMode = "single";              // company sub-mode: "single" form | "csv" bulk import
 
 function setAddKind(kind) {
   addKind = kind;
-  document.querySelectorAll("#add-kind .v-chip").forEach(b =>
-    b.classList.toggle("is-on", b.dataset.kind === kind));
-  document.getElementById("add-company-fields").style.display = kind === "company" ? "" : "none";
-  document.getElementById("add-job-fields").style.display = kind === "job" ? "" : "none";
+  addMode = "single";                // reset the sub-mode whenever the kind flips
   const label = document.getElementById("add-url-label");
   const url = document.getElementById("add-url");
   if (kind === "company") {
@@ -3537,7 +3535,25 @@ function setAddKind(kind) {
     url.placeholder = "https://… the job posting";
   }
   document.getElementById("add-save").textContent = kind === "company" ? "Add company" : "Add job";
+  applyAddLayout();
   updateAddNote();
+}
+function setAddMode(mode) { addMode = mode; applyAddLayout(); }
+// Show the right panels for the current kind + sub-mode. The "csv" sub-mode is a
+// companies-only bulk import, so it hides every single-add control (URL, the
+// company form, the agent-pass tick, the note, the submit button) and shows just
+// the file drop — the only things that don't apply to importing a file.
+function applyAddLayout() {
+  const company = addKind === "company";
+  const csv = company && addMode === "csv";
+  document.querySelectorAll("#add-kind .v-chip").forEach(b => b.classList.toggle("is-on", b.dataset.kind === addKind));
+  document.getElementById("add-cmode").style.display = company ? "" : "none";   // subtabs: company only
+  document.querySelectorAll("#add-cmode .subtab").forEach(b => b.classList.toggle("is-on", b.dataset.cmode === addMode));
+  document.getElementById("add-company-fields").style.display = (company && !csv) ? "" : "none";
+  document.getElementById("add-job-fields").style.display = (addKind === "job") ? "" : "none";
+  document.getElementById("add-csv-panel").style.display = csv ? "" : "none";
+  for (const id of ["add-url-field", "add-enrich-row", "add-note-row", "add-learn", "add-save"])
+    document.getElementById(id).style.display = csv ? "none" : "";
 }
 
 function addEnrichOn() {
@@ -3623,6 +3639,8 @@ function updateVerticalCount() {
 function httpsURL(u) { return /^https?:\/\//i.test(u) ? u : "https://" + u; }
 
 async function submitAdd() {
+  // CSV mode has no single-add form to submit — the file drop drives the import.
+  if (addKind === "company" && addMode === "csv") return;
   const urlEl = document.getElementById("add-url");
   const url = urlEl.value.trim();
   if (!url) {
@@ -4365,6 +4383,7 @@ document.getElementById("add-cancel").onclick = closeAdd;
 document.getElementById("add-save").onclick = submitAdd;
 document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAdd(); };
 document.querySelectorAll("#add-kind .v-chip").forEach(b => { b.onclick = () => setAddKind(b.dataset.kind); });
+document.querySelectorAll("#add-cmode .subtab").forEach(b => { b.onclick = () => setAddMode(b.dataset.cmode); });
 document.getElementById("add-enrich").addEventListener("change", updateAddNote);
 // Enter in a text field submits — but not in the vertical filter (where Enter
 // would prematurely submit while narrowing chips), not in the company picker
