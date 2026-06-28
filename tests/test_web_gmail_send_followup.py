@@ -56,6 +56,17 @@ def _stub(captured):
     return handle
 
 
+def test_outreach_log_exposes_thread_id(tmp_path, monkeypatch):
+    # The "Send follow-up" button gates on a prior send's gmail_thread_id, so the
+    # outreach-log API must surface it (it didn't, which hid the button).
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _c, pid, _contact_id = _seed(db_path, connect=False)  # seeds a thr1 send
+    r = client.get(f"/api/postings/{pid}/outreach-log")
+    assert r.status_code == 200
+    entries = r.json()
+    assert entries and entries[0].get("gmail_thread_id") == "thr1"
+
+
 def test_send_followup_requires_connection(tmp_path, monkeypatch):
     _oauth_env(monkeypatch)
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)

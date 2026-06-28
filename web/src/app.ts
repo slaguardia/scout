@@ -1893,7 +1893,7 @@ function followupGroupHTML(latest, canSend) {
     actions = `<button class="cc-fu-link cc-fu-done" data-eid="${id}" type="button" title="mark this follow-up done — arms the next reminder">done</button>`
       + `<button class="cc-fu-link cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
   }
-  return `<span class="cc-fu-eyebrow">follow-up</span>${status}<span class="cc-fu-actions">${copy}${send}${actions}</span>`;
+  return `${status}<span class="cc-fu-actions">${copy}${send}${actions}</span>`;
 }
 
 function outreachEntryHTML(e) {

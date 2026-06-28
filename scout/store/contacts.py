@@ -224,6 +224,9 @@ class OutreachEntry:
     # Non-empty when the send went out via — or was synced from — Gmail; drives
     # the "via Gmail" vs "logged manually" provenance badge in the UI.
     gmail_message_id: str = ""
+    # The Gmail thread this send belongs to; lets the UI offer "Send follow-up"
+    # (a reply on the thread) only when there's a thread to reply onto.
+    gmail_thread_id: str = ""
 
 
 @dataclass
@@ -245,7 +248,7 @@ class OutreachInput:
 _OUTREACH_LOG_COLS = (
     "id, contact_id, posting_id, COALESCE(date(sent_at), ''), COALESCE(body, ''), "
     "COALESCE(note, ''), COALESCE(followup_due_at, ''), COALESCE(followup_done_at, ''), "
-    "COALESCE(gmail_message_id, '')"
+    "COALESCE(gmail_message_id, ''), COALESCE(gmail_thread_id, '')"
 )
 
 
@@ -260,6 +263,7 @@ def _scan_outreach_entry(row) -> OutreachEntry:
         followup_due_at=row[6],
         followup_done_at=row[7],
         gmail_message_id=row[8],
+        gmail_thread_id=row[9],
     )
 
 

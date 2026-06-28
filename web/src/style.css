@@ -909,13 +909,9 @@
   }
   .cc-edit:hover, .cc-arch:hover { color: var(--fg); background: var(--line); }
   .cc-status { font-size: 12.5px; color: var(--fg-mute); margin-top: 7px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-  /* follow-up group — one inline row: a "follow-up" eyebrow, the status, then a
-     right-aligned action cluster (primary "Copy follow-up" + quiet state links). */
+  /* follow-up group — one inline row: the status, then a right-aligned action
+     cluster (primary "Copy"/"Send follow-up" + quiet state links). */
   .cc-fu-group { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-  .cc-fu-eyebrow {
-    flex: 0 0 auto; color: var(--fg-mute);
-    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-  }
   .cc-fu-status { flex: 0 0 auto; color: var(--fg); }
   .cc-fu-status.is-overdue, .cc-fu-status.is-escalate { color: var(--maybe); font-weight: 600; }
   .cc-fu-status.is-done { color: var(--yes); }
