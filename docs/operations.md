@@ -90,8 +90,7 @@ brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
 
 scout can send outreach from your Gmail and auto-sync replies + application status
 back onto the jobs board (a 2.5-min poll). It's scout-local: the Python backend
-owns the OAuth + Gmail calls; the brain isn't involved. See
-[`../plans/gmail-integration.md`](../plans/gmail-integration.md) for the full model.
+owns the OAuth + Gmail calls; the brain isn't involved.
 
 scout is **self-hosted, single-user** — you connect *your own* mailbox on *your
 own* OAuth client, so Google's CASA/verification process never applies (that only

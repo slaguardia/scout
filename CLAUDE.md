@@ -171,8 +171,7 @@ canonical port defeats that safety net — don't.
   queue, dishonest twice → failed). Verbatim template prose is true by
   construction. The jobs panel is the review queue (edit, mark-sent bumps
   tracking); fire-and-forget. CLI: `scout outreach sources [--refresh] | draft`.
-  Spec'd but not built: a `draft-shorten` "too long → tighten" control
-  (`plans/draft-shorten.md`).
+  Spec'd but not built: a `draft-shorten` "too long → tighten" control.
 - **Application answers, built:** [`docs/pipeline.md`](./docs/pipeline.md)
   (`scout questions`) is the reference; it reuses the outreach engine.
   **Detection** runs at capture time

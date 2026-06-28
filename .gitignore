@@ -37,6 +37,7 @@ __pycache__/
 
 # Local planning scratch (not part of the shipped project)
 .tasks/
+/plans/
 
 # IDE
 .idea/
