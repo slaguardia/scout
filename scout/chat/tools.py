@@ -13,12 +13,13 @@ import json
 from scout import capture
 from scout.anthropic import ToolDef, new_web_search_tool
 from scout.store import companies, detail, errors, postings, triage, verdicts
+from scout.store.companies import EditableCompany
 from scout.store.postings import PostingTracking
 from scout.store.verdicts import MANUAL_MODEL, Verdict
 
 
 def register_tools(e) -> None:
-    """Build the eight-tool registry: seven custom tools wired to the store +
+    """Build the nine-tool registry: eight custom tools wired to the store +
     capture pass, plus the hosted web_search server tool (no client execution — the
     API runs it). Tool descriptions are prescriptive about WHEN to call."""
     defs = [
@@ -116,6 +117,27 @@ def register_tools(e) -> None:
                 ),
             ),
             _tool_set_verdict,
+        ),
+        (
+            ToolDef(
+                name="update_company",
+                description="Correct a company's structured properties: funding stage, headcount, vertical, or location. Call this when the user tells you a real fact about the company that the saved data is missing or has wrong (e.g. \"Commure is late-stage, not Series B\", \"they're ~2000 people\"). Only the fields you pass are changed; omit the rest. This is for facts, not a scratchpad — use set_notes for free-form notes and set_verdict for the fit call. Get the company_id from search or capture_link.",
+                input_schema=obj_schema(
+                    {
+                        "company_id": str_prop("The company id (from search or capture_link)."),
+                        "funding_stage": str_prop(
+                            'Funding stage as a plain label (e.g. "Series B", "late-stage", "public"). Set "" to clear it. Do not guess a round from a valuation.'
+                        ),
+                        "headcount": int_prop(
+                            "Approximate employee count. Set 0 to clear it."
+                        ),
+                        "vertical": str_prop('Industry / vertical. Set "" to clear it.'),
+                        "location": str_prop('Headquarters location. Set "" to clear it.'),
+                    },
+                    "company_id",
+                ),
+            ),
+            _tool_update_company,
         ),
     ]
 
@@ -316,6 +338,62 @@ def _tool_set_verdict(e, inp: dict) -> str:
     return json_string({"company_id": company_id, "verdict": v})
 
 
+def _tool_update_company(e, inp: dict) -> str:
+    company_id = (inp.get("company_id") or "").strip()
+    if company_id == "":
+        raise ValueError("company_id is required")
+    # Read current values so omitted fields are preserved — the store update is a
+    # full replace (a blank clears the column).
+    d = detail.get_company_detail(e.con, company_id)
+    if d is None:
+        raise RuntimeError(f'no company with id "{company_id}" (use search to find it)')
+    ed = EditableCompany(
+        name=d.name,
+        headcount=d.headcount or None,
+        funding_stage=d.funding_stage or None,
+        location=d.location or None,
+        vertical=d.vertical or None,
+    )
+    if inp.get("funding_stage") is not None:
+        ed.funding_stage = (inp["funding_stage"] or "").strip() or None
+    if inp.get("vertical") is not None:
+        ed.vertical = (inp["vertical"] or "").strip() or None
+    if inp.get("location") is not None:
+        ed.location = (inp["location"] or "").strip() or None
+    if inp.get("headcount") is not None:
+        ed.headcount = _parse_headcount(inp["headcount"])
+    try:
+        companies.update_company_editable(e.con, company_id, ed)
+    except errors.NotFound:
+        raise RuntimeError(f'no company with id "{company_id}"')
+    return json_string(
+        {
+            "company_id": company_id,
+            "funding_stage": ed.funding_stage or "",
+            "headcount": ed.headcount or 0,
+            "vertical": ed.vertical or "",
+            "location": ed.location or "",
+        }
+    )
+
+
+def _parse_headcount(v) -> int | None:
+    """Coerce a model-supplied headcount to a positive int (0/blank clears it).
+    A non-numeric value surfaces to the model as a ValueError so it can retry."""
+    if isinstance(v, bool):  # bool is an int subclass — reject it explicitly
+        raise ValueError("headcount must be a number")
+    if isinstance(v, int):
+        return v if v > 0 else None
+    s = str(v).strip().replace(",", "")
+    if s == "":
+        return None
+    try:
+        n = int(float(s))
+    except ValueError:
+        raise ValueError(f"headcount must be a number, got {v!r}")
+    return n if n > 0 else None
+
+
 # --- schema + result helpers ----------------------------------------------
 
 
@@ -332,6 +410,10 @@ def str_prop(desc: str) -> dict:
 
 def enum_prop(desc: str, *values: str) -> dict:
     return {"type": "string", "description": desc, "enum": list(values)}
+
+
+def int_prop(desc: str) -> dict:
+    return {"type": "integer", "description": desc}
 
 
 def json_string(v) -> str:

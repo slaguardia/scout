@@ -233,3 +233,96 @@ def test_engine_no_tools(db):
     assert calls["n"] == 1
     msgs = chat_store.thread_messages(db, th.id)
     assert len(msgs) == 2  # user + assistant
+
+
+# The update_company tool corrects structured company fields and preserves the
+# fields it isn't passed (the store update is a full replace).
+def test_update_company_tool(db):
+    import json as _json
+
+    from scout.store import detail
+
+    cid, _ = ensure_company(db, CapturedCompany(name="Commure", domain="commure.com"))
+    eng = chat.new(db, anthropic.Client(api_key="k", endpoint="http://127.0.0.1:1"))
+
+    out = eng.tools["update_company"](
+        {"company_id": cid, "funding_stage": "late-stage", "headcount": 2000}
+    )
+    res = _json.loads(out)
+    assert res["funding_stage"] == "late-stage" and res["headcount"] == 2000
+
+    d = detail.get_company_detail(db, cid)
+    assert d.funding_stage == "late-stage" and d.headcount == 2000
+
+    # A second call touching only vertical leaves stage + headcount intact.
+    eng.tools["update_company"]({"company_id": cid, "vertical": "Healthcare"})
+    d2 = detail.get_company_detail(db, cid)
+    assert d2.vertical == "Healthcare"
+    assert d2.funding_stage == "late-stage" and d2.headcount == 2000
+
+    # An unknown id surfaces as an error (not a silent dangling write).
+    try:
+        eng.tools["update_company"]({"company_id": "nope", "funding_stage": "Seed"})
+        raise AssertionError("expected an error for an unknown id")
+    except RuntimeError:
+        pass
+
+
+# on_event fires a human-readable activity line each time a custom tool runs.
+def test_engine_activity_events_for_tools(db):
+    ensure_company(db, CapturedCompany(name="Ramp", domain="ramp.com"))
+
+    state = {"n": 0}
+
+    def handle(req):
+        state["n"] += 1
+        body = SEARCH_TOOL_STREAM if state["n"] == 1 else END_TURN_STREAM
+        return 200, {"Content-Type": "text/event-stream"}, body
+
+    events: list[str] = []
+    with http_server(handle) as url:
+        eng = chat.new(db, anthropic.Client(api_key="k", endpoint=url))
+        th = chat_store.open_or_create_thread(db, CHAT_SCOPE_GLOBAL, "")
+        chat_store.append_message(db, th.id, "user", '[{"type":"text","text":"ramp?"}]', "ramp?")
+        eng.run(th.id, "sys", None, events.append)
+
+    # The custom `search` tool ran → its verb was emitted as activity.
+    assert "searching scout" in events
+
+
+# on_event fires when the hosted web_search server tool runs.
+WEB_SEARCH_STREAM = (
+    "event: message_start\n"
+    'data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
+    "event: content_block_start\n"
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"st1","name":"web_search","input":{}}}\n\n'
+    "event: content_block_delta\n"
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"query\\":\\"Commure funding\\"}"}}\n\n'
+    "event: content_block_stop\n"
+    'data: {"type":"content_block_stop","index":0}\n\n'
+    "event: content_block_start\n"
+    'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}\n\n'
+    "event: content_block_delta\n"
+    'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Commure is late-stage."}}\n\n'
+    "event: content_block_stop\n"
+    'data: {"type":"content_block_stop","index":1}\n\n'
+    "event: message_delta\n"
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n\n'
+    "event: message_stop\n"
+    'data: {"type":"message_stop"}\n\n'
+)
+
+
+def test_engine_activity_event_for_web_search(db):
+    def handle(req):
+        return 200, {"Content-Type": "text/event-stream"}, WEB_SEARCH_STREAM
+
+    events: list[str] = []
+    with http_server(handle) as url:
+        eng = chat.new(db, anthropic.Client(api_key="k", endpoint=url))
+        th = chat_store.open_or_create_thread(db, CHAT_SCOPE_GLOBAL, "")
+        chat_store.append_message(db, th.id, "user", '[{"type":"text","text":"commure?"}]', "commure?")
+        eng.run(th.id, "sys", None, events.append)
+
+    assert any(s.startswith("searching the web") for s in events)
+    assert any("Commure funding" in s for s in events)
