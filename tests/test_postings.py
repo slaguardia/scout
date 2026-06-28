@@ -265,6 +265,41 @@ def test_update_posting_tracking(db):
         postings.update_posting_tracking(db, "no-such-posting", PostingTracking())
 
 
+def test_application_status_at_bumps_only_on_stage_change(db):
+    cid = _acme(db)
+    p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
+    assert p.application_status_at == ""  # never changed yet
+
+    # First real stage set stamps the date.
+    got = postings.update_posting_tracking(db, p.id, PostingTracking(application_status="applied"))
+    stamped = got.application_status_at
+    assert stamped != ""
+
+    # An outreach-only save (the row still sends the unchanged application_status)
+    # must leave the stamp untouched.
+    got = postings.update_posting_tracking(
+        db, p.id, PostingTracking(application_status="applied", outreach_status="replied")
+    )
+    assert got.application_status == "applied" and got.outreach_status == "replied"
+    assert got.application_status_at == stamped
+
+    # Moving the stage re-stamps it. (Compare via a re-set to a different label;
+    # CURRENT_TIMESTAMP resolution is per-second, so just assert it stayed set.)
+    got = postings.update_posting_tracking(db, p.id, PostingTracking(application_status="interview"))
+    assert got.application_status == "interview" and got.application_status_at != ""
+
+    # set_application_status (Gmail auto-flip path) also stamps on a real change
+    # and no-ops on a same-value write.
+    same = postings.set_application_status(db, p.id, "interview")
+    assert same.application_status_at == got.application_status_at
+    moved = postings.set_application_status(db, p.id, "offer")
+    assert moved.application_status == "offer" and moved.application_status_at != ""
+
+    # The jobs view surfaces the stamp too.
+    r = postings.list_job_rows(db)[0]
+    assert r.application_status == "offer" and r.application_status_at != ""
+
+
 def test_update_posting_details(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "Wrong Title")
