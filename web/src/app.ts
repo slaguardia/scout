@@ -35,6 +35,28 @@ const state = {
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
+// A friendlier enrichment status pill: a clean read is a green "good"; soft misses
+// (a thin JS shell, a bot wall) read as amber warnings; the rest as red errors.
+// Mirrors the fetch_status taxonomy in scout/enrich; http_<code> and anything
+// unmapped fall through to a plain error pill.
+const ENRICH_STATUS = {
+  ok:          ["good", "pill-good"],
+  low_content: ["thin page", "pill-warn"],
+  challenge:   ["blocked", "pill-warn"],
+  soft_404:    ["page not found", "pill-bad"],
+  no_domain:   ["no domain", "pill-none"],
+  dns:         ["unreachable", "pill-bad"],
+  refused:     ["refused", "pill-bad"],
+  timeout:     ["timed out", "pill-bad"],
+  error:       ["error", "pill-bad"],
+  "":          ["not enriched", "pill-none"],
+};
+function enrichStatus(s) {
+  s = s || "";
+  if (s in ENRICH_STATUS) { const [label, cls] = ENRICH_STATUS[s]; return { label, cls }; }
+  if (s.startsWith("http_")) return { label: s.replace("http_", "HTTP "), cls: "pill-bad" };
+  return { label: s, cls: "pill-bad" };
+}
 // The flag bookmark glyph — pole first, banner last (the .is-on CSS fills the banner).
 const FLAG_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 14V2.5"/><path d="M3.5 2.5c3-1.2 6 1.2 9 0V9c-3 1.2-6-1.2-9 0z"/></svg>';
 const escapeHTML = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -2979,10 +3001,11 @@ function renderDetail(d) {
       </div>
     </div>`;
 
+  const es = enrichStatus(d.fetch_status);
   const enrichBlock = d.has_enrichment ? `
     <dl class="kv">
       <dt>url</dt><dd>${d.website_url ? `<a href="${safeHref(d.website_url)}" target="_blank" rel="noopener">${escapeHTML(d.website_url)} ↗</a>` : '<span class="muted">—</span>'}</dd>
-      <dt>status</dt><dd class="small">${escapeHTML(d.fetch_status || "")}${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
+      <dt>status</dt><dd class="small"><span class="pill ${es.cls}">${escapeHTML(es.label)}</span>${d.fetch_error ? ` <span class="muted">(${escapeHTML(d.fetch_error)})</span>` : ""}</dd>
       <dt>fetched</dt><dd class="small muted">${escapeHTML(d.fetched_at || "")}</dd>
     </dl>
   ` : '<div class="muted">No enrichment yet. Run <code>scout enrich</code>.</div>';
@@ -3725,6 +3748,12 @@ async function submitAdd() {
     // the company landed anyway (bare record); otherwise the plain add toast.
     toast(res.note || (res.company_created ? `company added: ${res.company_name}` : `${res.company_name} is already in the list`));
     openDetail(res.company_id);
+    // A readable page seeds an 'ok' enrichment summary the scorer can read, so
+    // score it now — the same targeted re-score the pane's "↻ re-score" runs
+    // (bypasses the pre-filter). Skipped when the page couldn't be read (only an
+    // 'ok' enrichment is scorable) or when verdict control isn't available.
+    const canScore = (!state.meta || state.meta.control !== false) && state.meta && state.meta.verdict;
+    if (res.fetch_status === "ok" && canScore) startRun("verdict", { company_ids: [res.company_id] });
   } else {
     toast("company added");
   }

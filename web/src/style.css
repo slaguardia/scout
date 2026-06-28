@@ -398,6 +398,10 @@
   .pill-no    { background-color: var(--no-bg);    color: var(--no); }
   .pill-none  { background-color: var(--panel-3);  color: var(--fg-dim); }
   .pill-none::before { opacity: 0.5; }
+  /* enrichment status severities — reuse the verdict palette (good/warn/bad). */
+  .pill-good  { background-color: var(--yes-bg);   color: var(--yes); }
+  .pill-warn  { background-color: var(--maybe-bg); color: var(--maybe); }
+  .pill-bad   { background-color: var(--no-bg);    color: var(--no); }
 
   .reason { color: var(--fg-mute); }
   td .row-name {
