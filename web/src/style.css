@@ -316,7 +316,6 @@
     -webkit-appearance: none; appearance: none;
   }
   .jt-stage-sel:hover, .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
-  .jt-stage-at { font-size: 10.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
   .jt-dec, .jt-inc {
