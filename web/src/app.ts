@@ -1803,7 +1803,7 @@ function followupStatusHTML(latest) {
 
 function outreachEntryHTML(e) {
   const fu = e.followup_done_at ? `<span class="fu-done">followed up</span>`
-    : e.followup_due_at ? `<span class="fu-mini">↳ follow up ${escapeHTML(e.followup_due_at)}</span>` : "";
+    : e.followup_due_at ? `<span class="fu-mini">→ follow up ${escapeHTML(e.followup_due_at)}</span>` : "";
   // Provenance: a send that carries a Gmail message id went out via — or was
   // synced from — Gmail and is tracked in the mailbox; everything else is a
   // hand-logged send scout can't watch for replies.
@@ -1868,7 +1868,10 @@ function wireContacts() {
   // deleted send) and refreshing the last-synced time.
   const syncBtn = host.querySelector(".cc-sync-now") as HTMLButtonElement | null;
   if (syncBtn) syncBtn.addEventListener("click", async () => {
-    syncBtn.disabled = true; const t = syncBtn.textContent; syncBtn.textContent = "Syncing…";
+    // The reconcile re-checks recent mail (a few seconds) — show a spinner so the
+    // wait reads as "working", not frozen.
+    syncBtn.disabled = true; const t = syncBtn.textContent;
+    syncBtn.innerHTML = `<span class="spinner spinner-xs"></span> Syncing…`;
     try {
       const r = await fetch("/api/gmail/sync?reconcile=1", { method: "POST" });
       if (!r.ok) { toast(`sync failed: ${(await r.text().catch(() => "")).trim() || "HTTP " + r.status}`); return; }
