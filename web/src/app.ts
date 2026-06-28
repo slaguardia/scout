@@ -4673,11 +4673,16 @@ function gmailSetupHTML(gm) {
   return `<details class="set-help"${gm.configured ? "" : " open"}>
     <summary>Set up the Google OAuth client (one-time)</summary>
     <div class="set-help-body">
-      <p>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:</p>
-      <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
-      <p>On the <strong>OAuth consent screen</strong>, add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:</p>
-      <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
-      <p class="dim">Enable the API once — <code>gcloud services enable gmail.googleapis.com</code> (or Console → Library → Gmail API → Enable). Then paste the client ID + secret below, Save, and Connect.</p>
+      <ol class="set-steps">
+        <li><strong>Enable the Gmail API.</strong> In <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">APIs &amp; Services → Library → Gmail API</a>, click <strong>Enable</strong> — or run <code>gcloud services enable gmail.googleapis.com</code>.</li>
+        <li><strong>Configure the OAuth consent screen.</strong> Add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:
+          <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
+        </li>
+        <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
+          <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
+        </li>
+        <li><strong>Connect.</strong> Paste the client ID &amp; secret below, click <strong>Save</strong>, then <strong>Connect</strong>.</li>
+      </ol>
     </div>
   </details>`;
 }

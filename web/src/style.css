@@ -2049,6 +2049,13 @@
   .set-help-body { padding: 12px 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
   .set-help-body p { margin: 0 0 9px; }
   .set-help-body a { color: var(--link); }
+  /* The setup walk-through reads as a numbered guide: bright text, accent
+     numerals, bold action lead-ins — no step buried as dim subtext. */
+  .set-steps { margin: 0; padding-left: 26px; color: var(--fg); }
+  .set-steps > li { margin-bottom: 12px; padding-left: 4px; }
+  .set-steps > li::marker { color: var(--accent); font-weight: 700; }
+  .set-steps > li strong { color: var(--fg); font-weight: 600; }
+  .set-steps > li:last-child { margin-bottom: 0; }
   .set-copy-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
   .set-copy-row code { flex: 1; padding: 7px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); font-size: 12px; word-break: break-all; }
   .set-help-scopes { margin: 4px 0 10px; padding-left: 18px; }
