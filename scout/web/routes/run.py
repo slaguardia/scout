@@ -125,6 +125,13 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
         state.reload_taste()
         con = connect(db_path)
         try:
+            # A targeted score auto-enriches first: if the user pointed at a
+            # company whose about-page was never fetched (or whose fetch failed),
+            # grab it now instead of silently skipping the company for want of an
+            # 'ok' enrichment row. Bulk runs keep the explicit enrich → verdict
+            # ordering.
+            if company_ids:
+                _autoenrich_for_score(state, con, company_ids, workers, emit)
             ft = filter_pkg.taste_from_db(con)
             tb = state.current_taste()
             if tb is None:
@@ -154,6 +161,43 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
             con.close()
 
     return fn
+
+
+def _needs_ok_enrichment(con, company_ids: list[str]) -> list[str]:
+    """Of the requested companies, the ones with no 'ok' enrichment row — exactly
+    those a verdict run would otherwise silently skip. Order follows company_ids."""
+    if not company_ids:
+        return []
+    ph = ",".join("?" for _ in company_ids)
+    have_ok = {
+        r[0]
+        for r in con.execute(
+            f"SELECT company_id FROM enrichment WHERE fetch_status = 'ok' AND company_id IN ({ph})",
+            list(company_ids),
+        ).fetchall()
+    }
+    return [cid for cid in company_ids if cid not in have_ok]
+
+
+def _autoenrich_for_score(state, db_con, company_ids, workers, emit) -> None:  # noqa: ANN001
+    """Fetch any requested company that lacks an 'ok' about-page before scoring, so
+    a never-enriched company scores in one click. Best-effort: a company with no
+    domain (or a site that still won't fetch) just stays unscored, same as before."""
+    need = _needs_ok_enrichment(db_con, company_ids)
+    if not need:
+        return
+    emit(f"auto-enrich: {len(need)} of {len(company_ids)} not enriched yet — fetching first")
+    e = enrich_pkg.Enricher(
+        con=db_con,
+        progress=emit,
+        company_ids=need,
+        workers=_workers_or(workers, 8),
+    )
+    # Mirror the enrich stage: a present key turns on the fact-extraction pass so
+    # the verdict sees filled-in headcount/stage; absent, enrichment stays mechanical.
+    if state.ensure_anthropic_key(db_con) != "":
+        e.llm = state.anthropic
+    e.run(force=True)
 
 
 # --- /api/jobs/{id}/stream (SSE) + /cancel -----------------------------------
