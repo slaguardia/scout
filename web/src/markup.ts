@@ -8,6 +8,7 @@ export const SCOUT_MARKUP = `
 <aside class="sidebar">
   <div class="sidebar-brand"><div class="brand">scout</div></div>
   <div class="block" id="block-view">
+    <h3>Tabs</h3>
     <div class="view-switch" title="switch the main area">
       <button class="tab active" id="tab-companies" title="companies" aria-label="companies">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="2.5" width="10" height="11.5" rx="1"/><path d="M6 5.5h1M9 5.5h1M6 8h1M9 8h1M6 10.5h1M9 10.5h1"/></svg>
@@ -25,50 +26,30 @@ export const SCOUT_MARKUP = `
     </div>
   </div>
 
-  <!-- Add data: get companies/jobs into scout (manual or CSV). Separate from
-       Run below, which is the pipeline acting on data already here. -->
-  <div class="block" id="block-add">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-      Add data
-      <button class="help-btn" id="help-add" title="what do these do?" aria-label="about Add data">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.9.5-.9 1.1v.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>
-      </button>
-    </h3>
-    <div class="run-btns">
-      <button class="run-btn" id="btn-ingest">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
-        <span class="grow">Ingest CSV</span>
-      </button>
-      <button class="run-btn" id="btn-add" title="add a company or a job from its link — optionally let an agent pass fill in the blanks">
+  <!-- Actions: things you DO to the data (vs the Tabs above, which are views).
+       Each opens its own modal — Add (company/job + CSV import), and Enrich /
+       Verdict open a confirm modal before the bulk run. Same nav-row look as the
+       tabs; Enrich/Verdict are companies-only (gated in setView). -->
+  <div class="block" id="block-actions">
+    <h3>Actions</h3>
+    <div class="view-switch">
+      <button class="navrow" id="btn-add" title="add a company or job from a link — or bulk-import a CSV">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
-        <span class="grow">Add</span>
+        <span class="tab-label">Add</span>
       </button>
-    </div>
-    <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
-  </div>
-
-  <div class="block" id="block-run">
-    <h3>
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l9 5-9 5z"/></svg>
-      Run
-      <button class="help-btn" id="help-run" title="what do these do?" aria-label="about Run">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.8 1.8 0 1 1 2.5 1.7c-.5.2-.9.5-.9 1.1v.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>
-      </button>
-    </h3>
-    <div class="run-btns">
-      <button class="run-btn" id="btn-enrich">
+      <button class="navrow" id="btn-enrich" title="fetch + summarize each company's pages">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/></svg>
-        <span class="grow">Enrich</span>
+        <span class="tab-label">Enrich</span>
       </button>
-      <button class="run-btn" id="btn-verdict">
+      <button class="navrow" id="btn-verdict" title="score each enriched company against your criteria">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l3 3 7-7"/></svg>
-        <span class="grow">Verdict</span>
+        <span class="tab-label">Verdict</span>
       </button>
     </div>
     <div class="run-busy" id="run-busy" style="display:none">
       <span class="spinner"></span><span id="run-busy-label">running…</span>
     </div>
+    <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none">
   </div>
 
   <!-- Each view owns its filter block — separate search text and separate
@@ -423,7 +404,8 @@ export const SCOUT_MARKUP = `
       <h2 id="run-title">Run</h2>
     </div>
     <div class="modal-body">
-      <p id="run-desc" style="margin:0 0 12px;font-size:13px;color:var(--fg-mute);line-height:1.5"></p>
+      <p id="run-desc" style="margin:0 0 6px;font-size:13px;color:var(--fg-mute);line-height:1.5"></p>
+      <a class="help-link" id="run-learn" style="margin-bottom:12px">Learn more →</a>
       <div class="run-warn" id="run-warn" style="display:none">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13.5h13z"/><path d="M8 6.5v3.5M8 12v.3"/></svg>
         <span id="run-warn-text"></span>
@@ -543,19 +525,6 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
-<!-- section help — what each button does, with links into the docs overlay -->
-<div class="modal-scrim" id="help-scrim">
-  <div class="modal" style="width:440px">
-    <div class="modal-head">
-      <h2 id="help-title">About</h2>
-    </div>
-    <div class="modal-body" id="help-items"></div>
-    <div class="modal-foot">
-      <button class="btn" id="help-close">Close</button>
-    </div>
-  </div>
-</div>
-
 <!-- add-company modal (manual single-company import) -->
 <!-- the Add dialog: company or job, link first; everything else is optional —
      the link-capture agent pass fills the blanks when the box is ticked -->
@@ -610,6 +579,10 @@ export const SCOUT_MARKUP = `
           <input class="input" id="add-vertical-filter" placeholder="filter verticals…" autocomplete="off">
           <div class="vchips" id="add-vertical-chips"></div>
         </div>
+        <button type="button" class="add-csv-btn" id="add-csv" title="upload a CSV export (e.g. Crunchbase) to create many companies at once">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2m0 0L5 5m3-3l3 3M3 13h10"/></svg>
+          <span>Bulk-import companies from a CSV</span>
+        </button>
       </div>
       <label class="enrich-row" id="add-enrich-row">
         <input type="checkbox" id="add-enrich" checked>
@@ -620,6 +593,7 @@ export const SCOUT_MARKUP = `
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 11v.5" stroke-linecap="round"/></svg>
         <span id="add-note"></span>
       </div>
+      <a class="help-link" id="add-learn" style="display:inline-block;margin-top:8px">How adding works →</a>
     </div>
     <div class="modal-foot">
       <button class="btn" id="add-cancel">Cancel</button>

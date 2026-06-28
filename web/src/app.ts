@@ -152,14 +152,14 @@ function setView(v, { render = true } = {}) {
   document.getElementById("open-settings").classList.toggle("is-active", v === "settings");
   const dbtn = document.getElementById("open-docs");
   if (dbtn) dbtn.classList.toggle("is-active", v === "docs");
-  // Run (enrich/verdict) is a companies-only pipeline — hide it off the companies
-  // view so it never reads as actionable on the jobs/inbox/settings/docs pages.
-  const brun = document.getElementById("block-run");
-  if (brun) brun.style.display = v === "companies" ? "" : "none";
-  // Ingest CSV is a companies-only bulk add (it upserts company rows); hide it off
-  // the companies view. The Add button stays — it covers both companies and jobs.
-  const bing = document.getElementById("btn-ingest");
-  if (bing) bing.style.display = v === "companies" ? "" : "none";
+  // Enrich + Verdict are a companies-only pipeline — hide those two action rows
+  // off the companies view so they never read as actionable on jobs/inbox/etc.
+  // Add stays everywhere (it covers both companies and jobs; CSV import lives in
+  // its modal and is companies-only there).
+  for (const id of ["btn-enrich", "btn-verdict"]) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = v === "companies" ? "" : "none";
+  }
   // Filter + Columns blocks are table-only — they hide on the non-table views.
   const tableView = v === "companies" || v === "jobs";
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
@@ -3450,7 +3450,7 @@ async function loadMeta() {
   } catch { return; }
   // Gate buttons.
   const ctl = state.meta.control;
-  document.getElementById("btn-ingest").disabled = !ctl;
+  document.getElementById("add-csv").disabled = !ctl;   // CSV import lives in the Add modal now
   document.getElementById("btn-enrich").disabled = !ctl;
   const vb = document.getElementById("btn-verdict");
   vb.disabled = !ctl || !state.meta.verdict;
@@ -3479,7 +3479,6 @@ async function loadRuns() {
   } else {
     busyEl.style.display = "none";
   }
-  document.getElementById("btn-ingest").classList.toggle("busy", busy === "ingest");
   document.getElementById("btn-enrich").classList.toggle("busy", busy === "enrich");
   document.getElementById("btn-verdict").classList.toggle("busy", busy === "verdict");
 }
@@ -4276,7 +4275,6 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("profile-scrim").classList.contains("open")) { closeProfileModal(); return; }
   if (document.getElementById("add-scrim").classList.contains("open")) { closeAdd(); return; }
   if (document.getElementById("run-scrim").classList.contains("open")) { closeRunConfirm(); return; }
-  if (document.getElementById("help-scrim").classList.contains("open")) { closeHelp(); return; }
   // The relink modal sits on top of the pursuit panel — peel it before the panes.
   if (document.getElementById("relink-scrim").classList.contains("open")) { closeRelinkModal(); return; }
   // The delete-company confirm sits on top of the company pane — peel it first.
@@ -4353,68 +4351,16 @@ document.getElementById("run-go").onclick = () => {
   if (workers > 0) opts.workers = workers;
   startRun(stage, opts);
 };
-document.getElementById("btn-ingest").onclick = () => document.getElementById("csv-file").click();
 document.getElementById("btn-add").onclick = openAdd;
-
-// section help — a "?" per sidebar section opens a short explainer of its
-// buttons, each with a "Learn more" link into the docs overlay.
-const helpContent = {
-  add: {
-    title: "Add data",
-    intro: "Two ways to get companies and jobs into scout.",
-    items: [
-      { name: "Ingest CSV", sec: "ingest",
-        desc: "Bulk-import companies from a CSV export (e.g. Crunchbase). Columns are mapped to company fields and new rows are created." },
-      { name: "Add", sec: "ingest",
-        desc: "Add one company or job from its link. Tick “fill in the blanks” to let an ATS API (ashby/greenhouse/lever) or one cheap agent pass complete the details." },
-    ],
-  },
-  run: {
-    title: "Run the pipeline",
-    intro: "Enrich must run before Verdict — verdict only scores companies that already have a successful enrichment row.",
-    items: [
-      { name: "Enrich", sec: "enrich",
-        desc: "Fetches and summarizes each company's web presence into an enrichment row. A prerequisite for Verdict." },
-      { name: "Verdict", sec: "verdict",
-        desc: "Scores each enriched company against your criteria with the LLM, producing a yes / maybe / no with reasoning." },
-    ],
-  },
+// CSV bulk-import lives inside the Add modal now — its button opens the file picker.
+document.getElementById("add-csv").onclick = () => document.getElementById("csv-file").click();
+// Per-modal help: a "Learn more" link in each action modal jumps into the docs
+// overlay at the relevant section (replaces the old sidebar "?" popovers).
+document.getElementById("add-learn").onclick = () => { closeAdd(); setView("docs"); goToDocSection("ingest"); };
+document.getElementById("run-learn").onclick = () => {
+  const s = pendingStage; closeRunConfirm(); setView("docs"); goToDocSection(s || "enrich");
 };
-function openHelp(key) {
-  const c = helpContent[key];
-  if (!c) return;
-  document.getElementById("help-title").textContent = c.title;
-  const wrap = document.getElementById("help-items");
-  wrap.innerHTML = "";
-  if (c.intro) {
-    const p = document.createElement("p");
-    p.className = "help-intro";
-    p.textContent = c.intro;
-    wrap.appendChild(p);
-  }
-  c.items.forEach(it => {
-    const row = document.createElement("div");
-    row.className = "help-item";
-    const name = document.createElement("div");
-    name.className = "help-item-name";
-    name.textContent = it.name;
-    const desc = document.createElement("div");
-    desc.className = "help-item-desc";
-    desc.textContent = it.desc;
-    const link = document.createElement("a");
-    link.className = "help-link";
-    link.textContent = "Learn more →";
-    link.onclick = () => { closeHelp(); setView("docs"); goToDocSection(it.sec); };
-    row.appendChild(name); row.appendChild(desc); row.appendChild(link);
-    wrap.appendChild(row);
-  });
-  document.getElementById("help-scrim").classList.add("open");
-}
-function closeHelp() { document.getElementById("help-scrim").classList.remove("open"); }
-document.getElementById("help-add").onclick = () => openHelp("add");
-document.getElementById("help-run").onclick = () => openHelp("run");
-document.getElementById("help-close").onclick = closeHelp;
-document.getElementById("help-scrim").onclick = e => { if (e.target.id === "help-scrim") closeHelp(); };
+
 document.getElementById("add-cancel").onclick = closeAdd;
 document.getElementById("add-save").onclick = submitAdd;
 document.getElementById("add-scrim").onclick = e => { if (e.target.id === "add-scrim") closeAdd(); };
@@ -4438,7 +4384,7 @@ document.getElementById("add-headcount").addEventListener("input", e => {
 });
 document.getElementById("csv-file").onchange = e => {
   const f = e.target.files && e.target.files[0];
-  if (f) uploadCSV(f);
+  if (f) { closeAdd(); uploadCSV(f); }   // close the Add modal once a CSV is chosen
   e.target.value = ""; // allow re-selecting the same file
 };
 document.getElementById("drawer-cancel").onclick = cancelActiveJob;
