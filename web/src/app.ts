@@ -3751,8 +3751,56 @@ function populateVertDatalist() {
 function pfBlank() {
   return { location: { allowed: [], remote_ok: true }, headcount: { min: 0, max: 0 }, verticals: { allowed: [], excluded: [] }, funding_stage: { allowed: [] } };
 }
+// The pre-filter structured form, rendered inline on the Job-hunting settings page
+// (no modal). The pf* helpers fill it (chips/stages/datalist) and read it on Save.
+function prefilterFormHTML() {
+  return `<div class="set-field pf-inline">
+    <div class="set-field-label">Pre-filter</div>
+    <div class="set-field-desc">A cheap, no-LLM gate that runs <strong>before</strong> a bulk verdict run, so the paid model only scores companies worth a closer look. It only narrows <strong>bulk</strong> runs — re-scoring one company by hand always runs the LLM — and never deletes, hides, or stops fetching anything.</div>
+    <label class="pf-master">
+      <input type="checkbox" id="pf-enabled" />
+      <span class="pf-master-text">
+        <strong>Run the pre-filter on bulk runs</strong>
+        <span class="pf-master-sub">Off → a bulk run scores every company (the rules below are kept either way).</span>
+      </span>
+    </label>
+    <section class="pf-sec">
+      <h3 class="pf-h">Location</h3>
+      <p class="pf-help">A company passes if its location contains any of these. Add cities, regions, or "remote".</p>
+      <div class="pf-chips" data-field="location.allowed"></div>
+      <label class="pf-check"><input type="checkbox" id="pf-remote-ok" /><span>Also pass companies with no location listed, or marked remote.</span></label>
+    </section>
+    <section class="pf-sec">
+      <h3 class="pf-h">Headcount</h3>
+      <p class="pf-help">Pass only companies within this size range. Set a bound to <strong>0</strong> for no limit; companies with no headcount data always pass.</p>
+      <div class="pf-range"><label>min <input type="number" id="pf-hc-min" class="input" min="0" step="1" /></label><span class="pf-range-dash">–</span><label>max <input type="number" id="pf-hc-max" class="input" min="0" step="1" /></label></div>
+    </section>
+    <section class="pf-sec">
+      <h3 class="pf-h">Industry / vertical</h3>
+      <p class="pf-help">Matches whole category tags from your data. Start typing to pick a tag.</p>
+      <div class="pf-sublabel">Exclude these tags</div>
+      <div class="pf-chips" data-field="verticals.excluded"></div>
+      <div class="pf-sublabel">Allow only these <span class="pf-sublabel-note">(leave empty to allow all)</span></div>
+      <div class="pf-chips" data-field="verticals.allowed"></div>
+      <datalist id="pf-vertical-tags"></datalist>
+    </section>
+    <section class="pf-sec">
+      <h3 class="pf-h">Funding stage</h3>
+      <p class="pf-help">If you pick any, only companies at those stages pass. Leave all unselected to allow every stage.</p>
+      <div class="pf-stages" id="pf-stages"></div>
+    </section>
+    <div class="set-field-foot">
+      <button class="btn btn-primary" id="pf-save">Save pre-filter</button>
+      <button class="btn" id="pf-reset" title="discard your edits and restore the built-in default rules">Reset to default</button>
+    </div>
+  </div>`;
+}
+
 async function openPrefilter(useDefault = false) {
-  document.getElementById("prefilter-scrim").classList.add("open");
+  // Loads the rules into the inline pre-filter form (on the Job-hunting settings
+  // page). useDefault loads the built-in defaults (the Reset button). No-op when
+  // the form isn't on screen.
+  if (!document.getElementById("pf-enabled")) return;
   try {
     // Rules + the option vocabularies (the latter cached after first load).
     const [d, opts] = await Promise.all([
@@ -3775,10 +3823,6 @@ async function openPrefilter(useDefault = false) {
     renderPfStages();
   } catch (e) { toast(`failed to load pre-filter: ${e.message}`); }
 }
-function closePrefilter() {
-  document.getElementById("prefilter-scrim").classList.remove("open");
-  pfRules = null;
-}
 async function savePrefilter() {
   if (!pfRules) return;
   pfRules.location.remote_ok = (document.getElementById("pf-remote-ok") as HTMLInputElement).checked;
@@ -3799,8 +3843,7 @@ async function savePrefilter() {
   } catch (e) { toast(`save failed: ${e.message}`); return; }
   if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
   toast("pre-filter saved");
-  closePrefilter();
-  loadStats(); // refresh the criteria card's active/disabled note
+  loadStats(); // refresh the active/disabled status note
 }
 
 // ---- control surface: outreach knowledge (read-only) ----
@@ -4031,7 +4074,6 @@ document.addEventListener("keydown", e => {
   }
   if (document.getElementById("key-scrim").classList.contains("open")) { closeKeyModal(); return; }
   if (document.getElementById("sources-scrim").classList.contains("open")) { closeSourcesModal(); return; }
-  if (document.getElementById("prefilter-scrim").classList.contains("open")) { closePrefilter(); return; }
   if (document.getElementById("editor-scrim").classList.contains("open")) { closeEditor(); return; }
   if (document.getElementById("gmail-config-scrim").classList.contains("open")) { closeGmailConfig(); return; }
 });
@@ -4198,12 +4240,10 @@ document.getElementById("sources-scrim").onclick = e => {
 };
 
 // pre-filter form modal: buttons + delegated chip interactions (chips re-render,
-// so add/remove are delegated on the scrim rather than bound per element).
-document.getElementById("pf-cancel").onclick = closePrefilter;
-document.getElementById("pf-save").onclick = savePrefilter;
-document.getElementById("pf-reset").onclick = () => openPrefilter(true);
-document.getElementById("prefilter-scrim").addEventListener("click", (e: any) => {
-  if (e.target.id === "prefilter-scrim") { closePrefilter(); return; }
+// chips re-render, so add/remove/toggle are delegated on document — the pre-filter
+// form is now rendered inline on the Job-hunting settings page (Save/Reset are
+// wired per render in renderJobHuntingSettings).
+document.addEventListener("click", (e: any) => {
   const stage = e.target.closest(".pf-stage");
   if (stage) { pfToggleStage(stage.dataset.stage); return; }
   const x = e.target.closest(".pf-chip-x");
@@ -4211,7 +4251,7 @@ document.getElementById("prefilter-scrim").addEventListener("click", (e: any) =>
   const chips = e.target.closest(".pf-chips"); // click bare chip area → focus its input
   if (chips && e.target === chips) (chips.querySelector(".pf-chip-input") as HTMLInputElement)?.focus();
 });
-document.getElementById("prefilter-scrim").addEventListener("keydown", (e: any) => {
+document.addEventListener("keydown", (e: any) => {
   const inp = e.target.closest(".pf-chip-input");
   if (!inp) return;
   if (e.key === "Enter" || e.key === ",") { e.preventDefault(); pfAddChip(inp.dataset.field, inp.value); }
@@ -4521,19 +4561,17 @@ function renderJobHuntingSettings(c) {
   } else {
     briefBlock = settingsTextFieldHTML("taste", "Taste (local fallback)", "Local fallback criteria used when the brain is unreachable.", 12, false);
   }
-  const pfOn = !state.stats || state.stats.taste_filter_enabled !== false;
   c.innerHTML = briefBlock +
     settingsTextFieldHTML("playbook", "Playbook", "How scout judges — the reasoning rules behind every verdict.", 12, false) +
-    `<div class="set-field">
-      <div class="set-field-label">Pre-filter</div>
-      <div class="set-field-desc">A mechanical gate before the paid LLM — location, headcount, vertical, stage. ${pfOn ? "Active." : "Disabled — scoring everything."}</div>
-      <div class="set-field-foot"><button class="btn" id="open-prefilter-btn">Edit pre-filter rules…</button></div>
-    </div>`;
+    prefilterFormHTML();
   wireTextFields(c);
   const rb = c.querySelector("#brief-refresh");
   if (rb) rb.addEventListener("click", refreshProfile);
-  const pb = c.querySelector("#open-prefilter-btn");
-  if (pb) pb.addEventListener("click", () => openPrefilter());
+  openPrefilter();  // populate the inline pre-filter form (chips/stages/toggles)
+  const ps = c.querySelector("#pf-save");
+  if (ps) ps.addEventListener("click", savePrefilter);
+  const pr = c.querySelector("#pf-reset");
+  if (pr) pr.addEventListener("click", () => openPrefilter(true));
 }
 
 function renderIntegrationsSettings(c) {
