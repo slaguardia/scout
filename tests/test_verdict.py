@@ -113,7 +113,17 @@ def test_build_user_prompt_omits_blanks():
     assert "Company: Acme\n" in up
     assert "Domain: acme.com\n" in up
     assert "Headcount:" not in up  # 0 omitted
+    # A blank funding stage is stated explicitly (not omitted) so a weak model
+    # can't fabricate a round from a valuation in the website text.
+    assert "Funding stage: unknown" in up and "do NOT infer" in up
     assert up.endswith("Return the JSON verdict now.")
+
+
+def test_build_user_prompt_keeps_known_stage():
+    c = verdicts.VerdictCandidate(name="Acme", stage="Series B")
+    up = build_user_prompt(c)
+    assert "Funding stage: Series B\n" in up
+    assert "unknown" not in up
 
 
 # --- end-to-end Scorer.run ---

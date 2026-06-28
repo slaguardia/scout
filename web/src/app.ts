@@ -5321,7 +5321,11 @@ function chatBlockText(content) {
   return (content || []).filter(b => b && b.type === "text").map(b => b.text || "").join("");
 }
 function chatBlockTools(content) {
-  return (content || []).filter(b => b && b.type === "tool_use").map(b => b.name);
+  // tool_use → the custom tool's name; server_tool_use → the hosted web_search
+  // (shown as "web search") so web calls leave a visible footnote on the turn.
+  return (content || [])
+    .filter(b => b && (b.type === "tool_use" || b.type === "server_tool_use"))
+    .map(b => b.type === "server_tool_use" ? "web search" : b.name);
 }
 
 // Minimal markdown → safe HTML for assistant bubbles. Escapes first, then
@@ -5482,10 +5486,18 @@ async function sendChat() {
   const asst = chatBubbleEl("assistant", "");
   asst.classList.add("chat-streaming");
   host.appendChild(asst);
+  // Transient status line: shows the latest tool/web-search activity while the
+  // turn streams, then is removed when the turn ends (the canonical reload shows
+  // the persistent "· used X" chips).
+  const activity = document.createElement("div");
+  activity.className = "chat-activity";
+  activity.style.display = "none";
+  host.appendChild(activity);
+  const clearActivity = () => { activity.remove(); };
   chatScrollBottom();
 
   let acc = "";
-  const fail = (msg) => { asst.classList.remove("chat-streaming"); asst.textContent = "⚠ " + msg; chatSetSending(false); };
+  const fail = (msg) => { clearActivity(); asst.classList.remove("chat-streaming"); asst.textContent = "⚠ " + msg; chatSetSending(false); };
 
   const threadId = state.chat.threadId;
   let resp;
@@ -5506,9 +5518,15 @@ async function sendChat() {
     asst.textContent = acc;
     chatScrollBottom();
   });
+  es.addEventListener("activity", (e) => {
+    activity.style.display = "";
+    activity.textContent = "· " + e.data + "…";
+    chatScrollBottom();
+  });
   es.addEventListener("end", async (e) => {
     es.close();
     if (state.chat.es === es) state.chat.es = null;
+    clearActivity();
     asst.classList.remove("chat-streaming");
     chatSetSending(false);
     if (state.chat.threadId === threadId) await reloadChat();
@@ -5518,6 +5536,7 @@ async function sendChat() {
   es.onerror = () => {
     es.close();
     if (state.chat.es === es) state.chat.es = null;
+    clearActivity();
     asst.classList.remove("chat-streaming");
     chatSetSending(false);
   };

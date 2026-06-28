@@ -49,16 +49,16 @@ def test_build_raw_plain_when_no_markdown_link():
 
 
 def test_build_raw_markdown_link_becomes_multipart_html():
-    body = "Thanks,\nSteven\n[stevenlaguardia.me](https://stevenlaguardia.me)"
+    body = "Thanks,\nAlex\n[example.com](https://example.com)"
     raw, _ = message.build_raw("me@gmail.com", "you@acme.com", "Hi", body)
     msg = _parse(raw)
     assert msg.is_multipart()
     types = {p.get_content_type() for p in msg.walk()}
     assert {"text/plain", "text/html"} <= types
     # HTML part: the label is a real anchor over the hidden https:// target.
-    assert '<a href="https://stevenlaguardia.me">stevenlaguardia.me</a>' in _part(msg, "text/html")
+    assert '<a href="https://example.com">example.com</a>' in _part(msg, "text/html")
     # Plain fallback: still carries the URL for text-only clients.
-    assert "stevenlaguardia.me (https://stevenlaguardia.me)" in _part(msg, "text/plain")
+    assert "example.com (https://example.com)" in _part(msg, "text/plain")
 
 
 def test_build_raw_html_escapes_body_text():

@@ -50,7 +50,11 @@ exclusion: check the exclusions first, and if one fires, stop there.
 ## Writing the reason
 
 - Be **specific** — name the vertical, stage, or trait that drove the call.
-- Good: "AI infra for ML teams, Series B, ~120 people, building."
+  Only state a fact (stage, headcount, valuation) when it is actually in the
+  input. If the funding-stage field is blank, say nothing about the stage —
+  do **not** infer a round from a valuation, headcount, or marketing copy.
+- Good: "AI infra for ML teams, Series B, ~120 people, building." (stage given)
+- Good: "RCM + ambient-AI for health systems; $7B valuation (stage unknown)."
 - Good: "crypto exchange (excluded vertical)."
 - Bad: "matches taste" / "good fit" / "not a fit" — these say nothing.
 - One line. No hedging preamble.
@@ -66,5 +70,8 @@ and reference it.
 ## Things you must never do
 
 - Never invent facts about the company that aren't in the provided input.
+  In particular, never infer a **funding round** (Seed/Series A/B/…) from a
+  valuation, a raise amount, or headcount — a high valuation does not imply an
+  early round. State the stage only when the funding-stage field gives it.
 - Never output anything but the required JSON object.
 - Never soften a hard exclusion because the marketing copy is compelling.

@@ -129,10 +129,10 @@
   }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
-  aside.sidebar .block { padding: 18px 0; }
+  aside.sidebar .block { padding: 12px 0; }
   aside.sidebar .block + .block { border-top: 1px solid var(--line); }
   aside.sidebar h3 {
-    margin: 0 0 12px;
+    margin: 0 0 8px;
     font-size: 10.5px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--fg-dim);
@@ -2409,6 +2409,11 @@
 
   .chat-tools {
     margin-top: 6px; font-size: 11px; color: var(--fg-dim);
+  }
+  /* live tool/web-search status while a turn streams (removed when it ends) */
+  .chat-activity {
+    margin: 2px 0 6px; font-size: 12px; font-style: italic;
+    color: var(--fg-dim); opacity: 0.85;
   }
   /* a blinking caret while the assistant turn streams */
   .chat-assistant.chat-streaming::after {

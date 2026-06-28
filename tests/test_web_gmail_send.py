@@ -28,9 +28,9 @@ def _seed(db_path, *, with_subject=True, email="recruiter@acme.com", connect=Tru
     c = contacts.create_contact(con, cid, ContactInput(name="Pat", role="Recruiter", email=email))
     d = outreach_drafts.create_outreach_draft(con, p.id)
     text = (
-        "Subject: Pat | Steven — intro re Software Engineer\n\nHi Pat,\n\nbody here.\n\nThanks,\nSteven"
+        "Subject: Pat | Alex — intro re Software Engineer\n\nHi Pat,\n\nbody here.\n\nThanks,\nAlex"
         if with_subject
-        else "Hi Pat,\n\nbody here.\n\nThanks,\nSteven"
+        else "Hi Pat,\n\nbody here.\n\nThanks,\nAlex"
     )
     outreach_drafts.set_outreach_draft_result(
         con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "", "", text, "[]", "[]", "", ""
@@ -76,7 +76,7 @@ def test_send_happy_path(tmp_path, monkeypatch):
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["sent"] is True and j["gmail_message_id"] == "sentmsg1" and j["thread_id"] == "thr1"
-    assert j["subject"].startswith("Pat | Steven")  # from the draft's Subject line
+    assert j["subject"].startswith("Pat | Alex")  # from the draft's Subject line
 
     mime = base64.urlsafe_b64decode(captured["send"]["raw"]).decode()
     assert "To: recruiter@acme.com" in mime and "From: me@gmail.com" in mime
@@ -132,8 +132,8 @@ def test_send_fills_recipient_placeholder(tmp_path, monkeypatch):
         )
         d = outreach_drafts.create_outreach_draft(con, p.id)
         text = (
-            "Subject: [Recipient] | Steven — intro re Software Engineer\n\n"
-            "Hi [Recipient],\n\nbody.\n\nThanks,\nSteven"
+            "Subject: [Recipient] | Alex — intro re Software Engineer\n\n"
+            "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex"
         )
         outreach_drafts.set_outreach_draft_result(
             con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "", "", text, "[]", "[]", "", ""
@@ -143,7 +143,7 @@ def test_send_fills_recipient_placeholder(tmp_path, monkeypatch):
         r = client.post(f"/api/outreach/drafts/{d.id}/send-gmail", json={"contact_id": c.id})
 
     assert r.status_code == 200, r.text
-    assert r.json()["subject"].startswith("Sarah | Steven")  # first name in the subject
+    assert r.json()["subject"].startswith("Sarah | Alex")  # first name in the subject
     mime = base64.urlsafe_b64decode(captured["send"]["raw"]).decode()
     body = mime.split("\n\n", 1)[1]
     assert "Hi Sarah," in body
