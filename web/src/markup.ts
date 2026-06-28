@@ -540,7 +540,7 @@ export const SCOUT_MARKUP = `
     <div class="modal-body">
       <div class="subtabs" id="add-cmode" style="display:none">
         <button type="button" class="subtab is-on" data-cmode="single">One company</button>
-        <button type="button" class="subtab" data-cmode="csv">CSV</button>
+        <button type="button" class="subtab" data-cmode="csv">Bulk add</button>
       </div>
       <div class="form-field" id="add-url-field">
         <label for="add-url" id="add-url-label">Website<span class="req">*</span></label>

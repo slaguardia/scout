@@ -1491,6 +1491,10 @@
   .modal-scrim.open { opacity: 1; pointer-events: auto; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
   /* Settings is a base modal: editors/viewers opened from it (z 70) stack above. */
   #settings-scrim { z-index: 68; }
+  /* The Add modal's height varies a lot between its "One company" and "Bulk add"
+     subtabs. Anchor it near the top (instead of vertically centering) so switching
+     tabs only moves the bottom edge — the header + tabs stay put, no re-center jump. */
+  #add-scrim { align-items: flex-start; padding-top: 8vh; }
 
   /* relink search modal — move a job to a different existing company */
   #relink-search { margin-bottom: 10px; font-family: inherit; }
@@ -1658,7 +1662,8 @@
   #add-learn { display: inline-block; margin-top: 8px; }
   /* CSV bulk import — the "CSV" sub-tab's whole panel is one dashed drop target. */
   .add-csv-drop {
-    display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; width: 100%; min-height: 320px;
     padding: 28px 16px; text-align: center;
     background: transparent; color: var(--fg-mute);
     border: 1.5px dashed var(--line-2); border-radius: var(--r-md);
