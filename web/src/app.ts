@@ -1361,8 +1361,7 @@ function renderPursuit() {
     `<input class="ie ie-title" id="pursuit-title-input" placeholder="role name" value="${escapeHTML(j.title || "")}">`;
   const stage = j.application_status || "";
   document.getElementById("pursuit-pills").innerHTML =
-    `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>` +
-    (j.verdict ? ` <span class="${pillClass(j.verdict)}">${escapeHTML(j.verdict)}</span>` : "");
+    `<span class="pill ${stage ? (stageColorClass(stage) || "pill-stage") : "pill-none"}">${escapeHTML(stage || "—")}</span>`;
   const pursuitChat = document.getElementById("pursuit-chat");
   if (pursuitChat) {
     pursuitChat.style.display = state.meta && state.meta.chat ? "" : "none";
@@ -1495,6 +1494,7 @@ function roleEditHTML(j) {
       <span class="role-company-wrap">
         <button type="button" class="role-company role-company-link" id="pursuit-company-link"
                 title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        ${j.verdict ? `<span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span>` : ""}
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
                 title="move this job to a different company">change</button>
       </span>
