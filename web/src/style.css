@@ -2007,6 +2007,7 @@
   .settings-content { overflow-y: auto; padding: 26px 34px 70px; }
   .set-field { max-width: 720px; margin-bottom: 28px; }
   .set-field-label { font-size: 14px; font-weight: 600; color: var(--fg); display: flex; align-items: center; gap: 10px; }
+  .set-status { display: inline-flex; align-items: center; font-size: 12px; font-weight: 500; color: var(--fg-mute); }
   .set-field-desc { margin-top: 3px; font-size: 12px; color: var(--fg-mute); line-height: 1.5; }
   .set-textarea {
     margin-top: 9px; width: 100%; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5;

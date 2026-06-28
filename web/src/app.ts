@@ -2316,8 +2316,10 @@ async function sendDraftViaGmail(id, contactId, btn?: HTMLButtonElement) {
     });
   } catch (e) { toast(`send failed: ${e.message}`); restore(); return; }
   if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`send failed: ${txt || "HTTP " + resp.status}`);
+    const raw = (await resp.text().catch(() => "")).trim();
+    let msg = raw || "HTTP " + resp.status;
+    try { const j = JSON.parse(raw); if (j && j.error) msg = j.error; } catch { /* not json */ }
+    toast(`send failed: ${msg}`);
     restore();
     return;
   }
@@ -4605,10 +4607,10 @@ function renderIntegrationsSettings(c) {
   else if (ak.key_source === "env") knote = "Using the ANTHROPIC_API_KEY environment variable.";
   const gm = state.gmail || {};
   const gConnected = !!gm.connected, gConfigured = !!gm.configured;
-  let gstatus;
-  if (gConnected) gstatus = `Connected as ${gm.email || "(unknown)"}.`;
-  else if (gConfigured) gstatus = "Configured — not connected. Click Connect.";
-  else gstatus = "Not set up — paste your Google OAuth client below, then Connect.";
+  const gdot = gConnected ? "ok" : (gConfigured ? "warn" : "off");
+  const gstatusTxt = gConnected
+    ? `Connected as ${escapeHTML(gm.email || "your account")}`
+    : (gConfigured ? "Not connected" : "Not set up");
 
   c.innerHTML = `
     <div class="set-field">
@@ -4621,8 +4623,8 @@ function renderIntegrationsSettings(c) {
       </div>
     </div>
     <div class="set-field">
-      <div class="set-field-label">Gmail</div>
-      <div class="set-field-desc">Send outreach from your Gmail and auto-sync replies + application status. ${escapeHTML(gstatus)}</div>
+      <div class="set-field-label">Gmail <span class="set-status"><span class="pf-dot ${gdot}"></span>${gstatusTxt}</span></div>
+      <div class="set-field-desc">Send outreach from your Gmail and auto-sync replies + application status.</div>
       ${gmailSetupHTML(gm)}
       <div class="set-subfields">
         <label class="set-sub-label" for="set-gm-id">Client ID</label>

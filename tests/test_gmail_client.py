@@ -7,7 +7,7 @@ import pytest
 from httpstub import http_server
 
 from scout.gmail import oauth
-from scout.gmail.client import GmailClient, HistoryExpired
+from scout.gmail.client import GmailClient, GmailError, HistoryExpired
 
 
 def _cfg(base: str) -> oauth.OAuthConfig:
@@ -75,3 +75,25 @@ def test_401_raises_auth_error():
         with GmailClient(_cfg(base), "rt", api_base=base) as gc:
             with pytest.raises(oauth.GmailAuthError):
                 gc.get_profile()
+
+
+def test_403_surfaces_google_message():
+    # The "API not enabled" 403: the GmailError carries Google's human message
+    # (the actionable "Enable it by visiting …" line), not the raw error JSON.
+    body = json.dumps({"error": {"code": 403, "message": "Gmail API has not been "
+                       "used in project 441450104491 before or it is disabled. "
+                       "Enable it by visiting … then retry."}})
+
+    def handle(req):
+        if req.path == "/token":
+            return 200, {"Content-Type": "application/json"}, json.dumps({"access_token": "AT"})
+        return 403, {"Content-Type": "application/json"}, body
+
+    with http_server(handle) as base:
+        with GmailClient(_cfg(base), "rt", api_base=base) as gc:
+            with pytest.raises(GmailError) as ei:
+                gc.get_profile()
+
+    msg = str(ei.value)
+    assert "Enable it by visiting" in msg
+    assert '{"error"' not in msg  # the raw JSON blob is not leaked into the message

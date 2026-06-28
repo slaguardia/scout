@@ -30,6 +30,20 @@ def default_api_base() -> str:
     return os.environ.get("GMAIL_API_BASE") or GMAIL_API_BASE
 
 
+def _google_message(resp: httpx.Response) -> str:
+    """Google's human-readable error string (e.g. 'Gmail API has not been used
+    in project … Enable it by visiting … then retry.'), so callers and the UI
+    show the actionable line instead of the raw error JSON. Falls back to the
+    raw body when the shape isn't the standard {"error": {"message": …}}."""
+    try:
+        msg = resp.json().get("error", {}).get("message")
+        if isinstance(msg, str) and msg:
+            return msg
+    except (ValueError, AttributeError):
+        pass
+    return resp.text
+
+
 class GmailClient:
     """One Gmail account, authenticated by a refresh token. Build one per sync pass
     / send; it refreshes its access token once on first use."""
@@ -91,7 +105,9 @@ class GmailClient:
         if resp.status_code == 401:
             raise oauth.GmailAuthError(f"gmail 401 on {path}: {resp.text}")
         if resp.status_code // 100 != 2:
-            raise GmailError(f"gmail HTTP {resp.status_code} on {path}: {resp.text}")
+            raise GmailError(
+                f"gmail HTTP {resp.status_code} on {path}: {_google_message(resp)}"
+            )
         try:
             return resp.json()
         except ValueError as e:
