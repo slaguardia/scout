@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from starlette.responses import Response
 
 from scout import outreach as outreach_pkg
-from scout.store import errors, outreach_drafts, outreach_sources
+from scout.store import contacts, errors, outreach_drafts, outreach_sources
 
 from ..deps import AppState, get_db, get_state
 from ..responses import json_error, json_response
@@ -199,10 +199,34 @@ def save_draft_edit(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get
 
 
 @router.post("/api/outreach/drafts/{raw_id}/sent")
-def mark_draft_sent(raw_id: str, con=Depends(get_db)) -> Response:
-    """Mark a draft sent (idempotent). 404 unknown."""
+def mark_draft_sent(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Mark a draft sent (idempotent). 404 unknown.
+
+    With a {"contact_id": ...} body, also log the send against that contact —
+    arming its follow-up and seeding the posting's outreach_status — so a send
+    you made by hand is tracked exactly like a Gmail send, minus the live thread
+    link. Without a contact_id it stays a bare status flip (back-compat)."""
     id = _parse_int_id(raw_id)
     if id is None:
         return json_error("not found", 404)
-    d = outreach_drafts.mark_outreach_draft_sent(con, id)
-    return json_response(d)
+    body = decode_json(raw) if raw.strip() else {}
+    contact_id = _s(body, "contact_id").strip()
+    if contact_id:
+        d = outreach_drafts.get_outreach_draft(con, id)
+        if d is None:
+            return json_error("not found", 404)
+        # An already-sent draft was logged on its first mark — don't double-log.
+        if d.status != outreach_drafts.DRAFT_SENT:
+            contact = contacts.get_contact(con, contact_id)
+            recipient = (contact.name or "").strip().split(" ")[0] if contact else ""
+            draft_text = d.edited if d.edited.strip() else d.draft
+            if recipient:
+                draft_text = draft_text.replace("[Recipient]", recipient)
+            try:
+                contacts.log_outreach(
+                    con, d.posting_id, contact_id, contacts.OutreachInput(body=draft_text)
+                )
+            except ValueError as e:
+                return json_error(str(e), 400)
+    out = outreach_drafts.mark_outreach_draft_sent(con, id)
+    return json_response(out)

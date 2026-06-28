@@ -75,6 +75,7 @@ def gmail_status(request: Request, con=Depends(get_db)) -> Response:
             "email": gmail_store.address(con),
             "configured": cfg.configured(),
             "autoflip": gmail_store.autoflip(con),
+            "last_sync_at": gmail_store.last_sync_at(con),  # "" until the first pass
             "client_id": cfg.client_id,  # not secret; lets the UI show/pre-fill it
             "redirect_uri": gmail_store.oauth_redirect_uri(con),
             "config_source": gmail_store.oauth_config_source(con),  # "db" | "env" | ""

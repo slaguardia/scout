@@ -221,6 +221,9 @@ class OutreachEntry:
     note: str = ""
     followup_due_at: str = ""
     followup_done_at: str = ""
+    # Non-empty when the send went out via — or was synced from — Gmail; drives
+    # the "via Gmail" vs "logged manually" provenance badge in the UI.
+    gmail_message_id: str = ""
 
 
 @dataclass
@@ -241,7 +244,8 @@ class OutreachInput:
 # round-trips through _parse_date on a PUT.
 _OUTREACH_LOG_COLS = (
     "id, contact_id, posting_id, COALESCE(date(sent_at), ''), COALESCE(body, ''), "
-    "COALESCE(note, ''), COALESCE(followup_due_at, ''), COALESCE(followup_done_at, '')"
+    "COALESCE(note, ''), COALESCE(followup_due_at, ''), COALESCE(followup_done_at, ''), "
+    "COALESCE(gmail_message_id, '')"
 )
 
 
@@ -255,6 +259,7 @@ def _scan_outreach_entry(row) -> OutreachEntry:
         note=row[5],
         followup_due_at=row[6],
         followup_done_at=row[7],
+        gmail_message_id=row[8],
     )
 
 

@@ -1683,18 +1683,48 @@ function renderFollowupTemplate(contact, latest) {
 // contactsManagerHTML renders the company contacts list with per-contact logging
 // + follow-up controls. The follow-up reminder interval is a global setting,
 // edited in Settings → Outreach, not per-thread.
+// fmtSyncTime turns a stored UTC "YYYY-MM-DD HH:MM:SS" into a friendly relative
+// label ("just now", "3m ago") so the last-synced line reads at a glance.
+function fmtSyncTime(s) {
+  const t = Date.parse(s.replace(" ", "T") + "Z");
+  if (isNaN(t)) return s;
+  const secs = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+// gmailTrackingBarHTML shows, at the top of the contacts panel, whether sends to
+// this company are tracked in Gmail — with a manual "Sync now" + last-synced
+// time so you can pull mailbox state on demand and see it's live.
+function gmailTrackingBarHTML() {
+  const gm = state.gmail || {};
+  if (!gm.connected) {
+    return `<div class="cc-gmailbar cc-gmailbar-off dim">Gmail not connected — sends are logged by hand and replies don't auto-sync. Connect it in Settings → Gmail.</div>`;
+  }
+  const last = gm.last_sync_at ? `synced ${escapeHTML(fmtSyncTime(gm.last_sync_at))}` : "not synced yet";
+  return `<div class="cc-gmailbar">
+    <span class="cc-gmail-on" title="${escapeHTML(gm.email || "")}">↳ Gmail tracking on${gm.email ? ` · ${escapeHTML(gm.email)}` : ""}</span>
+    <span class="cc-gmail-sync dim">${last}</span>
+    <button class="btn btn-sm cc-sync-now" type="button" title="check Gmail now for new replies + sent mail">Sync now</button>
+  </div>`;
+}
+
 function contactsManagerHTML() {
   const j = pursuit.row;
+  const bar = gmailTrackingBarHTML();
   const meta = j.last_outreach_at
     ? `<div class="outreach-meta"><span>last outreach ${escapeHTML(j.last_outreach_at)}</span></div>`
     : "";
   if (!pursuit.contactsLoaded) {
-    return `<div class="contacts-mgr">${meta}<div class="loading-row"><span class="spinner"></span><span>loading contacts…</span></div></div>`;
+    return `<div class="contacts-mgr">${bar}${meta}<div class="loading-row"><span class="spinner"></span><span>loading contacts…</span></div></div>`;
   }
   const cards = pursuit.contacts.map(contactCardHTML).join("");
   const empty = pursuit.contacts.length ? ""
     : `<div class="cc-empty dim">No contacts yet — add the people you're reaching out to at ${escapeHTML(j.company)}.</div>`;
   return `<div class="contacts-mgr">
+    ${bar}
     ${meta}
     <div class="cc-cards">${cards}${empty}</div>
     <div class="cc-addwrap">
@@ -1766,14 +1796,21 @@ function followupStatusHTML(latest) {
 function outreachEntryHTML(e) {
   const fu = e.followup_done_at ? `<span class="fu-done">followed up</span>`
     : e.followup_due_at ? `<span class="fu-mini">↳ follow up ${escapeHTML(e.followup_due_at)}</span>` : "";
+  // Provenance: a send that carries a Gmail message id went out via — or was
+  // synced from — Gmail and is tracked in the mailbox; everything else is a
+  // hand-logged send scout can't watch for replies.
+  const prov = e.gmail_message_id
+    ? `<span class="cc-e-prov prov-gmail" title="sent via Gmail — replies auto-sync">via Gmail ✓</span>`
+    : `<span class="cc-e-prov prov-manual" title="logged by hand — not tracked in Gmail">logged manually</span>`;
   const body = e.body
     ? `<details class="cc-e-body"><summary>email sent</summary><pre>${escapeHTML(e.body)}</pre></details>` : "";
   return `<div class="cc-entry-wrap">
       <div class="cc-entry" data-eid="${e.id}">
         <span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
+        ${prov}
         ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
         ${fu}
-        <button class="cc-e-del" type="button" title="delete this send" aria-label="delete">×</button>
+        <button class="cc-e-del" type="button" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>
       </div>
       ${body}
     </div>`;
@@ -1812,6 +1849,21 @@ function wireContacts() {
   const host = document.getElementById("outreach-section");
   if (!host) return;
   const pid = pursuit.postingId;
+
+  // Sync now: pull Gmail state on demand, refresh the last-synced time + the log
+  // (newly-seen replies/sends show up immediately).
+  const syncBtn = host.querySelector(".cc-sync-now") as HTMLButtonElement | null;
+  if (syncBtn) syncBtn.addEventListener("click", async () => {
+    syncBtn.disabled = true; const t = syncBtn.textContent; syncBtn.textContent = "Syncing…";
+    try {
+      const r = await fetch("/api/gmail/sync", { method: "POST" });
+      if (!r.ok) { toast(`sync failed: ${(await r.text().catch(() => "")).trim() || "HTTP " + r.status}`); return; }
+      await loadGmailState();        // refresh last_sync_at
+      await loadContactsAndLog();    // surface any new replies/sends (re-renders the panel)
+      toast("synced with Gmail");
+    } catch (e) { toast(`sync failed: ${e.message}`); }
+    finally { syncBtn.disabled = false; syncBtn.textContent = t; }
+  });
 
   // Add contact.
   const addwrap = host.querySelector(".cc-addwrap");
@@ -1916,8 +1968,10 @@ function wireContacts() {
     if (fuDismiss) fuDismiss.addEventListener("click", () =>
       putFollowup(fuDismiss.dataset.eid, { followup_due_at: "", done: true }, "escalation dismissed"));
 
-    // Delete a logged send.
+    // Delete a logged send — guarded: this is a destructive hard-delete that
+    // also drops the send's follow-up, so confirm before firing.
     card.querySelectorAll(".cc-e-del").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Delete this logged send? Its follow-up is removed too. This can't be undone.")) return;
       const eid = b.closest(".cc-entry").dataset.eid;
       const r = await contactApi("DELETE", `/api/outreach-log/${eid}`);
       if (r) { toast("send deleted"); refreshAfterContactChange(); }
@@ -1969,21 +2023,28 @@ function outreachProgressHTML(stage) {
 
 // draftCardHTML renders one draft by status. `readonly` collapses history items
 // to a read-only summary (no edit/save controls).
-// gmailSendControlsHTML renders the "Send via Gmail" row on an editable draft —
-// a recipient picker (the posting's emailable contacts) + the send button — only
-// when a Gmail account is connected (M55). The actual subject/body/signature are
-// assembled server-side from the draft + the email template.
-function gmailSendControlsHTML() {
-  if (!(state.gmail && state.gmail.connected)) return "";
+// draftSendControlsHTML renders the send row on an editable draft: one recipient
+// picker (the posting's emailable contacts) shared by both "Send via Gmail" (when
+// connected) and "Mark sent". Both record the send against the chosen contact and
+// arm a follow-up — the only difference is whether Gmail actually delivers it.
+// With no emailable contact, Mark sent falls back to a bare status flip.
+function draftSendControlsHTML() {
+  const connected = !!(state.gmail && state.gmail.connected);
   const cs = (pursuit.contacts || []).filter(c => c.email);
-  if (!cs.length) return `<div class="draft-note dim">Add a contact with an email to send via Gmail.</div>`;
-  const opts = cs.map(c =>
-    `<option value="${c.id}">${escapeHTML(c.name || c.email)}${c.email ? ` &lt;${escapeHTML(c.email)}&gt;` : ""}</option>`
-  ).join("");
-  return `<div class="draft-gmail-row">
-    <select class="input draft-gmail-to" title="recipient" aria-label="recipient">${opts}</select>
-    <button class="btn btn-primary draft-gmail-btn" title="send this email from your Gmail and log it">${ICON_SEND}Send via Gmail</button>
-  </div>`;
+  const picker = cs.length
+    ? `<select class="input draft-recipient" title="recipient" aria-label="recipient">${cs.map(c =>
+        `<option value="${c.id}">${escapeHTML(c.name || c.email)}${c.email ? ` &lt;${escapeHTML(c.email)}&gt;` : ""}</option>`
+      ).join("")}</select>`
+    : "";
+  const gmailBtn = connected && cs.length
+    ? `<button class="btn btn-primary draft-gmail-btn" title="send this email from your Gmail now, log it, and arm a follow-up">${ICON_SEND}Send via Gmail</button>`
+    : "";
+  const markTitle = cs.length
+    ? "I sent this myself — log it to the chosen contact and arm a follow-up"
+    : "mark this draft sent (no contact to log against — add one to track follow-ups)";
+  const markBtn = `<button class="btn draft-sent-btn" title="${markTitle}">${ICON_SEND}Mark sent${cs.length ? " (log it)" : ""}</button>`;
+  const hint = cs.length ? "" : `<div class="draft-note dim">Add a contact with an email to log the send + arm a follow-up.</div>`;
+  return `<div class="draft-gmail-row">${picker}${gmailBtn}${markBtn}</div>${hint}`;
 }
 
 function draftCardHTML(d, readonly) {
@@ -2060,12 +2121,11 @@ function draftCardHTML(d, readonly) {
     ${note}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
+    ${draftSendControlsHTML()}
     <div class="draft-actions">
-      <button class="btn btn-primary draft-sent-btn" title="mark this email sent — bumps the outreach count">${ICON_SEND}Mark sent</button>
       <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">${REFRESH}Regenerate</button>
       <label class="draft-skip-research" title="Regenerate without web research — drops the carried research and writes a plain intro."><input type="checkbox" class="draft-regen-skip"> skip research</label>
-    </div>
-    ${gmailSendControlsHTML()}` : `<div class="draft-actions">
+    </div>` : `<div class="draft-actions">
       <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">${REFRESH}Regenerate</button>
       <label class="draft-skip-research" title="Regenerate without web research — drops the carried research and writes a plain intro."><input type="checkbox" class="draft-regen-skip"> skip research</label>
     </div>`}
@@ -2167,11 +2227,16 @@ function wireOutreach() {
     // The body auto-saves Linear-style: commit on blur/Cmd+Enter, Esc reverts.
     const ta = card.querySelector(".draft-textarea");
     if (ta) wireInlineField(ta, (v) => saveDraftEdit(id, v), { multiline: true });
+    // Both Mark sent and Send via Gmail read the same recipient picker.
+    const recip = () => (card.querySelector(".draft-recipient") as HTMLSelectElement | null);
     const sent = card.querySelector(".draft-sent-btn");
-    if (sent) sent.addEventListener("click", () => markDraftSent(id));
+    if (sent) sent.addEventListener("click", () => {
+      const sel = recip();
+      markDraftSent(id, sel ? sel.value : "");
+    });
     const gsend = card.querySelector(".draft-gmail-btn");
     if (gsend) gsend.addEventListener("click", () => {
-      const sel = card.querySelector(".draft-gmail-to") as HTMLSelectElement | null;
+      const sel = recip();
       sendDraftViaGmail(id, sel ? sel.value : "", gsend as HTMLButtonElement);
     });
     // Copy the email — the live textarea value (unsaved edits included) when the
@@ -2335,21 +2400,31 @@ async function sendDraftViaGmail(id, contactId, btn?: HTMLButtonElement) {
   toast(body.to ? `sent via Gmail to ${body.to}` : "sent via Gmail");
   await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
   await loadJobs();     // the posting's outreach moved server-side
+  await loadContactsAndLog();  // show the new logged send + armed follow-up in the panel
 }
 
-async function markDraftSent(id) {
+// markDraftSent flips a draft to sent. With a contactId it also logs the send
+// against that contact server-side (arming a follow-up) — so a send you made by
+// hand is tracked like a Gmail send. Without one it's a bare status flip.
+async function markDraftSent(id, contactId = "") {
   let resp;
   try {
-    resp = await fetch(`/api/outreach/drafts/${id}/sent`, { method: "POST" });
+    resp = await fetch(`/api/outreach/drafts/${id}/sent`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contact_id: contactId || "" }),
+    });
   } catch (e) { toast(`failed: ${e.message}`); return; }
   if (!resp.ok) {
-    const txt = (await resp.text().catch(() => "")).trim();
-    toast(`failed: ${txt || "HTTP " + resp.status}`);
+    const raw = (await resp.text().catch(() => "")).trim();
+    let msg = raw || "HTTP " + resp.status;
+    try { const j = JSON.parse(raw); if (j && j.error) msg = j.error; } catch { /* not json */ }
+    toast(`failed: ${msg}`);
     return;
   }
-  toast("marked sent");
+  toast(contactId ? "marked sent — follow-up armed" : "marked sent");
   await loadDrafts();   // the draft flips to sent; a new "Draft again" appears
-  await loadJobs();     // the posting's outreach_count/last_outreach moved server-side
+  await loadJobs();     // the posting's outreach moved server-side
+  if (contactId) await loadContactsAndLog();  // show the new logged send + armed follow-up
   const row = state.jobs.find(j => j.posting_id === pursuit.postingId);
   if (row) syncCompanyPosting(row.posting_id, {   // reflect the bump in the pane beneath
     outreach_count: row.outreach_count, last_outreach_at: row.last_outreach_at, next_up: row.next_up,

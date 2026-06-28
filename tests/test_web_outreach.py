@@ -11,7 +11,8 @@ from web_helpers import new_test_app, open_db
 
 from scout import anthropic
 from scout.outreach import Engine, stage_by_key, stages
-from scout.store import outreach_drafts, outreach_template, postings
+from scout.store import contacts, outreach_drafts, outreach_template, postings
+from scout.store.contacts import ContactInput
 from scout.store.db import connect
 from scout.store.outreach_sources import OutreachSource, upsert_outreach_source
 from tests.httpstub import http_server
@@ -137,6 +138,63 @@ def test_outreach_draft_queue(tmp_path, monkeypatch):
 
     # After terminal status a new draft may start.
     assert _post(client, f"/api/postings/{pid}/outreach").status_code == 202
+
+
+def test_mark_sent_with_contact_logs_and_arms(tmp_path, monkeypatch):
+    # Mark-sent with a contact_id logs the send (filling [Recipient]), arms the
+    # follow-up, and seeds outreach_status — so a manual send is tracked like a
+    # Gmail send instead of being a bare status flip.
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    runner = FakeOutreachRunner()
+    client.app.state.scout.outreach = runner
+    pid = _seed_outreach_ready(db_path, cid)
+
+    con = open_db(db_path)
+    d = outreach_drafts.create_outreach_draft(con, pid)
+    outreach_drafts.set_outreach_draft_result(
+        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "",
+        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex", "[]", "", "", "",
+    )
+    c = contacts.create_contact(
+        con, cid, ContactInput(name="Dana Lee", role="Recruiter", email="dana@acme.com")
+    )
+    con.close()
+
+    r = _post(client, f"/api/outreach/drafts/{d.id}/sent", f'{{"contact_id":"{c.id}"}}')
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == outreach_drafts.DRAFT_SENT
+
+    con = open_db(db_path)
+    rows = con.execute(
+        "SELECT contact_id, body, followup_due_at FROM outreach_log WHERE posting_id=?", (pid,)
+    ).fetchall()
+    status = con.execute(
+        "SELECT COALESCE(outreach_status,'') FROM job_postings WHERE id=?", (pid,)
+    ).fetchone()[0]
+    con.close()
+    assert len(rows) == 1
+    assert rows[0][0] == c.id
+    assert "Hi Dana," in rows[0][1]  # [Recipient] -> the contact's first name
+    assert rows[0][2]  # follow-up armed
+    assert status != ""  # outreach_status seeded
+
+
+def test_mark_sent_without_contact_does_not_log(tmp_path, monkeypatch):
+    # Back-compat: no contact_id -> a bare status flip, nothing logged.
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    client.app.state.scout.outreach = FakeOutreachRunner()
+    pid = _seed_outreach_ready(db_path, cid)
+    con = open_db(db_path)
+    d = outreach_drafts.create_outreach_draft(con, pid)
+    outreach_drafts.set_outreach_draft_result(
+        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "", "body", "[]", "", "", "",
+    )
+    con.close()
+    assert _post(client, f"/api/outreach/drafts/{d.id}/sent").status_code == 200
+    con = open_db(db_path)
+    n = con.execute("SELECT COUNT(*) FROM outreach_log WHERE posting_id=?", (pid,)).fetchone()[0]
+    con.close()
+    assert n == 0
 
 
 def test_outreach_start_gates(tmp_path, monkeypatch):
