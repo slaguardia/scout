@@ -11,7 +11,7 @@ import re
 from email.message import EmailMessage
 from email.utils import make_msgid
 
-# Markdown-style inline link: [label](url). Lets the user show "stevenlaguardia.me"
+# Markdown-style inline link: [label](url). Lets the user show "example.com"
 # as the visible text over a hidden https:// target — only expressible in HTML.
 _MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 
