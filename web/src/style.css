@@ -242,14 +242,14 @@
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
 
   /* Collapsible nav labels — shared by the top view tabs (.tab/.active) and the
-     footer buttons (.foot-btn/.is-active). The text choppiness came from the
-     label re-laying-out and re-painting its glyphs every frame as its own box
-     animated (made worse by the row re-centering, which nudged the text by
-     sub-pixels). The fix: the OUTER label is just an animated clip (width 0 ->
-     content), and the text lives in an INNER element laid out ONCE at its full
-     size and promoted to its own compositor layer. So the glyphs rasterize a
-     single time; the clip reveals — and the layer moves — on the GPU, never
-     re-painting. Opacity is composited too, so the fade is free. */
+     footer buttons (.foot-btn/.is-active). The text read choppy because the box
+     un-clipped the glyphs left-to-right, so they appeared a sliver at a time at
+     the clip edge — per-edge repaint. The fix (the technique in the Framer Motion
+     reference): the inner text is laid out ONCE on its own compositor layer and
+     SLID into place as a whole unit via transform (translateX) + opacity — both
+     GPU-composited, so the word glides in rather than being painted edge-by-edge.
+     The outer label still animates its width 0 -> content, but only to reserve
+     the space (the "resize", which already felt smooth). */
   .tab .tab-label,
   .foot-btn .ft-label {
     width: 0; opacity: 0; overflow: hidden;
@@ -259,10 +259,13 @@
   .tab .tab-label > .nav-li,
   .foot-btn .ft-label > .nav-li {
     display: block; width: max-content; padding-left: 7px; white-space: nowrap;
-    transform: translateZ(0);   /* paint once; clip + reposition on the compositor */
+    transform: translateX(-10px);   /* slide the whole word in as one GPU layer */
+    transition: transform var(--dur-base) var(--ease);
   }
   .tab.active .tab-label,
   .foot-btn.is-active .ft-label { opacity: 1; }
+  .tab.active .tab-label > .nav-li,
+  .foot-btn.is-active .ft-label > .nav-li { transform: translateX(0); }
   /* Chromium (incl. Brave): interpolate-size lets the clip animate straight to the
      text's own size — exact fit, zero hand-tuned caps, the cleanest path. */
   @supports (interpolate-size: allow-keywords) {
