@@ -82,6 +82,21 @@ def test_connect_builds_url_and_persists_state(tmp_path, monkeypatch):
     con.close()
 
 
+def test_connect_redirect_uses_forwarded_headers(tmp_path, monkeypatch):
+    # Behind the edge proxy, the public scheme/host arrive as X-Forwarded-*; the
+    # redirect must use them, not the internal host (else redirect_uri_mismatch).
+    _clear_oauth_env(monkeypatch)
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "cid")
+    monkeypatch.setenv("GMAIL_CLIENT_SECRET", "sec")
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    r = client.get(
+        "/api/gmail/connect",
+        headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "scout.bingbong.cloud"},
+    )
+    q = parse_qs(urlparse(r.json()["auth_url"]).query)
+    assert q["redirect_uri"] == ["https://scout.bingbong.cloud/api/gmail/callback"]
+
+
 def test_callback_exchanges_and_stores(tmp_path, monkeypatch):
     _clear_oauth_env(monkeypatch)
     monkeypatch.setenv("GMAIL_CLIENT_ID", "cid")

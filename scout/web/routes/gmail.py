@@ -48,12 +48,19 @@ def _parse_int_id(raw_id: str) -> int | None:
 
 
 def _effective_redirect(request: Request, cfg: oauth.OAuthConfig) -> str:
-    """The configured redirect override, else one derived from this request's base
-    URL. Connect and callback derive it identically (same host), so the value
-    Google sees at exchange matches the one in the consent URL."""
+    """The redirect_uri sent to Google: the configured override wins; otherwise it's
+    derived from the PUBLIC scheme/host. Behind the edge proxy (Caddy), the public
+    values arrive as X-Forwarded-Proto / X-Forwarded-Host — without them
+    request.base_url is the internal http://scout:8765 the app actually sees, which
+    never matches the registered callback (→ Google's redirect_uri_mismatch). Connect
+    and callback derive identically, so the consent and exchange values match."""
     if cfg.redirect_uri:
         return cfg.redirect_uri
-    return str(request.base_url).rstrip("/") + "/api/gmail/callback"
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = proto or request.url.scheme
+    netloc = host or request.headers.get("host", "") or request.url.netloc
+    return f"{scheme}://{netloc}/api/gmail/callback"
 
 
 @router.get("/api/gmail/status")
