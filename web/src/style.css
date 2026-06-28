@@ -125,7 +125,11 @@
     padding-top: 16px; border-top: 1px solid var(--line);
     display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
   }
+  /* .foot-btn.doc-btn out-specifies .doc-btn's gap:6px (defined later) so a
+     collapsed button is a centered icon; the icon-to-label gap comes back via
+     the label's margin-left when expanded. */
   .foot-btn { flex: none; justify-content: center; }
+  .foot-btn.doc-btn { gap: 0; }
   .foot-btn svg { width: 14px; height: 14px; flex: none; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
@@ -217,30 +221,46 @@
   /* view switch (companies | jobs) — top of the sidebar; the whole main area
      follows it. */
   /* The view tabs collapse to icons and expand the active one to show its label,
-     so three tabs (companies / jobs / inbox) cost barely more room than two. */
-  .view-switch { display: flex; gap: 6px; }
+     so three tabs (companies / jobs / inbox) cost barely more room than two. The
+     row is centered so the collapsed icons sit centered when no tab is the active
+     view (e.g. while Settings is open). The expand mechanism (a collapsible label)
+     is shared with the footer buttons below. */
+  .view-switch { display: flex; gap: 6px; justify-content: center; }
   .tab {
-    flex: 0 1 auto;
-    display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto;
+    display: flex; align-items: center;
     position: relative;
     background: var(--panel); color: var(--fg-mute);
     border: 1px solid var(--line); border-radius: var(--r-md);
     padding: 7px 9px; font: inherit; font-size: 13px; cursor: pointer;
-    transition: all var(--dur-fast) var(--ease);
+    transition: background var(--dur-fast) var(--ease),
+                border-color var(--dur-fast) var(--ease),
+                color var(--dur-fast) var(--ease);
   }
   .tab svg { width: 15px; height: 15px; flex: none; }
-  .tab .tab-label {
+  .tab:hover { border-color: var(--line-2); color: var(--fg); }
+  .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+
+  /* Collapsible nav labels: hidden by default, revealed when the control is the
+     active view — shared by the top view tabs (.tab/.active) and the footer
+     buttons (.foot-btn/.is-active). Only one width drives the reveal (the label's
+     max-width; no flex-grow reflow), and each label's expanded cap is set snugly
+     to its text below — so the reveal animates across the whole duration instead
+     of snapping open against an oversized cap. That is what keeps it smooth. */
+  .tab .tab-label,
+  .foot-btn .ft-label {
     max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
     transition: max-width var(--dur-base) var(--ease),
-                opacity var(--dur-fast) var(--ease),
+                opacity var(--dur-base) var(--ease),
                 margin-left var(--dur-base) var(--ease);
   }
-  .tab:hover { border-color: var(--line-2); color: var(--fg); }
-  .tab.active {
-    flex: 1 1 auto;
-    background: var(--link-bg); border-color: var(--link); color: var(--link);
-  }
-  .tab.active .tab-label { max-width: 140px; opacity: 1; margin-left: 7px; }
+  .tab.active .tab-label,
+  .foot-btn.is-active .ft-label { opacity: 1; margin-left: 7px; }
+  #tab-companies.active .tab-label { max-width: 72px; }
+  #tab-jobs.active .tab-label { max-width: 36px; }
+  #tab-inbox.active .tab-label { max-width: 42px; }
+  #open-settings.is-active .ft-label { max-width: 60px; }
+  #open-docs.is-active .ft-label { max-width: 88px; }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background-color: var(--link-bg); color: var(--link); }
