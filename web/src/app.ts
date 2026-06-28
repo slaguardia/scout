@@ -4574,6 +4574,28 @@ function renderJobHuntingSettings(c) {
   if (pr) pr.addEventListener("click", () => openPrefilter(true));
 }
 
+// The one-time Google Cloud setup helper shown on the Gmail integration field:
+// the exact callback URL to register (copy button) + the scopes + the click-path.
+// Surfacing scout's own callback verbatim is what prevents redirect_uri_mismatch.
+function gmailSetupHTML(gm) {
+  const cb = gm.callback_uri || "(your scout URL)/api/gmail/callback";
+  const scopes = gm.scopes || [
+    "openid", "email",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ];
+  return `<details class="set-help"${gm.configured ? "" : " open"}>
+    <summary>Set up the Google OAuth client (one-time)</summary>
+    <div class="set-help-body">
+      <p>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud → APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:</p>
+      <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
+      <p>On the <strong>OAuth consent screen</strong>, add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:</p>
+      <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
+      <p class="dim">Enable the API once — <code>gcloud services enable gmail.googleapis.com</code> (or Console → Library → Gmail API → Enable). Then paste the client ID + secret below, Save, and Connect.</p>
+    </div>
+  </details>`;
+}
+
 function renderIntegrationsSettings(c) {
   const ak = state.anthropicKey || {};
   let knote = "Not set — verdict, capture & outreach disabled.";
@@ -4599,6 +4621,7 @@ function renderIntegrationsSettings(c) {
     <div class="set-field">
       <div class="set-field-label">Gmail</div>
       <div class="set-field-desc">Send outreach from your Gmail and auto-sync replies + application status. ${escapeHTML(gstatus)}</div>
+      ${gmailSetupHTML(gm)}
       <div class="set-subfields">
         <label class="set-sub-label" for="set-gm-id">Client ID</label>
         <input class="input" id="set-gm-id" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false" value="${escapeHTML(gm.client_id || "")}">
@@ -4647,6 +4670,8 @@ function renderIntegrationsSettings(c) {
   if (gmConnect) gmConnect.addEventListener("click", gmailConnect);
   const gmDisc = c.querySelector("#set-gm-disconnect");
   if (gmDisc) gmDisc.addEventListener("click", gmailDisconnect);
+  const cbCopy = c.querySelector("#gm-copy-cb");
+  if (cbCopy) cbCopy.addEventListener("click", () => copyToClipboard((state.gmail && state.gmail.callback_uri) || "", "redirect URI copied"));
   const af = c.querySelector("#set-autoflip") as HTMLInputElement | null;
   if (af) af.addEventListener("change", async () => {
     let ok = false;

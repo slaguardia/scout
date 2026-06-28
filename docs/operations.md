@@ -93,34 +93,48 @@ back onto the jobs board (a 2.5-min poll). It's scout-local: the Python backend
 owns the OAuth + Gmail calls; the brain isn't involved. See
 [`../plans/gmail-integration.md`](../plans/gmail-integration.md) for the full model.
 
-**One-time Google Cloud setup** (same GCP project as the app's Google SSO):
+scout is **self-hosted, single-user** — you connect *your own* mailbox on *your
+own* OAuth client, so Google's CASA/verification process never applies (that only
+exists for hosting strangers). The setup is a one-time bring-your-own-client flow;
+**Settings → Integrations → Gmail shows the exact callback URL + scopes to register**,
+so you can copy them verbatim (the cure for `redirect_uri_mismatch`).
 
-1. Enable the **Gmail API**.
-2. OAuth consent screen → scopes `gmail.send`, `gmail.readonly`, `openid`, `email`;
-   publish **In production** (stays unverified — this is what keeps tokens non-expiring).
-3. Create an **OAuth client (Web)** with redirect URIs:
-   - prod `https://<scout-domain>/api/gmail/callback`
-   - dev `http://localhost:5173/api/gmail/callback` and `http://localhost:8765/api/gmail/callback`
+**One-time Google Cloud setup:**
 
-**Configure scout** — the client id/secret come from the environment (or `.env`),
-DB-over-env like the Anthropic key:
+1. **Enable the Gmail API** — `gcloud services enable gmail.googleapis.com`, or
+   Console → APIs & Services → Library → Gmail API → Enable.
+2. **OAuth consent screen** → add scopes `gmail.send`, `gmail.readonly`, `openid`,
+   `email`, then **Publish app**. Publishing an *unverified* app is fine for your
+   own mailbox — you'll click through a one-time "Google hasn't verified this app"
+   screen — and it's what makes the refresh token **non-expiring** (in *Testing*
+   mode it expires every 7 days and silently kills the poller). The quick
+   alternative is leaving it in Testing and adding yourself under **Test users**
+   (skipping this is the cause of `Error 403: access_denied`).
+3. **Credentials → Create OAuth client ID → Web application** → under **Authorized
+   redirect URIs**, paste the exact URL scout shows in Settings → Gmail
+   (e.g. `https://<scout-domain>/api/gmail/callback`). It must match character for
+   character — not "Authorized JavaScript origins".
+
+**Give scout the client** — either paste the **Client ID + secret** into
+Settings → Integrations → Gmail (stored in scout's DB), or set them in the env /
+`.env` (DB wins over env):
 
 ```bash
 export GMAIL_CLIENT_ID=...apps.googleusercontent.com
 export GMAIL_CLIENT_SECRET=...
-# optional: pin the redirect (otherwise derived from the request host)
+# optional: pin the redirect (otherwise derived from the request's forwarded host)
 # export GMAIL_REDIRECT_URI=https://<scout-domain>/api/gmail/callback
 ```
 
-**Connect** — Settings → Integrations → **Gmail → connect** runs the consent flow
-(one "unverified app" click-through, seen once); or `scout gmail auth` runs a
-localhost loopback flow. Then sends go from the **Send via Gmail** button on a
-draft, and the poller (started by `scout serve`, `--gmail-sync-interval`) keeps the
-board current. `scout gmail sync` runs one pass by hand; **Sync now** is in the
-Inbox panel. Application-status auto-update is a Settings toggle (default off —
-scout suggests in the Inbox for one-click apply). Send rides the light `gmail.send`
-scope; if Google ever revokes unverified `gmail.readonly` self-access, the inbound
-board goes dark but **send keeps working**.
+**Connect** — Settings → Integrations → **Gmail → Connect** runs the consent flow;
+or `scout gmail auth` runs a localhost loopback flow. Then sends go from the **Send
+via Gmail** button on a draft, and the poller (started by `scout serve`,
+`--gmail-sync-interval`) keeps the board current. `scout gmail sync` runs one pass
+by hand; **Sync now** is in the Inbox panel. Application-status auto-update is a
+Settings toggle (default off — scout suggests in the Inbox for one-click apply).
+Send rides the light `gmail.send` (*sensitive*) scope; read-sync rides
+`gmail.readonly` (*restricted*) — if Google ever stops allowing unverified
+restricted self-access, the inbound board goes dark but **send keeps working**.
 
 ## A CLI pipeline run
 

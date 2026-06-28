@@ -21,10 +21,19 @@ def test_status_unconfigured(tmp_path, monkeypatch):
     client, _cid, _db = new_test_app(tmp_path, monkeypatch)
     r = client.get("/api/gmail/status")
     assert r.status_code == 200
-    assert r.json() == {
-        "connected": False, "email": "", "configured": False, "autoflip": False,
-        "client_id": "", "redirect_uri": "", "config_source": "",
-    }
+    j = r.json()
+    assert j["connected"] is False and j["configured"] is False
+    assert j["client_id"] == "" and j["config_source"] == ""
+    # The callback to register + the scopes are surfaced so the self-hoster can copy them.
+    assert j["callback_uri"].endswith("/api/gmail/callback")
+    assert "https://www.googleapis.com/auth/gmail.send" in j["scopes"]
+
+
+def test_status_callback_uses_forwarded_host(tmp_path, monkeypatch):
+    _clear_oauth_env(monkeypatch)
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    r = client.get("/api/gmail/status", headers={"X-Forwarded-Proto": "https", "X-Forwarded-Host": "scout.example.com"})
+    assert r.json()["callback_uri"] == "https://scout.example.com/api/gmail/callback"
 
 
 def test_connect_requires_oauth_config(tmp_path, monkeypatch):

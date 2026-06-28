@@ -2026,6 +2026,21 @@
   .set-sub-label { display: block; font-size: 11.5px; font-weight: 600; color: var(--fg-dim); margin: 10px 0 4px; }
   .set-subfields .set-sub-label:first-child { margin-top: 0; }
   .btn-sm { padding: 2px 9px; font-size: 11.5px; }
+  /* Gmail OAuth setup helper (the one-time Google Cloud checklist + copyable callback). */
+  .set-help { margin-top: 12px; max-width: 640px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+  .set-help > summary { padding: 9px 13px; cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--fg); list-style: none; }
+  .set-help > summary::-webkit-details-marker { display: none; }
+  .set-help > summary::before { content: "▸ "; color: var(--fg-dim); }
+  .set-help[open] > summary::before { content: "▾ "; }
+  .set-help[open] > summary { border-bottom: 1px solid var(--line); }
+  .set-help-body { padding: 12px 14px; font-size: 12.5px; color: var(--fg-mute); line-height: 1.55; }
+  .set-help-body p { margin: 0 0 9px; }
+  .set-help-body a { color: var(--link); }
+  .set-copy-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+  .set-copy-row code { flex: 1; padding: 7px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); font-size: 12px; word-break: break-all; }
+  .set-help-scopes { margin: 4px 0 10px; padding-left: 18px; }
+  .set-help-scopes li { margin-bottom: 3px; }
+  .set-help-scopes code, .set-help-body code { font-size: 11.5px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
   /* Gmail integration card actions (set up / connect / disconnect). */
   .gmail-acts { display: flex; gap: 6px; align-items: center; flex: none; }
   .gmail-acts .btn { padding: 5px 12px; font-size: 12.5px; }

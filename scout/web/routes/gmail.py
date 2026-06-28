@@ -64,9 +64,10 @@ def _effective_redirect(request: Request, cfg: oauth.OAuthConfig) -> str:
 
 
 @router.get("/api/gmail/status")
-def gmail_status(con=Depends(get_db)) -> Response:
-    """Connection state + the OAuth client config (never the secret), so the
-    dashboard can show where the creds come from and pre-fill the id/redirect."""
+def gmail_status(request: Request, con=Depends(get_db)) -> Response:
+    """Connection state + the OAuth client config (never the secret), plus the exact
+    callback URL + scopes the self-hoster must register on their Google OAuth client
+    — so the dashboard can show them verbatim (the redirect_uri_mismatch killer)."""
     cfg = oauth.load_config(con)
     return json_response(
         {
@@ -77,6 +78,8 @@ def gmail_status(con=Depends(get_db)) -> Response:
             "client_id": cfg.client_id,  # not secret; lets the UI show/pre-fill it
             "redirect_uri": gmail_store.oauth_redirect_uri(con),
             "config_source": gmail_store.oauth_config_source(con),  # "db" | "env" | ""
+            "callback_uri": _effective_redirect(request, cfg),  # register THIS in Google Cloud
+            "scopes": oauth.SCOPES,
         }
     )
 
