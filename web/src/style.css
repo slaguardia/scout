@@ -241,37 +241,44 @@
   .tab:hover { border-color: var(--line-2); color: var(--fg); }
   .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
 
-  /* Collapsible nav labels: hidden by default, revealed when the control is the
-     active view — shared by the top view tabs (.tab/.active) and the footer
-     buttons (.foot-btn/.is-active). The reveal animates the label's real WIDTH
-     0 -> content (overflow:hidden gives a 0 min so it can fully collapse), so the
-     tab grows in lockstep with one true, full-duration interpolation — no
-     max-width dead-tail that snaps open early, which is what felt rough. */
+  /* Collapsible nav labels — shared by the top view tabs (.tab/.active) and the
+     footer buttons (.foot-btn/.is-active). The text choppiness came from the
+     label re-laying-out and re-painting its glyphs every frame as its own box
+     animated (made worse by the row re-centering, which nudged the text by
+     sub-pixels). The fix: the OUTER label is just an animated clip (width 0 ->
+     content), and the text lives in an INNER element laid out ONCE at its full
+     size and promoted to its own compositor layer. So the glyphs rasterize a
+     single time; the clip reveals — and the layer moves — on the GPU, never
+     re-painting. Opacity is composited too, so the fade is free. */
   .tab .tab-label,
   .foot-btn .ft-label {
-    width: 0; opacity: 0; overflow: hidden; white-space: nowrap;
+    width: 0; opacity: 0; overflow: hidden;
     transition: width var(--dur-base) var(--ease),
-                opacity var(--dur-base) var(--ease),
-                margin-left var(--dur-base) var(--ease);
+                opacity var(--dur-base) var(--ease);
+  }
+  .tab .tab-label > .nav-li,
+  .foot-btn .ft-label > .nav-li {
+    display: block; width: max-content; padding-left: 7px; white-space: nowrap;
+    transform: translateZ(0);   /* paint once; clip + reposition on the compositor */
   }
   .tab.active .tab-label,
-  .foot-btn.is-active .ft-label { opacity: 1; margin-left: 7px; }
-  /* Chromium (incl. Brave): interpolate-size lets width animate straight to the
+  .foot-btn.is-active .ft-label { opacity: 1; }
+  /* Chromium (incl. Brave): interpolate-size lets the clip animate straight to the
      text's own size — exact fit, zero hand-tuned caps, the cleanest path. */
   @supports (interpolate-size: allow-keywords) {
     .view-switch, .sidebar-foot { interpolate-size: allow-keywords; }
     .tab.active .tab-label,
     .foot-btn.is-active .ft-label { width: auto; }
   }
-  /* Engines without interpolate-size yet (Safari/Firefox): same smooth
-     transition:width, but the target must be a px value per label. Slightly
-     generous so a label never clips; transition:width is smooth everywhere. */
+  /* Engines without interpolate-size yet (Safari/Firefox): same smooth clip, but
+     the target must be a px value per label (text width + the 7px lead gap).
+     Slightly generous so a label never clips; transition:width is smooth there. */
   @supports not (interpolate-size: allow-keywords) {
-    #tab-companies.active .tab-label { width: 66px; }
-    #tab-jobs.active .tab-label { width: 32px; }
-    #tab-inbox.active .tab-label { width: 38px; }
-    #open-settings.is-active .ft-label { width: 56px; }
-    #open-docs.is-active .ft-label { width: 82px; }
+    #tab-companies.active .tab-label { width: 73px; }
+    #tab-jobs.active .tab-label { width: 39px; }
+    #tab-inbox.active .tab-label { width: 45px; }
+    #open-settings.is-active .ft-label { width: 63px; }
+    #open-docs.is-active .ft-label { width: 89px; }
   }
 
   /* response pill (jobs table) — interview gets the link blue */
