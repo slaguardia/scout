@@ -526,6 +526,23 @@ export const SCOUT_MARKUP = `
   </div>
 </div>
 
+<div class="modal-scrim" id="sendfollowup-scrim">
+  <div class="modal" style="width:560px">
+    <div class="modal-head">
+      <h2>Send follow-up</h2>
+    </div>
+    <div class="modal-body">
+      <p id="sendfollowup-to" class="small dim" style="margin:0 0 8px;"></p>
+      <textarea class="input" id="sendfollowup-body" rows="12" spellcheck="false"></textarea>
+      <p class="small dim" style="margin:8px 0 0;">Sends as a reply on the existing Gmail thread and logs it — the next follow-up re-arms automatically.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="sendfollowup-cancel">Cancel</button>
+      <button class="btn btn-primary" id="sendfollowup-confirm">Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- section help — what each button does, with links into the docs overlay -->
 <div class="modal-scrim" id="help-scrim">
   <div class="modal" style="width:440px">
