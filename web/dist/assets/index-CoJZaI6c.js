@@ -131,11 +131,11 @@
     <div class="sidebar-foot">
       <button class="doc-btn foot-btn" id="open-settings" title="Settings — criteria, playbook, email template" aria-label="settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Settings</span>
+        <span class="ft-label">Settings</span>
       </button>
       <button class="doc-btn foot-btn" id="open-docs" title="How scout works — ingestion, prompts, files, triage" aria-label="how it works">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 11.5v.01M6.4 6.2a1.6 1.6 0 1 1 2.4 1.5c-.5.3-.8.6-.8 1.3"/></svg>
-        <span>How it works</span>
+        <span class="ft-label">How it works</span>
       </button>
     </div>
   </div>
@@ -908,6 +908,19 @@ Return the JSON verdict now.</pre>
 
     <section class="pane-section">
       <h3>
+        Company
+        <button type="button" class="h3-action" id="pursuit-company-edit"
+                title="move this job to a different company">change</button>
+      </h3>
+      <div class="company-row">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${l(e.company)} ↗</button>
+        ${e.verdict?`<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span></span>`:""}
+      </div>
+    </section>
+
+    <section class="pane-section">
+      <h3>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -987,18 +1000,7 @@ Return the JSON verdict now.</pre>
       <div class="ie-field"><label>description</label>
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${l(e.description||"")}</textarea></div>
     </div>
-    <div class="role-meta">
-      <div class="role-company-row">
-        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                title="open the company panel">${l(e.company)} ↗</button>
-        ${e.verdict?`<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span></span>`:""}
-      </div>
-      <div class="role-submeta">
-        ${e.posted_at?`<span>posted ${l(e.posted_at)}</span><span class="role-submeta-dot" aria-hidden="true">·</span>`:""}
-        <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
-                title="move this job to a different company">change</button>
-      </div>
-    </div>`}function Ts(){const e=document.querySelector("#pursuit-body .pl-appstatus");e&&e.addEventListener("change",s=>hn({application_status:s.target.value}));const t=document.querySelector("#pursuit-body .pl-ostatus");t&&t.addEventListener("change",s=>hn({outreach_status:s.target.value}));const n=document.querySelector("#pursuit-body .pt-nextup");n&&n.addEventListener("click",()=>pn(h.row,!0))}async function pn(e,t){let n;try{n=await fetch(`/api/postings/${e.posting_id}/next-up`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({next_up:!e.next_up})})}catch(a){r(`save failed: ${a.message}`);return}if(!n.ok){const a=(await n.text().catch(()=>"")).trim();r(`save failed: ${a||"HTTP "+n.status}`);return}const s=await n.json();e.next_up=s.next_up,j(),he(e.posting_id,{next_up:s.next_up}),t&&X(),r(e.next_up?"queued next up":"removed from the queue")}async function mn(e,t){const n={application_status:e.application_status||"",outreach_status:e.outreach_status||"",notes:e.notes||"",...t};let s;try{s=await fetch(`/api/postings/${e.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)})}catch(o){return r(`save failed: ${o.message}`),null}if(!s.ok){const o=(await s.text().catch(()=>"")).trim();return r(`save failed: ${o||"HTTP "+s.status}`),null}const a=await s.json();return Object.assign(e,{application_status:a.application_status,application_status_at:a.application_status_at,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,outreach_status:a.outreach_status,contacts:a.contacts,notes:a.notes,next_up:a.next_up}),he(e.posting_id,{application_status:a.application_status,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,next_up:a.next_up}),a}async function Ls(e){const t=h.row,n={application_status:t.application_status||"",outreach_status:t.outreach_status||"",notes:e},s=await fetch(`/api/postings/${t.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)});if(!s.ok)throw new Error((await s.text().catch(()=>"")).trim()||"HTTP "+s.status);const a=await s.json();t.notes=a.notes,j()}async function hn(e){await mn(h.row,e)&&(j(),X(),r("tracking saved"))}async function fn(e,t){await mn(e,t)&&(j(),h.postingId===e.posting_id&&(h.row=e,X()),r("tracking saved"))}function de(){const e=document.getElementById("outreach-section");if(!e)return;const t=h.drafts,n=t[0]||null,s=t.slice(1),o=n&&(Os(n.status)||n.status==="failed")?"":`<button class="btn btn-primary" id="draft-start-btn">${n?"Draft again":"Draft outreach"}</button><label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`,i=s.length?`
+    ${e.posted_at?`<div class="role-posted">posted ${l(e.posted_at)}</div>`:""}`}function Ts(){const e=document.querySelector("#pursuit-body .pl-appstatus");e&&e.addEventListener("change",s=>hn({application_status:s.target.value}));const t=document.querySelector("#pursuit-body .pl-ostatus");t&&t.addEventListener("change",s=>hn({outreach_status:s.target.value}));const n=document.querySelector("#pursuit-body .pt-nextup");n&&n.addEventListener("click",()=>pn(h.row,!0))}async function pn(e,t){let n;try{n=await fetch(`/api/postings/${e.posting_id}/next-up`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({next_up:!e.next_up})})}catch(a){r(`save failed: ${a.message}`);return}if(!n.ok){const a=(await n.text().catch(()=>"")).trim();r(`save failed: ${a||"HTTP "+n.status}`);return}const s=await n.json();e.next_up=s.next_up,j(),he(e.posting_id,{next_up:s.next_up}),t&&X(),r(e.next_up?"queued next up":"removed from the queue")}async function mn(e,t){const n={application_status:e.application_status||"",outreach_status:e.outreach_status||"",notes:e.notes||"",...t};let s;try{s=await fetch(`/api/postings/${e.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)})}catch(o){return r(`save failed: ${o.message}`),null}if(!s.ok){const o=(await s.text().catch(()=>"")).trim();return r(`save failed: ${o||"HTTP "+s.status}`),null}const a=await s.json();return Object.assign(e,{application_status:a.application_status,application_status_at:a.application_status_at,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,outreach_status:a.outreach_status,contacts:a.contacts,notes:a.notes,next_up:a.next_up}),he(e.posting_id,{application_status:a.application_status,outreach_count:a.outreach_count,last_outreach_at:a.last_outreach_at,next_up:a.next_up}),a}async function Ls(e){const t=h.row,n={application_status:t.application_status||"",outreach_status:t.outreach_status||"",notes:e},s=await fetch(`/api/postings/${t.posting_id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(n)});if(!s.ok)throw new Error((await s.text().catch(()=>"")).trim()||"HTTP "+s.status);const a=await s.json();t.notes=a.notes,j()}async function hn(e){await mn(h.row,e)&&(j(),X(),r("tracking saved"))}async function fn(e,t){await mn(e,t)&&(j(),h.postingId===e.posting_id&&(h.row=e,X()),r("tracking saved"))}function de(){const e=document.getElementById("outreach-section");if(!e)return;const t=h.drafts,n=t[0]||null,s=t.slice(1),o=n&&(Os(n.status)||n.status==="failed")?"":`<button class="btn btn-primary" id="draft-start-btn">${n?"Draft again":"Draft outreach"}</button><label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`,i=s.length?`
     <details class="draft-history" ${h.openHist?"open":""}>
       <summary>${s.length} earlier draft${s.length>1?"s":""}</summary>
       <div id="draft-history-body">${s.map(d=>bn(d,!0)).join("")}</div>
@@ -1361,10 +1363,17 @@ Return the JSON verdict now.</pre>
         <li><strong>Configure the OAuth consent screen.</strong> Add these scopes:
           <ul class="set-help-scopes">${n.map(s=>`<li><code>${l(s)}</code></li>`).join("")}</ul>
           Then authorize your mailbox — pick one:
-          <ul class="set-choice">
-            <li class="sc-go"><span class="sc-mark">✓</span><span><strong>Publish app</strong><span class="sc-tag">recommended</span> — self-hosting your own mailbox needs no Google verification.</span></li>
-            <li class="sc-alt"><span class="sc-mark">↳</span><span><strong>Add Test users</strong> instead — add your own Google account; no publishing.</span></li>
-          </ul>
+          <div class="set-choice">
+            <div class="sc-opt sc-go">
+              <div class="sc-opt-head"><strong>Publish app</strong><span class="sc-tag">recommended</span></div>
+              <div class="sc-opt-desc">Self-hosting your own mailbox needs no Google verification.</div>
+            </div>
+            <div class="sc-or">or</div>
+            <div class="sc-opt sc-alt">
+              <div class="sc-opt-head"><strong>Add Test users</strong></div>
+              <div class="sc-opt-desc">Add your own Google account as a test user — no publishing.</div>
+            </div>
+          </div>
         </li>
         <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
           <div class="set-copy-row"><code id="gm-cb">${l(t)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>

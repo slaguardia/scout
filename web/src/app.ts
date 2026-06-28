@@ -1381,6 +1381,19 @@ function renderPursuit() {
 
     <section class="pane-section">
       <h3>
+        Company
+        <button type="button" class="h3-action" id="pursuit-company-edit"
+                title="move this job to a different company">change</button>
+      </h3>
+      <div class="company-row">
+        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                title="open the company panel">${escapeHTML(j.company)} ↗</button>
+        ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
+      </div>
+    </section>
+
+    <section class="pane-section">
+      <h3>
         Pipeline
       </h3>
       <div class="pipeline-grid">
@@ -1495,18 +1508,7 @@ function roleEditHTML(j) {
       <div class="ie-field"><label>description</label>
         <textarea class="ie" data-k="description" rows="6" placeholder="—">${escapeHTML(j.description || "")}</textarea></div>
     </div>
-    <div class="role-meta">
-      <div class="role-company-row">
-        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                title="open the company panel">${escapeHTML(j.company)} ↗</button>
-        ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">fit</span><span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
-      </div>
-      <div class="role-submeta">
-        ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span><span class="role-submeta-dot" aria-hidden="true">·</span>` : ""}
-        <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
-                title="move this job to a different company">change</button>
-      </div>
-    </div>`;
+    ${j.posted_at ? `<div class="role-posted">posted ${escapeHTML(j.posted_at)}</div>` : ""}`;
 }
 
 // wirePipeline binds the tracker controls; they PUT the posting and keep
@@ -4696,10 +4698,17 @@ function gmailSetupHTML(gm) {
         <li><strong>Configure the OAuth consent screen.</strong> Add these scopes:
           <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
           Then authorize your mailbox — pick one:
-          <ul class="set-choice">
-            <li class="sc-go"><span class="sc-mark">✓</span><span><strong>Publish app</strong><span class="sc-tag">recommended</span> — self-hosting your own mailbox needs no Google verification.</span></li>
-            <li class="sc-alt"><span class="sc-mark">↳</span><span><strong>Add Test users</strong> instead — add your own Google account; no publishing.</span></li>
-          </ul>
+          <div class="set-choice">
+            <div class="sc-opt sc-go">
+              <div class="sc-opt-head"><strong>Publish app</strong><span class="sc-tag">recommended</span></div>
+              <div class="sc-opt-desc">Self-hosting your own mailbox needs no Google verification.</div>
+            </div>
+            <div class="sc-or">or</div>
+            <div class="sc-opt sc-alt">
+              <div class="sc-opt-head"><strong>Add Test users</strong></div>
+              <div class="sc-opt-desc">Add your own Google account as a test user — no publishing.</div>
+            </div>
+          </div>
         </li>
         <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
           <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>

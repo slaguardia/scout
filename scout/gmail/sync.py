@@ -137,7 +137,19 @@ def _handle_application(con, routed: match.Routed, anthropic_client, model: str,
         return False
 
     posting_id = classify.match_application(con, parsed)
-    want_auto = gmail_store.autoflip(con) and bool(posting_id) and conf >= classify.AUTOFLIP_CONF_THRESHOLD
+
+    # A posting already sitting at the classified stage needs no action — an email
+    # confirming "applied" on a posting already marked applied is noise, not a
+    # suggestion. We still record the message below so the pass doesn't reprocess it.
+    already_at = False
+    if posting_id:
+        current = postings_store.get_posting(con, posting_id)
+        already_at = current is not None and current.application_status.strip().casefold() == label.strip().casefold()
+
+    want_auto = (
+        gmail_store.autoflip(con) and bool(posting_id) and not already_at
+        and conf >= classify.AUTOFLIP_CONF_THRESHOLD
+    )
 
     # Message row + status change + notification commit together (the dedupe key and
     # the alert can't diverge). A failed auto-apply falls back to a suggestion so the
@@ -152,31 +164,34 @@ def _handle_application(con, routed: match.Routed, anthropic_client, model: str,
                 body=parsed.body, internal_date=parsed.internal_date,
             ),
         )
-        if want_auto:
-            try:
-                postings_store.set_application_status(con, posting_id, label)
-                applied = True
-            except Exception as e:  # noqa: BLE001 - fall back to a suggestion below
-                log(f"gmail: set application_status failed: {e}")
-        if applied:
-            gmail_store.add_notification(
-                con,
-                gmail_store.Notification(
-                    kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
-                    title=f"Application status → {label}", detail=parsed.subject or parsed.snippet,
-                    suggested_status="",  # FYI: already applied, no pending action
-                ),
-            )
-        else:
-            gmail_store.add_notification(
-                con,
-                gmail_store.Notification(
-                    kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
-                    title=f"Suggested status: {label}", detail=parsed.subject or parsed.snippet,
-                    suggested_status=label,
-                ),
-            )
-    if applied:
+        if not already_at:
+            if want_auto:
+                try:
+                    postings_store.set_application_status(con, posting_id, label)
+                    applied = True
+                except Exception as e:  # noqa: BLE001 - fall back to a suggestion below
+                    log(f"gmail: set application_status failed: {e}")
+            if applied:
+                gmail_store.add_notification(
+                    con,
+                    gmail_store.Notification(
+                        kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                        title=f"Application status → {label}", detail=parsed.subject or parsed.snippet,
+                        suggested_status="",  # FYI: already applied, no pending action
+                    ),
+                )
+            else:
+                gmail_store.add_notification(
+                    con,
+                    gmail_store.Notification(
+                        kind=gmail_store.NOTIF_APP_STATUS, posting_id=posting_id, gmail_message_id=parsed.id,
+                        title=f"Suggested status: {label}", detail=parsed.subject or parsed.snippet,
+                        suggested_status=label,
+                    ),
+                )
+    if already_at:
+        log(f"gmail: application_status={label} already set on posting {posting_id}; no alert raised")
+    elif applied:
         log(f"gmail: auto-set application_status={label} on posting {posting_id}")
     else:
         log(f"gmail: suggested application_status={label} for posting {posting_id or '(unlinked)'}")
