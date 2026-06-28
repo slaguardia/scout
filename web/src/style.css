@@ -1989,6 +1989,43 @@
   }
   .settings-page-head--row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
   .settings-page-head--row .btn { flex: none; }
+
+  /* Settings page: a left nav of groups + the active group's inline fields. */
+  #settings-view { overflow: hidden; }
+  #settings-view #criteria-stats { display: block; height: 100%; gap: 0; }
+  .settings-shell { display: grid; grid-template-columns: 210px 1fr; height: 100%; }
+  .settings-nav { border-right: 1px solid var(--line); padding: 20px 12px; overflow-y: auto; background: var(--bg); }
+  .settings-nav a {
+    display: block; padding: 8px 12px; border-radius: var(--r-md); margin-bottom: 3px;
+    color: var(--fg-mute); font-size: 13px; cursor: pointer; border: 1px solid transparent;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .settings-nav a:hover { color: var(--fg); background: var(--panel); }
+  .settings-nav a.active { color: var(--fg); background: var(--panel-2); border-color: var(--line); font-weight: 600; }
+  .settings-content { overflow-y: auto; padding: 26px 34px 70px; }
+  .set-field { max-width: 720px; margin-bottom: 28px; }
+  .set-field-label { font-size: 14px; font-weight: 600; color: var(--fg); display: flex; align-items: center; gap: 10px; }
+  .set-field-desc { margin-top: 3px; font-size: 12px; color: var(--fg-mute); line-height: 1.5; }
+  .set-textarea {
+    margin-top: 9px; width: 100%; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5;
+    color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 10px 12px; box-sizing: border-box;
+  }
+  .set-textarea:focus { outline: none; border-color: var(--link); box-shadow: 0 0 0 3px rgba(122,169,255,0.15); }
+  .set-field-foot { display: flex; align-items: center; gap: 12px; margin-top: 8px; min-height: 22px; }
+  .set-saved { font-size: 11px; color: var(--ok, #4caf7d); opacity: 0; transition: opacity .2s; }
+  .set-saved.show { opacity: 1; }
+  .set-field-row { display: flex; align-items: center; gap: 10px; }
+  .set-toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--fg-mute); cursor: pointer; }
+  .set-readonly {
+    margin-top: 9px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font: inherit; font-size: 12.5px; line-height: 1.55; color: var(--fg-mute);
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px;
+  }
+  .set-subfields { margin-top: 10px; max-width: 560px; }
+  .set-sub-label { display: block; font-size: 11.5px; font-weight: 600; color: var(--fg-dim); margin: 10px 0 4px; }
+  .set-subfields .set-sub-label:first-child { margin-top: 0; }
+  .btn-sm { padding: 2px 9px; font-size: 11.5px; }
   /* Gmail integration card actions (set up / connect / disconnect). */
   .gmail-acts { display: flex; gap: 6px; align-items: center; flex: none; }
   .gmail-acts .btn { padding: 5px 12px; font-size: 12.5px; }

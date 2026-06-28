@@ -31,6 +31,7 @@ const state = {
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
   gmail: null,                             // {connected, email, configured, autoflip} from /api/gmail/status (M55)
   notifications: { notifications: [], unread: 0, followups: [] }, // /api/notifications (M55)
+  settingsGroup: "outreach",               // active Settings sub-page (nav group)
 };
 
 const pillClass = v => "pill pill-" + (v || "none");
@@ -4329,265 +4330,294 @@ function critCard(o: { icon: string; nameHTML: string; desc: string; dot?: strin
   </div>`;
 }
 
+// ---- Settings: sub-page nav + inline editable fields (no modals) ----
+
+const SETTINGS_GROUPS: [string, string][] = [
+  ["outreach", "Outreach"],
+  ["pipeline", "Outreach pipeline"],
+  ["tracking", "Tracking"],
+  ["job-hunting", "Job hunting"],
+  ["integrations", "Integrations"],
+];
+
+const PIPELINE_STAGES: [string, string, string][] = [
+  ["researcher", "1 · Researcher", "Searches the web for true company facts and the best hooks to open with."],
+  ["fill", "2 · Writer", "Writes the email's blanks from the research, your experience, and your voice."],
+  ["humanizer", "3 · Humanizer", "Strips AI tells and matches your voice — never changes a fact."],
+  ["honesty", "4 · Honesty check", "Vetoes any claim about you beyond your documented experience."],
+];
+
+// renderCriteria paints the Settings page: a left nav of groups + the active
+// group's editable fields inline (each saves to its own API on blur; no modals).
 function renderCriteria() {
   const el = document.getElementById("criteria-stats");
   if (!el) return;
+  // The state loaders (key/gmail/profile/status) call this to refresh, but there's
+  // nothing to paint — and no point firing the inline fields' fetches — while the
+  // Settings view is hidden. setView shows it before calling, so this is a no-op then.
+  const sv = document.getElementById("settings-view");
+  if (sv && sv.style.display === "none") return;
+  const grp = state.settingsGroup || "outreach";
+  el.innerHTML = `<div class="settings-shell">
+    <nav class="settings-nav">
+      ${SETTINGS_GROUPS.map(([id, label]) =>
+        `<a data-grp="${id}" class="${id === grp ? "active" : ""}">${escapeHTML(label)}</a>`).join("")}
+    </nav>
+    <div class="settings-content" id="settings-content"></div>
+  </div>`;
+  el.querySelectorAll<HTMLElement>("[data-grp]").forEach(a => {
+    a.onclick = () => { if (state.settingsGroup !== a.dataset.grp) { state.settingsGroup = a.dataset.grp; renderCriteria(); } };
+  });
+  const c = document.getElementById("settings-content");
+  if (!c) return;
+  if (grp === "pipeline") renderPipelineSettings(c);
+  else if (grp === "tracking") renderTrackingSettings(c);
+  else if (grp === "job-hunting") renderJobHuntingSettings(c);
+  else if (grp === "integrations") renderIntegrationsSettings(c);
+  else renderOutreachSettings(c);
+}
+
+// A labeled text artifact that loads GET /api/<kind> and saves PUT on blur (when
+// changed). list=true treats it as a one-label-per-line status vocabulary.
+function settingsTextFieldHTML(kind, label, desc, rows, list) {
+  return `<div class="set-field" data-kind="${kind}" data-list="${list ? 1 : 0}">
+    <div class="set-field-label">${escapeHTML(label)}</div>
+    <div class="set-field-desc">${escapeHTML(desc)}</div>
+    <textarea class="set-textarea" rows="${rows}" spellcheck="false" data-loaded="0">loading…</textarea>
+    <div class="set-field-foot"><span class="set-saved">saved ✓</span></div>
+  </div>`;
+}
+function flashSaved(field) {
+  const s = field.querySelector(".set-saved");
+  if (s) { s.classList.add("show"); setTimeout(() => s.classList.remove("show"), 1500); }
+}
+async function loadTextField(field) {
+  const kind = field.dataset.kind;
+  const list = field.dataset.list === "1";
+  const ta = field.querySelector(".set-textarea") as HTMLTextAreaElement;
+  try {
+    const d = await (await fetch(`/api/${kind}`)).json();
+    ta.value = list ? (d.statuses || []).join("\n") : (d.content || "");
+  } catch { ta.value = ""; }
+  ta.dataset.orig = ta.value;
+  ta.dataset.loaded = "1";
+  ta.addEventListener("blur", () => saveTextField(field));
+}
+async function saveTextField(field) {
+  const kind = field.dataset.kind;
+  const list = field.dataset.list === "1";
+  const ta = field.querySelector(".set-textarea") as HTMLTextAreaElement;
+  if (ta.dataset.loaded !== "1" || ta.value === ta.dataset.orig) return;
+  const body = list
+    ? { statuses: ta.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean) }
+    : { content: ta.value };
+  let resp;
+  try {
+    resp = await fetch(`/api/${kind}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
+  ta.dataset.orig = ta.value;
+  flashSaved(field);
+  if (kind === "followup-template") state.followupTemplate = ta.value;
+  if (list) { await loadStatusVocab(); renderJobs(); }
+}
+function wireTextFields(c) {
+  c.querySelectorAll<HTMLElement>(".set-field[data-kind]").forEach(loadTextField);
+}
+
+function renderOutreachSettings(c) {
+  c.innerHTML =
+    settingsTextFieldHTML("outreach-subject", "Email subject", "The send subject — {{role}} / {{company}} substitution, no LLM.", 2, false) +
+    settingsTextFieldHTML("outreach-template", "Email body", "Verbatim prose with the writer's fill-in holes.", 16, false) +
+    settingsTextFieldHTML("outreach-signature", "Email signature", "A fixed sign-off appended to every sent email (blank = none).", 3, false) +
+    settingsTextFieldHTML("followup-template", "Follow-up template", "Copy-paste follow-up — {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.", 9, false) +
+    `<div class="set-field">
+      <div class="set-field-label">Follow-up reminder</div>
+      <div class="set-field-desc">Business days after a send before a follow-up comes due (0 = off).</div>
+      <input class="input set-fu-interval" type="number" min="0" max="90" value="${state.followupInterval}" style="margin-top:8px;width:90px">
+    </div>`;
+  wireTextFields(c);
+  const fu = c.querySelector<HTMLInputElement>(".set-fu-interval");
+  if (fu) fu.addEventListener("change", async () => {
+    const days = Math.max(0, Math.min(90, parseInt(fu.value, 10) || 0));
+    fu.value = String(days);
+    const r = await contactApi("PUT", "/api/followup-interval", { days });
+    if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
+  });
+}
+
+function renderPipelineSettings(c) {
+  c.innerHTML = PIPELINE_STAGES.map(([key, title, desc]) => `
+    <div class="set-field" data-prompt="${key}">
+      <div class="set-field-label">${escapeHTML(title)}</div>
+      <div class="set-field-desc">${escapeHTML(desc)}</div>
+      <textarea class="set-textarea" rows="12" spellcheck="false" data-loaded="0">loading…</textarea>
+      <div class="set-field-foot">
+        <span class="set-saved">saved ✓</span>
+        ${key !== "fill" ? `<label class="set-toggle"><input type="checkbox" class="pl-enabled"> run this stage</label>` : ""}
+        <button class="btn pl-reset">Reset to default</button>
+      </div>
+    </div>`).join("");
+  c.querySelectorAll<HTMLElement>(".set-field[data-prompt]").forEach(loadPromptField);
+}
+async function loadPromptField(field) {
+  const key = field.dataset.prompt;
+  const ta = field.querySelector(".set-textarea") as HTMLTextAreaElement;
+  const en = field.querySelector(".pl-enabled") as HTMLInputElement | null;
+  try {
+    const d = await (await fetch(`/api/outreach-prompts/${key}`)).json();
+    ta.value = d.content || "";
+    if (en) en.checked = d.enabled !== false;
+  } catch { ta.value = ""; }
+  ta.dataset.orig = ta.value;
+  ta.dataset.loaded = "1";
+  ta.addEventListener("blur", () => savePromptField(field));
+  if (en) en.addEventListener("change", () => savePromptField(field));
+  const reset = field.querySelector(".pl-reset");
+  if (reset) reset.addEventListener("click", async () => {
+    const r = await fetch(`/api/outreach-prompts/${key}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: true }) });
+    if (!r.ok) { toast(`reset failed: HTTP ${r.status}`); return; }
+    const d = await r.json();
+    ta.value = d.content || ""; ta.dataset.orig = ta.value;
+    if (en) en.checked = d.enabled !== false;
+    flashSaved(field); toast("reset to default");
+  });
+}
+async function savePromptField(field) {
+  const key = field.dataset.prompt;
+  const ta = field.querySelector(".set-textarea") as HTMLTextAreaElement;
+  const en = field.querySelector(".pl-enabled") as HTMLInputElement | null;
+  if (ta.dataset.loaded !== "1") return;
+  const body: any = { content: ta.value };
+  if (en) body.enabled = en.checked;
+  let resp;
+  try {
+    resp = await fetch(`/api/outreach-prompts/${key}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch (e) { toast(`save failed: ${e.message}`); return; }
+  if (!resp.ok) { toast(`save failed: ${(await resp.text().catch(() => "")).trim() || "HTTP " + resp.status}`); return; }
+  ta.dataset.orig = ta.value;
+  flashSaved(field);
+}
+
+function renderTrackingSettings(c) {
+  c.innerHTML =
+    settingsTextFieldHTML("application-stages", "Application stages", "The application pipeline labels (applied, screening, interview…). One per line.", 6, true) +
+    settingsTextFieldHTML("outreach-statuses", "Outreach statuses", "The outreach reply labels (initial contact, no response, replied…). One per line.", 6, true);
+  wireTextFields(c);
+}
+
+function renderJobHuntingSettings(c) {
   const p = state.profile;
   const active = (p && p.active_source) || (state.stats && state.stats.taste_source) || "";
   const usingBrain = active.startsWith("brain:");
   const hasBody = p && typeof p.body === "string";
-
-  // Cards are built here, then grouped for display below by domain (Job hunting /
-  // Outreach / Integrations), not by origin. Brain-derived cards (criteria brief +
-  // discovered outreach knowledge) are pulled from the brain and refreshed, not
-  // authored in scout — except the taste.md offline fallback, which stands in for
-  // the brief when the brain is down and is the one editable member.
-  let briefCard: string;
+  let briefBlock;
   if (usingBrain) {
-    // Honest tri-state from the change-aware cascade (criteria_state), replacing
-    // the old age>=TTL "stale" badge: 'current' is confirmed against the brain,
-    // 'changed' means the brain moved (re-distill via Refresh), 'unverified' means
-    // we can't confirm right now (brain offline, or never verified).
-    let dot = "off", note = "";
-    const cs = p && p.criteria_state;
-    if (cs === "current") { dot = "ok"; note = "current · verified " + relTime(p.verified_age_seconds); }
-    else if (cs === "changed") { dot = "warn"; note = "changed — re-distill"; }
-    else if (cs === "unverified") {
-      dot = "warn";
-      note = (p && !p.reachable && hasBody) ? "brain offline · using cache" : "unverified — re-distill";
-    }
-    else if (p && !p.reachable && hasBody) { dot = "warn"; note = "brain offline · using cache"; }
-    else if (hasBody) { dot = "ok"; note = "fetched " + relTime(p.age_seconds); }
-    const name = hasBody
-      ? '<span class="edit-link" data-act="view-profile" title="view the company-fit brief">company-fit brief</span>'
-      : 'company-fit brief';
-    briefCard = critCard({
-      icon: ICON_BRIEF, nameHTML: name, dot, note,
-      desc: "The criteria scout feeds the verdict stage — distilled from the brain.",
-      act: "refresh-profile", actID: "refresh-profile", actIcon: REFRESH,
-      actTitle: "re-distill the company-fit brief from the brain", actLabel: "refresh company-fit brief",
-    });
+    briefBlock = `<div class="set-field">
+      <div class="set-field-label">Company-fit brief <button class="btn btn-sm" id="brief-refresh" title="re-distill from the brain">Refresh</button></div>
+      <div class="set-field-desc">The criteria scout feeds the verdict stage — distilled from the brain (read-only here).</div>
+      <pre class="set-readonly">${escapeHTML(hasBody ? p.body : "(no brief yet — Refresh to distill from the brain)")}</pre>
+    </div>`;
   } else {
-    briefCard = critCard({
-      icon: ICON_BRIEF, nameHTML: '<span class="edit-link" data-act="edit-taste" title="edit taste.md">taste</span>',
-      note: (p && p.configured) ? "brain offline — local fallback" : "",
-      dot: (p && p.configured) ? "warn" : "",
-      desc: "Local fallback criteria used when the brain is unreachable.",
-      act: "edit-taste", actIcon: PENCIL, actTitle: "edit taste.md", actLabel: "edit taste",
-    });
+    briefBlock = settingsTextFieldHTML("taste", "Taste (local fallback)", "Local fallback criteria used when the brain is unreachable.", 12, false);
   }
-
-  // Locally-authored configs, edited in place (playbook + pre-filter shape the
-  // verdict; template + pipeline prompts shape outreach).
-  const playbookCard = critCard({
-    icon: ICON_PLAYBOOK,
-    nameHTML: '<span class="edit-link" data-act="edit-playbook" title="edit the verdict playbook">playbook</span>',
-    desc: "How scout judges — the reasoning rules behind every verdict.",
-    act: "edit-playbook", actIcon: PENCIL, actTitle: "edit the verdict playbook", actLabel: "edit playbook",
-  });
-  const subjectCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-subject" title="edit the email subject">email subject</span>',
-    desc: "The send subject — plain {{role}} / {{company}} substitution, no LLM.",
-    act: "edit-subject", actIcon: PENCIL, actTitle: "edit the email subject", actLabel: "edit email subject",
-  });
-  const templateCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-template" title="edit the email body">email body</span>',
-    desc: "The email body — verbatim prose with the writer's fill-in holes.",
-    act: "edit-template", actIcon: PENCIL, actTitle: "edit the email body", actLabel: "edit email body",
-  });
-  const signatureCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-signature" title="edit the email signature">email signature</span>',
-    desc: "A fixed sign-off block appended to every sent email (blank = none).",
-    act: "edit-signature", actIcon: PENCIL, actTitle: "edit the email signature", actLabel: "edit email signature",
-  });
-  const followupTemplateCard = critCard({
-    icon: ICON_EMAIL,
-    nameHTML: '<span class="edit-link" data-act="edit-followup-template" title="edit the follow-up template">follow-up template</span>',
-    desc: "Copy-paste follow-up — variables {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.",
-    act: "edit-followup-template", actIcon: PENCIL, actTitle: "edit the follow-up template", actLabel: "edit follow-up template",
-  });
-  // Follow-up reminder interval — a global setting (PUT /api/followup-interval),
-  // edited here rather than per-contact. The number input sits in the action slot.
-  const intervalCard = `<div class="settings-item">
-    <span class="settings-item-icon">${ICON_BELL}</span>
-    <div class="settings-item-main">
-      <div class="settings-item-name">follow-up reminder</div>
-      <div class="settings-item-desc">Business days after a send before a follow-up comes due (0 = off).</div>
-    </div>
-    <input class="input set-fu-interval" type="number" min="0" max="90" value="${state.followupInterval}" title="business days (0 = off)" aria-label="follow-up reminder interval in business days">
-  </div>`;
-  // The outreach pipeline: each stage is an editable LLM prompt (open to edit,
-  // toggle on/off, or reset to default). The Writer can't be turned off.
-  const PIPELINE_STAGES: [string, string, string][] = [
-    ["researcher", "1 · Researcher", "Searches the web for true company facts and the best hooks to open with."],
-    ["fill", "2 · Writer", "Writes the email's blanks from the research, your experience, and your voice."],
-    ["humanizer", "3 · Humanizer", "Strips AI tells and matches your voice — never changes a fact."],
-    ["honesty", "4 · Honesty check", "Vetoes any claim about you beyond your documented experience."],
-  ];
-  const pipelineCards = PIPELINE_STAGES.map(([key, title, desc]) => critCard({
-    icon: ICON_PROMPT,
-    nameHTML: `<span class="edit-link" data-act="edit-prompt-${key}" title="edit the ${title.replace(/^\d+ · /, "")} prompt">${title}</span>`,
-    desc,
-    act: `edit-prompt-${key}`, actIcon: PENCIL, actTitle: `edit the ${title} prompt`, actLabel: `edit ${title} prompt`,
-  })).join("");
   const pfOn = !state.stats || state.stats.taste_filter_enabled !== false;
-  const prefilterCard = critCard({
-    icon: ICON_FILTER,
-    nameHTML: '<span class="edit-link" data-act="edit-taste-filter" title="edit the pre-filter rules">pre-filter</span>',
-    desc: "Cheap mechanical gate that narrows bulk verdict runs before the paid LLM — location, headcount, vertical, stage. Re-scoring one company by hand ignores it.",
-    dot: pfOn ? "ok" : "off", note: pfOn ? "active" : "disabled — scoring everything",
-    act: "edit-taste-filter", actIcon: PENCIL, actTitle: "edit the pre-filter rules", actLabel: "edit pre-filter rules",
-  });
+  c.innerHTML = briefBlock +
+    settingsTextFieldHTML("playbook", "Playbook", "How scout judges — the reasoning rules behind every verdict.", 12, false) +
+    `<div class="set-field">
+      <div class="set-field-label">Pre-filter</div>
+      <div class="set-field-desc">A mechanical gate before the paid LLM — location, headcount, vertical, stage. ${pfOn ? "Active." : "Disabled — scoring everything."}</div>
+      <div class="set-field-foot"><button class="btn" id="open-prefilter-btn">Edit pre-filter rules…</button></div>
+    </div>`;
+  wireTextFields(c);
+  const rb = c.querySelector("#brief-refresh");
+  if (rb) rb.addEventListener("click", refreshProfile);
+  const pb = c.querySelector("#open-prefilter-btn");
+  if (pb) pb.addEventListener("click", () => openPrefilter());
+}
 
-  // Integrations (dashboard-configurable secrets). The Anthropic key
-  // powers verdict, capture, enrichment, outreach, chat & answers; stored in
-  // scout's SQLite, it overrides the ANTHROPIC_API_KEY env when set.
-  const ak = state.anthropicKey;
-  let kdot2 = "off", knote2 = "not set — verdict, capture & outreach disabled";
-  if (ak && ak.key_source === "db") { kdot2 = "ok"; knote2 = "set here · active"; }
-  else if (ak && ak.key_source === "env") { kdot2 = "ok"; knote2 = "from the environment"; }
-  const keyCard = critCard({
-    icon: ICON_KEY,
-    nameHTML: '<span class="edit-link" data-act="edit-anthropic-key" title="set the Anthropic API key">Anthropic API key</span>',
-    dot: kdot2, note: knote2,
-    desc: "Powers scoring, capture & outreach. Set here to run scout without the env var.",
-    act: "edit-anthropic-key", actIcon: PENCIL, actTitle: "set the Anthropic API key", actLabel: "set Anthropic API key",
-  });
-
-  // Gmail link (M55): send outreach from the user's Gmail + auto-sync replies and
-  // application status. Connect/disconnect rides the OAuth flow on the backend.
+function renderIntegrationsSettings(c) {
+  const ak = state.anthropicKey || {};
+  let knote = "Not set — verdict, capture & outreach disabled.";
+  if (ak.key_source === "db") knote = "Set here · active.";
+  else if (ak.key_source === "env") knote = "Using the ANTHROPIC_API_KEY environment variable.";
   const gm = state.gmail || {};
-  const gConfigured = !!gm.configured, gConnected = !!gm.connected, gSrc = gm.config_source || "";
-  const gdot = gConnected ? "ok" : "off";
-  let gnote;
-  if (!gConfigured) gnote = "not set up — add your Google OAuth client to connect";
-  else if (gConnected) gnote = `connected as ${gm.email || "(unknown)"}`;
-  else gnote = gSrc === "env" ? "configured (env) — not connected" : "configured — not connected";
-  let gbtns;
-  if (!gConfigured) {
-    gbtns = `<button class="btn btn-primary" data-act="gmail-config">Set up</button>`;
-  } else if (gConnected) {
-    gbtns = `<button class="btn" data-act="gmail-config" title="edit the OAuth client">Credentials</button><button class="btn" data-act="gmail-disconnect">Disconnect</button>`;
-  } else {
-    gbtns = `<button class="btn" data-act="gmail-config" title="edit the OAuth client">Credentials</button><button class="btn btn-primary" data-act="gmail-connect">Connect</button>`;
-  }
-  const gmailCard = `<div class="settings-item">
-    <span class="settings-item-icon">${ICON_EMAIL}</span>
-    <div class="settings-item-main">
-      <div class="settings-item-name">Gmail</div>
-      <div class="settings-item-desc">Send outreach from your Gmail and auto-sync replies + application status.</div>
-      <div class="crit-status"><span class="pf-dot ${gdot}"></span><span class="crit-note-t">${escapeHTML(gnote)}</span></div>
+  const gConnected = !!gm.connected, gConfigured = !!gm.configured;
+  let gstatus;
+  if (gConnected) gstatus = `Connected as ${gm.email || "(unknown)"}.`;
+  else if (gConfigured) gstatus = "Configured — not connected. Click Connect.";
+  else gstatus = "Not set up — paste your Google OAuth client below, then Connect.";
+
+  c.innerHTML = `
+    <div class="set-field">
+      <div class="set-field-label">Anthropic API key</div>
+      <div class="set-field-desc">Powers scoring, capture & outreach. ${escapeHTML(knote)}</div>
+      <div class="set-field-row" style="margin-top:8px">
+        <input class="input" id="set-ak-input" type="password" placeholder="${ak.key_source === "db" ? "•••••• set — paste to replace" : "sk-ant-…"}" autocomplete="off" spellcheck="false" style="flex:1">
+        <button class="btn btn-primary" id="set-ak-save">Save</button>
+        ${ak.key_source === "db" ? `<button class="btn" id="set-ak-remove">Remove</button>` : ""}
+      </div>
     </div>
-    <div class="gmail-acts">${gbtns}</div>
-  </div>`;
-  // Auto-update application status: when on, scout sets a posting's stage from
-  // incoming ATS/company mail; off (default) it suggests it in the Inbox.
-  const autoflipOn = !!(state.gmail && state.gmail.autoflip);
-  const autoflipCard = `<div class="settings-item">
-    <span class="settings-item-icon">${ICON_BELL}</span>
-    <div class="settings-item-main">
-      <div class="settings-item-name">auto-update application status</div>
-      <div class="settings-item-desc">On: scout sets a job's application status from incoming ATS/company mail. Off (default): it suggests it in the Inbox for one-click apply.</div>
+    <div class="set-field">
+      <div class="set-field-label">Gmail</div>
+      <div class="set-field-desc">Send outreach from your Gmail and auto-sync replies + application status. ${escapeHTML(gstatus)}</div>
+      <div class="set-subfields">
+        <label class="set-sub-label" for="set-gm-id">Client ID</label>
+        <input class="input" id="set-gm-id" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false" value="${escapeHTML(gm.client_id || "")}">
+        <label class="set-sub-label" for="set-gm-secret">Client secret</label>
+        <input class="input" id="set-gm-secret" type="password" placeholder="(leave blank to keep the current secret)" autocomplete="off" spellcheck="false">
+        <label class="set-sub-label" for="set-gm-redirect">Redirect URI <span class="dim">(optional — derived from this host if blank)</span></label>
+        <input class="input" id="set-gm-redirect" placeholder="https://…/api/gmail/callback" autocomplete="off" spellcheck="false" value="${escapeHTML(gm.redirect_uri || "")}">
+      </div>
+      <div class="set-field-row" style="margin-top:10px">
+        <button class="btn" id="set-gm-save">Save credentials</button>
+        ${gConfigured && !gConnected ? `<button class="btn btn-primary" id="set-gm-connect">Connect</button>` : ""}
+        ${gConnected ? `<button class="btn" id="set-gm-disconnect">Disconnect</button>` : ""}
+      </div>
     </div>
-    <input type="checkbox" class="set-autoflip" ${autoflipOn ? "checked" : ""} title="auto-update application status" aria-label="auto-update application status">
-  </div>`;
+    <div class="set-field">
+      <div class="set-field-label">Auto-update application status</div>
+      <div class="set-field-desc">On: scout sets a job's application status from incoming ATS/company mail. Off (default): it suggests it in the Inbox for one-click apply.</div>
+      <div class="set-field-row" style="margin-top:8px"><label class="set-toggle"><input type="checkbox" id="set-autoflip" ${gm.autoflip ? "checked" : ""}> auto-update application status</label></div>
+    </div>`;
 
-  // The two configurable jobs-view vocabularies: the application-stage pipeline
-  // labels and the outreach reply-status labels. Edited as one-per-line lists.
-  const stagesCard = critCard({
-    icon: ICON_PROMPT,
-    nameHTML: '<span class="edit-link" data-act="edit-application-stages" title="edit the application stages">application stages</span>',
-    desc: "The application pipeline labels you track (applied, screening, interview…). One per line.",
-    act: "edit-application-stages", actIcon: PENCIL, actTitle: "edit the application stages", actLabel: "edit application stages",
+  const akSave = c.querySelector("#set-ak-save");
+  if (akSave) akSave.addEventListener("click", async () => {
+    const v = (c.querySelector("#set-ak-input") as HTMLInputElement).value.trim();
+    if (!v) { toast("paste a key first"); return; }
+    const r = await fetch("/api/integrations/anthropic", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: v }) });
+    if (!r.ok) { toast((await r.text().catch(() => "")).trim() || `HTTP ${r.status}`); return; }
+    toast("Anthropic key saved"); await loadMeta(); await loadKeyState();
   });
-  const statusesCard = critCard({
-    icon: ICON_PROMPT,
-    nameHTML: '<span class="edit-link" data-act="edit-outreach-statuses" title="edit the outreach statuses">outreach statuses</span>',
-    desc: "The outreach reply labels (initial contact, no response, replied…). One per line.",
-    act: "edit-outreach-statuses", actIcon: PENCIL, actTitle: "edit the outreach statuses", actLabel: "edit outreach statuses",
+  const akRemove = c.querySelector("#set-ak-remove");
+  if (akRemove) akRemove.addEventListener("click", async () => {
+    const r = await fetch("/api/integrations/anthropic", { method: "DELETE" });
+    if (!r.ok) { toast(`HTTP ${r.status}`); return; }
+    toast("Anthropic key removed"); await loadMeta(); await loadKeyState();
   });
-
-  // Grouped by what the config is *for*, not where it comes from: everything that
-  // shapes a verdict (criteria brief, playbook, pre-filter) under Job hunting;
-  // the jobs-view vocabularies under Tracking; everything that shapes an email
-  // (discovered knowledge, template, pipeline prompts) under Outreach; the shared
-  // secret under Integrations.
-  el.innerHTML =
-    `<div class="settings-section">
-       <div class="settings-group-h">Job hunting</div>
-       ${briefCard}${playbookCard}${prefilterCard}
-     </div>
-     <div class="settings-section">
-       <div class="settings-group-h">Tracking</div>
-       ${stagesCard}${statusesCard}
-     </div>
-     <div class="settings-section">
-       <div class="settings-group-h">Outreach</div>
-       ${subjectCard}${templateCard}${signatureCard}${followupTemplateCard}${intervalCard}
-     </div>
-     <div class="settings-section">
-       <div class="settings-group-h">Outreach pipeline</div>
-       ${pipelineCards}
-     </div>
-     <div class="settings-section">
-       <div class="settings-group-h">Integrations</div>
-       ${keyCard}${gmailCard}${autoflipCard}
-     </div>`;
-
-  // Wire every clickable (name links AND action buttons) by its data-act key.
-  // Keyed wiring — not getElementById — because a card's name and pencil share an
-  // action (edit cards), and binding by id would leave the second element dead
-  // (the bug that made the pencils unclickable).
-  const ACTIONS: Record<string, () => void> = {
-    "view-profile": () => openProfileModal(state.profile),
-    "refresh-profile": refreshProfile,
-    "edit-taste": () => openEditor("taste"),
-    "edit-taste-filter": () => openPrefilter(),
-    "edit-application-stages": () => openEditor("application-stages"),
-    "edit-outreach-statuses": () => openEditor("outreach-statuses"),
-    "edit-playbook": () => openEditor("playbook"),
-    "edit-template": () => openEditor("outreach-template"),
-    "edit-subject": () => openEditor("outreach-subject"),
-    "edit-signature": () => openEditor("outreach-signature"),
-    "edit-followup-template": () => openEditor("followup-template"),
-    "edit-anthropic-key": openKeyModal,
-    "gmail-config": openGmailConfig,
-    "gmail-connect": gmailConnect,
-    "gmail-disconnect": gmailDisconnect,
-  };
-  for (const [key] of PIPELINE_STAGES) ACTIONS[`edit-prompt-${key}`] = () => openEditor(`outreach-prompts/${key}`);
-  el.querySelectorAll<HTMLElement>("[data-act]").forEach(n => {
-    const a = n.dataset.act;
-    if (a && ACTIONS[a]) n.onclick = ACTIONS[a];
+  const gmSave = c.querySelector("#set-gm-save");
+  if (gmSave) gmSave.addEventListener("click", async () => {
+    const client_id = (c.querySelector("#set-gm-id") as HTMLInputElement).value.trim();
+    const client_secret = (c.querySelector("#set-gm-secret") as HTMLInputElement).value;
+    const redirect_uri = (c.querySelector("#set-gm-redirect") as HTMLInputElement).value.trim();
+    if (!client_id) { toast("client ID is required"); return; }
+    const r = await fetch("/api/gmail/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id, client_secret, redirect_uri }) });
+    if (!r.ok) { toast((await r.text().catch(() => "")).trim() || `HTTP ${r.status}`); return; }
+    toast("Gmail OAuth client saved"); await loadGmailState();
   });
-
-  // The follow-up reminder interval — same PUT the old per-thread knob used.
-  const fuInterval = el.querySelector<HTMLInputElement>(".set-fu-interval");
-  if (fuInterval) fuInterval.addEventListener("change", async () => {
-    const days = Math.max(0, Math.min(90, parseInt(fuInterval.value, 10) || 0));
-    fuInterval.value = String(days);
-    const r = await contactApi("PUT", "/api/followup-interval", { days });
-    if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
-  });
-
-  // Auto-update application status toggle (PUT /api/gmail/autoflip).
-  const autoflip = el.querySelector<HTMLInputElement>(".set-autoflip");
-  if (autoflip) autoflip.addEventListener("change", async () => {
+  const gmConnect = c.querySelector("#set-gm-connect");
+  if (gmConnect) gmConnect.addEventListener("click", gmailConnect);
+  const gmDisc = c.querySelector("#set-gm-disconnect");
+  if (gmDisc) gmDisc.addEventListener("click", gmailDisconnect);
+  const af = c.querySelector("#set-autoflip") as HTMLInputElement | null;
+  if (af) af.addEventListener("change", async () => {
     let ok = false;
     try {
-      const r = await fetch("/api/gmail/autoflip", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: autoflip.checked }),
-      });
+      const r = await fetch("/api/gmail/autoflip", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: af.checked }) });
       ok = r.ok;
     } catch { ok = false; }
-    if (ok) {
-      if (state.gmail) state.gmail.autoflip = autoflip.checked;
-      toast(`auto-update application status ${autoflip.checked ? "on" : "off"}`);
-    } else { autoflip.checked = !autoflip.checked; toast("failed to save"); }
+    if (ok) { if (state.gmail) state.gmail.autoflip = af.checked; toast(`auto-update ${af.checked ? "on" : "off"}`); }
+    else { af.checked = !af.checked; toast("failed to save"); }
   });
 }
 

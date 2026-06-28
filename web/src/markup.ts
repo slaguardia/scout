@@ -197,12 +197,8 @@ export const SCOUT_MARKUP = `
     <div class="hidden-note" id="jobs-hidden-note" style="display:none"></div>
   </div>
 
-  <!-- settings: a full-page view (like companies/jobs), reached from the sidebar -->
-  <div class="settings-page" id="settings-view" style="display:none">
-    <div class="settings-page-head">
-      <h2>Settings</h2>
-      <div class="settings-page-sub">What scout uses to judge companies and write your outreach.</div>
-    </div>
+  <!-- settings: a full-page view (nav of groups + inline editable fields) -->
+  <div class="main-view" id="settings-view" style="display:none">
     <div id="criteria-stats"><div class="loading-row"><span class="spinner"></span><span>loading…</span></div></div>
   </div>
 
