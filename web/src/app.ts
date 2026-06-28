@@ -1798,10 +1798,10 @@ function contactCardHTML(c) {
       <input class="input cc-e-email" type="email" value="${escapeHTML(c.email || "")}" placeholder="email" spellcheck="false">
       <div class="cc-form-actions"><button class="btn btn-primary cc-e-save" type="button">Save</button><button class="btn cc-e-cancel" type="button">Cancel</button></div>
     </div>
-    <div class="cc-status">${followupStatusHTML(latest)}</div>
-    <div class="cc-rowacts">${latest
-      ? `<button class="btn cc-followup" type="button" title="copy a follow-up email from your template">Follow up ⧉</button>`
-      : `<button class="btn cc-log" type="button">+ log outreach</button>`}</div>
+    ${latest
+      ? `<div class="cc-fu-group">${followupGroupHTML(latest)}</div>`
+      : `<div class="cc-status"><span class="dim">no outreach logged yet</span></div>
+    <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button></div>`}
     ${latest ? "" : `<div class="cc-logform" style="display:none">
       <input class="input cc-l-date" type="date" value="${isoToday()}" title="date sent">
       <textarea class="input cc-l-body" rows="5" placeholder="email body — what you sent (optional)" spellcheck="false"></textarea>
@@ -1811,29 +1811,38 @@ function contactCardHTML(c) {
   </div>`;
 }
 
-// followupStatusHTML renders the contact's current state from its latest send,
-// walking a two-rung reminder ladder (one due date that advances on "followed
-// up"):
-//   pending  — a "follow up" checkbox + "stop" link; due emphasis once overdue.
-//   followed up, escalation pending — checkbox checked.
-//   escalate — the follow-up went unanswered past the interval: "no reply — try
-//              another contact" + a "dismiss" link.
-//   stopped  — no pending reminder (due cleared) + a "resume" link.
-// No send yet → a dim placeholder.
-function followupStatusHTML(latest) {
-  if (!latest) return `<span class="dim">no outreach logged yet</span>`;
-  const last = `last ${escapeHTML(latest.sent_at)}`;
+// followupGroupHTML renders one inline follow-up control row from the contact's
+// latest send: a "follow-up" eyebrow, the current status, then a right-aligned
+// action cluster led by the primary "Copy follow-up" (compose) button with the
+// quiet state actions after it. It walks a two-rung reminder ladder (one due
+// date that advances on "done"):
+//   pending  — status "due"/"overdue" + a "done" action (mark followed up) + "stop".
+//   followed up, escalation pending — status "followed up" + "reopen".
+//   escalate — went unanswered past the interval: "no reply — try another
+//              contact" + "dismiss".
+//   stopped  — due cleared: "stopped" + "resume".
+// Only ever called with a latest send (the no-send card shows a log button).
+function followupGroupHTML(latest) {
   const id = latest.id;
   const due = latest.followup_due_at;
   const isDue = due && due <= isoToday();
-  if (latest.followup_done_at) {
-    if (isDue)
-      return `${last} · <span class="fu-escalate">no reply — try another contact</span> <button class="cc-fu-dismiss" data-eid="${id}" type="button" title="dismiss — stop reminding me about this contact">dismiss</button>`;
-    return `${last} · <label class="cc-fu-check fu-done"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}" checked> followed up</label>`;
+  const copy = `<button class="btn btn-sm cc-followup" type="button" title="copy a follow-up email from your template">Copy follow-up ⧉</button>`;
+  let status, actions;
+  if (latest.followup_done_at && isDue) {
+    status = `<span class="cc-fu-status is-escalate">no reply — try another contact</span>`;
+    actions = `<button class="cc-fu-link cc-fu-dismiss" data-eid="${id}" type="button" title="dismiss — stop reminding me about this contact">dismiss</button>`;
+  } else if (latest.followup_done_at) {
+    status = `<span class="cc-fu-status is-done">followed up</span>`;
+    actions = `<button class="cc-fu-link cc-fu-reopen" data-eid="${id}" type="button" title="reopen — re-arm the follow-up reminder">reopen</button>`;
+  } else if (!due) {
+    status = `<span class="cc-fu-status is-stopped">stopped</span>`;
+    actions = `<button class="cc-fu-link cc-fu-resume" data-eid="${id}" type="button">resume</button>`;
+  } else {
+    status = `<span class="cc-fu-status${isDue ? " is-overdue" : ""}">${isDue ? "overdue" : "due"} ${escapeHTML(due)}</span>`;
+    actions = `<button class="cc-fu-link cc-fu-done" data-eid="${id}" type="button" title="mark this follow-up done — arms the next reminder">done</button>`
+      + `<button class="cc-fu-link cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
   }
-  if (!due)
-    return `${last} · <span class="fu-stopped">follow-up stopped</span> <button class="cc-fu-resume" data-eid="${id}" type="button">resume</button>`;
-  return `${last} · <label class="cc-fu-check${isDue ? " fu-overdue" : ""}"><input class="cc-fu-toggle" type="checkbox" data-eid="${id}"> follow up</label> <button class="cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
+  return `<span class="cc-fu-eyebrow">follow-up</span>${status}<span class="cc-fu-actions">${copy}${actions}</span>`;
 }
 
 function outreachEntryHTML(e) {
@@ -2004,9 +2013,9 @@ function wireContacts() {
       copyToClipboard(renderFollowupTemplate(c, latest), "follow-up copied — paste into your email");
     });
 
-    // Follow-up state changes (checkbox toggle, stop, resume, dismiss) all PUT
-    // full-state, carrying the entry's body + sent_at + note unchanged. Checking
-    // the box arms the escalation server-side (the due walks forward); stop and
+    // Follow-up state changes (done, reopen, stop, resume, dismiss) all PUT
+    // full-state, carrying the entry's body + sent_at + note unchanged. Marking
+    // done arms the escalation server-side (the due walks forward); stop and
     // dismiss clear the due (silence it); resume re-arms a follow-up.
     const putFollowup = async (eid, patch, msg) => {
       const e = pursuit.outreach.find(x => String(x.id) === String(eid)) || {};
@@ -2016,9 +2025,12 @@ function wireContacts() {
       });
       if (r) { toast(msg); refreshAfterContactChange(); }
     };
-    const fuToggle = card.querySelector(".cc-fu-toggle");
-    if (fuToggle) fuToggle.addEventListener("change", () =>
-      putFollowup(fuToggle.dataset.eid, { done: fuToggle.checked }, fuToggle.checked ? "marked followed up" : "follow-up reopened"));
+    const fuDone = card.querySelector(".cc-fu-done");
+    if (fuDone) fuDone.addEventListener("click", () =>
+      putFollowup(fuDone.dataset.eid, { done: true }, "marked followed up"));
+    const fuReopen = card.querySelector(".cc-fu-reopen");
+    if (fuReopen) fuReopen.addEventListener("click", () =>
+      putFollowup(fuReopen.dataset.eid, { done: false }, "follow-up reopened"));
     const fuStop = card.querySelector(".cc-fu-stop");
     if (fuStop) fuStop.addEventListener("click", () =>
       putFollowup(fuStop.dataset.eid, { followup_due_at: "", done: false }, "follow-up stopped"));
