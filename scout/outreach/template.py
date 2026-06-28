@@ -35,26 +35,20 @@ Hi [Recipient],
 Thanks,
 Your Name"""
 
-# DEFAULT_FOLLOWUP_TEMPLATE is the compiled-in starting follow-up BODY (M53). No
-# LLM holes — pure {{var}} substitution. The sign-off is a separate field
-# (DEFAULT_FOLLOWUP_SIGNATURE), appended at copy/send time, so it stays out of
-# the body.
+# DEFAULT_FOLLOWUP_TEMPLATE is the compiled-in starting follow-up (M53). No LLM
+# holes — pure {{var}} substitution. The sign-off, if any, lives at the bottom of
+# this body (the user localizes it).
 DEFAULT_FOLLOWUP_TEMPLATE = """Subject: Following up — {{role}} at {{company}}
 
 Hi {{contact_name}},
 
 Wanted to gently follow up on my note below about the {{role}} role at {{company}} — still very interested and happy to share anything that would help. Would a quick call make sense?"""
 
-# Empty by default; the user localizes a light sign-off, or ticks "same as email
-# signature" to reuse the saved outreach signature instead.
-DEFAULT_FOLLOWUP_SIGNATURE = ""
 
-
-# M55 send-path pieces. The subject is pure {{role}}/{{company}} substitution (no
-# LLM); the signature is an appended block (empty by default — the DEFAULT_TEMPLATE
-# body still carries its own sign-off until the slice-6 restructure moves it here).
+# M55 send-path piece. The subject is pure {{role}}/{{company}} substitution (no
+# LLM). The sign-off is no longer a separate field — it lives at the bottom of
+# the email/follow-up body.
 DEFAULT_SUBJECT = "Reaching out about the {{role}} role"
-DEFAULT_SIGNATURE = ""
 
 
 def subject_or_default(con: sqlite3.Connection | None) -> str:
@@ -66,17 +60,6 @@ def subject_or_default(con: sqlite3.Connection | None) -> str:
         except Exception:  # noqa: BLE001 - fall back to the default
             pass
     return DEFAULT_SUBJECT
-
-
-def signature_or_default(con: sqlite3.Connection | None) -> str:
-    if con is not None:
-        try:
-            c = outreach_template.get_signature_template(con)
-            if c.strip() != "":
-                return c
-        except Exception:  # noqa: BLE001
-            pass
-    return DEFAULT_SIGNATURE
 
 
 def render_subject(con: sqlite3.Connection | None, role: str, company: str) -> str:

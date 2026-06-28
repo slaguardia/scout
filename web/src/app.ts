@@ -26,10 +26,7 @@ const state = {
   applicationStages: ["applied", "screening", "interview", "offer", "rejected"],
   outreachStatuses: ["initial contact", "no response", "replied", "followed up"],
   followupInterval: 5,                      // default business days to arm a follow-up (M51)
-  followupTemplate: "",                     // the follow-up email body (M53; loaded at boot, default applied server-side)
-  followupSignature: "",                    // the follow-up's own sign-off (appended to the body at copy/send)
-  followupSigSame: false,                   // true → follow-ups reuse the outreach signature instead
-  outreachSignature: "",                    // the outreach sign-off (so the follow-up can reuse it when followupSigSame)
+  followupTemplate: "",                     // the full follow-up (M53; body + sign-off, loaded at boot)
   openDetail: null,                        // the open company pane's cached detail (for cross-panel sync)
   anthropicKey: null,                      // {has_key, key_source} from /api/integrations/anthropic
   gmail: null,                             // {connected, email, configured, autoflip} from /api/gmail/status (M55)
@@ -129,12 +126,6 @@ async function loadStatusVocab() {
     }).catch(() => {}),
     fetch("/api/followup-template").then(r => r.ok ? r.json() : null).then(d => {
       if (d && typeof d.content === "string") state.followupTemplate = d.content;
-    }).catch(() => {}),
-    fetch("/api/followup-signature").then(r => r.ok ? r.json() : null).then(d => {
-      if (d && typeof d.content === "string") { state.followupSignature = d.content; state.followupSigSame = !!d.same; }
-    }).catch(() => {}),
-    fetch("/api/outreach-signature").then(r => r.ok ? r.json() : null).then(d => {
-      if (d && typeof d.content === "string") state.outreachSignature = d.content;
     }).catch(() => {}),
   ]);
   renderFilterMenus();
@@ -1760,12 +1751,11 @@ function renderOutreachSection() {
 
 // ---- per-contact outreach tracking + follow-ups (M51) ----
 
-// renderFollowupTemplate fills the user's follow-up body with this contact +
-// the last send's variables ({{company}}, {{role}}, {{contact_name}},
-// {{contact_role}}, {{last_sent}}, {{last_message}}), then appends the follow-up
-// sign-off — the dedicated follow-up signature, or the outreach signature when
-// "same" is ticked. Mirrors the server's bareVarRE; an unknown {{token}} is left
-// as-is so a typo stays visible.
+// renderFollowupTemplate fills the user's follow-up (body + sign-off, one field)
+// with this contact + the last send's variables ({{company}}, {{role}},
+// {{contact_name}}, {{contact_role}}, {{last_sent}}, {{last_message}}). Mirrors
+// the server's bareVarRE; an unknown {{token}} is left as-is so a typo stays
+// visible.
 function renderFollowupTemplate(contact, latest) {
   const j = pursuit.row || {};
   const vars = {
@@ -1776,11 +1766,9 @@ function renderFollowupTemplate(contact, latest) {
     last_sent: (latest && latest.sent_at) || "",
     last_message: (latest && latest.body) || "",
   };
-  const body = (state.followupTemplate || "").replace(
+  return (state.followupTemplate || "").replace(
     /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g,
     (m, k) => (k in vars ? vars[k] : m));
-  const sig = (state.followupSigSame ? state.outreachSignature : state.followupSignature) || "";
-  return sig.trim() ? body.replace(/\s+$/, "") + "\n\n" + sig.trim() : body;
 }
 
 // contactsManagerHTML renders the company contacts list with per-contact logging
@@ -3864,7 +3852,6 @@ function isStatusListKind(kind) {
 function editorLabel(kind) {
   if (kind === "outreach-template") return "email body";
   if (kind === "outreach-subject") return "email subject";
-  if (kind === "outreach-signature") return "email signature";
   if (kind === "followup-template") return "follow-up body";
   if (kind === "playbook") return "playbook";
   if (kind === "application-stages") return "application stages";
@@ -4686,23 +4673,14 @@ function wireTextFields(c) {
 function renderOutreachSettings(c) {
   c.innerHTML =
     settingsTextFieldHTML("outreach-subject", "Email subject", "The send subject — {{role}} / {{company}} substitution, no LLM.", 2, false) +
-    settingsTextFieldHTML("outreach-template", "Email body", "Verbatim prose with the writer's fill-in holes.", 16, false) +
-    settingsTextFieldHTML("outreach-signature", "Email signature", "A fixed sign-off appended to every sent email (blank = none).", 3, false) +
-    settingsTextFieldHTML("followup-template", "Follow-up body", "The follow-up message — {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}. The sign-off is separate, below.", 8, false) +
-    `<div class="set-field" id="set-followup-sig">
-      <div class="set-field-label">Follow-up signature</div>
-      <div class="set-field-desc">Sign-off appended to follow-ups (blank = none). A light one — just your name — usually reads best, since your full signature is already in the thread.</div>
-      <label class="set-toggle" style="margin:8px 0"><input type="checkbox" id="fu-sig-same"> Same as email signature</label>
-      <textarea class="set-textarea" id="fu-sig-body" rows="3" spellcheck="false"></textarea>
-      <div class="set-field-foot"><span class="set-saved">saved ✓</span></div>
-    </div>` +
+    settingsTextFieldHTML("outreach-template", "Email body", "Verbatim prose with the writer's fill-in holes. Put your sign-off at the bottom — markdown links render as real links on send.", 18, false) +
+    settingsTextFieldHTML("followup-template", "Follow-up body", "The full follow-up, sign-off included — {{contact_name}}, {{role}}, {{company}}, {{last_sent}}, {{last_message}}.", 9, false) +
     `<div class="set-field">
       <div class="set-field-label">Follow-up reminder</div>
       <div class="set-field-desc">Business days after a send before a follow-up comes due (0 = off).</div>
       <input class="input set-fu-interval" type="number" min="0" max="90" value="${state.followupInterval}" style="margin-top:8px;width:90px">
     </div>`;
   wireTextFields(c);
-  wireFollowupSignature(c);
   const fu = c.querySelector<HTMLInputElement>(".set-fu-interval");
   if (fu) fu.addEventListener("change", async () => {
     const days = Math.max(0, Math.min(90, parseInt(fu.value, 10) || 0));
@@ -4710,34 +4688,6 @@ function renderOutreachSettings(c) {
     const r = await contactApi("PUT", "/api/followup-interval", { days });
     if (r) { state.followupInterval = days; toast("follow-up interval saved"); }
   });
-}
-
-// The follow-up signature field carries a "same as email signature" checkbox, so
-// it can't reuse the generic text-field plumbing — load + save it (content + the
-// flag) over /api/followup-signature, and keep state current for the live
-// follow-up render (Copy / Send preview).
-function wireFollowupSignature(c) {
-  const field = c.querySelector<HTMLElement>("#set-followup-sig");
-  if (!field) return;
-  const same = field.querySelector<HTMLInputElement>("#fu-sig-same");
-  const ta = field.querySelector<HTMLTextAreaElement>("#fu-sig-body");
-  if (!same || !ta) return;
-  // "Same as email signature" hides the follow-up's own box entirely — the
-  // outreach signature is used, so there's nothing to edit here.
-  const applyVisibility = () => { ta.style.display = same.checked ? "none" : ""; };
-  fetch("/api/followup-signature").then(r => r.ok ? r.json() : null).then(d => {
-    if (!d) return;
-    ta.value = d.content || "";
-    same.checked = !!d.same;
-    ta.dataset.orig = ta.value;
-    applyVisibility();
-  }).catch(() => {});
-  const save = async () => {
-    const r = await contactApi("PUT", "/api/followup-signature", { content: ta.value, same: same.checked });
-    if (r) { state.followupSignature = ta.value; state.followupSigSame = same.checked; flashSaved(field); }
-  };
-  same.addEventListener("change", () => { applyVisibility(); save(); });
-  ta.addEventListener("blur", () => { if (ta.value !== ta.dataset.orig) { ta.dataset.orig = ta.value; save(); } });
 }
 
 function renderPipelineSettings(c) {

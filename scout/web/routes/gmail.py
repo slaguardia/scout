@@ -262,9 +262,7 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     company_name, _ = detail_store.get_company_name(con, posting.company_id)
     default_subject = outreach_template.render_subject(con, posting.title, company_name)
     subject, body_text = gmail_message.split_subject(draft_text, default_subject)
-    signature = outreach_template.signature_or_default(con)
-    if signature.strip():
-        body_text = body_text.rstrip() + "\n\n" + signature.strip()
+    # The sign-off lives in the body (template) now — nothing to append here.
 
     thread_id, prior_msg = gmail_store.latest_send_thread(con, d.posting_id, contact_id)
     from_addr = gmail_store.address(con)

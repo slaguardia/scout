@@ -29,16 +29,13 @@ from .prompts import (
 )
 from .stages import Stage, stage_by_key, stages
 from .template import (
-    DEFAULT_FOLLOWUP_SIGNATURE,
     DEFAULT_FOLLOWUP_TEMPLATE,
-    DEFAULT_SIGNATURE,
     DEFAULT_SUBJECT,
     DEFAULT_TEMPLATE,
     Hole,
     Template,
     parse_template,
     render_subject,
-    signature_or_default,
     subject_or_default,
     template_or_default,
 )
@@ -64,12 +61,9 @@ __all__ = [
     "template_or_default",
     "DEFAULT_TEMPLATE",
     "DEFAULT_FOLLOWUP_TEMPLATE",
-    "DEFAULT_FOLLOWUP_SIGNATURE",
     "DEFAULT_SUBJECT",
-    "DEFAULT_SIGNATURE",
     "render_subject",
     "subject_or_default",
-    "signature_or_default",
     "JDResult",
     "fetch_jd",
     "strip_tags",
