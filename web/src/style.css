@@ -2079,6 +2079,20 @@
   .set-steps > li::marker { color: var(--accent); font-weight: 700; }
   .set-steps > li strong { color: var(--fg); font-weight: 600; }
   .set-steps > li:last-child { margin-bottom: 0; }
+  /* Two-option fork (Publish app vs Test users): a green ✓ + "recommended"
+     pill points the eye at the default path; the alternative is a muted ↳ row,
+     so a fast skim instantly sees which way to go. */
+  .set-choice { list-style: none; margin: 7px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .set-choice > li { display: flex; gap: 9px; align-items: baseline; }
+  .set-choice .sc-mark { flex: none; width: 15px; text-align: center; font-weight: 700; }
+  .set-choice .sc-go .sc-mark { color: var(--yes); }
+  .set-choice .sc-alt { color: var(--fg-mute); }
+  .set-choice .sc-alt .sc-mark { color: var(--fg-dim); }
+  .set-choice .sc-tag {
+    margin-left: 7px; padding: 1px 7px; border-radius: 999px; vertical-align: middle;
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--yes); background: var(--yes-bg);
+  }
   .set-copy-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
   .set-copy-row code { flex: 1; padding: 7px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); font-size: 12px; word-break: break-all; }
   .set-help-scopes { margin: 4px 0 10px; padding-left: 18px; }

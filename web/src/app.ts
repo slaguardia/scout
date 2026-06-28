@@ -4690,8 +4690,13 @@ function gmailSetupHTML(gm) {
     <div class="set-help-body">
       <ol class="set-steps">
         <li><strong>Enable the Gmail API.</strong> In <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">APIs &amp; Services → Library → Gmail API</a>, click <strong>Enable</strong> — or run <code>gcloud services enable gmail.googleapis.com</code>.</li>
-        <li><strong>Configure the OAuth consent screen.</strong> Add these scopes, then <strong>Publish app</strong> (self-hosting your own mailbox needs no Google verification) — or add your account under <strong>Test users</strong>:
+        <li><strong>Configure the OAuth consent screen.</strong> Add these scopes:
           <ul class="set-help-scopes">${scopes.map(s => `<li><code>${escapeHTML(s)}</code></li>`).join("")}</ul>
+          Then authorize your mailbox — pick one:
+          <ul class="set-choice">
+            <li class="sc-go"><span class="sc-mark">✓</span><span><strong>Publish app</strong><span class="sc-tag">recommended</span> — self-hosting your own mailbox needs no Google verification.</span></li>
+            <li class="sc-alt"><span class="sc-mark">↳</span><span><strong>Add Test users</strong> instead — add your own Google account; no publishing.</span></li>
+          </ul>
         </li>
         <li><strong>Create the OAuth client.</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">APIs &amp; Services → Credentials</a>, create an <strong>OAuth client ID → Web application</strong>, and add this exact <strong>Authorized redirect URI</strong>:
           <div class="set-copy-row"><code id="gm-cb">${escapeHTML(cb)}</code><button class="btn btn-sm" id="gm-copy-cb" type="button">Copy</button></div>
