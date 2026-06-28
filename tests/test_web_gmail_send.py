@@ -116,6 +116,40 @@ def test_send_no_subject_uses_default_template(tmp_path, monkeypatch):
     assert r.json()["subject"] == "Reaching out about the Software Engineer role"
 
 
+def test_send_fills_recipient_placeholder(tmp_path, monkeypatch):
+    # The template's literal [Recipient] is replaced with the chosen contact's
+    # first name in both the subject and the greeting (the contact isn't known
+    # until send, so the draft carries the placeholder).
+    captured: dict = {}
+    with http_server(_stub(captured)) as base:
+        _oauth_env(monkeypatch, base)
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        con = open_db(db_path)
+        cid = con.execute("SELECT id FROM companies LIMIT 1").fetchone()[0]
+        p = postings.add_posting(con, cid, "https://acme.com/jobs/se", "Software Engineer")
+        c = contacts.create_contact(
+            con, cid, ContactInput(name="Sarah Chen", role="Recruiter", email="sarah@acme.com")
+        )
+        d = outreach_drafts.create_outreach_draft(con, p.id)
+        text = (
+            "Subject: [Recipient] | Steven — intro re Software Engineer\n\n"
+            "Hi [Recipient],\n\nbody.\n\nThanks,\nSteven"
+        )
+        outreach_drafts.set_outreach_draft_result(
+            con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "", "", text, "[]", "[]", "", ""
+        )
+        gmail_store.store_credentials(con, "rt", "me@gmail.com")
+        con.close()
+        r = client.post(f"/api/outreach/drafts/{d.id}/send-gmail", json={"contact_id": c.id})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["subject"].startswith("Sarah | Steven")  # first name in the subject
+    mime = base64.urlsafe_b64decode(captured["send"]["raw"]).decode()
+    body = mime.split("\n\n", 1)[1]
+    assert "Hi Sarah," in body
+    assert "[Recipient]" not in mime
+
+
 def test_send_threads_followup(tmp_path, monkeypatch):
     captured: dict = {}
     with http_server(_stub(captured)) as base:

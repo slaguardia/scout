@@ -2063,9 +2063,11 @@ function draftCardHTML(d, readonly) {
     <div class="draft-actions">
       <button class="btn btn-primary draft-sent-btn" title="mark this email sent — bumps the outreach count">${ICON_SEND}Mark sent</button>
       <button class="btn draft-regen-btn" title="discard this draft (kept in history) and re-run — picks up backfilled info">${REFRESH}Regenerate</button>
+      <label class="draft-skip-research" title="Regenerate without web research — drops the carried research and writes a plain intro."><input type="checkbox" class="draft-regen-skip"> skip research</label>
     </div>
     ${gmailSendControlsHTML()}` : `<div class="draft-actions">
       <button class="btn draft-regen-btn" title="re-run the draft — picks up backfilled info">${REFRESH}Regenerate</button>
+      <label class="draft-skip-research" title="Regenerate without web research — drops the carried research and writes a plain intro."><input type="checkbox" class="draft-regen-skip"> skip research</label>
     </div>`}
     ${renderTrace(d)}
   </div>`;
@@ -2153,7 +2155,12 @@ function wireOutreach() {
 
   // Regenerate retires the current reviewable draft (it drops to history) and
   // re-runs the pipeline — picks up backfilled experience/template/company info.
-  host.querySelectorAll(".draft-regen-btn").forEach(b => b.addEventListener("click", () => startDraft(true)));
+  // Its own "skip research" box drops the carried research for a plain intro.
+  host.querySelectorAll(".draft-regen-btn").forEach(b => b.addEventListener("click", (e) => {
+    const card = (e.currentTarget as HTMLElement).closest(".draft-card");
+    const cb = card ? card.querySelector(".draft-regen-skip") as HTMLInputElement | null : null;
+    startDraft(true, !!(cb && cb.checked));
+  }));
 
   host.querySelectorAll(".draft-card[data-did]").forEach(card => {
     const id = card.dataset.did;

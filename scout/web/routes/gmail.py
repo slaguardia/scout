@@ -246,6 +246,11 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     if draft_text.strip() == "":
         return json_error("draft is empty", 400)
 
+    # Fill the template's [Recipient] placeholder with the chosen contact's first
+    # name (the contact isn't known until send, so the draft carries the literal).
+    recipient = (contact.name or "").strip().split(" ")[0] or "there"
+    draft_text = draft_text.replace("[Recipient]", recipient)
+
     company_name, _ = detail_store.get_company_name(con, posting.company_id)
     default_subject = outreach_template.render_subject(con, posting.title, company_name)
     subject, body_text = gmail_message.split_subject(draft_text, default_subject)

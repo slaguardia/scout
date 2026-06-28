@@ -243,3 +243,32 @@ def test_run_uses_stored_description(db):
     assert any("stored at capture" in line for line in logs), (
         "JD did not come from the stored description; logs:\n" + "\n".join(logs)
     )
+
+
+# (h) skip_research on a regenerate drops the carried-forward research and
+# re-drafts with no web research (the "turn research off" control). Without the
+# skip flag a regenerate reuses that research; with it, the prior research is
+# discarded and no research call is made.
+def test_skip_research_drops_carried_research(db):
+    fake = FakeAnthropic(
+        [
+            fill_reply(HOOK_TEXT, CLOSER_TEXT),
+            humanize_reply(HOOK_TEXT, CLOSER_TEXT),
+            HONESTY_PASS,
+        ]
+    )
+    with http_server(fake.handle) as base:
+        eng = make_engine(db, base)
+        seed_experience(db)
+        did = seed_posting_draft(db)
+        # Simulate a regenerate: the draft carries the prior run's research.
+        outreach_drafts.set_outreach_draft_result(
+            db, did, outreach_drafts.DRAFT_RESEARCHING, RESEARCH_JSON, "", "", "", "", "", ""
+        )
+        eng.run(did, True)  # skip_research=True
+    assert fake.errors == []
+    d = outreach_drafts.get_outreach_draft(db, did)
+    assert d.status == outreach_drafts.DRAFT_AWAITING_REVIEW, f"fail={d.fail_reason!r}"
+    assert "researcher skipped" in d.research  # carried research dropped
+    assert "infra" not in d.research  # the RESEARCH_JSON is gone
+    assert fake.calls == 3  # no research call: fill, humanize, honesty

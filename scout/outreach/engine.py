@@ -201,8 +201,12 @@ class Engine(_StagesMixin, _AnswersMixin):
         voice = self._knowledge("voice")  # soft
 
         # 1. Research. A regenerate carries the prior draft's research forward
-        # (copied at create time), so we re-draft against the same web data.
+        # (copied at create time), so we re-draft against the same web data —
+        # unless skip_research is set, which drops the carried research too and
+        # re-drafts with a plain intro (the "turn research off" control).
         research = d.research.strip()
+        if skip_research:
+            research = ""
         if research != "":
             self._log(
                 f"outreach: draft {draft_id} — reusing carried-over research "
