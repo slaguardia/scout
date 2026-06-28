@@ -35,20 +35,19 @@ Hi [Recipient],
 Thanks,
 Your Name"""
 
-# DefaultFollowupTemplate is the compiled-in starting follow-up template (M53).
-# Unlike DEFAULT_TEMPLATE it has no LLM holes — it's pure variable substitution the
-# user copy-pastes when a follow-up is due. "Your Name" stays a placeholder.
+# DEFAULT_FOLLOWUP_TEMPLATE is the compiled-in starting follow-up BODY (M53). No
+# LLM holes — pure {{var}} substitution. The sign-off is a separate field
+# (DEFAULT_FOLLOWUP_SIGNATURE), appended at copy/send time, so it stays out of
+# the body.
 DEFAULT_FOLLOWUP_TEMPLATE = """Subject: Following up — {{role}} at {{company}}
 
 Hi {{contact_name}},
 
-Wanted to gently follow up on my note below about the {{role}} role at {{company}} — still very interested and happy to share anything that would help. Would a quick call make sense?
+Wanted to gently follow up on my note below about the {{role}} role at {{company}} — still very interested and happy to share anything that would help. Would a quick call make sense?"""
 
-Thanks,
-Your Name
-
---- my earlier note ({{last_sent}}) ---
-{{last_message}}"""
+# Empty by default; the user localizes a light sign-off, or ticks "same as email
+# signature" to reuse the saved outreach signature instead.
+DEFAULT_FOLLOWUP_SIGNATURE = ""
 
 
 # M55 send-path pieces. The subject is pure {{role}}/{{company}} substitution (no

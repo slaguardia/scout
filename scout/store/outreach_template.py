@@ -9,6 +9,7 @@ _OUTREACH_TEMPLATE_KEY = "default"
 _FOLLOWUP_TEMPLATE_KEY = "followup"
 _SUBJECT_TEMPLATE_KEY = "subject"            # M55: send subject (substitution, no LLM)
 _SIGNATURE_TEMPLATE_KEY = "signature"        # M55: appended sign-off block
+_FOLLOWUP_SIGNATURE_KEY = "followup_signature"  # follow-up's own (usually lighter) sign-off
 
 
 def get_outreach_template(con: sqlite3.Connection) -> str:
@@ -59,6 +60,18 @@ def get_signature_template(con: sqlite3.Connection) -> str:
 
 def put_signature_template(con: sqlite3.Connection, content: str) -> None:
     _put_template(con, _SIGNATURE_TEMPLATE_KEY, content)
+
+
+def get_followup_signature(con: sqlite3.Connection) -> str:
+    """The saved follow-up sign-off, or "" when none has been saved."""
+    row = con.execute(
+        "SELECT content FROM outreach_template WHERE key = ?", (_FOLLOWUP_SIGNATURE_KEY,)
+    ).fetchone()
+    return row[0] if row is not None else ""
+
+
+def put_followup_signature(con: sqlite3.Connection, content: str) -> None:
+    _put_template(con, _FOLLOWUP_SIGNATURE_KEY, content)
 
 
 def _put_template(con: sqlite3.Connection, key: str, content: str) -> None:

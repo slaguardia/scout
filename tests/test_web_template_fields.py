@@ -25,6 +25,21 @@ def test_signature_default_empty_and_roundtrip(tmp_path, monkeypatch):
     assert client.get("/api/outreach-signature").json()["content"] == "Best,\nSteven"
 
 
+def test_followup_signature_content_and_same_flag(tmp_path, monkeypatch):
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    # default: empty content, not "same"
+    d = client.get("/api/followup-signature").json()
+    assert d["content"] == "" and d["same"] is False
+    # set a dedicated light sign-off
+    assert client.put("/api/followup-signature", json={"content": "All the best,\nSteven", "same": False}).status_code == 200
+    d = client.get("/api/followup-signature").json()
+    assert d["content"] == "All the best,\nSteven" and d["same"] is False
+    # flip to "same as email signature" — flag persists, content kept
+    client.put("/api/followup-signature", json={"content": "All the best,\nSteven", "same": True})
+    d = client.get("/api/followup-signature").json()
+    assert d["same"] is True and d["content"] == "All the best,\nSteven"
+
+
 def test_render_subject_substitutes(db):
     from scout.outreach import template
 
