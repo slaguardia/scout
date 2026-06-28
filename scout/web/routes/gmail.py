@@ -316,6 +316,85 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     )
 
 
+@router.post("/api/postings/{posting_id}/send-followup")
+def send_followup_via_gmail(posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Send a follow-up as a reply on the contact's existing Gmail thread, then log
+    it (the next follow-up auto-arms via log_outreach). The body is the user-confirmed
+    follow-up text (rendered + previewed client-side), sent verbatim — no signature
+    re-appended (the template is the whole message).
+
+    Body: {"contact_id": "...", "body": "..."}. Requires a prior Gmail-threaded send
+    to that contact (otherwise there's no thread to reply onto).
+    """
+    if not gmail_store.is_connected(con):
+        return json_error("connect Gmail first (Settings → Gmail)", 412)
+    cfg = oauth.load_config(con)
+    if not cfg.configured():
+        return json_error("Gmail OAuth client not configured", 412)
+
+    posting = postings_store.get_posting(con, posting_id)
+    if posting is None:
+        return json_error("posting not found", 404)
+
+    body = decode_json(raw) if raw.strip() else {}
+    contact_id = _s(body, "contact_id").strip()
+    text = _s(body, "body")
+    if not contact_id:
+        return json_error("contact_id is required", 400)
+    if text.strip() == "":
+        return json_error("follow-up body is empty", 400)
+
+    contact = contacts.get_contact(con, contact_id)
+    if contact is None:
+        return json_error("contact not found", 404)
+    if not contact.email:
+        return json_error("that contact has no email address", 400)
+    if contact.company_id != posting.company_id:
+        return json_error("that contact belongs to a different company", 400)
+
+    # A follow-up replies onto the most recent Gmail-threaded send to this contact.
+    thread_id, prior_msg = gmail_store.latest_send_thread(con, posting_id, contact_id)
+    if not thread_id or not prior_msg:
+        return json_error("no Gmail thread to reply to — send the first email via Gmail first", 400)
+
+    from_addr = gmail_store.address(con)
+    refresh = gmail_store.refresh_token(con)
+    company_name, _ = detail_store.get_company_name(con, posting.company_id)
+
+    try:
+        with GmailClient(cfg, refresh) as gc:
+            in_reply_to = ""
+            prior_subject = ""
+            try:
+                meta = gc.get_message(prior_msg, fmt="metadata")
+                in_reply_to = gmail_message.header_value(meta, "Message-Id")
+                prior_subject = gmail_message.header_value(meta, "Subject")
+            except Exception:  # noqa: BLE001 - threading headers are best-effort
+                in_reply_to = ""
+            base = prior_subject or outreach_template.render_subject(con, posting.title, company_name)
+            subject = base if base[:3].lower() == "re:" else f"Re: {base}"
+            raw_b64, _mid = gmail_message.build_raw(
+                from_addr, contact.email, subject, text, in_reply_to, in_reply_to
+            )
+            sent = gc.send_message(raw_b64, thread_id=thread_id)
+    except oauth.GmailAuthError as e:
+        return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
+    except GmailError as e:
+        return json_error(f"Gmail send failed: {e}", 502)
+
+    msg_id = sent.get("id", "") or ""
+    thr = sent.get("threadId", "") or thread_id
+    contacts.log_outreach(
+        con,
+        posting_id,
+        contact_id,
+        contacts.OutreachInput(body=text, gmail_message_id=msg_id, gmail_thread_id=thr),
+    )
+    return json_response(
+        {"sent": True, "gmail_message_id": msg_id, "thread_id": thr, "to": contact.email, "subject": subject}
+    )
+
+
 # --- notifications feed + manual link (slice 5) ------------------------------
 
 

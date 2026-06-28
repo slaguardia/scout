@@ -1275,6 +1275,45 @@ async function onConfirmDeleteContact() {
   if (r) { toast("contact removed"); refreshAfterContactChange(); }
 }
 
+// Send-follow-up modal: an editable preview of the rendered follow-up, then send
+// it as a reply on the contact's Gmail thread. Only opened from the "Send
+// follow-up" button, which renders only when Gmail is connected + threaded.
+let sendFollowupTarget = null;
+
+function openSendFollowupModal(pid, contact, latest) {
+  if (!contact || !latest) return;
+  sendFollowupTarget = { pid, contactId: contact.id };
+  const to = document.getElementById("sendfollowup-to");
+  if (to) to.textContent = `To: ${contact.email || ""} — replies on the existing thread`;
+  const ta = document.getElementById("sendfollowup-body");
+  if (ta) ta.value = renderFollowupTemplate(contact, latest);
+  const confirmBtn = document.getElementById("sendfollowup-confirm");
+  if (confirmBtn) confirmBtn.disabled = false;
+  document.getElementById("sendfollowup-scrim").classList.add("open");
+  if (ta) ta.focus();
+}
+
+function closeSendFollowupModal() {
+  document.getElementById("sendfollowup-scrim").classList.remove("open");
+  sendFollowupTarget = null;
+}
+
+async function onConfirmSendFollowup() {
+  const t = sendFollowupTarget;
+  if (!t) return;
+  const ta = document.getElementById("sendfollowup-body");
+  const body = ta ? ta.value : "";
+  if (!body.trim()) { toast("nothing to send"); return; }
+  const btn = document.getElementById("sendfollowup-confirm");
+  if (btn) btn.disabled = true;
+  const r = await contactApi("POST", `/api/postings/${t.pid}/send-followup`,
+    { contact_id: t.contactId, body });
+  if (!r) { if (btn) btn.disabled = false; return; }  // contactApi already toasted the error
+  closeSendFollowupModal();
+  toast("follow-up sent");
+  refreshAfterContactChange();
+}
+
 // renderRelinkResults paints the filtered company list. Empty query → all
 // companies (alphabetical); a query ranks prefix matches first, then any
 // substring hit on the name. The current company is shown but not selectable.
@@ -1803,7 +1842,7 @@ function contactCardHTML(c) {
       <div class="cc-form-actions"><button class="btn btn-primary cc-e-save" type="button">Save</button><button class="btn cc-e-cancel" type="button">Cancel</button></div>
     </div>
     ${latest
-      ? `<div class="cc-fu-group">${followupGroupHTML(latest)}</div>`
+      ? `<div class="cc-fu-group">${followupGroupHTML(latest, !!(state.gmail && state.gmail.connected) && entries.some(e => e.gmail_thread_id))}</div>`
       : `<div class="cc-status"><span class="dim">no outreach logged yet</span></div>
     <div class="cc-rowacts"><button class="btn cc-log" type="button">+ log outreach</button></div>`}
     ${latest ? "" : `<div class="cc-logform" style="display:none">
@@ -1826,11 +1865,15 @@ function contactCardHTML(c) {
 //              contact" + "dismiss".
 //   stopped  — due cleared: "stopped" + "resume".
 // Only ever called with a latest send (the no-send card shows a log button).
-function followupGroupHTML(latest) {
+function followupGroupHTML(latest, canSend) {
   const id = latest.id;
   const due = latest.followup_due_at;
   const isDue = due && due <= isoToday();
   const copy = `<button class="btn btn-sm cc-followup" type="button" title="copy a follow-up email from your template">Copy follow-up ⧉</button>`;
+  // Only when Gmail is connected and there's a prior threaded send to reply onto.
+  const send = canSend
+    ? `<button class="btn btn-sm btn-primary cc-fu-send" type="button" title="send this follow-up as a reply on the Gmail thread">Send follow-up →</button>`
+    : "";
   let status, actions;
   if (latest.followup_done_at && isDue) {
     status = `<span class="cc-fu-status is-escalate">no reply — try another contact</span>`;
@@ -1846,7 +1889,7 @@ function followupGroupHTML(latest) {
     actions = `<button class="cc-fu-link cc-fu-done" data-eid="${id}" type="button" title="mark this follow-up done — arms the next reminder">done</button>`
       + `<button class="cc-fu-link cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
   }
-  return `<span class="cc-fu-eyebrow">follow-up</span>${status}<span class="cc-fu-actions">${copy}${actions}</span>`;
+  return `<span class="cc-fu-eyebrow">follow-up</span>${status}<span class="cc-fu-actions">${copy}${send}${actions}</span>`;
 }
 
 function outreachEntryHTML(e) {
@@ -2015,6 +2058,15 @@ function wireContacts() {
       const c = pursuit.contacts.find(x => String(x.id) === String(cid));
       const latest = pursuit.outreach.filter(e => String(e.contact_id) === String(cid))[0] || null;
       copyToClipboard(renderFollowupTemplate(c, latest), "follow-up copied — paste into your email");
+    });
+
+    // Send follow-up via Gmail: open an editable preview, then send it as a reply
+    // on the existing thread (only rendered when Gmail is connected + threaded).
+    const sendBtn = card.querySelector(".cc-fu-send");
+    if (sendBtn) sendBtn.addEventListener("click", () => {
+      const c = pursuit.contacts.find(x => String(x.id) === String(cid));
+      const latest = pursuit.outreach.filter(e => String(e.contact_id) === String(cid))[0] || null;
+      openSendFollowupModal(pid, c, latest);
     });
 
     // Follow-up state changes (done, reopen, stop, resume, dismiss) all PUT
@@ -4229,6 +4281,8 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("deljob-scrim").classList.contains("open")) { closeDeleteJobModal(); return; }
   // The remove-contact confirm also sits on top of the pursuit panel.
   if (document.getElementById("delcontact-scrim").classList.contains("open")) { closeDeleteContactModal(); return; }
+  // The send-follow-up preview likewise sits on top of the pursuit panel.
+  if (document.getElementById("sendfollowup-scrim").classList.contains("open")) { closeSendFollowupModal(); return; }
   // The company pane and the pursuit panel can stack either way; peel whichever
   // raisePane() last lifted to the top, falling back to whichever is open.
   const companyOpen = document.getElementById("pane").classList.contains("open");
@@ -4457,6 +4511,13 @@ document.getElementById("delcontact-cancel").onclick = closeDeleteContactModal;
 document.getElementById("delcontact-confirm").onclick = onConfirmDeleteContact;
 document.getElementById("delcontact-scrim").onclick = e => {
   if (e.target.id === "delcontact-scrim") closeDeleteContactModal();
+};
+
+// send-follow-up preview modal (reply on the contact's Gmail thread)
+document.getElementById("sendfollowup-cancel").onclick = closeSendFollowupModal;
+document.getElementById("sendfollowup-confirm").onclick = onConfirmSendFollowup;
+document.getElementById("sendfollowup-scrim").onclick = e => {
+  if (e.target.id === "sendfollowup-scrim") closeSendFollowupModal();
 };
 
 // relink search modal (move a job to another company)
