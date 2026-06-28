@@ -51,6 +51,7 @@ class Posting:
     comp_range: str = ""
     description: str = ""
     application_status: str = ""
+    application_status_at: str = ""
     outreach_count: int = 0
     last_outreach_at: str = ""
     outreach_status: str = ""
@@ -66,7 +67,7 @@ _POSTING_COLS = """id, company_id, url, COALESCE(title, ''), COALESCE(location, 
        created_at, COALESCE(captured_at, ''),
        COALESCE(posted_at, ''), COALESCE(employment_type, ''), COALESCE(workplace_type, ''),
        COALESCE(department, ''), COALESCE(comp_range, ''), COALESCE(description, ''),
-       COALESCE(application_status, ''),
+       COALESCE(application_status, ''), COALESCE(application_status_at, ''),
        (SELECT COUNT(*) FROM outreach_log ol WHERE ol.posting_id = job_postings.id),
        COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
        COALESCE(outreach_status, ''),
@@ -92,13 +93,14 @@ def _scan_posting(row) -> Posting:
         comp_range=row[13],
         description=row[14],
         application_status=row[15],
-        outreach_count=row[16],
-        last_outreach_at=row[17],
-        outreach_status=row[18],
-        notes=row[19],
-        next_up=row[20] is not None,
-        questions_status=row[21],
-        questions_at=row[22],
+        application_status_at=row[16],
+        outreach_count=row[17],
+        last_outreach_at=row[18],
+        outreach_status=row[19],
+        notes=row[20],
+        next_up=row[21] is not None,
+        questions_status=row[22],
+        questions_at=row[23],
     )
 
 
@@ -232,9 +234,17 @@ def update_posting_tracking(con: sqlite3.Connection, id: str, t: PostingTracking
     unknown posting; validation errors carry the offending field as a prefix."""
     outreach_status = _clean_status_label("outreach_status", t.outreach_status)
     application_status = _clean_status_label("application_status", t.application_status)
+    # Stamp application_status_at only when the stage actually moves — an
+    # outreach/notes-only save (the row sends all three fields) must not bump it.
+    # SQLite evaluates SET right-hand sides against the pre-update row, so the bare
+    # column reference is the old value.
     cur = con.execute(
-        "UPDATE job_postings SET application_status = ?, outreach_status = ?, notes = ? WHERE id = ?",
-        (application_status, outreach_status, t.notes.strip() or None, id),
+        """UPDATE job_postings SET
+            application_status_at = CASE WHEN application_status <> ?
+                THEN CURRENT_TIMESTAMP ELSE application_status_at END,
+            application_status = ?, outreach_status = ?, notes = ?
+         WHERE id = ?""",
+        (application_status, application_status, outreach_status, t.notes.strip() or None, id),
     )
     if cur.rowcount == 0:
         raise errors.NotFound()
@@ -247,7 +257,12 @@ def set_application_status(con: sqlite3.Connection, id: str, status: str) -> Pos
     untouched). Raises NotFound for an unknown posting; a bad label → ValueError."""
     application_status = _clean_status_label("application_status", status)
     cur = con.execute(
-        "UPDATE job_postings SET application_status = ? WHERE id = ?", (application_status, id)
+        """UPDATE job_postings SET
+            application_status_at = CASE WHEN application_status <> ?
+                THEN CURRENT_TIMESTAMP ELSE application_status_at END,
+            application_status = ?
+         WHERE id = ?""",
+        (application_status, application_status, id),
     )
     if cur.rowcount == 0:
         raise errors.NotFound()
@@ -374,6 +389,7 @@ class JobRow:
     reviewed: bool = False
     flagged: bool = False
     application_status: str = ""
+    application_status_at: str = ""
     outreach_count: int = 0
     last_outreach_at: str = ""
     outreach_status: str = ""
@@ -421,7 +437,8 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
            AND ol.followup_due_at IS NOT NULL
            AND ol.followup_due_at <= DATE('now')
            AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
-                        WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id))
+                        WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)),
+       COALESCE(p.application_status_at, '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -460,6 +477,7 @@ ORDER BY p.created_at DESC, p.rowid DESC"""
                 outreach_draft_status=r[26],
                 questions_status=r[27],
                 followups_due=r[28],
+                application_status_at=r[29],
             )
         )
     return out

@@ -131,6 +131,7 @@ job_postings (
     department TEXT, comp_range TEXT, description TEXT,
     -- application lifecycle
     application_status TEXT NOT NULL DEFAULT '', -- application axis (M51): configurable stage label; '' = none (replaced the M50 dated stage_history)
+    application_status_at TEXT,      -- M56: when application_status last changed; bumped only on a real stage change (not outreach/notes); NULL = unchanged since M56
     outreach_status    TEXT NOT NULL DEFAULT '', -- reply axis (M48): configurable label; '' = none
     notes            TEXT,          -- M31: free-form, human-only scratchpad
     next_up_at       DATETIME,      -- M27: "next up for outreach" to-do; clears when a send is logged
@@ -162,8 +163,12 @@ application stage reached; it replaced the M50 dated `stage_history`) and
 `outreach_status` (M48, the reply state) — each a configurable label ('' = none;
 vocabularies in the `application_stages` / `outreach_statuses` settings). Set as
 full state via `UpdatePostingTracking` (`PUT /api/postings/{id}`), alongside
-`notes`. Outreach *message content* stays out of scout — see the non-goals in
-`north-star.md`.
+`notes`. The application axis also carries `application_status_at` (M56), a single
+timestamp bumped only when `application_status` moves to a new value — an
+outreach- or notes-only save through the same call leaves it untouched (SQLite
+evaluates the `CASE` against the pre-update row). Surfaced in the jobs table
+(under the stage select) and the pursuit panel ("since …"). Outreach *message
+content* stays out of scout — see the non-goals in `north-star.md`.
 
 **Per-contact outreach + follow-ups (M51).** Outreach is tracked per person, not
 as a posting-level count:

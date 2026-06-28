@@ -813,7 +813,7 @@ function renderJobs() {
       `<option value="${escapeHTML(v)}"${ostatus === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("");
     tr.innerHTML = `
       <td><div class="jt-namecell"><button class="jt-nextup${j.next_up ? " is-on" : ""}" title="${j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}" aria-label="next up"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7"/></svg></button><div class="jt-namecol"><span class="row-name">${escapeHTML(j.title || j.company)}</span>${draftBadgeHTML(j.outreach_draft_status)}${j.title ? `<div class="small dim">${escapeHTML(j.company)}</div>` : ""}</div></div></td>
-      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select></div></td>
+      <td data-col="application"><div class="jt-stage"><select class="jt-stage-sel ${stageColorClass(stage)}" title="application stage">${stOpts}</select>${stage && j.application_status_at ? `<span class="jt-stage-at" title="stage last changed">${escapeHTML(j.application_status_at.slice(0, 10))}</span>` : ""}</div></td>
       <td class="small" data-col="outreach"><div class="jt-out"><select class="jt-ostatus ${statusColorClass(ostatus)}" title="outreach reply status">${osOpts}</select>${j.followups_due ? `<span class="followup-badge" title="${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act">${ICON_BELL}${j.followups_due}</span>` : ""}</div></td>
       <td class="small" data-col="last_outreach">${j.last_outreach_at ? escapeHTML(j.last_outreach_at) : '<span class="dim">—</span>'}</td>
       <td class="small td-contacts" data-col="contacts">${contactsHTML(j.contacts)}</td>
@@ -1385,6 +1385,7 @@ function renderPursuit() {
             ${stageOptions(j.application_status || "").map(([v, label]) =>
               `<option value="${escapeHTML(v)}"${(j.application_status || "") === v ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
           </select>
+          ${(j.application_status || "") && j.application_status_at ? `<span class="pl-at" title="stage last changed">since ${escapeHTML(j.application_status_at.slice(0, 10))}</span>` : ""}
         </div>
         <div class="pipeline-row">
           <span class="pl-label">outreach</span>
@@ -1568,6 +1569,7 @@ async function savePostingTracking(j, patch) {
   // the queued to-do) reflects immediately.
   Object.assign(j, {
     application_status: fresh.application_status,
+    application_status_at: fresh.application_status_at,
     outreach_count: fresh.outreach_count, last_outreach_at: fresh.last_outreach_at,
     outreach_status: fresh.outreach_status,
     contacts: fresh.contacts, notes: fresh.notes,
