@@ -83,6 +83,44 @@ def test_outbound_spark_send_is_logged(db, monkeypatch):
     assert row[0] == "o1" and row[1] == "t-o1" and row[2]  # follow-up armed
 
 
+def test_reconcile_readds_missing_send_with_real_date(db, monkeypatch):
+    # Gmail as source of truth: a send that's in the mailbox but missing from the
+    # log (e.g. deleted from a contact) is re-added by a reconcile pass — which a
+    # forward-only incremental sync can't do — carrying its real Gmail date.
+    cid, p, c = _seed(db)
+    out = gmail_message("o1", "me@gmail.com", "pat@acme.com", "Software Engineer — intro", "hi")
+
+    # A normal incremental pass with no new history changes nothing.
+    fg = FakeGmail(profile_history_id="200", history=[], messages={"o1": out})
+    with http_server(fg.handle) as base:
+        oauth_env(monkeypatch, base)
+        sync.sync_once(db)
+    assert db.execute("SELECT COUNT(*) FROM outreach_log WHERE posting_id=?", (p.id,)).fetchone()[0] == 0
+
+    # A reconcile re-lists recent messages and re-adds the send from the mailbox.
+    fg2 = FakeGmail(profile_history_id="201", list_ids=["o1"], messages={"o1": out})
+    with http_server(fg2.handle) as base:
+        oauth_env(monkeypatch, base)
+        res = sync.sync_once(db, reconcile=True)
+    assert res["sends"] == 1
+    row = db.execute(
+        "SELECT gmail_message_id, date(sent_at) FROM outreach_log WHERE posting_id=?", (p.id,)
+    ).fetchone()
+    assert row[0] == "o1"
+    assert row[1] == "1975-05-22"  # the message's internalDate, not today
+
+
+def test_reconcile_leaves_incremental_cursor(db, monkeypatch):
+    # A reconcile must not advance the forward-only cursor, so the next plain pass
+    # still picks up anything that landed in the gap.
+    _seed(db, cursor="100")
+    fg = FakeGmail(profile_history_id="999", list_ids=[], messages={})
+    with http_server(fg.handle) as base:
+        oauth_env(monkeypatch, base)
+        sync.sync_once(db, reconcile=True)
+    assert gmail_store.cursor(db) == "100"  # untouched
+
+
 def test_dedupes_our_own_send(db, monkeypatch):
     cid, p, c = _seed(db)
     contacts.log_outreach(db, p.id, c.id, OutreachInput(gmail_message_id="o1", gmail_thread_id="t-o1"))

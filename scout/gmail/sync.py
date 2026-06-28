@@ -35,6 +35,15 @@ def _now_utc() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _date_from_internal(ms: int) -> str:
+    """A Gmail internalDate (epoch ms) as a 'YYYY-MM-DD' UTC date, or "" when
+    absent — so a synced/self-healed send carries the date it actually went out
+    instead of today's. Empty falls back to log_outreach's today default."""
+    if not ms:
+        return ""
+    return datetime.datetime.fromtimestamp(ms / 1000, datetime.UTC).strftime("%Y-%m-%d")
+
+
 def replied_label(labels: list[str]) -> str:
     """The configured "replied" label: a literal "replied" if present, else the
     third label (the default vocabulary's "replied" slot), else ""."""
@@ -101,7 +110,8 @@ def _handle_outreach(con, routed: match.Routed, log: Callable[[str], None]) -> N
         contacts_store.log_outreach(
             con, posting_id, contact.id,
             contacts_store.OutreachInput(
-                body=parsed.body, gmail_message_id=parsed.id, gmail_thread_id=parsed.thread_id
+                sent_at=_date_from_internal(parsed.internal_date),
+                body=parsed.body, gmail_message_id=parsed.id, gmail_thread_id=parsed.thread_id,
             ),
         )
         log(f"gmail: synced an outbound send to {contact.email} on posting {posting_id}")
@@ -203,9 +213,19 @@ def _bounded_relist(gc):
     return ids, new_cursor
 
 
-def sync_once(con, anthropic=None, model: str = "", log: Callable[[str], None] | None = None) -> dict:
+def sync_once(
+    con, anthropic=None, model: str = "", log: Callable[[str], None] | None = None,
+    reconcile: bool = False,
+) -> dict:
     """Run one sync pass. Returns a small summary dict. Raises GmailAuthError when
-    the grant is gone (the caller degrades to send-only)."""
+    the grant is gone (the caller degrades to send-only).
+
+    reconcile=True treats Gmail as the source of truth: it re-lists a bounded
+    slice of recent messages (cursor-independent) and re-adds any send/reply that
+    is in the mailbox but missing from the log — self-healing a send that was
+    deleted from a contact. The incremental cursor is left untouched so the next
+    forward pass still picks up the gap. The default forward-only pass never
+    re-examines an already-seen message, which is why a delete doesn't return."""
     log = log or _noop
     if not gmail_store.is_connected(con):
         return {"skipped": "not connected"}
@@ -227,12 +247,18 @@ def sync_once(con, anthropic=None, model: str = "", log: Callable[[str], None] |
             gmail_store.set_last_sync_at(con, _now_utc())
             return {"bootstrapped": True, "cursor": hid}
 
-        try:
-            ids, new_cursor = _collect_history(gc, cursor)
-            relisted = False
-        except HistoryExpired:
-            ids, new_cursor = _bounded_relist(gc)
-            relisted = True
+        if reconcile:
+            # Source-of-truth pass: re-scan recent messages without advancing the
+            # incremental cursor, so missing sends/replies are re-added.
+            ids, _ = _bounded_relist(gc)
+            new_cursor, relisted = "", True
+        else:
+            try:
+                ids, new_cursor = _collect_history(gc, cursor)
+                relisted = False
+            except HistoryExpired:
+                ids, new_cursor = _bounded_relist(gc)
+                relisted = True
 
         replies = sends = apps = 0
         for mid in ids:

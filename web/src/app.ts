@@ -1707,7 +1707,7 @@ function gmailTrackingBarHTML() {
   return `<div class="cc-gmailbar">
     <span class="cc-gmail-on" title="${escapeHTML(gm.email || "")}">↳ Gmail tracking on${gm.email ? ` · ${escapeHTML(gm.email)}` : ""}</span>
     <span class="cc-gmail-sync dim">${last}</span>
-    <button class="btn btn-sm cc-sync-now" type="button" title="check Gmail now for new replies + sent mail">Sync now</button>
+    <button class="btn btn-sm cc-sync-now" type="button" title="re-check Gmail (source of truth) — pulls new replies + restores any missing sends">Sync now</button>
   </div>`;
 }
 
@@ -1802,6 +1802,11 @@ function outreachEntryHTML(e) {
   const prov = e.gmail_message_id
     ? `<span class="cc-e-prov prov-gmail" title="sent via Gmail — replies auto-sync">via Gmail ✓</span>`
     : `<span class="cc-e-prov prov-manual" title="logged by hand — not tracked in Gmail">logged manually</span>`;
+  // A Gmail-tracked send mirrors the mailbox (the source of truth) — a reconcile
+  // would just re-add it, so it isn't deletable here. Only hand-logged sends, which
+  // scout owns, keep the × delete.
+  const del = e.gmail_message_id ? ""
+    : `<button class="cc-e-del" type="button" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>`;
   const body = e.body
     ? `<details class="cc-e-body"><summary>email sent</summary><pre>${escapeHTML(e.body)}</pre></details>` : "";
   return `<div class="cc-entry-wrap">
@@ -1810,7 +1815,7 @@ function outreachEntryHTML(e) {
         ${prov}
         ${e.note ? `<span class="cc-e-note">${escapeHTML(e.note)}</span>` : ""}
         ${fu}
-        <button class="cc-e-del" type="button" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>
+        ${del}
       </div>
       ${body}
     </div>`;
@@ -1850,16 +1855,17 @@ function wireContacts() {
   if (!host) return;
   const pid = pursuit.postingId;
 
-  // Sync now: pull Gmail state on demand, refresh the last-synced time + the log
-  // (newly-seen replies/sends show up immediately).
+  // Sync now: a reconcile pass — treat Gmail as the source of truth, re-adding
+  // any send/reply that's in the mailbox but missing from the log (self-heals a
+  // deleted send) and refreshing the last-synced time.
   const syncBtn = host.querySelector(".cc-sync-now") as HTMLButtonElement | null;
   if (syncBtn) syncBtn.addEventListener("click", async () => {
     syncBtn.disabled = true; const t = syncBtn.textContent; syncBtn.textContent = "Syncing…";
     try {
-      const r = await fetch("/api/gmail/sync", { method: "POST" });
+      const r = await fetch("/api/gmail/sync?reconcile=1", { method: "POST" });
       if (!r.ok) { toast(`sync failed: ${(await r.text().catch(() => "")).trim() || "HTTP " + r.status}`); return; }
       await loadGmailState();        // refresh last_sync_at
-      await loadContactsAndLog();    // surface any new replies/sends (re-renders the panel)
+      await loadContactsAndLog();    // surface any new/restored replies/sends (re-renders the panel)
       toast("synced with Gmail");
     } catch (e) { toast(`sync failed: ${e.message}`); }
     finally { syncBtn.disabled = false; syncBtn.textContent = t; }

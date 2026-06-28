@@ -177,14 +177,21 @@ def gmail_autoflip(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Respo
 
 
 @router.post("/api/gmail/sync")
-def gmail_sync_now(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+def gmail_sync_now(
+    request: Request, con=Depends(get_db), state: AppState = Depends(get_state)
+) -> Response:
     """Run one read-sync pass on demand ("Sync now"). The 2.5-min poller does this
-    on a schedule; this is the manual trigger."""
+    on a schedule; this is the manual trigger.
+
+    ?reconcile=1 treats Gmail as the source of truth — re-lists recent messages
+    and re-adds any send/reply missing from the log (self-heals a deleted send)."""
     if not gmail_store.is_connected(con):
         return json_error("connect Gmail first", 412)
+    reconcile = request.query_params.get("reconcile") == "1"
     try:
         res = gmail_sync.sync_once(
-            con, anthropic=state.anthropic, log=lambda m: print(m, file=sys.stderr)
+            con, anthropic=state.anthropic, log=lambda m: print(m, file=sys.stderr),
+            reconcile=reconcile,
         )
     except oauth.GmailAuthError as e:
         return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
