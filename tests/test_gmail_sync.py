@@ -187,6 +187,25 @@ def test_application_suggestion_when_autoflip_off(db, monkeypatch):
     assert db.execute("SELECT 1 FROM gmail_messages WHERE id='a1'").fetchone() is not None
 
 
+def test_application_no_suggestion_when_status_already_matches(db, monkeypatch):
+    cid, p, c = _seed(db)
+    postings.set_application_status(db, p.id, "applied")  # already where the email would put it
+    ats = gmail_message("a1", "no-reply@greenhouse.io", "me@gmail.com",
+                        "Your application to Acme — Software Engineer", "We received your application.")
+    fg = FakeGmail(profile_history_id="200", history=["a1"], messages={"a1": ats})
+    fa = FakeAnthropic(['{"status":"applied","confidence":0.95}'])
+    with http_server(fg.handle) as gbase, http_server(fa.handle) as abase:
+        oauth_env(monkeypatch, gbase)
+        client = anthropic.Client(api_key="k", endpoint=abase)
+        res = sync.sync_once(db, anthropic=client)
+
+    assert res["apps"] == 1  # message was processed...
+    assert db.execute("SELECT 1 FROM gmail_messages WHERE id='a1'").fetchone() is not None  # ...and recorded
+    # ...but no redundant notification, since the posting is already "applied".
+    assert db.execute("SELECT COUNT(*) FROM notifications WHERE gmail_message_id='a1'").fetchone()[0] == 0
+    assert db.execute("SELECT application_status FROM job_postings WHERE id=?", (p.id,)).fetchone()[0] == "applied"
+
+
 def test_application_autoflip_on_sets_status(db, monkeypatch):
     cid, p, c = _seed(db)
     gmail_store.set_autoflip(db, True)
