@@ -1238,6 +1238,39 @@ async function onConfirmDeleteJob() {
   toast(`deleted ${label}`);
 }
 
+// Remove (soft-archive) a contact. Removing one with no logged sends is
+// unguarded; once there's send history, this confirm modal names the contact +
+// count first, so a stray click can't drop a corresponded contact (and take its
+// history off the posting). The logged sends are soft-kept server-side.
+let deleteContactTarget = null;
+
+function openDeleteContactModal(cid, name, count) {
+  deleteContactTarget = cid;
+  const summary = document.getElementById("delcontact-summary");
+  if (summary) summary.innerHTML = `Remove <strong>${escapeHTML(name)}</strong>?`;
+  const note = document.getElementById("delcontact-note");
+  if (note) note.textContent =
+    `You've logged ${count} email${count === 1 ? "" : "s"} to this contact — removing them takes that send history off this posting.`;
+  const confirmBtn = document.getElementById("delcontact-confirm");
+  if (confirmBtn) confirmBtn.disabled = false;
+  document.getElementById("delcontact-scrim").classList.add("open");
+}
+
+function closeDeleteContactModal() {
+  document.getElementById("delcontact-scrim").classList.remove("open");
+  deleteContactTarget = null;
+}
+
+async function onConfirmDeleteContact() {
+  const cid = deleteContactTarget;
+  if (!cid) return;
+  const btn = document.getElementById("delcontact-confirm");
+  if (btn) btn.disabled = true;
+  const r = await contactApi("DELETE", `/api/contacts/${cid}`);
+  closeDeleteContactModal();
+  if (r) { toast("contact removed"); refreshAfterContactChange(); }
+}
+
 // renderRelinkResults paints the filtered company list. Empty query → all
 // companies (alphabetical); a query ranks prefix matches first, then any
 // substring hit on the name. The current company is shown but not selectable.
@@ -1928,6 +1961,14 @@ function wireContacts() {
       if (r) { toast("contact saved"); refreshAfterContactChange(); }
     });
     card.querySelector(".cc-arch").addEventListener("click", async () => {
+      // Guard removal of a contact you've emailed behind a confirm modal; an
+      // unwritten-to contact removes straight away.
+      const sends = pursuit.outreach.filter(e => String(e.contact_id) === String(cid)).length;
+      if (sends > 0) {
+        const c = pursuit.contacts.find(x => String(x.id) === String(cid));
+        openDeleteContactModal(cid, (c && c.name) || "this contact", sends);
+        return;
+      }
       const r = await contactApi("DELETE", `/api/contacts/${cid}`);
       if (r) { toast("contact removed"); refreshAfterContactChange(); }
     });
@@ -4170,6 +4211,8 @@ document.addEventListener("keydown", e => {
   if (document.getElementById("delcompany-scrim").classList.contains("open")) { closeDeleteCompanyModal(); return; }
   // The delete-job confirm sits on top of the pursuit panel — peel it first too.
   if (document.getElementById("deljob-scrim").classList.contains("open")) { closeDeleteJobModal(); return; }
+  // The remove-contact confirm also sits on top of the pursuit panel.
+  if (document.getElementById("delcontact-scrim").classList.contains("open")) { closeDeleteContactModal(); return; }
   // The company pane and the pursuit panel can stack either way; peel whichever
   // raisePane() last lifted to the top, falling back to whichever is open.
   const companyOpen = document.getElementById("pane").classList.contains("open");
@@ -4391,6 +4434,13 @@ document.getElementById("deljob-cancel").onclick = closeDeleteJobModal;
 document.getElementById("deljob-confirm").onclick = onConfirmDeleteJob;
 document.getElementById("deljob-scrim").onclick = e => {
   if (e.target.id === "deljob-scrim") closeDeleteJobModal();
+};
+
+// remove-contact confirm modal (only shown when the contact has logged sends)
+document.getElementById("delcontact-cancel").onclick = closeDeleteContactModal;
+document.getElementById("delcontact-confirm").onclick = onConfirmDeleteContact;
+document.getElementById("delcontact-scrim").onclick = e => {
+  if (e.target.id === "delcontact-scrim") closeDeleteContactModal();
 };
 
 // relink search modal (move a job to another company)
