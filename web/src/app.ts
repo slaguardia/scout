@@ -1817,7 +1817,7 @@ function outreachEntryHTML(e) {
   // scout owns, keep the × delete.
   const del = e.gmail_message_id ? ""
     : `<button class="cc-e-del" type="button" data-eid="${e.id}" title="delete this logged send (and its follow-up)" aria-label="delete this send">×</button>`;
-  const view = e.body ? `<span class="cc-e-view">view email</span>` : "";
+  const view = e.body ? `<span class="cc-e-view"></span>` : "";  // label ("view"/"hide" email) supplied by CSS per open state
   const actions = (view || del) ? `<span class="cc-e-actions">${view}${del}</span>` : "";
   const meta = `<span class="cc-e-date">${escapeHTML(e.sent_at)}</span>
         ${prov}
