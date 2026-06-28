@@ -1838,7 +1838,7 @@ function followupGroupHTML(latest) {
     status = `<span class="cc-fu-status is-stopped">stopped</span>`;
     actions = `<button class="cc-fu-link cc-fu-resume" data-eid="${id}" type="button">resume</button>`;
   } else {
-    status = `<span class="cc-fu-status${isDue ? " is-overdue" : ""}">${isDue ? "overdue" : "due"} ${escapeHTML(due)}</span>`;
+    status = `<span class="cc-fu-status${isDue ? " is-overdue" : ""}">${isDue ? "overdue" : "follow up on"} ${escapeHTML(due)}</span>`;
     actions = `<button class="cc-fu-link cc-fu-done" data-eid="${id}" type="button" title="mark this follow-up done — arms the next reminder">done</button>`
       + `<button class="cc-fu-link cc-fu-stop" data-eid="${id}" type="button" title="discontinue follow-ups for this contact">stop</button>`;
   }
