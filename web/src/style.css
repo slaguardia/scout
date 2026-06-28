@@ -121,16 +121,12 @@
   .sidebar-bottom { margin-top: auto; }
   /* the chat entry sits ABOVE the divider, spaced from "how it works" below it. */
   .sidebar-chat { width: 100%; justify-content: center; margin-bottom: 14px; }
+  /* Footer nav: same vertical icon+label rows as the top view switch (the row
+     styling lives in the "Sidebar nav" block below). */
   .sidebar-foot {
-    padding-top: 16px; border-top: 1px solid var(--line);
-    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+    padding-top: 12px; border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 2px;
   }
-  /* .foot-btn.doc-btn out-specifies .doc-btn's gap:6px (defined later) so a
-     collapsed button is a centered icon; the icon-to-label gap comes back via
-     the label's margin-left when expanded. */
-  .foot-btn { flex: none; justify-content: center; }
-  .foot-btn.doc-btn { gap: 0; }
-  .foot-btn svg { width: 14px; height: 14px; flex: none; }
   /* one rhythm: every section is a padded band, hairlines between bands (the
      brand row draws the first divider). */
   aside.sidebar .block { padding: 18px 0; }
@@ -218,71 +214,27 @@
     width: auto;
   }
 
-  /* view switch (companies | jobs) — top of the sidebar; the whole main area
-     follows it. */
-  /* The view tabs collapse to icons and expand the active one to show its label,
-     so three tabs (companies / jobs / inbox) cost barely more room than two. The
-     row is centered so the collapsed icons sit centered when no tab is the active
-     view (e.g. while Settings is open). The expand mechanism (a collapsible label)
-     is shared with the footer buttons below. */
-  .view-switch { display: flex; gap: 6px; justify-content: center; }
-  .tab {
-    flex: 0 0 auto;
-    display: flex; align-items: center;
-    position: relative;
-    background: var(--panel); color: var(--fg-mute);
-    border: 1px solid var(--line); border-radius: var(--r-md);
-    padding: 7px 9px; font: inherit; font-size: 13px; cursor: pointer;
-    transition: background var(--dur-fast) var(--ease),
-                border-color var(--dur-fast) var(--ease),
-                color var(--dur-fast) var(--ease);
+  /* Sidebar nav — vertical icon+label rows (Linear-style): always labeled, no
+     animation. The same row treatment is shared by the top view switch (.tab) and
+     the footer buttons (.foot-btn) so both groups read as one nav. */
+  .view-switch { display: flex; flex-direction: column; gap: 2px; }
+  .tab,
+  .sidebar-foot .foot-btn {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    justify-content: flex-start; text-align: left;
+    background: transparent; color: var(--fg-mute);
+    border: 1px solid transparent; border-radius: var(--r-md);
+    padding: 6px 9px; font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
   }
-  .tab svg { width: 15px; height: 15px; flex: none; }
-  .tab:hover { border-color: var(--line-2); color: var(--fg); }
-  .tab.active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
-
-  /* Collapsible nav labels — shared by the top view tabs (.tab/.active) and the
-     footer buttons (.foot-btn/.is-active). The text read choppy because the box
-     un-clipped the glyphs left-to-right, so they appeared a sliver at a time at
-     the clip edge — per-edge repaint. The fix (the technique in the Framer Motion
-     reference): the inner text is laid out ONCE on its own compositor layer and
-     SLID into place as a whole unit via transform (translateX) + opacity — both
-     GPU-composited, so the word glides in rather than being painted edge-by-edge.
-     The outer label still animates its width 0 -> content, but only to reserve
-     the space (the "resize", which already felt smooth). */
+  .tab svg,
+  .sidebar-foot .foot-btn svg { width: 15px; height: 15px; flex: none; }
   .tab .tab-label,
-  .foot-btn .ft-label {
-    width: 0; opacity: 0; overflow: hidden;
-    transition: width var(--dur-base) var(--ease),
-                opacity var(--dur-base) var(--ease);
-  }
-  .tab .tab-label > .nav-li,
-  .foot-btn .ft-label > .nav-li {
-    display: block; width: max-content; padding-left: 7px; white-space: nowrap;
-    transform: translateX(-10px);   /* slide the whole word in as one GPU layer */
-    transition: transform var(--dur-base) var(--ease);
-  }
-  .tab.active .tab-label,
-  .foot-btn.is-active .ft-label { opacity: 1; }
-  .tab.active .tab-label > .nav-li,
-  .foot-btn.is-active .ft-label > .nav-li { transform: translateX(0); }
-  /* Chromium (incl. Brave): interpolate-size lets the clip animate straight to the
-     text's own size — exact fit, zero hand-tuned caps, the cleanest path. */
-  @supports (interpolate-size: allow-keywords) {
-    .view-switch, .sidebar-foot { interpolate-size: allow-keywords; }
-    .tab.active .tab-label,
-    .foot-btn.is-active .ft-label { width: auto; }
-  }
-  /* Engines without interpolate-size yet (Safari/Firefox): same smooth clip, but
-     the target must be a px value per label (text width + the 7px lead gap).
-     Slightly generous so a label never clips; transition:width is smooth there. */
-  @supports not (interpolate-size: allow-keywords) {
-    #tab-companies.active .tab-label { width: 73px; }
-    #tab-jobs.active .tab-label { width: 39px; }
-    #tab-inbox.active .tab-label { width: 45px; }
-    #open-settings.is-active .ft-label { width: 63px; }
-    #open-docs.is-active .ft-label { width: 89px; }
-  }
+  .sidebar-foot .foot-btn .ft-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab:hover,
+  .sidebar-foot .foot-btn:hover { background: var(--panel); color: var(--fg); }
+  .tab.active,
+  .foot-btn.is-active { background: var(--link-bg); color: var(--link); }
 
   /* response pill (jobs table) — interview gets the link blue */
   .pill-info { background-color: var(--link-bg); color: var(--link); }
@@ -1112,13 +1064,12 @@
   /* notifications / inbox (M55): the sidebar bell badge + the panel items. The
      unread count sits as a bubble on the button's top-right corner so it never
      widens the button (which would push the footer row past the sidebar edge). */
-  .foot-btn { position: relative; }
+  /* unread count — an inline chip at the right end of the inbox nav row (the
+     row's .tab-label is flex:1, so this is pushed to the edge). */
   .notif-badge {
-    position: absolute; top: -6px; right: -6px;
-    min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
-    background: var(--accent, #d94c4c); color: #fff; font-size: 10px; font-weight: 600;
+    flex: none; min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 10px; font-weight: 600;
     display: inline-flex; align-items: center; justify-content: center; line-height: 1;
-    pointer-events: none; box-shadow: 0 0 0 2px var(--bg-2);
   }
   .notif-item {
     display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
@@ -2051,9 +2002,9 @@
   .settings-page-head { margin-bottom: 22px; }
   .settings-page-head h2 { margin: 0; font-size: 19px; font-weight: 650; color: var(--fg); }
   .settings-page-sub { margin-top: 4px; font-size: 12.5px; color: var(--fg-mute); }
-  /* sidebar foot buttons (Settings / How it works / Inbox), lit while their
-     full-page view is active — same treatment as an active companies/jobs tab. */
-  .foot-btn.is-active { background: var(--link-bg); border-color: var(--link); color: var(--link); }
+  /* sidebar foot buttons (Settings / How it works), lit while their full-page
+     view is active — same treatment as an active companies/jobs nav row. */
+  .foot-btn.is-active { background: var(--link-bg); color: var(--link); }
 
   /* full-page views hosted in the main content column (Inbox, How it works) —
      fixed to the right of the sidebar so the sidebar stays put, like a real page. */

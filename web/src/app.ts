@@ -152,6 +152,10 @@ function setView(v, { render = true } = {}) {
   document.getElementById("open-settings").classList.toggle("is-active", v === "settings");
   const dbtn = document.getElementById("open-docs");
   if (dbtn) dbtn.classList.toggle("is-active", v === "docs");
+  // Run (enrich/verdict) is a companies-only pipeline — hide it off the companies
+  // view so it never reads as actionable on the jobs/inbox/settings/docs pages.
+  const brun = document.getElementById("block-run");
+  if (brun) brun.style.display = v === "companies" ? "" : "none";
   // Filter + Columns blocks are table-only — they hide on the non-table views.
   const tableView = v === "companies" || v === "jobs";
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
