@@ -1492,9 +1492,11 @@ function roleEditHTML(j) {
     <div class="role-meta">
       ${j.posted_at ? `<span>posted ${escapeHTML(j.posted_at)}</span>` : ""}
       <span class="role-company-wrap">
-        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                title="open the company panel">${escapeHTML(j.company)} ↗</button>
-        ${j.verdict ? `<span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span>` : ""}
+        <span class="role-company-row">
+          <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                  title="open the company panel">${escapeHTML(j.company)} ↗</button>
+          ${j.verdict ? `<span class="role-verdict"><span class="role-verdict-label">verdict</span> <span class="${pillClass(j.verdict)}" title="scout's company-fit verdict">${escapeHTML(j.verdict)}</span></span>` : ""}
+        </span>
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
                 title="move this job to a different company">change</button>
       </span>

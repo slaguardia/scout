@@ -984,9 +984,11 @@ Return the JSON verdict now.</pre>
     <div class="role-meta">
       ${e.posted_at?`<span>posted ${l(e.posted_at)}</span>`:""}
       <span class="role-company-wrap">
-        <button type="button" class="role-company role-company-link" id="pursuit-company-link"
-                title="open the company panel">${l(e.company)} ↗</button>
-        ${e.verdict?`<span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span>`:""}
+        <span class="role-company-row">
+          <button type="button" class="role-company role-company-link" id="pursuit-company-link"
+                  title="open the company panel">${l(e.company)} ↗</button>
+          ${e.verdict?`<span class="role-verdict"><span class="role-verdict-label">verdict</span> <span class="${y(e.verdict)}" title="scout's company-fit verdict">${l(e.verdict)}</span></span>`:""}
+        </span>
         <button type="button" class="role-company-relink-btn" id="pursuit-company-edit"
                 title="move this job to a different company">change</button>
       </span>
