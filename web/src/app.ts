@@ -156,6 +156,10 @@ function setView(v, { render = true } = {}) {
   // view so it never reads as actionable on the jobs/inbox/settings/docs pages.
   const brun = document.getElementById("block-run");
   if (brun) brun.style.display = v === "companies" ? "" : "none";
+  // Ingest CSV is a companies-only bulk add (it upserts company rows); hide it off
+  // the companies view. The Add button stays — it covers both companies and jobs.
+  const bing = document.getElementById("btn-ingest");
+  if (bing) bing.style.display = v === "companies" ? "" : "none";
   // Filter + Columns blocks are table-only — they hide on the non-table views.
   const tableView = v === "companies" || v === "jobs";
   document.getElementById("block-filter-companies").style.display = v === "companies" ? "" : "none";
