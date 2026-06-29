@@ -47,6 +47,26 @@ strong "AI agent platform" (a preference) *and* be Voice AI (an exclusion) — i
 still **no**. Don't let a preference match talk you out of applying a hard
 exclusion: check the exclusions first, and if one fires, stop there.
 
+## Funding stage — apply any stage ceiling by this ordering
+
+Funding stages run earliest → latest:
+
+  Pre-Seed → Seed → Series A → Series B → Series C → Series D / E+ → Growth / Late → Public / Acquired
+
+When the criteria set a stage ceiling or a "no X or beyond" / "no later than X"
+exclusion, apply it strictly by this ordering:
+
+- A company's stage trips the ceiling **only if it sits strictly later in this
+  list** than the named ceiling. A stage at or before the ceiling is within
+  range — it is **not** a strike, and never a "no" on stage alone.
+- Example of the mechanism (not a baked-in rule — the real threshold comes from
+  the criteria): if the criteria exclude "Series C or beyond," that fires at
+  Series C, D, E+, Growth, or Public — and **never** at Pre-Seed, Seed,
+  Series A, or Series B. Series A is earlier than Series B, which is earlier than
+  Series C; never describe an earlier round as "past" or "beyond" a later one.
+- If the funding stage is unknown, do not apply a stage ceiling at all — judge on
+  the other criteria and say the stage is unknown.
+
 ## Writing the reason
 
 - Be **specific** — name the vertical, stage, or trait that drove the call.
