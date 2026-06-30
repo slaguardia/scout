@@ -269,6 +269,42 @@ def test_skip_research_drops_carried_research(db):
     assert fake.errors == []
     d = outreach_drafts.get_outreach_draft(db, did)
     assert d.status == outreach_drafts.DRAFT_AWAITING_REVIEW, f"fail={d.fail_reason!r}"
-    assert "researcher skipped" in d.research  # carried research dropped
+    assert "no web research" in d.research  # the skip note replaced the carried research
     assert "infra" not in d.research  # the RESEARCH_JSON is gone
     assert fake.calls == 3  # no research call: fill, humanize, honesty
+
+
+# (i) skip_research still grounds the draft in what's on file — the cached
+# enrichment summary flows into the context the writer sees (so the closer has
+# real company facts to draw on), instead of an empty "researcher skipped" note.
+def test_skip_research_uses_onfile_enrichment(db):
+    from scout.store import enrichment
+
+    fake = FakeAnthropic(
+        [
+            fill_reply(HOOK_TEXT, CLOSER_TEXT),
+            humanize_reply(HOOK_TEXT, CLOSER_TEXT),
+            HONESTY_PASS,
+        ]
+    )
+    with http_server(fake.handle) as base:
+        eng = make_engine(db, base)
+        seed_experience(db)
+        did = seed_posting_draft(db)
+        d0 = outreach_drafts.get_outreach_draft(db, did)
+        p = postings.get_posting(db, d0.posting_id)
+        enrichment.upsert_enrichment(
+            db,
+            enrichment.Enrichment(
+                company_id=p.company_id,
+                website_url="https://acme.com",
+                website_summary="Acme builds zero-downtime deploy tooling for regulated banks.",
+                fetch_status="ok",
+            ),
+        )
+        eng.run(did, True)  # skip_research=True
+    assert fake.errors == []
+    d = outreach_drafts.get_outreach_draft(db, did)
+    assert d.status == outreach_drafts.DRAFT_AWAITING_REVIEW, f"fail={d.fail_reason!r}"
+    assert "zero-downtime deploy tooling" in d.research  # on-file summary fed to the writer
+    assert fake.calls == 3  # still no research web call

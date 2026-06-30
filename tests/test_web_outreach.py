@@ -28,9 +28,11 @@ SEED_TEMPLATE = (
 class FakeOutreachRunner:
     def __init__(self):
         self.started: list[int] = []
+        self.skips: list[bool] = []
 
     def draft(self, draft_id: int, skip_research: bool = False) -> None:
         self.started.append(draft_id)
+        self.skips.append(skip_research)
 
 
 def _seed_outreach_ready(db_path, cid) -> str:
@@ -99,6 +101,10 @@ def test_outreach_draft_queue(tmp_path, monkeypatch):
     d = started["draft"]
     assert d["status"] == outreach_drafts.DRAFT_RESEARCHING
     assert runner.started == [d["id"]]
+
+    # Default start does not skip research.
+    assert d["skip_research"] is False
+    assert runner.skips == [False]
 
     # Second start while active: 409.
     assert _post(client, f"/api/postings/{pid}/outreach").status_code == 409
@@ -423,3 +429,20 @@ def test_outreach_regenerate(tmp_path, monkeypatch):
     )
     assert drafts[1]["id"] == first_id and drafts[1]["status"] == outreach_drafts.DRAFT_SUPERSEDED
     assert drafts[1]["draft"] == "draft text"
+
+
+def test_outreach_skip_research_persisted(tmp_path, monkeypatch):
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    runner = FakeOutreachRunner()
+    client.app.state.scout.outreach = runner
+    pid = _seed_outreach_ready(db_path, cid)
+
+    # ?research=0 persists the skip flag on the row and passes it to the runner so
+    # the panel's progress bar can drop the Research node across polls/reloads.
+    rec = _post(client, f"/api/postings/{pid}/outreach?research=0")
+    assert rec.status_code == 202, (rec.status_code, rec.text)
+    assert rec.json()["draft"]["skip_research"] is True
+    assert runner.skips == [True]
+    # Survives a re-fetch (the panel polls this row, not the in-memory flag).
+    drafts = client.get(f"/api/postings/{pid}/outreach").json()["drafts"]
+    assert drafts[0]["skip_research"] is True

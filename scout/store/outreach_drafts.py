@@ -36,11 +36,13 @@ class OutreachDraft:
     created_at: str = ""
     updated_at: str = ""
     sent_at: str = ""
+    skip_research: bool = False
 
 
 _DRAFT_COLS = (
     "id, posting_id, status, stage, research, hook, draft, edited, lint, "
-    "violations, critique, fail_reason, created_at, updated_at, COALESCE(sent_at, '')"
+    "violations, critique, fail_reason, created_at, updated_at, COALESCE(sent_at, ''), "
+    "skip_research"
 )
 
 
@@ -61,6 +63,7 @@ def _scan_draft(row) -> OutreachDraft:
         created_at=row[12],
         updated_at=row[13],
         sent_at=row[14],
+        skip_research=bool(row[15]),
     )
 
 
@@ -69,16 +72,23 @@ def _must_affect(cur: sqlite3.Cursor) -> None:
         raise errors.NotFound()
 
 
-def _insert_draft(con: sqlite3.Connection, posting_id: str) -> OutreachDraft:
+def _insert_draft(
+    con: sqlite3.Connection, posting_id: str, skip_research: bool = False
+) -> OutreachDraft:
     """Insert a fresh researching draft and return it (within the caller's tx)."""
-    cur = con.execute("INSERT INTO outreach_drafts (posting_id) VALUES (?)", (posting_id,))
+    cur = con.execute(
+        "INSERT INTO outreach_drafts (posting_id, skip_research) VALUES (?, ?)",
+        (posting_id, 1 if skip_research else 0),
+    )
     row = con.execute(
         f"SELECT {_DRAFT_COLS} FROM outreach_drafts WHERE id = ?", (cur.lastrowid,)
     ).fetchone()
     return _scan_draft(row)
 
 
-def create_outreach_draft(con: sqlite3.Connection, posting_id: str) -> OutreachDraft:
+def create_outreach_draft(
+    con: sqlite3.Connection, posting_id: str, skip_research: bool = False
+) -> OutreachDraft:
     """Start a new draft for a posting. Raises NotFound for an unknown posting and
     ValueError ("active draft") when one is already in a non-terminal status."""
     with tx(con):
@@ -95,11 +105,13 @@ def create_outreach_draft(con: sqlite3.Connection, posting_id: str) -> OutreachD
         ).fetchone()[0]
         if active > 0:
             raise ValueError(f"posting {posting_id} already has an active draft")
-        d = _insert_draft(con, posting_id)
+        d = _insert_draft(con, posting_id, skip_research)
     return d
 
 
-def regenerate_outreach_draft(con: sqlite3.Connection, posting_id: str) -> OutreachDraft:
+def regenerate_outreach_draft(
+    con: sqlite3.Connection, posting_id: str, skip_research: bool = False
+) -> OutreachDraft:
     """Retire the posting's current reviewable draft (→ superseded) and start a
     fresh one, carrying the most recent research forward. Refuses while a draft is
     still researching."""
@@ -131,7 +143,7 @@ def regenerate_outreach_draft(con: sqlite3.Connection, posting_id: str) -> Outre
             (DRAFT_SUPERSEDED, posting_id, DRAFT_AWAITING_REVIEW, DRAFT_NEEDS_WORK, DRAFT_NO_HOOK),
         )
 
-        d = _insert_draft(con, posting_id)
+        d = _insert_draft(con, posting_id, skip_research)
         if prior_research != "":
             con.execute(
                 "UPDATE outreach_drafts SET research = ? WHERE id = ?", (prior_research, d.id)

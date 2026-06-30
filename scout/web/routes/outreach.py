@@ -90,13 +90,18 @@ def start_posting_outreach(
     if outreach_sources.outreach_knowledge(con, "voice").strip() == "":
         degraded.append("voice")
 
+    # ?research=0 skips the web-research stage for this draft (drafts from on-file
+    # info only). Persisted on the row so the panel's progress bar can drop the
+    # Research node across polls/reloads.
+    skip_research = request.query_params.get("research") == "0"
+
     # ?regenerate=1 retires the current reviewable draft and starts a fresh run;
     # the default POST creates only when no draft is active (409 otherwise).
     create = outreach_drafts.create_outreach_draft
     if request.query_params.get("regenerate") == "1":
         create = outreach_drafts.regenerate_outreach_draft
     try:
-        d = create(con, posting_id)
+        d = create(con, posting_id, skip_research)
     except errors.NotFound:
         return json_error("not found", 404)
     except ValueError as e:
@@ -104,8 +109,7 @@ def start_posting_outreach(
             return json_error(str(e), 409)
         raise
 
-    # ?research=0 skips the web-research stage for this draft.
-    state.outreach.draft(d.id, request.query_params.get("research") == "0")
+    state.outreach.draft(d.id, skip_research)
     return json_response({"draft": d, "degraded": degraded}, 202)
 
 

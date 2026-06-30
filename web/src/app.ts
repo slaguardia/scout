@@ -1753,7 +1753,7 @@ function renderOutreachSection() {
   const draftBtn = suppressStart
     ? ""
     : `<button class="btn btn-primary" id="draft-start-btn">${current ? "Draft again" : "Draft outreach"}</button>` +
-      `<label class="draft-skip-research" title="Skip the web-research stage — write straight from the template; the opener becomes a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`;
+      `<label class="draft-skip-research" title="Skip the web-research stage — draft from what's already on file (the job description and company summary) instead of searching the web. Less crafted, still grounded; the opener stays a plain intro."><input type="checkbox" id="draft-skip-research"> skip research</label>`;
 
   const histBlock = history.length ? `
     <details class="draft-history" ${pursuit.openHist ? "open" : ""}>
@@ -2164,18 +2164,21 @@ const STAGE_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" 
 // outreachProgressHTML renders the staged progress bar shown on a researching
 // draft card: a connected row of nodes (done / active / pending) plus a
 // spinner'd status line for the active stage. An unknown/empty stage falls back
-// to the first node so a freshly-started run still reads as in-progress.
-function outreachProgressHTML(stage) {
-  let idx = OUTREACH_STAGES.findIndex(s => s.key === stage);
+// to the first node so a freshly-started run still reads as in-progress. When the
+// draft skipped web research, the Research node is dropped — the pipeline starts
+// at Draft (a stray "research" stage marker then maps to that first node).
+function outreachProgressHTML(stage, skipResearch) {
+  const stages = skipResearch ? OUTREACH_STAGES.filter(s => s.key !== "research") : OUTREACH_STAGES;
+  let idx = stages.findIndex(s => s.key === stage);
   if (idx < 0) idx = 0;
-  const segs = OUTREACH_STAGES.map((s, i) => {
+  const segs = stages.map((s, i) => {
     const cls = i < idx ? "is-done" : i === idx ? "is-active" : "is-pending";
     const dot = i < idx ? STAGE_CHECK : "";
     return `<div class="dp-seg ${cls}"><span class="dp-dot">${dot}</span><span class="dp-name">${s.label}</span></div>`;
   }).join("");
   return `<div class="draft-progress">
     <div class="dp-track">${segs}</div>
-    <div class="dp-status"><span class="spinner"></span><span>${OUTREACH_STAGES[idx].active}…</span></div>
+    <div class="dp-status"><span class="spinner"></span><span>${stages[idx].active}…</span></div>
   </div>`;
 }
 
@@ -2213,7 +2216,7 @@ function draftCardHTML(d, readonly) {
 
   if (d.status === "researching") {
     return `<div class="draft-card dc-busy">
-      ${outreachProgressHTML(d.stage)}
+      ${outreachProgressHTML(d.stage, d.skip_research)}
       <div class="draft-note">This usually takes a minute or two — leave the panel or check back later.</div>
     </div>`;
   }

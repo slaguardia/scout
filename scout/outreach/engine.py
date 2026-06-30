@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from scout import anthropic, brainbot
-from scout.store import companies, outreach_drafts, outreach_sources, postings
+from scout.store import companies, enrichment, outreach_drafts, outreach_sources, postings
 
 from .answers import _AnswersMixin, format_violations
 from .discover import ensure_knowledge
@@ -203,7 +203,7 @@ class Engine(_StagesMixin, _AnswersMixin):
         # 1. Research. A regenerate carries the prior draft's research forward
         # (copied at create time), so we re-draft against the same web data —
         # unless skip_research is set, which drops the carried research too and
-        # re-drafts with a plain intro (the "turn research off" control).
+        # re-drafts from on-file info only (the "turn research off" control).
         research = d.research.strip()
         if skip_research:
             research = ""
@@ -220,10 +220,16 @@ class Engine(_StagesMixin, _AnswersMixin):
                 jd = fetch_jd(self.http, posting.url)
             self._log(f"outreach: draft {draft_id} JD: {jd.status} ({len(jd.text)} chars)")
 
-            self._set_stage(draft_id, STAGE_RESEARCH)
-            research = '{"note":"researcher skipped — no web research"}'
             if self.stage_enabled("researcher") and not skip_research:
+                self._set_stage(draft_id, STAGE_RESEARCH)
                 research = self._research(company, posting.url, jd)
+            else:
+                # No web search (skipped or the researcher stage is off): draft
+                # from what we already have on file — the JD plus the cached
+                # enrichment summary — so the writer stays grounded in what we
+                # know about the company instead of an empty note (which left the
+                # closer to confabulate). Less crafted, still true to the company.
+                research = self._onfile_research(posting, company, role, jd)
             outreach_drafts.set_outreach_draft_result(
                 self.con,
                 draft_id,
@@ -352,6 +358,27 @@ class Engine(_StagesMixin, _AnswersMixin):
             return
 
     # --- research ------------------------------------------------------------
+
+    def _onfile_research(self, posting, company: str, role: str, jd: JDResult) -> str:
+        """Compose a company context from on-file data — the cached enrichment
+        summary plus the JD — for a draft that skips web research. Stands in for the
+        researcher's JSON so the writer (esp. the closer's "what they're building"
+        line) is grounded in what we already know, without crafting web hooks."""
+        summary = ""
+        try:
+            enr = enrichment.get_enrichment(self.con, posting.company_id)
+        except Exception as e:  # noqa: BLE001 - best-effort; draft without the summary
+            self._log(f"outreach: draft on-file enrichment load: {e}")
+            enr = None
+        if enr is not None and (enr.website_summary or "").strip():
+            summary = enr.website_summary.strip()
+        ctx = {
+            "note": "no web research — drafted from on-file info only; do not craft a web hook",
+            "company": company,
+            "what_they_do": summary,
+            "role": {"title": role, "jd_excerpt": jd.text},
+        }
+        return json.dumps(ctx, separators=(",", ":"))
 
     def _research(self, company: str, job_url: str, jd: JDResult) -> str:
         """Run the Researcher with the hosted web_search server tool and parse its
