@@ -980,16 +980,20 @@ function stopPursuitPoll() {
 // loadDrafts fetches the posting's drafts (newest first) and renders the queue.
 // While the newest draft is still researching, it keeps a ~4s poll alive so the
 // open panel updates itself; the closed-panel path relies on the row badge.
-async function loadDrafts() {
+// isPoll (the ~4s researching refresh) re-renders only the drafts region, so it
+// never rebuilds the contacts manager DOM under the user's cursor; all other
+// callers do a full section render.
+async function loadDrafts(isPoll = false) {
   if (!pursuit.postingId) return;
+  const render = isPoll ? renderDraftsRegion : renderOutreachSection;
   let data;
   try {
     const r = await fetch(`/api/postings/${pursuit.postingId}/outreach`);
-    if (!r.ok) { renderOutreachSection(); return; }
+    if (!r.ok) { render(); return; }
     data = await r.json();
-  } catch { renderOutreachSection(); return; }
+  } catch { render(); return; }
   pursuit.drafts = data.drafts || [];
-  renderOutreachSection();
+  render();
   const latest = pursuit.drafts[0];
   if (latest && latest.status === "researching") startPursuitPoll();
   else stopPursuitPoll();
@@ -997,7 +1001,7 @@ async function loadDrafts() {
 
 function startPursuitPoll() {
   if (pursuit.poll) return;
-  pursuit.poll = setInterval(loadDrafts, 4000);
+  pursuit.poll = setInterval(() => loadDrafts(true), 4000);
 }
 
 // wireInlineField makes a seamless input/textarea auto-save Linear-style:
@@ -1740,9 +1744,11 @@ async function saveRowTracking(j, patch) {
 // renderOutreachSection draws the per-contact tracking + follow-ups (the
 // contacts manager) above the draft queue (current draft expanded, history
 // collapsed under it).
-function renderOutreachSection() {
-  const host = document.getElementById("outreach-section");
-  if (!host) return;
+// draftsRegionHTML renders just the drafts queue (head + current card + start
+// button + history). Kept separate from the contacts manager so the researching
+// poll can refresh the drafts without rebuilding the contacts DOM under the
+// user's cursor (e.g. an open "add contact" form).
+function draftsRegionHTML() {
   const drafts = pursuit.drafts;
   const current = drafts[0] || null;
   const history = drafts.slice(1);
@@ -1761,13 +1767,28 @@ function renderOutreachSection() {
       <div id="draft-history-body">${history.map(d => draftCardHTML(d, true)).join("")}</div>
     </details>` : "";
 
-  host.innerHTML = contactsManagerHTML() +
-    `<div class="outreach-drafts-head">Drafts</div>` +
+  return `<div class="outreach-drafts-head">Drafts</div>` +
     `<div id="draft-current">${current ? draftCardHTML(current, false) : ""}</div>` +
     `<div class="draft-actions">${draftBtn}</div>` +
     histBlock;
+}
 
+function renderOutreachSection() {
+  const host = document.getElementById("outreach-section");
+  if (!host) return;
+  // Contacts manager stays a direct child (its spacing); the drafts queue lives
+  // in #oc-drafts so the poll can refresh it in isolation.
+  host.innerHTML = contactsManagerHTML() + `<div id="oc-drafts">${draftsRegionHTML()}</div>`;
   wireContacts();
+  wireOutreach();
+}
+
+// renderDraftsRegion refreshes only the drafts queue — the researching poll's
+// path, so the contacts manager (and any half-filled add/edit form) survives.
+function renderDraftsRegion() {
+  const el = document.getElementById("oc-drafts");
+  if (!el) { renderOutreachSection(); return; }
+  el.innerHTML = draftsRegionHTML();
   wireOutreach();
 }
 
@@ -2218,6 +2239,7 @@ function draftCardHTML(d, readonly) {
     return `<div class="draft-card dc-busy">
       ${outreachProgressHTML(d.stage, d.skip_research)}
       <div class="draft-note">This usually takes a minute or two — leave the panel or check back later.</div>
+      <div class="draft-actions"><button class="btn draft-cancel-btn" data-did="${d.id}" title="stop this draft and free up the panel to start over">Cancel</button></div>
     </div>`;
   }
 
@@ -2374,6 +2396,11 @@ function wireOutreach() {
 
   host.querySelectorAll(".draft-retry-btn").forEach(b => b.addEventListener("click", () => startDraft()));
 
+  host.querySelectorAll(".draft-cancel-btn").forEach(b => b.addEventListener("click", (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    cancelDraft(btn.dataset.did, btn);
+  }));
+
   // Regenerate retires the current reviewable draft (it drops to history) and
   // re-runs the pipeline — picks up backfilled experience/template/company info.
   // Its own "skip research" box drops the carried research for a plain intro.
@@ -2484,6 +2511,24 @@ async function startDraft(regenerate = false, skipResearch = false) {
   const txt = (await resp.text().catch(() => "")).trim();
   toast(`draft failed: ${txt || "HTTP " + resp.status}`);
   if (btn) btn.disabled = false;
+}
+
+// cancelDraft stops a running (researching) draft: the server deletes the row,
+// freeing the panel to start over. The background pipeline finishes on its own;
+// its writes no-op once the row is gone. We stop the poll and reload either way.
+async function cancelDraft(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Cancelling…"; }
+  try {
+    await fetch(`/api/outreach/drafts/${id}/cancel`, { method: "POST" });
+  } catch (e) {
+    toast(`cancel failed: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = "Cancel"; }
+    return;
+  }
+  stopPursuitPoll();
+  await loadDrafts();   // the researching row is gone; the start button returns
+  loadJobs();           // clear the row's "drafting" badge
+  toast("draft cancelled");
 }
 
 // renderInputGate replaces the start button when a required input is missing:

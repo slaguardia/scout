@@ -258,3 +258,16 @@ def reap_stuck_outreach_drafts(con: sqlite3.Connection, older_than_minutes: int)
         (DRAFT_FAILED, DRAFT_RESEARCHING, f"-{older_than_minutes} minutes"),
     )
     return cur.rowcount
+
+
+def cancel_outreach_draft(con: sqlite3.Connection, id: int) -> bool:
+    """Cancel a running draft by deleting its row — freeing the posting's one
+    active-draft slot. Only a `researching` draft is cancellable; returns whether
+    a row was deleted. The background pipeline thread can't be killed mid-run, but
+    its later writes (set_stage / set_result) simply find no row and raise
+    NotFound, which the engine's background thread swallows."""
+    cur = con.execute(
+        "DELETE FROM outreach_drafts WHERE id = ? AND status = ?",
+        (id, DRAFT_RESEARCHING),
+    )
+    return cur.rowcount > 0

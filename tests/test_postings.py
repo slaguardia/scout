@@ -438,6 +438,31 @@ def test_regenerate_outreach_draft(db):
         outreach_drafts.regenerate_outreach_draft(db, p.id)
 
 
+def test_cancel_outreach_draft(db):
+    cid = _acme(db)
+    p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
+
+    # A researching draft is cancellable: the row is deleted, freeing the slot.
+    d1 = outreach_drafts.create_outreach_draft(db, p.id)
+    assert outreach_drafts.cancel_outreach_draft(db, d1.id) is True
+    assert outreach_drafts.get_outreach_draft(db, d1.id) is None
+    assert outreach_drafts.list_outreach_drafts(db, p.id) == []
+    # A late pipeline write after cancel finds no row (the engine swallows this).
+    with pytest.raises(errors.NotFound):
+        outreach_drafts.set_outreach_draft_stage(db, d1.id, "fill")
+    # Slot freed → a fresh draft starts.
+    d2 = outreach_drafts.create_outreach_draft(db, p.id)
+
+    # A finished (non-researching) draft is NOT cancellable.
+    outreach_drafts.set_outreach_draft_result(
+        db, d2.id, DRAFT_AWAITING_REVIEW, "{}", "", "body", "[]", "", "", ""
+    )
+    assert outreach_drafts.cancel_outreach_draft(db, d2.id) is False
+    assert outreach_drafts.get_outreach_draft(db, d2.id) is not None
+    # An unknown id is a no-op, not an error.
+    assert outreach_drafts.cancel_outreach_draft(db, 999999) is False
+
+
 def test_needs_work_is_active(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")

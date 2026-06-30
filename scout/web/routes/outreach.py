@@ -234,3 +234,17 @@ def mark_draft_sent(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get
                 return json_error(str(e), 400)
     out = outreach_drafts.mark_outreach_draft_sent(con, id)
     return json_response(out)
+
+
+@router.post("/api/outreach/drafts/{raw_id}/cancel")
+def cancel_draft(raw_id: str, con=Depends(get_db)) -> Response:
+    """Cancel a running (researching) draft — delete its row so the posting's
+    active-draft slot frees up and the panel can start over. 200 with
+    {"cancelled": bool}; false when the draft already finished (nothing to cancel).
+    The background pipeline thread finishes on its own; its writes no-op once the
+    row is gone."""
+    id = _parse_int_id(raw_id)
+    if id is None:
+        return json_error("not found", 404)
+    cancelled = outreach_drafts.cancel_outreach_draft(con, id)
+    return json_response({"cancelled": cancelled})

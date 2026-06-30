@@ -446,3 +446,29 @@ def test_outreach_skip_research_persisted(tmp_path, monkeypatch):
     # Survives a re-fetch (the panel polls this row, not the in-memory flag).
     drafts = client.get(f"/api/postings/{pid}/outreach").json()["drafts"]
     assert drafts[0]["skip_research"] is True
+
+
+def test_outreach_cancel_running_draft(tmp_path, monkeypatch):
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    runner = FakeOutreachRunner()
+    client.app.state.scout.outreach = runner
+    pid = _seed_outreach_ready(db_path, cid)
+
+    # Start a draft; the fake runner leaves it in researching.
+    rec = _post(client, f"/api/postings/{pid}/outreach")
+    assert rec.status_code == 202
+    did = rec.json()["draft"]["id"]
+    # A second start is blocked while it's researching.
+    assert _post(client, f"/api/postings/{pid}/outreach").status_code == 409
+
+    # Cancel deletes the running draft and frees the slot.
+    rec = _post(client, f"/api/outreach/drafts/{did}/cancel")
+    assert rec.status_code == 200
+    assert rec.json()["cancelled"] is True
+    assert client.get(f"/api/postings/{pid}/outreach").json()["drafts"] == []
+    # A fresh draft can now start.
+    assert _post(client, f"/api/postings/{pid}/outreach").status_code == 202
+
+    # Cancelling an already-gone draft is a no-op, not an error.
+    rec = _post(client, f"/api/outreach/drafts/{did}/cancel")
+    assert rec.status_code == 200 and rec.json()["cancelled"] is False
