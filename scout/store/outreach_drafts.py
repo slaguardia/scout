@@ -271,3 +271,12 @@ def cancel_outreach_draft(con: sqlite3.Connection, id: int) -> bool:
         (id, DRAFT_RESEARCHING),
     )
     return cur.rowcount > 0
+
+
+def delete_outreach_draft(con: sqlite3.Connection, id: int) -> bool:
+    """Delete a draft of any status (the user removing one from the queue/history).
+    Returns whether a row was deleted. The outreach_log (sends against contacts)
+    lives in its own table and is untouched — deleting a sent draft drops only the
+    drafted-text record, not the logged send."""
+    cur = con.execute("DELETE FROM outreach_drafts WHERE id = ?", (id,))
+    return cur.rowcount > 0

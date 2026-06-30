@@ -2169,6 +2169,27 @@ const ICON_SEND = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" st
 
 // The copy button lives in the card head, top right next to the timestamp.
 const COPY_BTN = `<button class="dh-copy draft-copy-btn" title="copy the email to the clipboard" aria-label="copy email">${ICON_COPY}</button>`;
+// The delete button (× glyph) removes a draft from the queue/history. Shown on
+// every non-researching card (a running draft uses Cancel instead).
+const delBtn = (id) => `<button class="dh-del draft-del-btn" data-did="${id}" title="delete this draft" aria-label="delete draft">×</button>`;
+
+// linkifyBody renders a draft body for the READ views: HTML-escape it, then turn
+// markdown links [label](url) and bare URLs into clickable anchors — mirroring
+// what the Gmail send already does (scout/gmail/message.py), so the on-screen
+// draft matches the email instead of showing raw "[label](url)". One left-to-right
+// regex pass: a bare-URL match never fires inside a markdown link (the md branch
+// consumes that url first). Editing still happens on the raw text in the textarea.
+const _LINKIFY_RE = /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<]+)/g;
+function linkifyBody(text) {
+  return escapeHTML(text).replace(_LINKIFY_RE, (m, mdLabel, mdUrl, bareUrl) => {
+    if (bareUrl) {
+      const trail = (bareUrl.match(/[.,;:)\]]+$/) || [""])[0];  // trailing sentence punctuation isn't the URL
+      const url = bareUrl.slice(0, bareUrl.length - trail.length);
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
+    }
+    return `<a href="${mdUrl}" target="_blank" rel="noopener noreferrer">${mdLabel}</a>`;
+  });
+}
 
 // The outreach pipeline's stages, in run order — the engine stamps the active
 // one on the draft row (the `stage` field) and the panel polls it. `label` is
@@ -2246,7 +2267,7 @@ function draftCardHTML(d, readonly) {
   if (d.status === "failed") {
     const vio = renderViolations(d.violations);
     return `<div class="draft-card dc-failed" data-did="${d.id}">
-      ${head("pill pill-no", "failed")}
+      ${head("pill pill-no", "failed", delBtn(d.id))}
       ${d.fail_reason ? `<div class="draft-note">${escapeHTML(d.fail_reason)}</div>` : ""}
       ${vio}
       ${renderTrace(d)}
@@ -2257,18 +2278,18 @@ function draftCardHTML(d, readonly) {
   if (d.status === "superseded") {
     // A draft retired by a regenerate — read-only, history only.
     return `<div class="draft-card dc-sent" data-did="${d.id}">
-      ${head("pill pill-info", "replaced")}
+      ${head("pill pill-info", "replaced", delBtn(d.id))}
       <div class="draft-note">Replaced by a newer draft.</div>
-      <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+      <div class="draft-sentbody">${linkifyBody(draftText(d) || "(empty)")}</div>
       ${renderTrace(d)}
     </div>`;
   }
 
   if (d.status === "sent") {
     return `<div class="draft-card dc-sent" data-did="${d.id}">
-      ${head("pill pill-yes", "sent", readonly ? "" : COPY_BTN)}
+      ${head("pill pill-yes", "sent", (readonly ? "" : COPY_BTN) + delBtn(d.id))}
       ${d.sent_at ? `<div class="draft-note">Sent ${escapeHTML((d.sent_at || "").replace("T", " ").slice(0, 16))}</div>` : ""}
-      <div class="draft-sentbody">${escapeHTML(draftText(d) || "(empty)")}</div>
+      <div class="draft-sentbody">${linkifyBody(draftText(d) || "(empty)")}</div>
       ${renderTrace(d)}
     </div>`;
   }
@@ -2291,16 +2312,16 @@ function draftCardHTML(d, readonly) {
 
   if (readonly) {
     return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
-      <div class="draft-head">${label}</div>
+      <div class="draft-head">${label}${delBtn(d.id)}</div>
       ${note}
-      <div class="draft-sentbody">${escapeHTML(text || "(empty)")}</div>
+      <div class="draft-sentbody">${linkifyBody(text || "(empty)")}</div>
       ${renderTrace(d)}
     </div>`;
   }
 
   const editable = text || noHook; // show the editor unless there's truly nothing
   return `<div class="draft-card ${noHook ? "dc-nohook" : "dc-review"}" data-did="${d.id}">
-    <div class="draft-head">${label}${text ? COPY_BTN : ""}</div>
+    <div class="draft-head">${label}${text ? COPY_BTN : ""}${delBtn(d.id)}</div>
     ${note}
     ${editable ? `<textarea class="draft-textarea" id="draft-edit-${d.id}" spellcheck="false">${escapeHTML(text)}</textarea>
     ${renderLintChips(d.lint)}
@@ -2428,14 +2449,23 @@ function wireOutreach() {
       sendDraftViaGmail(id, sel ? sel.value : "", gsend as HTMLButtonElement);
     });
     // Copy the email — the live textarea value (unsaved edits included) when the
-    // card is editable, else the rendered body.
+    // card is editable, else the draft's raw text (NOT the linkified DOM, whose
+    // textContent would drop the url behind a [label](url) anchor).
     const copy = card.querySelector(".draft-copy-btn");
     if (copy) copy.addEventListener("click", () => {
-      const ta = card.querySelector(".draft-textarea");
-      const body = card.querySelector(".draft-sentbody");
-      const text = ta ? ta.value : (body ? body.textContent : "");
+      const ta = card.querySelector(".draft-textarea") as HTMLTextAreaElement | null;
+      let text: string;
+      if (ta) text = ta.value;
+      else {
+        const d = (pursuit.drafts || []).find(x => String(x.id) === String(id));
+        text = d ? draftText(d) : "";
+      }
       copyToClipboard(text, "email copied");
     });
+
+    // Delete this draft from the queue/history.
+    const del = card.querySelector(".draft-del-btn");
+    if (del) del.addEventListener("click", () => deleteDraft(id, del as HTMLButtonElement));
   });
 
   // Keep the history open-state sticky across polls.
@@ -2529,6 +2559,22 @@ async function cancelDraft(id, btn) {
   await loadDrafts();   // the researching row is gone; the start button returns
   loadJobs();           // clear the row's "drafting" badge
   toast("draft cancelled");
+}
+
+// deleteDraft removes a draft from the queue/history (any status). The send
+// record in the contact's outreach log is separate and survives.
+async function deleteDraft(id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    await fetch(`/api/outreach/drafts/${id}`, { method: "DELETE" });
+  } catch (e) {
+    toast(`delete failed: ${e.message}`);
+    if (btn) btn.disabled = false;
+    return;
+  }
+  await loadDrafts();   // refresh the queue/history (full render)
+  loadJobs();           // the row's draft badge may change
+  toast("draft deleted");
 }
 
 // renderInputGate replaces the start button when a required input is missing:

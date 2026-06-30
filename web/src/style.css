@@ -1026,6 +1026,16 @@
   }
   .dh-copy:hover { color: var(--fg); background: var(--panel-2); border-color: var(--line-2); }
   .dh-copy svg { width: 14px; height: 14px; }
+  /* the delete affordance (× glyph) — right of the head, alone or after copy */
+  .dh-del {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; flex: none; margin-left: auto;
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+    color: var(--fg-mute); cursor: pointer; font-size: 18px; line-height: 1;
+    transition: all var(--dur-fast) var(--ease);
+  }
+  .dh-del:hover { color: var(--no); background: var(--panel-2); border-color: var(--line-2); }
+  .dh-copy + .dh-del { margin-left: 6px; }
   .draft-note {
     color: var(--fg-mute); font-size: 12.5px; line-height: 1.5;
     margin-bottom: 10px;
@@ -1053,6 +1063,9 @@
     font: 13px/1.6 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     white-space: pre-wrap; word-break: break-word;
   }
+  /* Links in a read-only draft body render as real anchors (linkifyBody) so a
+     signature/markdown link reads cleanly instead of as raw "[label](url)". */
+  .draft-sentbody a { color: var(--link); text-decoration: underline; }
   .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
   .draft-actions .btn {
     display: inline-flex; align-items: center; gap: 7px;

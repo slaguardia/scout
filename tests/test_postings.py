@@ -463,6 +463,22 @@ def test_cancel_outreach_draft(db):
     assert outreach_drafts.cancel_outreach_draft(db, 999999) is False
 
 
+def test_delete_outreach_draft(db):
+    cid = _acme(db)
+    p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
+
+    # Delete works on any status (here: a sent draft in history).
+    d1 = outreach_drafts.create_outreach_draft(db, p.id)
+    outreach_drafts.set_outreach_draft_result(
+        db, d1.id, DRAFT_AWAITING_REVIEW, "{}", "", "body", "[]", "", "", ""
+    )
+    outreach_drafts.mark_outreach_draft_sent(db, d1.id)
+    assert outreach_drafts.delete_outreach_draft(db, d1.id) is True
+    assert outreach_drafts.get_outreach_draft(db, d1.id) is None
+    # An unknown id is a no-op, not an error.
+    assert outreach_drafts.delete_outreach_draft(db, 999999) is False
+
+
 def test_needs_work_is_active(db):
     cid = _acme(db)
     p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")

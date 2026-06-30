@@ -248,3 +248,15 @@ def cancel_draft(raw_id: str, con=Depends(get_db)) -> Response:
         return json_error("not found", 404)
     cancelled = outreach_drafts.cancel_outreach_draft(con, id)
     return json_response({"cancelled": cancelled})
+
+
+@router.delete("/api/outreach/drafts/{raw_id}")
+def delete_draft(raw_id: str, con=Depends(get_db)) -> Response:
+    """Delete a draft from the queue/history (any status). 200 with
+    {"deleted": bool}; false when the id is already gone. A researching draft is
+    deleted too — same as cancel — so the background thread's writes then no-op."""
+    id = _parse_int_id(raw_id)
+    if id is None:
+        return json_error("not found", 404)
+    deleted = outreach_drafts.delete_outreach_draft(con, id)
+    return json_response({"deleted": deleted})

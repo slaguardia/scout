@@ -472,3 +472,23 @@ def test_outreach_cancel_running_draft(tmp_path, monkeypatch):
     # Cancelling an already-gone draft is a no-op, not an error.
     rec = _post(client, f"/api/outreach/drafts/{did}/cancel")
     assert rec.status_code == 200 and rec.json()["cancelled"] is False
+
+
+def test_outreach_delete_draft(tmp_path, monkeypatch):
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    runner = FakeOutreachRunner()
+    client.app.state.scout.outreach = runner
+    pid = _seed_outreach_ready(db_path, cid)
+
+    # Start a draft and drive it to awaiting_review, then delete it from history.
+    rec = _post(client, f"/api/postings/{pid}/outreach")
+    did = rec.json()["draft"]["id"]
+    _set_result(
+        db_path, did, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "", "body", "[]", "", "", ""
+    )
+    rec = client.delete(f"/api/outreach/drafts/{did}")
+    assert rec.status_code == 200 and rec.json()["deleted"] is True
+    assert client.get(f"/api/postings/{pid}/outreach").json()["drafts"] == []
+    # Deleting again is a no-op, not an error.
+    rec = client.delete(f"/api/outreach/drafts/{did}")
+    assert rec.status_code == 200 and rec.json()["deleted"] is False
