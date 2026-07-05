@@ -13,6 +13,7 @@ worker count) are unaffected — only wall-clock parallelism.
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -298,25 +299,6 @@ _RE_NOSCR = re.compile(r"<noscript[^>]*>.*?</noscript>", re.I | re.S)
 _RE_SVG = re.compile(r"<svg[^>]*>.*?</svg>", re.I | re.S)
 _RE_TAG = re.compile(r"<[^>]+>", re.S)
 _RE_WS = re.compile(r"\s+")
-_RE_ENTITY = re.compile(r"&[a-zA-Z#0-9]+;")
-
-_ENTITIES = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&apos;": "'",
-    "&nbsp;": " ",
-    "&#39;": "'",
-    "&#34;": '"',
-    "&hellip;": "…",
-    "&mdash;": "—",
-    "&ndash;": "–",
-    "&rsquo;": "'",
-    "&lsquo;": "'",
-    "&rdquo;": '"',
-    "&ldquo;": '"',
-}
 
 
 def extract_text(body: bytes) -> str:
@@ -326,7 +308,7 @@ def extract_text(body: bytes) -> str:
     s = _RE_NOSCR.sub(" ", s)
     s = _RE_SVG.sub(" ", s)
     s = _RE_TAG.sub(" ", s)
-    s = _RE_ENTITY.sub(lambda m: _ENTITIES.get(m.group(0).lower(), " "), s)
+    s = html.unescape(s)
     s = _RE_WS.sub(" ", s)
     return s.strip()
 
