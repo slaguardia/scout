@@ -8,6 +8,7 @@ Transport is httpx, the project standard.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import urllib.parse
@@ -135,7 +136,7 @@ def _fetch_greenhouse(httpc: httpx.Client, org: str, id: str) -> JDResult | None
         return None
     location = (job.get("location") or {}).get("name") or ""
     text = join_jd(
-        job.get("title") or "", location, strip_tags(unescape_html(job.get("content") or ""))
+        job.get("title") or "", location, strip_tags(job.get("content") or "")
     )
     if text == "":
         return None
@@ -192,40 +193,17 @@ _RE_WS = re.compile(r"[ \t]*\n[ \t\n]*")
 _RE_SPACES = re.compile(r"[ \t]{2,}")
 
 
-def strip_tags(html: str) -> str:
+def strip_tags(markup: str) -> str:
     """Remove script/style blocks then all tags, collapsing whitespace — the crude
     HTML-to-text used for both ATS HTML descriptions and scraped pages."""
-    if html == "":
+    if markup == "":
         return ""
-    s = _RE_SCRIPT_STYLE.sub(" ", html)
+    s = _RE_SCRIPT_STYLE.sub(" ", markup)
     s = _RE_TAG.sub(" ", s)
-    s = unescape_html(s)
+    s = html.unescape(s)
     s = _RE_SPACES.sub(" ", s)
     s = _RE_WS.sub("\n", s)
     return s.strip()
-
-
-_HTML_ENTITIES = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-    "&#x27;": "'",
-    "&nbsp;": " ",
-    "&rsquo;": "'",
-    "&ldquo;": '"',
-    "&rdquo;": '"',
-    "&mdash;": "-",
-    "&ndash;": "-",
-}
-
-
-def unescape_html(s: str) -> str:
-    """Expand the handful of entities that survive ATS JSON/HTML."""
-    for ent, rep in _HTML_ENTITIES.items():
-        s = s.replace(ent, rep)
-    return s
 
 
 def trunc(s: str, n: int) -> str:
