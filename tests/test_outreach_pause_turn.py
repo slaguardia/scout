@@ -50,8 +50,7 @@ def test_call_json_pause_turn_continuation():
         )
 
     with http_server(handle) as base:
-        c = anthropic.new("test-key")
-        c.endpoint = base
+        c = anthropic.Client(api_key="test-key", endpoint=base)
         e = Engine(client=c)
         raw = e._call_json("sys", "research acme", 1000, [anthropic.new_web_search_tool(6)])
 
@@ -87,8 +86,7 @@ def test_call_json_pause_turn_gives_up():
         )
 
     with http_server(handle) as base:
-        c = anthropic.new("test-key")
-        c.endpoint = base
+        c = anthropic.Client(api_key="test-key", endpoint=base)
         e = Engine(client=c)
         with pytest.raises(ValueError):
             e._call_json("sys", "u", 1000, [anthropic.new_web_search_tool(6)])

@@ -47,9 +47,7 @@ class _AnthropicStub:
 
 
 def _anthropic_client(base_url: str) -> anthropic.Client:
-    c = anthropic.new("test-key")
-    c.endpoint = base_url
-    return c
+    return anthropic.Client(api_key="test-key", endpoint=base_url)
 
 
 CHUNKS_JSON = """{"chunks":[

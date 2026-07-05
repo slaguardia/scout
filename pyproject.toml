@@ -19,6 +19,7 @@ classifiers = [
     "Private :: Do Not Upload",
 ]
 dependencies = [
+    "anthropic",  # official Messages API SDK — owns transport, retries, and streaming
     "fastapi",
     "uvicorn[standard]",
     "httpx",

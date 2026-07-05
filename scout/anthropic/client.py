@@ -1,28 +1,30 @@
-"""A small, SDK-free Anthropic Messages API client.
+"""Anthropic Messages API client — a thin façade over the official SDK.
 
-We don't pull the official SDK because our usage is one endpoint, two request
-shapes, and we want a lean dependency footprint. Transport is httpx (the project
-standard); the streaming SSE machinery lives in stream.py.
+scout used to hand-roll the transport: httpx POSTs, exponential-backoff retries,
+and an SSE stream parser (the old stream.py). All of that is gone. The official
+`anthropic` SDK owns retries, streaming, and tracking the wire format, so this
+module is now just:
+
+  * the small dataclass surface (Request / Response / Message / ToolDef / …) the
+    ~20 call sites already speak, and
+  * a Client whose API key can be hot-swapped at runtime (the dashboard re-keys
+    the one shared client live, so send/stream read the key under a lock).
+
+Keeping the façade means the call sites and the live re-key flow don't change;
+the bug-prone transport code is the SDK's problem now.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import random
 import threading
-import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
+import anthropic as _sdk
 
-from .stream import parse_sse
-
-DEFAULT_ENDPOINT = "https://api.anthropic.com/v1/messages"
-API_VERSION = "2023-06-01"
-# DefaultModel is the default verdict model. Cheap, fast, good enough.
+# DEFAULT_MODEL is the default verdict model. Cheap, fast, good enough.
 DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Per-call deadlines (seconds). Plain calls get a tight bound; hosted web_search
@@ -31,7 +33,7 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_CALL_TIMEOUT = 90.0
 TOOL_CALL_TIMEOUT = 5 * 60.0
 
-# maxRetries bounds transient-failure retries per Send/Stream call.
+# How many transient-failure retries the SDK performs per request.
 MAX_RETRIES = 5
 
 # webSearchToolType is the GA (non-beta) hosted web_search tool version.
@@ -40,6 +42,15 @@ _WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
 # AdaptiveThinking is the `thinking` config the chat engine pins: the model
 # decides its own thinking depth and interleaves thinking between tool calls.
 ADAPTIVE_THINKING = {"type": "adaptive"}
+
+
+class AnthropicError(Exception):
+    """Any client/transport/API failure from the Anthropic client."""
+
+
+class StreamError(AnthropicError):
+    """A streaming failure. Retained as a distinct type for call sites that catch
+    it by name; it is now just a specialization of AnthropicError."""
 
 
 @dataclass
@@ -95,8 +106,8 @@ def new_web_search_tool(max_uses: int) -> WebSearchTool:
 
 @dataclass
 class Request:
-    """Mirrors the Anthropic /v1/messages request body. The fields are the
-    caller's intent; build_wire maps them onto the on-the-wire shape.
+    """The caller's intent for one /v1/messages request. build_kwargs maps it onto
+    the SDK's keyword arguments.
 
     When cached is True, system is sent as a single ephemeral cache block so
     identical system prompts across calls within ~5 minutes hit the prompt cache.
@@ -124,9 +135,9 @@ class Usage:
 @dataclass
 class ContentBlock:
     """One response content block. type/text cover the text blocks scout reads;
-    raw preserves the block verbatim (server_tool_use, web_search_tool_result,
-    thinking, tool_use, ...) so a pause_turn continuation can replay the
-    assistant turn."""
+    raw preserves the block as wire-shaped JSON (server_tool_use,
+    web_search_tool_result, thinking, tool_use, …) so a pause_turn continuation
+    can replay the assistant turn."""
 
     type: str = ""
     text: str = ""
@@ -148,7 +159,7 @@ class Response:
         return "".join(c.text for c in self.content if c.type == "text")
 
     def raw_content(self) -> list[dict]:
-        """The response's content blocks verbatim — for replaying the assistant
+        """The response's content blocks as wire JSON — for replaying the assistant
         turn in a continuation request after stop_reason 'pause_turn'."""
         return [c.raw for c in self.content]
 
@@ -161,25 +172,16 @@ def _tool_to_wire(t: Any) -> Any:
     return t
 
 
-def build_wire(req: Request, stream: bool) -> dict:
-    """Map a Request onto the on-the-wire JSON shape, shared by send and stream.
-    Fields left empty/at their default are omitted from the request body."""
-    wire: dict = {
-        "model": req.model,
-        "max_tokens": req.max_tokens,
+def build_kwargs(req: Request) -> dict:
+    """Map a Request onto the SDK's messages.create/stream keyword arguments.
+    Fields left empty/at their default are omitted so the API applies its own."""
+    kw: dict = {
+        "model": req.model or DEFAULT_MODEL,
         "messages": [{"role": m.role, "content": m.content} for m in req.messages],
     }
-    if req.temperature is not None:
-        wire["temperature"] = req.temperature
-    if req.tools:
-        wire["tools"] = [_tool_to_wire(t) for t in req.tools]
-    if req.thinking is not None:
-        wire["thinking"] = req.thinking
-    if stream:
-        wire["stream"] = True
     if req.system != "":
         if req.cached:
-            wire["system"] = [
+            kw["system"] = [
                 {
                     "type": "text",
                     "text": req.system,
@@ -187,234 +189,134 @@ def build_wire(req: Request, stream: bool) -> dict:
                 }
             ]
         else:
-            wire["system"] = req.system
-    return wire
+            kw["system"] = req.system
+    if req.temperature is not None:
+        kw["temperature"] = req.temperature
+    if req.tools:
+        kw["tools"] = [_tool_to_wire(t) for t in req.tools]
+    if req.thinking is not None:
+        kw["thinking"] = req.thinking
+    return kw
 
 
-def _parse_response(raw: bytes) -> Response:
-    data = json.loads(raw)
+def _to_response(msg: Any) -> Response:
+    """Map an SDK Message onto scout's Response. Each content block is preserved as
+    wire-shaped JSON (exclude_none drops SDK-only fields like parsed_output so a
+    pause_turn replay sends nothing the API would reject)."""
     out = Response(
-        id=data.get("id", ""), model=data.get("model", ""), stop_reason=data.get("stop_reason", "")
+        id=msg.id or "",
+        model=msg.model or "",
+        stop_reason=msg.stop_reason or "",
     )
-    for b in data.get("content") or []:
-        out.content.append(ContentBlock(type=b.get("type", ""), text=b.get("text", ""), raw=b))
-    u = data.get("usage") or {}
+    for b in msg.content:
+        raw = b.model_dump(mode="json", exclude_none=True)
+        cb = ContentBlock(type=raw.get("type", ""), raw=raw)
+        if cb.type == "text":
+            cb.text = getattr(b, "text", "") or ""
+        out.content.append(cb)
+    u = msg.usage
     out.usage = Usage(
-        input_tokens=u.get("input_tokens", 0),
-        output_tokens=u.get("output_tokens", 0),
-        cache_creation_input_tokens=u.get("cache_creation_input_tokens", 0),
-        cache_read_input_tokens=u.get("cache_read_input_tokens", 0),
+        input_tokens=getattr(u, "input_tokens", 0) or 0,
+        output_tokens=getattr(u, "output_tokens", 0) or 0,
+        cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+        cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
     )
     return out
 
 
-def retryable_status(code: int) -> bool:
-    """Whether an HTTP status is worth retrying: rate limit, overload, and the
-    transient 5xx family."""
-    return code in (429, 500, 502, 503, 504, 529)
-
-
-def backoff_delay(attempt: int, retry_after: float) -> float:
-    """How long to wait before the given retry attempt (seconds). A
-    server-provided retry-after wins; otherwise exponential (0.5s, 1s, 2s, …)
-    capped at 8s with ±10% jitter so a worker pool doesn't retry in lockstep."""
-    if retry_after > 0:
-        return retry_after
-    d = (1 << (attempt - 1)) * 0.5
-    if d > 8.0:
-        d = 8.0
-    jitter = random.uniform(0, d / 5) - d / 10
-    return d + jitter
-
-
-def parse_retry_after(h: str) -> float:
-    """Read an integer-seconds retry-after header; returns 0 when absent or
-    unparseable."""
-    if not h:
-        return 0.0
-    try:
-        secs = int(h.strip())
-    except ValueError:
-        return 0.0
-    return float(secs) if secs >= 0 else 0.0
-
-
 class Client:
-    """Talks to the Anthropic Messages API.
+    """Talks to the Anthropic Messages API via the official SDK.
 
-    api_key is a construction-time seed. At runtime — when the dashboard can
-    re-key the one shared client live while send/stream are in flight — it is
-    read and written only through has_key()/set_api_key() under a lock, so a UI
-    key change races no one.
+    api_key is a construction-time seed. At runtime — when the dashboard re-keys
+    the one shared client live while send/stream are in flight — it is read and
+    written only through has_key()/set_api_key() under a lock, so a UI key change
+    races no one. endpoint overrides the SDK base URL (used by tests to point at a
+    local stub); empty uses the SDK default (api.anthropic.com).
     """
 
-    def __init__(
-        self, api_key: str = "", endpoint: str = DEFAULT_ENDPOINT, http: httpx.Client | None = None
-    ):
+    def __init__(self, api_key: str = "", endpoint: str = ""):
         self._lock = threading.RLock()
-        self.api_key = api_key
-        self.endpoint = endpoint or DEFAULT_ENDPOINT
-        # Generous backstop only; the real per-call deadline is applied per request.
-        self.http = http if http is not None else httpx.Client(timeout=10 * 60.0)
+        self._api_key = api_key
+        # One SDK client; its api key is hot-swapped under the lock on re-key. The
+        # SDK owns the httpx transport, retries, and streaming.
+        self._sdk = _sdk.Anthropic(
+            api_key=api_key or "",
+            base_url=endpoint or None,
+            max_retries=MAX_RETRIES,
+        )
 
     def set_api_key(self, k: str) -> None:
         """Swap the key the next send/stream will use. Safe to call while requests
         are in flight."""
         with self._lock:
-            self.api_key = k
+            self._api_key = k
+            self._sdk.api_key = k
 
     def _key(self) -> str:
         with self._lock:
-            return self.api_key
+            return self._api_key
 
     def has_key(self) -> bool:
         """Whether a key is currently set."""
         return self._key() != ""
 
-    def _headers(self, api_key: str, accept: str | None = None) -> dict:
-        h = {
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": API_VERSION,
-        }
-        if accept:
-            h["Accept"] = accept
-        return h
+    def _bound(self, req: Request) -> Any:
+        """The SDK client to use for this request, with the per-call timeout
+        applied. Raises if no key is set."""
+        with self._lock:
+            if self._api_key == "":
+                raise AnthropicError("anthropic: no API key (set ANTHROPIC_API_KEY)")
+            sdk = self._sdk
+        timeout = DEFAULT_CALL_TIMEOUT
+        if req.tools:
+            timeout = TOOL_CALL_TIMEOUT  # hosted web_search runs server-side — give it room
+        if req.timeout > 0:
+            timeout = req.timeout
+        return sdk.with_options(timeout=timeout)
 
     def send(self, req: Request) -> Response:
-        """Post a single Messages API request, retrying transient failures."""
-        api_key = self._key()
-        if api_key == "":
-            raise AnthropicError("anthropic: no API key (set ANTHROPIC_API_KEY)")
-        # Apply defaults on a copy — don't mutate the caller's Request.
-        req = replace(req, max_tokens=req.max_tokens or 512, model=req.model or DEFAULT_MODEL)
-
-        body = json.dumps(build_wire(req, False)).encode()
-
-        call_timeout = DEFAULT_CALL_TIMEOUT
-        if req.tools:
-            call_timeout = TOOL_CALL_TIMEOUT  # hosted web_search runs server-side — give it room
-        if req.timeout > 0:
-            call_timeout = req.timeout
-
-        last_err: Exception | None = None
-        retry_after = 0.0
-        for attempt in range(MAX_RETRIES + 1):
-            if attempt > 0:
-                time.sleep(backoff_delay(attempt, retry_after))
-                retry_after = 0.0
-            try:
-                resp = self.http.post(
-                    self.endpoint,
-                    content=body,
-                    headers=self._headers(api_key),
-                    timeout=call_timeout,
-                )
-            except httpx.RequestError as e:
-                last_err = AnthropicError(f"anthropic POST: {e}")  # transient — retry
-                continue
-
-            raw = resp.content
-            if resp.status_code // 100 == 2:
-                try:
-                    return _parse_response(raw)
-                except (ValueError, json.JSONDecodeError) as e:
-                    raise AnthropicError(
-                        f"anthropic decode: {e} (body={raw.decode(errors='replace')})"
-                    )
-
-            last_err = AnthropicError(
-                f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}"
-            )
-            if not retryable_status(resp.status_code):
-                raise last_err
-            retry_after = parse_retry_after(resp.headers.get("retry-after", ""))
-        raise AnthropicError(f"anthropic: giving up after {MAX_RETRIES} retries: {last_err}")
+        """Post a single Messages API request; the SDK retries transient failures."""
+        client = self._bound(req)
+        kw = build_kwargs(req)
+        kw["max_tokens"] = req.max_tokens or 512
+        try:
+            msg = client.messages.create(**kw)
+        except _sdk.APIError as e:
+            raise AnthropicError(f"anthropic: {e}") from e
+        return _to_response(msg)
 
     def stream(self, req: Request, on_text: Callable[[str], None] | None = None) -> Response:
         """Run a streamed /v1/messages request and return the fully-assembled
-        Response, calling on_text with each text delta as it arrives (None skips).
-
-        Retries cover only establishing the stream (a transient non-2xx before the
-        first byte); once bytes flow, a mid-stream failure raises.
-        """
-        api_key = self._key()
-        if api_key == "":
-            raise AnthropicError("anthropic: no API key (set ANTHROPIC_API_KEY)")
-        # Apply defaults on a copy — don't mutate the caller's Request.
-        req = replace(req, max_tokens=req.max_tokens or 1024, model=req.model or DEFAULT_MODEL)
-
-        body = json.dumps(build_wire(req, True)).encode()
-        headers = self._headers(api_key, accept="text/event-stream")
-
-        last_err: Exception | None = None
-        retry_after = 0.0
-        for attempt in range(MAX_RETRIES + 1):
-            if attempt > 0:
-                time.sleep(backoff_delay(attempt, retry_after))
-                retry_after = 0.0
-            try:
-                with self.http.stream("POST", self.endpoint, content=body, headers=headers) as resp:
-                    if resp.status_code // 100 != 2:
-                        raw = resp.read()
-                        last_err = AnthropicError(
-                            f"anthropic HTTP {resp.status_code}: {raw.decode(errors='replace')}"
-                        )
-                        if not retryable_status(resp.status_code):
-                            raise last_err
-                        retry_after = parse_retry_after(resp.headers.get("retry-after", ""))
-                        continue
-                    # 2xx — stream the body. No retry past this point (partial output).
-                    return parse_sse(_iter_lines(resp), on_text)
-            except httpx.RequestError as e:
-                last_err = AnthropicError(f"anthropic POST: {e}")  # transient network — retry
-                continue
-        raise AnthropicError(f"anthropic: giving up after {MAX_RETRIES} retries: {last_err}")
-
-
-def _iter_lines(resp: httpx.Response):
-    """Yield text lines from a streaming response, splitting on '\\n' and dropping
-    a trailing '\\r', preserving the empty strings that mark SSE event
-    boundaries."""
-    buf = ""
-    for chunk in resp.iter_text():
-        buf += chunk
-        while True:
-            nl = buf.find("\n")
-            if nl < 0:
-                break
-            line = buf[:nl]
-            buf = buf[nl + 1 :]
-            if line.endswith("\r"):
-                line = line[:-1]
-            yield line
-    if buf:
-        if buf.endswith("\r"):
-            buf = buf[:-1]
-        yield buf
-
-
-class AnthropicError(Exception):
-    """Any client/transport/API failure from the Anthropic client."""
+        Response, calling on_text with each text delta as it arrives (None skips)."""
+        client = self._bound(req)
+        kw = build_kwargs(req)
+        kw["max_tokens"] = req.max_tokens or 1024
+        try:
+            with client.messages.stream(**kw) as stream:
+                if on_text is not None:
+                    for delta in stream.text_stream:
+                        if delta:
+                            on_text(delta)
+                msg = stream.get_final_message()
+        except _sdk.APIError as e:
+            raise StreamError(f"anthropic stream: {e}") from e
+        return _to_response(msg)
 
 
 def new(api_key: str = "") -> Client:
     """Build a client with the key from ANTHROPIC_API_KEY when not given."""
     if api_key == "":
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    return Client(api_key=api_key, endpoint=DEFAULT_ENDPOINT)
+    return Client(api_key=api_key)
 
 
 def verify(api_key: str) -> None:
     """Check an API key with one cheap auth-only call (GET /v1/models?limit=1).
     Returns None if accepted; raises if rejected (401) or unreachable. Spends no
     tokens — used by the dashboard connect flow to validate a key before storing it."""
-    resp = httpx.get(
-        "https://api.anthropic.com/v1/models?limit=1",
-        headers={"x-api-key": api_key, "anthropic-version": API_VERSION},
-        timeout=30.0,
-    )
-    if resp.status_code == 401:
+    try:
+        _sdk.Anthropic(api_key=api_key).models.list(limit=1)
+    except _sdk.AuthenticationError:
         raise AnthropicError("anthropic rejected the key")
-    if resp.status_code >= 400:
-        raise AnthropicError(f"anthropic verify failed: {resp.status_code}")
+    except _sdk.APIError as e:
+        raise AnthropicError(f"anthropic verify failed: {e}") from e

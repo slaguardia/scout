@@ -1,4 +1,9 @@
-"""Tests for scout.anthropic — the Messages client and the SSE stream parser."""
+"""Tests for scout.anthropic — the Messages client façade over the official SDK.
+
+These drive the client end-to-end against a local HTTP stub (tests/httpstub): the
+SDK marshals the request and parses the response, and we assert scout's Request →
+wire and SDK Message → Response mapping (tool marshaling, text extraction,
+streaming deltas + content blocks, retries)."""
 
 from __future__ import annotations
 
@@ -60,7 +65,7 @@ def test_text_skips_non_text_blocks():
         '{"id":"msg_2","model":"m","stop_reason":"end_turn","content":['
         '{"type":"text","text":"Here is what I found. "},'
         '{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"acme funding"}},'
-        '{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","title":"Acme raises","url":"https://x"}]},'
+        '{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","title":"Acme raises","url":"https://x","encrypted_content":"enc","page_age":null}]},'
         '{"type":"text","text":"Acme raised a Series B."}'
         "]}"
     )
@@ -119,7 +124,7 @@ def test_send_no_retry_on_400():
 # A turn with thinking + text + a tool_use. The \" sequences are JSON-escaped
 # quotes inside the partial_json string value (a raw string keeps the backslash).
 TOOL_USE_STREAM = r"""event: message_start
-data: {"type":"message_start","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":50,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":50,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
@@ -170,7 +175,7 @@ data: {"type":"message_stop"}
 
 # A plain text turn ending in end_turn — the common no-tool case.
 TEXT_STREAM = r"""event: message_start
-data: {"type":"message_start","message":{"id":"msg_2","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}

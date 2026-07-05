@@ -50,9 +50,7 @@ class _VerdictStub:
 
 
 def _client(base_url: str) -> anthropic.Client:
-    c = anthropic.new("test-key")
-    c.endpoint = base_url
-    return c
+    return anthropic.Client(api_key="test-key", endpoint=base_url)
 
 
 def _seed(db, cid_name_summary):

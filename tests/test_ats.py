@@ -90,7 +90,7 @@ def test_run_resolves_ashby_without_llm(db, monkeypatch):
 
         c = capture.Capturer(
             db=db,
-            client=anthropic.Client(api_key="k", endpoint=llm_url, http=httpx.Client()),
+            client=anthropic.Client(api_key="k", endpoint=llm_url),
             http=_client(),
         )
 
@@ -189,7 +189,7 @@ def test_run_ats_user_fields_win(db, monkeypatch):
 
         c = capture.Capturer(
             db=db,
-            client=anthropic.Client(api_key="k", endpoint=llm_url, http=httpx.Client()),
+            client=anthropic.Client(api_key="k", endpoint=llm_url),
             http=_client(),
         )
 

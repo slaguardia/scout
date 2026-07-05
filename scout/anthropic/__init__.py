@@ -1,10 +1,10 @@
-"""scout.anthropic — SDK-free Anthropic Messages API client.
+"""scout.anthropic — Anthropic Messages API client (a façade over the official SDK).
 
 Public surface (imported by capture, chat, distill, enrich, outreach, verdict):
     Client, new, verify
     Request, Message, Response, ContentBlock, Usage
     ToolDef, WebSearchTool, new_web_search_tool
-    DEFAULT_MODEL, ADAPTIVE_THINKING, AnthropicError
+    DEFAULT_MODEL, ADAPTIVE_THINKING, AnthropicError, StreamError
 """
 
 from .client import (
@@ -16,6 +16,7 @@ from .client import (
     Message,
     Request,
     Response,
+    StreamError,
     ToolDef,
     Usage,
     WebSearchTool,
@@ -23,7 +24,6 @@ from .client import (
     new_web_search_tool,
     verify,
 )
-from .stream import StreamError, parse_sse
 
 __all__ = [
     "ADAPTIVE_THINKING",
@@ -34,12 +34,11 @@ __all__ = [
     "Message",
     "Request",
     "Response",
+    "StreamError",
     "ToolDef",
     "Usage",
     "WebSearchTool",
     "new",
     "new_web_search_tool",
     "verify",
-    "StreamError",
-    "parse_sse",
 ]

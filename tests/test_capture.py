@@ -131,7 +131,7 @@ def _job_page():
 def _capturer(db, llm_url) -> capture.Capturer:
     return capture.Capturer(
         db=db,
-        client=anthropic.Client(api_key="test-key", endpoint=llm_url, http=httpx.Client()),
+        client=anthropic.Client(api_key="test-key", endpoint=llm_url),
         http=httpx.Client(timeout=5, follow_redirects=True),
     )
 

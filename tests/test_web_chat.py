@@ -12,7 +12,7 @@ from scout.store.db import connect
 
 # A minimal end_turn SSE turn for the stubbed Anthropic endpoint.
 CHAT_END_TURN_SSE = """event: message_start
-data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}

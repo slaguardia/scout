@@ -15,7 +15,7 @@ from tests.httpstub import http_server
 # Turn 1: the model calls the search tool. Turn 2 (after the tool_result is fed
 # back): it answers and ends.
 SEARCH_TOOL_STREAM = """event: message_start
-data: {"type":"message_start","message":{"id":"m1","model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":100,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
@@ -44,7 +44,7 @@ data: {"type":"message_stop"}
 """
 
 END_TURN_STREAM = """event: message_start
-data: {"type":"message_start","message":{"id":"m2","model":"claude-sonnet-4-6","usage":{"input_tokens":150,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"m2","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":150,"output_tokens":1}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
@@ -69,7 +69,7 @@ def _tool_use_sse(name: str, escaped_input: str) -> str:
     given escaped-JSON string."""
     return (
         "event: message_start\n"
-        'data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
+        'data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
         "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_x","name":"'
         + name
@@ -293,7 +293,7 @@ def test_engine_activity_events_for_tools(db):
 # on_event fires when the hosted web_search server tool runs.
 WEB_SEARCH_STREAM = (
     "event: message_start\n"
-    'data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
+    'data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
     "event: content_block_start\n"
     'data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"st1","name":"web_search","input":{}}}\n\n'
     "event: content_block_delta\n"
