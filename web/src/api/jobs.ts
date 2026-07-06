@@ -11,5 +11,9 @@ export function useJobs() {
   return useQuery({
     queryKey: jobsKey,
     queryFn: async () => (await getJSON<{ rows?: Posting[] }>("/api/postings")).rows ?? [],
+    // Poll every 4s while any row's draft is still researching (fire-and-forget
+    // drafting surfaces its "ready" badge on its own), then stop.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((j) => j.outreach_draft_status === "researching") ? 4000 : false,
   });
 }

@@ -36,6 +36,9 @@ export interface Posting {
   location?: string | null;
   created_at?: string | null;
   outreach_draft_status?: string | null;
+  notes?: string | null;
+  application_status_at?: string | null;
+  outreach_count?: number | null;
 }
 
 /** A company-level contact (GET /api/companies/{id}/contacts). Expanded in Phase 4b. */
