@@ -75,6 +75,7 @@ export interface UIState {
   // stages/statuses to visible while dropping ones that were removed.
   knownStages: string[] | null;
   knownStatuses: string[] | null;
+  docsSection: string | null; // deep-link target when opening the docs view
 }
 
 function loadHidden(key: string): Set<string> {
@@ -112,11 +113,14 @@ export function initialUI(): UIState {
     topPane: null,
     knownStages: null,
     knownStatuses: null,
+    docsSection: null,
   };
 }
 
 export type Action =
   | { type: "setView"; view: View }
+  | { type: "gotoDocs"; section: string }
+  | { type: "clearDocsSection" }
   | { type: "setSettingsGroup"; group: string }
   | { type: "setCompaniesSort"; sort: Sort }
   | { type: "setJobsSort"; sort: Sort }
@@ -152,6 +156,15 @@ function reducer(state: UIState, action: Action): UIState {
         /* ignore */
       }
       return { ...state, view: action.view };
+    case "gotoDocs":
+      try {
+        localStorage.setItem("scout-view", "docs");
+      } catch {
+        /* ignore */
+      }
+      return { ...state, view: "docs", docsSection: action.section };
+    case "clearDocsSection":
+      return { ...state, docsSection: null };
     case "setSettingsGroup":
       return { ...state, settingsGroup: action.group };
     case "setCompaniesSort":

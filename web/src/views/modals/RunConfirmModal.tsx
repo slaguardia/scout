@@ -42,7 +42,7 @@ export function RunConfirmModal({ stage }: { stage: "enrich" | "verdict" }) {
         <p id="run-desc" style={{ margin: "0 0 6px", fontSize: 13, color: "var(--fg-mute)", lineHeight: 1.5 }}>
           {DESCS[stage]}
         </p>
-        <a className="help-link" id="run-learn" style={{ marginBottom: 12 }} onClick={() => { close(); dispatch({ type: "setView", view: "docs" }); }}>
+        <a className="help-link" id="run-learn" style={{ marginBottom: 12 }} onClick={() => { close(); dispatch({ type: "gotoDocs", section: stage }); }}>
           Learn more →
         </a>
         {showWarn ? (

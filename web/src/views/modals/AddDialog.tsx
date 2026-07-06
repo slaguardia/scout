@@ -281,7 +281,7 @@ export function AddDialog() {
               </svg>
               <span id="add-note">{note}</span>
             </div>
-            <a className="help-link" id="add-learn" onClick={() => { close(); dispatch({ type: "setView", view: "docs" }); }}>
+            <a className="help-link" id="add-learn" onClick={() => { close(); dispatch({ type: "gotoDocs", section: "ingest" }); }}>
               How adding works →
             </a>
           </>

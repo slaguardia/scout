@@ -106,9 +106,10 @@ export function Sidebar() {
             <span className="tab-label">inbox</span>
             <span
               className="notif-badge"
+              id="notif-badge"
               style={{ display: notifs && notifs.unread ? "" : "none" }}
             >
-              {notifs?.unread ?? 0}
+              {notifs && notifs.unread > 99 ? "99+" : (notifs?.unread ?? 0)}
             </span>
           </button>
         </div>
