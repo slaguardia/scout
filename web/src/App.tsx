@@ -15,7 +15,7 @@ import { SettingsView } from "./views/SettingsView";
 import { InboxView } from "./views/InboxView";
 import { DocsView } from "./views/DocsView";
 import { CompanyPane } from "./views/CompanyPane";
-import { PursuitPane } from "./views/PursuitPane";
+import { PursuitPane } from "./views/pursuit/PursuitPane";
 import { ChatPane } from "./views/ChatPane";
 import { ProgressDrawer } from "./views/ProgressDrawer";
 import { Modals } from "./views/Modals";

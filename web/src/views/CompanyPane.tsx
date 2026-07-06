@@ -55,7 +55,7 @@ function DetailBody({ id }: { id: string }) {
     return (
       <>
         <PaneHead title={isError ? "—" : "loading…"} onClose={onClose} />
-        <div className="pane-body">
+        <div className="pane-body" id="pane-body">
           {isError ? (
             <div className="muted">Failed to load detail: {(error as Error)?.message}</div>
           ) : (
@@ -79,7 +79,7 @@ function DetailBody({ id }: { id: string }) {
         chatLabel="Chat about this company"
         onClose={onClose}
       />
-      <div className="pane-body">
+      <div className="pane-body" id="pane-body">
         <FlagBar d={d} />
         <JobsSection d={d} />
         <NotesSection d={d} />

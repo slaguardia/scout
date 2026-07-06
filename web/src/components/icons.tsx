@@ -131,3 +131,26 @@ export const IconInfo = svg(
 );
 
 export const IconNextUp = svg(<path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7" />, { strokeWidth: "2" });
+
+export const IconRefresh = svg(
+  <>
+    <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" />
+    <path d="M13.6 2.6V5.2H11" />
+  </>,
+);
+
+export const IconCopy = svg(
+  <>
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+    <path d="M2.5 10.5v-7a1 1 0 011-1h7" />
+  </>,
+);
+
+export const IconSend = svg(
+  <>
+    <path d="M14 2L7.3 8.7" />
+    <path d="M14 2L9.7 14l-2.4-5.3L2 6.3z" />
+  </>,
+);
+
+export const IconStageCheck = svg(<path d="M3.5 8.5l3 3 6-7" />, { strokeWidth: "2.2" });

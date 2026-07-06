@@ -39,24 +39,69 @@ export interface Posting {
   notes?: string | null;
   application_status_at?: string | null;
   outreach_count?: number | null;
+  comp_range?: string | null;
+  employment_type?: string | null;
+  workplace_type?: string | null;
+  department?: string | null;
+  posted_at?: string | null;
+  questions_status?: string | null;
 }
 
-/** A company-level contact (GET /api/companies/{id}/contacts). Expanded in Phase 4b. */
+/** A company-level contact (GET /api/companies/{id}/contacts). */
 export interface Contact {
   id: string;
   name?: string | null;
   role?: string | null;
   email?: string | null;
-  [k: string]: unknown;
 }
 
-/** An outreach-log entry (GET /api/postings/{id}/outreach-log). Expanded in Phase 4b. */
+/** An outreach-log entry (GET /api/postings/{id}/outreach-log). */
 export interface OutreachLogEntry {
   id: string;
   contact_id?: string | null;
   sent_at?: string | null;
   body?: string | null;
-  [k: string]: unknown;
+  note?: string | null;
+  followup_due_at?: string | null;
+  followup_done_at?: string | null;
+  gmail_thread_id?: string | null;
+  gmail_message_id?: string | null;
+}
+
+/** An outreach draft (GET /api/postings/{id}/outreach). */
+export interface Draft {
+  id: string;
+  status: string; // researching | awaiting_review | no_hook | needs_work | failed | superseded | sent
+  stage?: string | null;
+  skip_research?: boolean;
+  draft?: string | null;
+  edited?: string | null;
+  hook?: string | null; // JSON
+  research?: string | null; // JSON
+  lint?: string | null; // JSON
+  violations?: string | null; // JSON
+  fail_reason?: string | null;
+  sent_at?: string | null;
+}
+
+/** An application answer (GET /api/postings/{id}/answers). */
+export interface Answer {
+  id: string;
+  prompt: string;
+  status: string; // ready | needs_review | failed | generating | (blank = not drafted)
+  answer?: string | null;
+  edited?: string | null;
+  max_length?: number | null;
+  fail_reason?: string | null;
+}
+
+/** Gmail connection state (GET /api/gmail/status). */
+export interface GmailState {
+  connected: boolean;
+  email?: string | null;
+  configured?: boolean;
+  autoflip?: boolean;
+  last_sync_at?: string | null;
 }
 
 /** A posting summary as it appears in a company detail's postings list. */

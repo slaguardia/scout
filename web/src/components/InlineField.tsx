@@ -16,6 +16,7 @@ export function InlineField({
   placeholder,
   rows,
   id,
+  onInput,
 }: {
   initial: string;
   save: (v: string) => Promise<void>;
@@ -24,6 +25,7 @@ export function InlineField({
   placeholder?: string;
   rows?: number;
   id?: string;
+  onInput?: (v: string) => void;
 }) {
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const committed = useRef(initial);
@@ -80,6 +82,8 @@ export function InlineField({
     className +
     (status === "saving" ? " is-saving" : status === "saved" ? " is-saved" : status === "error" ? " is-error" : "");
 
+  const handleInput = onInput ? (e: React.FormEvent<HTMLTextAreaElement | HTMLInputElement>) => onInput(e.currentTarget.value) : undefined;
+
   if (multiline) {
     return (
       <textarea
@@ -91,6 +95,7 @@ export function InlineField({
         defaultValue={initial}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
+        onInput={handleInput}
       />
     );
   }
@@ -103,6 +108,7 @@ export function InlineField({
       defaultValue={initial}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
+      onInput={handleInput}
     />
   );
 }
