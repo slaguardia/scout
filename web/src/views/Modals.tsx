@@ -9,11 +9,17 @@ import { DeleteContactModal } from "./modals/DeleteContactModal";
 import { SendFollowupModal } from "./modals/SendFollowupModal";
 import { EditorModal } from "./modals/EditorModal";
 import { SourcesModal } from "./modals/SourcesModal";
+import { AddDialog } from "./modals/AddDialog";
+import { RunConfirmModal } from "./modals/RunConfirmModal";
 
 export function Modals() {
   const { modal } = useUI();
   if (!modal) return null;
   switch (modal.kind) {
+    case "add":
+      return <AddDialog />;
+    case "run":
+      return <RunConfirmModal stage={modal.stage} />;
     case "delCompany":
       return <DeleteCompanyModal company={modal.company} />;
     case "relink":

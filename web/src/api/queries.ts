@@ -9,9 +9,10 @@ export interface Meta {
   brain: boolean;
   verdict: boolean;
   chat?: boolean;
+  capture?: boolean;
 }
 
-const DEFAULT_META: Meta = { control: false, brain: false, verdict: false, chat: false };
+const DEFAULT_META: Meta = { control: false, brain: false, verdict: false, chat: false, capture: false };
 
 /** GET /api/meta — capability gates (control surface, brain, verdict key, chat). */
 export function useMeta() {

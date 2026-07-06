@@ -29,6 +29,7 @@ import {
   IconNextUp,
 } from "../components/icons";
 import { useNotifications } from "../api/notifications";
+import { useRuns } from "../api/runs";
 import type { Company, Posting, StatusVocab } from "../api/types";
 
 const VERDICT_ITEMS: [string, string, string][] = [
@@ -53,6 +54,7 @@ export function Sidebar() {
   const companies = useCompanies().data ?? [];
   const jobs = useJobs().data ?? [];
   const notifs = useNotifications().data;
+  const busyStage = useRuns().data?.busy_stage || "";
 
   const { view } = ui;
 
@@ -126,7 +128,7 @@ export function Sidebar() {
           {view === "companies" ? (
             <>
               <button
-                className="navrow"
+                className={"navrow" + (busyStage === "enrich" ? " busy" : "")}
                 title="fetch + summarize each company's pages"
                 disabled={!meta?.control}
                 onClick={() => dispatch({ type: "openModal", modal: { kind: "run", stage: "enrich" } })}
@@ -135,7 +137,7 @@ export function Sidebar() {
                 <span className="tab-label">Enrich</span>
               </button>
               <button
-                className="navrow"
+                className={"navrow" + (busyStage === "verdict" ? " busy" : "")}
                 title={
                   meta?.verdict ? "score each enriched company against your criteria" : "set ANTHROPIC_API_KEY in the server env to enable"
                 }
@@ -148,6 +150,12 @@ export function Sidebar() {
             </>
           ) : null}
         </div>
+        {busyStage ? (
+          <div className="run-busy" id="run-busy">
+            <span className="spinner"></span>
+            <span id="run-busy-label">{busyStage} running…</span>
+          </div>
+        ) : null}
       </div>
 
       {view === "companies" ? (
