@@ -11,7 +11,7 @@ import { Sidebar } from "./views/Sidebar";
 import { ChatFab } from "./views/ChatFab";
 import { CompaniesView } from "./views/CompaniesView";
 import { JobsView } from "./views/JobsView";
-import { SettingsView } from "./views/SettingsView";
+import { SettingsView } from "./views/settings/SettingsView";
 import { InboxView } from "./views/InboxView";
 import { DocsView } from "./views/DocsView";
 import { CompanyPane } from "./views/CompanyPane";

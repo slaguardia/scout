@@ -44,11 +44,7 @@ export interface JobsFilter {
 export type Modal =
   | { kind: "add" }
   | { kind: "editor"; editorKind: string }
-  | { kind: "prefilter"; useDefault?: boolean }
-  | { kind: "key" }
   | { kind: "sources" }
-  | { kind: "gmailConfig" }
-  | { kind: "profile" }
   | { kind: "run"; stage: "enrich" | "verdict" }
   | { kind: "relink"; posting: Posting }
   | { kind: "delCompany"; company: CompanyDetail }

@@ -102,6 +102,10 @@ export interface GmailState {
   configured?: boolean;
   autoflip?: boolean;
   last_sync_at?: string | null;
+  client_id?: string | null;
+  redirect_uri?: string | null;
+  callback_uri?: string | null;
+  scopes?: string[];
 }
 
 /** A posting summary as it appears in a company detail's postings list. */

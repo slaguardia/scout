@@ -7,6 +7,8 @@ import { RelinkModal } from "./modals/RelinkModal";
 import { DeleteJobModal } from "./modals/DeleteJobModal";
 import { DeleteContactModal } from "./modals/DeleteContactModal";
 import { SendFollowupModal } from "./modals/SendFollowupModal";
+import { EditorModal } from "./modals/EditorModal";
+import { SourcesModal } from "./modals/SourcesModal";
 
 export function Modals() {
   const { modal } = useUI();
@@ -22,6 +24,10 @@ export function Modals() {
       return <DeleteContactModal contactId={modal.contactId} name={modal.name} count={modal.count} />;
     case "sendFollowup":
       return <SendFollowupModal postingId={modal.postingId} contact={modal.contact} latest={modal.latest} />;
+    case "editor":
+      return <EditorModal editorKind={modal.editorKind} />;
+    case "sources":
+      return <SourcesModal />;
     default:
       return null;
   }
