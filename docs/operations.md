@@ -25,7 +25,7 @@ call creates `scout.db` and runs them (currently through `0013`).
 
 ## Building the web UI
 
-The UI is a Vite + vanilla-TS PWA in `web/` (consuming the shared
+The UI is a Vite + React + TS PWA in `web/` (consuming the shared
 `@brainbot/web-toolkit`). Its build emits to `web/dist/`, which the FastAPI
 server serves as static files at `GET /`. `web/dist/` is committed, so a fresh
 checkout runs with just `pip install -e .` (no Node needed to *run* scout).
