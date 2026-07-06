@@ -9,6 +9,8 @@ export function SlidePane({
   open,
   onClose,
   variant,
+  paneId,
+  scrimId,
   paneZ,
   scrimZ,
   ariaLabel,
@@ -17,6 +19,8 @@ export function SlidePane({
   open: boolean;
   onClose: () => void;
   variant?: string; // "pane-pursuit" | "pane-chat"
+  paneId?: string; // the vanilla DOM ids (#pane / #pursuit-pane): CSS keys z-index on them
+  scrimId?: string;
   paneZ?: number;
   scrimZ?: number;
   ariaLabel?: string;
@@ -26,11 +30,13 @@ export function SlidePane({
     <>
       <div
         className={"scrim" + (open ? " open" : "")}
+        id={scrimId}
         style={scrimZ ? { zIndex: scrimZ } : undefined}
         onClick={onClose}
       />
       <aside
         className={"pane" + (variant ? " " + variant : "") + (open ? " open" : "")}
+        id={paneId}
         style={paneZ ? { zIndex: paneZ } : undefined}
         aria-hidden={!open}
         aria-label={ariaLabel}

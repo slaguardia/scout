@@ -12,6 +12,8 @@ export function PursuitPane() {
       open={open}
       onClose={() => dispatch({ type: "closePursuit" })}
       variant="pane-pursuit"
+      paneId="pursuit-pane"
+      scrimId="pursuit-scrim"
       paneZ={onTop ? 55 : 53}
       scrimZ={onTop ? 54 : 52}
     >

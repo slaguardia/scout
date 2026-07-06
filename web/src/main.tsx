@@ -13,6 +13,7 @@ import { currentUser } from "@brainbot/web-toolkit/session";
 import { queryClient } from "./store/queryClient";
 import { UIProvider } from "./store/ui";
 import { ToastProvider } from "./components/Toast";
+import { RunProvider } from "./store/run";
 import { App } from "./App";
 
 createRoot(document.getElementById("root")!).render(
@@ -20,7 +21,9 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <UIProvider>
         <ToastProvider>
-          <App />
+          <RunProvider>
+            <App />
+          </RunProvider>
         </ToastProvider>
       </UIProvider>
     </QueryClientProvider>

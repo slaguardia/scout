@@ -8,8 +8,8 @@ export function ChatPane() {
   const open = ui.chat !== null;
   return (
     <>
-      <div className={"scrim" + (open ? " open" : "")} onClick={() => dispatch({ type: "closeChat" })} />
-      <aside className={"pane pane-chat" + (open ? " open" : "")} aria-hidden={!open}>
+      <div className={"scrim" + (open ? " open" : "")} id="chat-scrim" onClick={() => dispatch({ type: "closeChat" })} />
+      <aside className={"pane pane-chat" + (open ? " open" : "")} id="chat-pane" aria-hidden={!open}>
         <div className="pane-head">
           <h2>Chat</h2>
           <span className="chat-sub"></span>

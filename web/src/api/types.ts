@@ -56,6 +56,62 @@ export interface OutreachLogEntry {
   [k: string]: unknown;
 }
 
+/** A posting summary as it appears in a company detail's postings list. */
+export interface PostingSummary {
+  id: string;
+  url?: string | null;
+  title?: string | null;
+  description?: string | null;
+  location?: string | null;
+  source?: string | null;
+  created_at?: string | null;
+  application_status?: string | null;
+  next_up?: boolean;
+  outreach_count?: number | null;
+  last_outreach_at?: string | null;
+}
+
+/** Full company detail (GET /api/companies/{id}). */
+export interface CompanyDetail {
+  company_id: string;
+  name?: string | null;
+  verdict?: string | null;
+  has_verdict?: boolean;
+  reason?: string | null;
+  model?: string | null;
+  taste_version?: string | null;
+  scored_at?: string | null;
+  fetch_status?: string | null;
+  fetch_error?: string | null;
+  has_enrichment?: boolean;
+  website_url?: string | null;
+  fetched_at?: string | null;
+  domain?: string | null;
+  raw_json?: Record<string, unknown> | null;
+  flagged?: boolean;
+  reviewed_at?: string | null;
+  notes?: string | null;
+  vertical?: string | null;
+  location?: string | null;
+  headcount?: number | string | null;
+  funding_stage?: string | null;
+  source?: string | null;
+  source_id?: string | null;
+  ingested_at?: string | null;
+  postings?: PostingSummary[];
+}
+
+/** A decision-trail event (GET /api/companies/{id}/trace). */
+export interface TraceEvent {
+  verdict?: string | null;
+  reason?: string | null;
+  model?: string | null;
+  scored_at?: string | null;
+  criteria_source?: string | null;
+  taste_version?: string | null;
+  run_id?: string | null;
+}
+
 /** Configurable status vocabularies + follow-up config, loaded at boot. */
 export interface StatusVocab {
   applicationStages: string[];

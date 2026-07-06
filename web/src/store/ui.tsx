@@ -12,7 +12,7 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
-import type { Company, Posting, Contact, OutreachLogEntry } from "../api/types";
+import type { CompanyDetail, Posting, Contact, OutreachLogEntry } from "../api/types";
 
 export type View = "companies" | "jobs" | "inbox" | "settings" | "docs";
 
@@ -51,7 +51,7 @@ export type Modal =
   | { kind: "profile" }
   | { kind: "run"; stage: "enrich" | "verdict" }
   | { kind: "relink"; posting: Posting }
-  | { kind: "delCompany"; company: Company }
+  | { kind: "delCompany"; company: CompanyDetail }
   | { kind: "delJob"; posting: Posting }
   | { kind: "delContact"; contactId: string; name: string; count: number }
   | {
