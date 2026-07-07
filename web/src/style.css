@@ -310,6 +310,10 @@
   .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
   .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
   .pt-chip.is-on svg { opacity: 1; }
+  /* stop-pursuing / reactivate chip: plain while active; when archived the chip
+     invites the reactivate (undo) with an accent wash. */
+  .pt-archive.is-archived { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, var(--panel)); border-color: transparent; }
+  .pt-archive.is-archived svg { opacity: 1; }
   /* outreach stepper (pursuit panel) — the − undoes a mis-click */
   .pt-stepper { display: inline-flex; gap: 4px; }
   .pt-stepper .btn { padding: 3px 10px; font-size: 12px; }
@@ -401,6 +405,8 @@
   .pill-no    { background-color: var(--no-bg);    color: var(--no); }
   .pill-none  { background-color: var(--panel-3);  color: var(--fg-dim); }
   .pill-none::before { opacity: 0.5; }
+  .pill-archived { background-color: var(--panel-3); color: var(--fg-mute); }
+  .pill-archived::before { opacity: 0.5; }
   /* enrichment status severities — reuse the verdict palette (good/warn/bad). */
   .pill-good  { background-color: var(--yes-bg);   color: var(--yes); }
   .pill-warn  { background-color: var(--maybe-bg); color: var(--maybe); }
@@ -885,6 +891,7 @@
     transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
   .queue-nav-btn--nextup { --qn: var(--accent); }
+  .queue-nav-btn--archived { --qn: var(--fg-mute); }
   .queue-nav-btn:hover { border-color: color-mix(in srgb, var(--qn) 55%, var(--line)); }
   .queue-nav-btn.is-active { background: color-mix(in srgb, var(--qn) 22%, var(--panel)); border-color: var(--qn); }
   .queue-nav-btn .fn-icon { display: inline-flex; flex: none; color: var(--qn); }
@@ -928,13 +935,12 @@
      cluster (primary "Copy"/"Send follow-up" + quiet state links). */
   .cc-fu-group { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
   .cc-fu-status { flex: 0 0 auto; color: var(--fg); }
-  .cc-fu-status.is-overdue, .cc-fu-status.is-escalate { color: var(--maybe); font-weight: 600; }
-  .cc-fu-status.is-done { color: var(--yes); }
-  .cc-fu-status.is-stopped { color: var(--fg-dim); }
+  .cc-fu-status.is-overdue { color: var(--maybe); font-weight: 600; }
+  .cc-fu-status.is-quiet { color: var(--fg-dim); }
   .cc-fu-actions { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 10px; }
   .cc-fu-link { border: none; background: none; padding: 0; cursor: pointer; font-size: 11.5px; color: var(--link); }
   .cc-fu-link:hover { text-decoration: underline; }
-  .cc-fu-stop { color: var(--no); }
+  .cc-fu-trynew { color: var(--fg-mute); }
   .cc-rowacts { margin-top: 8px; display: flex; gap: 6px; }
   .cc-log, .cc-followup { font-size: 12px; padding: 3px 9px; }
   .cc-logform .cc-l-body {

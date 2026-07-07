@@ -394,6 +394,26 @@ def update_outreach_entry(con: sqlite3.Connection, id: int, e: OutreachEntryEdit
     return _read_outreach_entry(con, id)
 
 
+def rearm_followup(con: sqlite3.Connection, id: int) -> OutreachEntry:
+    """Record a manual follow-up nudge on a logged send: stamp it followed-up
+    (bumping "last outreach") and push the next reminder another interval forward
+    from today. Unlike the done-flag PUT this is idempotent-safe and repeatable —
+    each click re-arms the next rung. A 0 interval leaves no reminder. Raises
+    NotFound for an unknown id."""
+    n = followup_interval_days(con)
+    if n > 0:
+        due_val: str | None = _add_business_days(datetime.date.today(), n).strftime("%Y-%m-%d")
+    else:
+        due_val = None
+    cur = con.execute(
+        "UPDATE outreach_log SET followup_due_at = ?, followup_done_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (due_val, id),
+    )
+    if cur.rowcount == 0:
+        raise errors.NotFound()
+    return _read_outreach_entry(con, id)
+
+
 def delete_outreach_entry(con: sqlite3.Connection, id: int) -> None:
     """Remove a logged send. Raises NotFound for an unknown id."""
     cur = con.execute("DELETE FROM outreach_log WHERE id = ?", (id,))
@@ -432,6 +452,7 @@ def followups_due(con: sqlite3.Connection) -> list[FollowupDue]:
         LEFT JOIN contacts ct ON ct.id = ol.contact_id
         WHERE ol.followup_due_at IS NOT NULL
           AND ol.followup_due_at <= DATE('now')
+          AND p.archived_at IS NULL
           AND COALESCE(p.outreach_status, '') IN ('', ?)
           AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
                        WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)

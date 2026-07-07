@@ -4,7 +4,7 @@
 // queries (the company pane's posting card mirrors the lifecycle).
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
-import { putNextUp, putPostingTracking } from "../api/postings";
+import { putNextUp, putArchived, putPostingTracking } from "../api/postings";
 import type { Posting } from "../api/types";
 
 export function useJobTracking() {
@@ -36,5 +36,15 @@ export function useJobTracking() {
     }
   };
 
-  return { toggleNextUp, saveTracking };
+  const archivePosting = async (j: Posting) => {
+    try {
+      const fresh = await putArchived(j.posting_id, !j.archived);
+      invalidate();
+      toast(fresh.archived ? "stopped pursuing — reminders off" : "pursuit reactivated");
+    } catch (e) {
+      toast(`save failed: ${(e as Error).message}`);
+    }
+  };
+
+  return { toggleNextUp, saveTracking, archivePosting };
 }

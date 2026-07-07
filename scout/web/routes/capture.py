@@ -186,3 +186,15 @@ def posting_next_up(
     return json_response(
         postings_store.set_posting_next_up(con, posting_id, bool(body.get("next_up")))
     )
+
+
+@router.api_route("/api/postings/{posting_id}/archive", methods=["PUT", "POST"])
+def posting_archive(
+    posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)
+) -> Response:
+    """Archive ("stop pursuing") or reactivate a posting. Reversible; hides it
+    from the active jobs list and silences its follow-up reminders. NotFound -> 404."""
+    body = decode_json(raw)
+    return json_response(
+        postings_store.set_posting_archived(con, posting_id, bool(body.get("archived")))
+    )

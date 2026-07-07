@@ -18,8 +18,10 @@ import {
   deleteContact,
   logOutreach,
   putOutreachEntry,
+  markFollowedUp,
   deleteOutreachEntry,
 } from "../../api/contacts";
+import { putNextUp, putPostingTracking } from "../../api/postings";
 import { renderFollowupTemplate, isoToday } from "../../lib/followup";
 import type { Contact, OutreachLogEntry, Posting } from "../../api/types";
 
@@ -264,7 +266,7 @@ function ContactCard({
       ) : null}
       {latest ? (
         <div className="cc-fu-group">
-          <FollowupGroup posting={j} contact={c} latest={latest} canSend={canSend} onCopy={copyFollowup} onRefresh={doRefresh} log={log} />
+          <FollowupGroup posting={j} contact={c} latest={latest} canSend={canSend} onCopy={copyFollowup} onRefresh={doRefresh} />
         </div>
       ) : (
         <>
@@ -308,6 +310,15 @@ function ContactCard({
   );
 }
 
+/** The label to set on "got a reply". Prefer a "replied"-flavored status; else
+ * any non-first label silences the nag (the badge gate only fires on blank / the
+ * first configured label). */
+function repliedLabel(statuses: string[], current: string): string {
+  const repl = statuses.find((s) => /repl/i.test(s));
+  if (repl) return repl;
+  return statuses.length > 1 ? statuses[1] : current || statuses[0] || "replied";
+}
+
 function FollowupGroup({
   posting: j,
   contact: c,
@@ -315,7 +326,6 @@ function FollowupGroup({
   canSend,
   onCopy,
   onRefresh,
-  log,
 }: {
   posting: Posting;
   contact: Contact;
@@ -323,81 +333,78 @@ function FollowupGroup({
   canSend: boolean;
   onCopy: () => void;
   onRefresh: () => void;
-  log: OutreachLogEntry[];
 }) {
   const toast = useToast();
   const dispatch = useDispatch();
-  const due = latest.followup_due_at;
+  const vocab = useVocab().data;
+  const due = latest.followup_due_at || "";
   const isDue = !!due && due <= isoToday();
 
-  const putFollowup = async (patch: Record<string, unknown>, msg: string) => {
-    const e = log.find((x) => String(x.id) === String(latest.id));
+  // Carried unchanged when a helper just clears this send's reminder.
+  const carry = { sent_at: latest.sent_at || "", body: latest.body || "", note: latest.note || "" };
+
+  const markedFollowedUp = async () => {
     try {
-      await putOutreachEntry(latest.id, {
-        sent_at: e?.sent_at || "",
-        body: e?.body || "",
-        note: e?.note || "",
-        followup_due_at: e?.followup_due_at || "",
-        done: !!e?.followup_done_at,
-        ...patch,
-      });
+      await markFollowedUp(latest.id);
       onRefresh();
-      toast(msg);
-    } catch (err) {
-      toast(`save failed: ${(err as Error).message}`);
+      toast("followed up — next reminder set");
+    } catch (e) {
+      toast(`save failed: ${(e as Error).message}`);
     }
   };
 
-  let status: React.ReactNode;
-  let actions: React.ReactNode;
-  if (latest.followup_done_at && isDue) {
-    status = <span className="cc-fu-status is-escalate">no reply — try another contact</span>;
-    actions = (
-      <button className="cc-fu-link cc-fu-dismiss" type="button" title="dismiss — stop reminding me about this contact" onClick={() => putFollowup({ followup_due_at: "", done: true }, "escalation dismissed")}>
-        dismiss
-      </button>
-    );
-  } else if (latest.followup_done_at) {
-    status = <span className="cc-fu-status is-done">followed up</span>;
-    actions = (
-      <button className="cc-fu-link cc-fu-reopen" type="button" title="reopen — re-arm the follow-up reminder" onClick={() => putFollowup({ done: false }, "follow-up reopened")}>
-        reopen
-      </button>
-    );
-  } else if (!due) {
-    status = <span className="cc-fu-status is-stopped">stopped</span>;
-    actions = (
-      <button className="cc-fu-link cc-fu-resume" type="button" onClick={() => putFollowup({ followup_due_at: isoToday(), done: false }, "follow-up resumed")}>
-        resume
-      </button>
-    );
-  } else {
-    status = <span className={"cc-fu-status" + (isDue ? " is-overdue" : "")}>{isDue ? "overdue" : "follow up on"} {due}</span>;
-    actions = (
-      <>
-        <button className="cc-fu-link cc-fu-done" type="button" title="mark this follow-up done — arms the next reminder" onClick={() => putFollowup({ done: true }, "marked followed up")}>
-          done
-        </button>
-        <button className="cc-fu-link cc-fu-stop" type="button" title="discontinue follow-ups for this contact" onClick={() => putFollowup({ followup_due_at: "", done: false }, "follow-up stopped")}>
-          stop
-        </button>
-      </>
-    );
-  }
+  const gotReply = async () => {
+    const label = repliedLabel(vocab?.outreachStatuses ?? [], j.outreach_status || "");
+    try {
+      // Silence at the posting level (the reply-status gate) and quiet this
+      // contact's reminder so the card matches.
+      await putPostingTracking(j, { outreach_status: label });
+      await putOutreachEntry(latest.id, { ...carry, followup_due_at: "", done: false });
+      onRefresh();
+      toast("marked replied — reminders off");
+    } catch (e) {
+      toast(`save failed: ${(e as Error).message}`);
+    }
+  };
+
+  const trySomeoneNew = async () => {
+    try {
+      // Queue this job to find a fresh contact, and quiet the cold one.
+      await putNextUp(j.posting_id, true);
+      await putOutreachEntry(latest.id, { ...carry, followup_due_at: "", done: false });
+      onRefresh();
+      toast(`queued next up — find another contact at ${j.company}`);
+    } catch (e) {
+      toast(`save failed: ${(e as Error).message}`);
+    }
+  };
+
+  let statusLine: React.ReactNode;
+  if (isDue) statusLine = <span className="cc-fu-status is-overdue">follow up — due {due}</span>;
+  else if (due) statusLine = <span className="cc-fu-status">follow up on {due}</span>;
+  else statusLine = <span className="cc-fu-status is-quiet">no reminder set</span>;
 
   return (
     <>
-      {status}
+      {statusLine}
       <span className="cc-fu-actions">
         <button className="btn btn-sm cc-followup" type="button" title="copy a follow-up email from your template" onClick={onCopy}>
           Copy follow-up ⧉
         </button>
         {canSend ? (
-          <button className="btn btn-sm btn-primary cc-fu-send" type="button" title="send this follow-up as a reply on the Gmail thread" onClick={() => dispatch({ type: "openModal", modal: { kind: "sendFollowup", postingId: j.posting_id, contact: c, latest } })}>
+          <button className="btn btn-sm btn-primary cc-fu-send" type="button" title="send this follow-up as a reply on the Gmail thread — logs it and re-arms the reminder" onClick={() => dispatch({ type: "openModal", modal: { kind: "sendFollowup", postingId: j.posting_id, contact: c, latest } })}>
             Send follow-up →
           </button>
         ) : null}
-        {actions}
+        <button className="cc-fu-link cc-fu-done" type="button" title="you followed up by hand — log it and set the next reminder" onClick={markedFollowedUp}>
+          mark followed up
+        </button>
+        <button className="cc-fu-link cc-fu-reply" type="button" title="they replied — stop the reminders for this job" onClick={gotReply}>
+          got a reply
+        </button>
+        <button className="cc-fu-link cc-fu-trynew" type="button" title="this contact's gone cold — queue this job to find a fresh contact" onClick={trySomeoneNew}>
+          try someone new
+        </button>
       </span>
     </>
   );
@@ -410,10 +417,10 @@ function OutreachEntry({ e, onRefresh }: { e: OutreachLogEntry; onRefresh: () =>
   ) : (
     <span className="cc-e-prov prov-manual" title="logged by hand — not tracked in Gmail">logged manually</span>
   );
-  const fu = e.followup_done_at ? (
-    <span className="fu-done">followed up</span>
-  ) : e.followup_due_at ? (
+  const fu = e.followup_due_at ? (
     <span className="fu-mini">→ follow up {e.followup_due_at}</span>
+  ) : e.followup_done_at ? (
+    <span className="fu-done">followed up</span>
   ) : null;
 
   const del = async (ev: React.MouseEvent) => {

@@ -37,6 +37,7 @@ export interface JobsFilter {
   statuses: Set<string> | null;
   nextUpOnly: boolean;
   dueOnly: boolean;
+  archivedOnly: boolean;
 }
 
 // The active modal, as a discriminated union — one field replaces the vanilla
@@ -102,7 +103,7 @@ export function initialUI(): UIState {
     companiesSort: { ...DEFAULT_SORT },
     jobsSort: { ...DEFAULT_JSORT },
     companiesFilter: { q: "", verdict: new Set(), flagOnly: false, enrichedOnly: false },
-    jobsFilter: { q: "", stages: null, statuses: null, nextUpOnly: false, dueOnly: false },
+    jobsFilter: { q: "", stages: null, statuses: null, nextUpOnly: false, dueOnly: false, archivedOnly: false },
     hiddenCols: loadHidden("scout-hidden-cols"),
     jHiddenCols: loadHidden("scout-hidden-jcols"),
     settingsGroup: "outreach",

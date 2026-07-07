@@ -50,6 +50,11 @@ export function putOutreachEntry(id: string, body: Record<string, unknown>): Pro
   return putJSON<OutreachLogEntry>(`/api/outreach-log/${id}`, body);
 }
 
+/** Record a manual follow-up nudge: stamp followed-up + re-arm the next reminder. */
+export function markFollowedUp(id: string): Promise<OutreachLogEntry> {
+  return putJSON<OutreachLogEntry>(`/api/outreach-log/${id}/followed-up`, {});
+}
+
 export function deleteOutreachEntry(id: string): Promise<void> {
   return request<void>(`/api/outreach-log/${id}`, { method: "DELETE" });
 }

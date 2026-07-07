@@ -65,11 +65,18 @@ export function JobsView({ active }: { active: boolean }) {
   const rows = useMemo(() => {
     const q = f.q.trim().toLowerCase();
     const list = (jobs ?? []).filter((j) => {
-      const stage = j.application_status || "";
-      if (!stageSel.has(stage)) return false;
-      if (f.nextUpOnly && !j.next_up) return false;
-      if (f.dueOnly && !(j.followups_due! | 0)) return false;
-      if (!statusSel.has(j.outreach_status || "")) return false;
+      // Archived jobs live in their own view: the archived queue-nav shows only
+      // them, and the normal view never shows them.
+      if (f.archivedOnly) {
+        if (!j.archived) return false;
+      } else {
+        if (j.archived) return false;
+        const stage = j.application_status || "";
+        if (!stageSel.has(stage)) return false;
+        if (f.nextUpOnly && !j.next_up) return false;
+        if (f.dueOnly && !(j.followups_due! | 0)) return false;
+        if (!statusSel.has(j.outreach_status || "")) return false;
+      }
       if (q) {
         const hay = (
           j.title +
@@ -100,7 +107,10 @@ export function JobsView({ active }: { active: boolean }) {
   const colStyle = (col: string) => (hidden.has(col) ? { display: "none" } : undefined);
   const sortAttr = (k: string) => (sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {});
 
-  const hiddenRej = f.stages && !stageSel.has("rejected") ? (jobs ?? []).filter((j) => (j.application_status || "") === "rejected").length : 0;
+  const hiddenRej =
+    !f.archivedOnly && f.stages && !stageSel.has("rejected")
+      ? (jobs ?? []).filter((j) => !j.archived && (j.application_status || "") === "rejected").length
+      : 0;
 
   return (
     <div className="table-wrap" id="jobs-view" style={{ display: active ? "" : "none" }}>

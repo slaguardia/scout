@@ -141,6 +141,16 @@ def update_outreach_entry(
     return json_response(out)
 
 
+@router.api_route("/api/outreach-log/{raw_id}/followed-up", methods=["PUT", "POST"])
+def rearm_followup(raw_id: str, con=Depends(get_db)) -> Response:
+    """Record a manual follow-up nudge on a send: stamp it followed-up and re-arm
+    the next reminder an interval out. Repeatable. NotFound → 404."""
+    id = _parse_int_id(raw_id)
+    if id is None:
+        return json_error("not found", 404)
+    return json_response(contacts.rearm_followup(con, id))
+
+
 @router.delete("/api/outreach-log/{raw_id}")
 def delete_outreach_entry(raw_id: str, con=Depends(get_db)) -> Response:
     id = _parse_int_id(raw_id)

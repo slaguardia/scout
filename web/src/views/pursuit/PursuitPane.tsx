@@ -12,7 +12,7 @@ import { useJobs } from "../../api/jobs";
 import { useVocab, vocabColorClass, useMeta } from "../../api/queries";
 import { useJobTracking } from "../../hooks/useJobTracking";
 import { usePostingActions } from "../../hooks/usePostingActions";
-import { IconNextUp } from "../../components/icons";
+import { IconNextUp, IconArchive } from "../../components/icons";
 import { ContactsManager } from "./ContactsManager";
 import { DraftsRegion } from "./DraftsRegion";
 import { AnswersSection } from "./AnswersSection";
@@ -50,7 +50,7 @@ function PursuitBody({ id }: { id: string }) {
   const dispatch = useDispatch();
   const vocab = useVocab().data;
   const meta = useMeta().data;
-  const { toggleNextUp, saveTracking } = useJobTracking();
+  const { toggleNextUp, saveTracking, archivePosting } = useJobTracking();
   const actions = usePostingActions();
 
   const j = (jobs ?? []).find((x) => x.posting_id === id);
@@ -76,7 +76,12 @@ function PursuitBody({ id }: { id: string }) {
         title={
           <InlineField className="ie ie-title" id="pursuit-title-input" placeholder="role name" initial={j.title || ""} save={actions.saveDetail(j, "title")} />
         }
-        pills={<span className={"pill " + (stage ? vocabColorClass(stage, stages) || "pill-stage" : "pill-none")}>{stage || "—"}</span>}
+        pills={
+          <>
+            <span className={"pill " + (stage ? vocabColorClass(stage, stages) || "pill-stage" : "pill-none")}>{stage || "—"}</span>
+            {j.archived ? <span className="pill pill-archived" title="you've stopped pursuing this job">archived</span> : null}
+          </>
+        }
         onChat={meta?.chat ? () => dispatch({ type: "openChat", scope: "posting", scopeId: j.posting_id, title: j.title || j.company }) : undefined}
         chatLabel="Chat about this role"
         onClose={onClose}
@@ -153,6 +158,21 @@ function PursuitBody({ id }: { id: string }) {
               >
                 <IconNextUp />
                 next up
+              </button>
+            </div>
+            <div className="pipeline-row">
+              <span className="pl-label">pursuit</span>
+              <button
+                className={"pt-chip pt-archive" + (j.archived ? " is-archived" : "")}
+                title={
+                  j.archived
+                    ? "reactivate — bring this job back into active pursuit"
+                    : "stop pursuing — archive this job and silence its reminders (reversible)"
+                }
+                onClick={() => archivePosting(j)}
+              >
+                <IconArchive />
+                {j.archived ? "reactivate" : "stop pursuing"}
               </button>
             </div>
           </div>
