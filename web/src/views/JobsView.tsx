@@ -214,14 +214,22 @@ function JobRow({
     >
       <td>
         <div className="jt-namecell">
-          <button
-            className={"jt-nextup" + (j.next_up ? " is-on" : "")}
-            title={j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}
-            aria-label="next up"
-            onClick={onToggleNextUp}
-          >
-            <IconNextUp />
-          </button>
+          <div className="jt-lead">
+            <button
+              className={"jt-nextup" + (j.next_up ? " is-on" : "")}
+              title={j.next_up ? "queued next up for outreach — click to remove" : "mark next up for outreach"}
+              aria-label="next up"
+              onClick={onToggleNextUp}
+            >
+              <IconNextUp />
+            </button>
+            {j.followups_due ? (
+              <span className="followup-badge" title={`${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act`}>
+                <IconBell />
+                {j.followups_due}
+              </span>
+            ) : null}
+          </div>
           <div className="jt-namecol">
             <span className="row-name">{j.title || j.company}</span>
             <DraftBadge status={j.outreach_draft_status} />
@@ -259,12 +267,6 @@ function JobRow({
               </option>
             ))}
           </select>
-          {j.followups_due ? (
-            <span className="followup-badge" title={`${j.followups_due} follow-up${j.followups_due > 1 ? "s" : ""} due — open to act`}>
-              <IconBell />
-              {j.followups_due}
-            </span>
-          ) : null}
         </div>
       </td>
       <td className="small" data-col="last_outreach" style={colStyle("last_outreach")}>

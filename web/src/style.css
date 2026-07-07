@@ -258,6 +258,9 @@
      The star + text-column flex keeps the title AND the company subline aligned
      past the star, so a one-line and a two-line row read the same. */
   .jt-namecell { display: flex; align-items: center; gap: 14px; }
+  /* leading cluster: next-up star + (when due) the follow-up bell badge, kept
+     tight so the two "act on this" signals read as one group at the row's edge */
+  .jt-lead { flex: none; display: flex; align-items: center; gap: 6px; }
   .jt-namecol { min-width: 0; }
   /* a touch of air between the title and the company subline */
   .jt-namecol .small.dim { margin-top: 3px; }
@@ -889,7 +892,7 @@
   .queue-nav-btn .fn-text { flex: 1; text-align: left; white-space: nowrap; }
   .queue-nav-btn .fn-text strong { color: var(--fg); font-weight: 600; }
 
-  /* jobs-table follow-up-due badge (outreach cell) */
+  /* jobs-table follow-up-due badge (lives in the name cell's lead cluster) */
   .jt-out { display: flex; align-items: center; gap: 7px; }
   .jt-out .jt-oc { color: var(--fg); font-variant-numeric: tabular-nums; }
   .jt-out .jt-oc.dim { color: var(--fg-dim); }
