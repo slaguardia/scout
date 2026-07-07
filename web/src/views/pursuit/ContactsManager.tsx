@@ -5,7 +5,7 @@
 // wireContacts, with query invalidation for refreshAfterContactChange.
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast, copyToClipboard } from "../../components/Toast";
+import { useToast, copyEmailBody } from "../../components/Toast";
 import { LoadingRow } from "../../components/Pill";
 import { useDispatch } from "../../store/ui";
 import { useVocab } from "../../api/queries";
@@ -225,7 +225,7 @@ function ContactCard({
   };
 
   const copyFollowup = () => {
-    void copyToClipboard(renderFollowupTemplate(vocab?.followupTemplate || "", j, c, latest), toast, "follow-up copied — paste into your email");
+    void copyEmailBody(renderFollowupTemplate(vocab?.followupTemplate || "", j, c, latest), toast, "follow-up copied — paste into your email");
   };
 
   return (

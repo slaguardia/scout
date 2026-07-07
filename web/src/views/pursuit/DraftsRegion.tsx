@@ -8,7 +8,7 @@
 // refetchInterval.
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast, copyToClipboard } from "../../components/Toast";
+import { useToast, copyEmailBody } from "../../components/Toast";
 import { useDispatch } from "../../store/ui";
 import { useGmail } from "../../api/gmail";
 import { useContacts, useOutreachLog } from "../../api/contacts";
@@ -408,7 +408,7 @@ function CancelButton({ id, onDone }: { id: string; onDone: () => void }) {
 function CopyButton({ text }: { text: () => string }) {
   const toast = useToast();
   return (
-    <button className="dh-copy draft-copy-btn" title="copy the email to the clipboard" aria-label="copy email" onClick={() => copyToClipboard(text(), toast, "email copied")}>
+    <button className="dh-copy draft-copy-btn" title="copy the email to the clipboard" aria-label="copy email" onClick={() => copyEmailBody(text(), toast, "email copied")}>
       <IconCopy />
     </button>
   );
