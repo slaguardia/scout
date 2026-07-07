@@ -185,6 +185,40 @@ def test_mark_sent_with_contact_logs_and_arms(tmp_path, monkeypatch):
     assert status != ""  # outreach_status seeded
 
 
+def test_mark_sent_reuse_for_another_contact(tmp_path, monkeypatch):
+    # An already-sent draft can be reused to reach out to another contact: the new
+    # contact is logged, the draft stays sent, and re-marking the first contact is a
+    # no-op (idempotent — no duplicate log).
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    client.app.state.scout.outreach = FakeOutreachRunner()
+    pid = _seed_outreach_ready(db_path, cid)
+
+    con = open_db(db_path)
+    d = outreach_drafts.create_outreach_draft(con, pid)
+    outreach_drafts.set_outreach_draft_result(
+        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "",
+        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex", "[]", "", "", "",
+    )
+    a = contacts.create_contact(con, cid, ContactInput(name="Dana Lee", email="dana@acme.com"))
+    b = contacts.create_contact(con, cid, ContactInput(name="Robin Kim", email="robin@acme.com"))
+    con.close()
+
+    path = f"/api/outreach/drafts/{d.id}/sent"
+    assert _post(client, path, f'{{"contact_id":"{a.id}"}}').status_code == 200
+    # The draft is now sent; reuse it for a second contact.
+    assert _post(client, path, f'{{"contact_id":"{b.id}"}}').status_code == 200
+    # Re-marking the first contact must not double-log.
+    assert _post(client, path, f'{{"contact_id":"{a.id}"}}').status_code == 200
+
+    con = open_db(db_path)
+    rows = con.execute(
+        "SELECT contact_id, body FROM outreach_log WHERE posting_id=? ORDER BY id", (pid,)
+    ).fetchall()
+    con.close()
+    assert [r[0] for r in rows] == [a.id, b.id]  # one entry each, no duplicate for A
+    assert "Hi Dana," in rows[0][1] and "Hi Robin," in rows[1][1]  # [Recipient] per contact
+
+
 def test_mark_sent_without_contact_does_not_log(tmp_path, monkeypatch):
     # Back-compat: no contact_id -> a bare status flip, nothing logged.
     client, cid, db_path = new_test_app(tmp_path, monkeypatch)

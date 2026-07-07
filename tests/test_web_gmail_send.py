@@ -169,15 +169,46 @@ def test_send_threads_followup(tmp_path, monkeypatch):
     assert "In-Reply-To: <prev@mail>" in mime
 
 
-def test_send_already_sent_returns_409(tmp_path, monkeypatch):
+def test_resend_same_contact_409(tmp_path, monkeypatch):
+    # A sent draft can't be re-sent to a contact already emailed for this posting —
+    # that's a follow-up, not a duplicate cold email. The guard fires before any send.
     _oauth_env(monkeypatch)
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
-    _cid2, _pid, contact_id, did = _seed(db_path)
+    _cid2, pid, contact_id, did = _seed(db_path)
     con = open_db(db_path)
+    contacts.log_outreach(con, pid, contact_id, OutreachInput(body="first email"))
     outreach_drafts.mark_outreach_draft_sent(con, did)
     con.close()
     r = client.post(f"/api/outreach/drafts/{did}/send-gmail", json={"contact_id": contact_id})
     assert r.status_code == 409
+
+
+def test_resend_to_another_contact(tmp_path, monkeypatch):
+    # A sent draft is reusable to reach out to *another* contact: a fresh send + log,
+    # leaving the draft's terminal status intact.
+    captured: dict = {}
+    with http_server(_stub(captured)) as base:
+        _oauth_env(monkeypatch, base)
+        client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+        cid, pid, contact_id, did = _seed(db_path)
+        con = open_db(db_path)
+        contacts.log_outreach(con, pid, contact_id, OutreachInput(body="first email"))
+        outreach_drafts.mark_outreach_draft_sent(con, did)
+        other = contacts.create_contact(
+            con, cid, ContactInput(name="Robin", role="Hiring Manager", email="robin@acme.com")
+        )
+        con.close()
+        r = client.post(f"/api/outreach/drafts/{did}/send-gmail", json={"contact_id": other.id})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["to"] == "robin@acme.com"
+    con = open_db(db_path)
+    rows = con.execute(
+        "SELECT contact_id FROM outreach_log WHERE posting_id=? ORDER BY id", (pid,)
+    ).fetchall()
+    assert [row[0] for row in rows] == [contact_id, other.id]  # both sends logged
+    assert outreach_drafts.get_outreach_draft(con, did).status == "sent"  # stays terminal
+    con.close()
 
 
 def test_send_rejects_foreign_contact(tmp_path, monkeypatch):

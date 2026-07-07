@@ -209,7 +209,11 @@ def mark_draft_sent(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get
     With a {"contact_id": ...} body, also log the send against that contact —
     arming its follow-up and seeding the posting's outreach_status — so a send
     you made by hand is tracked exactly like a Gmail send, minus the live thread
-    link. Without a contact_id it stays a bare status flip (back-compat)."""
+    link. Without a contact_id it stays a bare status flip (back-compat).
+
+    An already-sent draft can be reused to reach out to *another* contact: it logs
+    the new contact, leaving the terminal status intact. A contact already on this
+    posting's log is skipped (idempotent re-mark; no duplicate send)."""
     id = _parse_int_id(raw_id)
     if id is None:
         return json_error("not found", 404)
@@ -219,8 +223,11 @@ def mark_draft_sent(raw_id: str, raw: bytes = Depends(raw_body), con=Depends(get
         d = outreach_drafts.get_outreach_draft(con, id)
         if d is None:
             return json_error("not found", 404)
-        # An already-sent draft was logged on its first mark — don't double-log.
-        if d.status != outreach_drafts.DRAFT_SENT:
+        # Log the send unless this contact was already logged for the posting —
+        # the contact-level guard (replacing the old "already sent → skip") is what
+        # lets a sent draft be reused for someone else while staying idempotent.
+        prior = contacts.list_outreach_for_posting(con, d.posting_id)
+        if not any(e.contact_id == contact_id for e in prior):
             contact = contacts.get_contact(con, contact_id)
             recipient = (contact.name or "").strip().split(" ")[0] if contact else ""
             draft_text = d.edited if d.edited.strip() else d.draft

@@ -11,7 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast, copyToClipboard } from "../../components/Toast";
 import { useDispatch } from "../../store/ui";
 import { useGmail } from "../../api/gmail";
-import { useContacts } from "../../api/contacts";
+import { useContacts, useOutreachLog } from "../../api/contacts";
 import {
   useDrafts,
   startDraftRequest,
@@ -284,6 +284,7 @@ function DraftCard({
         </div>
         {d.sent_at ? <div className="draft-note">Sent {(d.sent_at || "").replace("T", " ").slice(0, 16)}</div> : null}
         <div className="draft-sentbody">{linkify(draftText(d) || "(empty)")}</div>
+        {readonly ? null : <DraftSendControls draft={d} posting={j} contacts={contacts ?? []} onInvalidate={onInvalidate} alreadySent />}
         <DraftTrace d={d} />
       </div>
     );
@@ -418,23 +419,33 @@ function DraftSendControls({
   posting: j,
   contacts,
   onInvalidate,
+  alreadySent = false,
 }: {
   draft: Draft;
   posting: Posting;
   contacts: Contact[];
   onInvalidate: (c?: boolean) => void;
+  alreadySent?: boolean;
 }) {
   const gmail = useGmail().data;
   const toast = useToast();
-  const emailable = contacts.filter((c) => c.email);
-  const [recipient, setRecipient] = useState(emailable[0]?.id || "");
+  const { data: log } = useOutreachLog(j.posting_id);
+  const [recipient, setRecipient] = useState("");
   const [sending, setSending] = useState(false);
   const connected = !!gmail?.connected;
+
+  // Reusing a sent draft: only offer contacts not yet emailed for this role, so
+  // the default recipient is genuinely "someone else."
+  const sentIds = new Set((log ?? []).map((e) => e.contact_id ?? ""));
+  const pool = alreadySent ? contacts.filter((c) => !sentIds.has(c.id)) : contacts;
+  const emailable = pool.filter((c) => c.email);
+  // Keep the effective recipient valid even as the pool loads/shrinks async.
+  const selected = emailable.some((c) => c.id === recipient) ? recipient : emailable[0]?.id || "";
 
   const sendGmail = async () => {
     setSending(true);
     try {
-      const body = await sendDraftGmail(draft.id, recipient);
+      const body = await sendDraftGmail(draft.id, selected);
       toast(body.to ? `sent via Gmail to ${body.to}` : "sent via Gmail");
       onInvalidate(true);
     } catch (e) {
@@ -444,19 +455,26 @@ function DraftSendControls({
   };
   const markSent = async () => {
     try {
-      await markDraftSent(draft.id, recipient);
-      toast(recipient ? "marked sent — follow-up armed" : "marked sent");
-      onInvalidate(!!recipient);
+      await markDraftSent(draft.id, selected);
+      toast(alreadySent ? "logged — follow-up armed" : selected ? "marked sent — follow-up armed" : "marked sent");
+      onInvalidate(!!selected);
     } catch (e) {
       toast(`failed: ${(e as Error).message}`);
     }
   };
 
+  if (alreadySent && !emailable.length) {
+    return contacts.length ? (
+      <div className="draft-note dim">Everyone with an email has been contacted — add another contact to reach out to someone else.</div>
+    ) : null;
+  }
+
   return (
     <>
+      {alreadySent ? <div className="draft-note dim draft-reuse-hd">Reach out to another contact</div> : null}
       <div className="draft-gmail-row">
         {emailable.length ? (
-          <select className="input draft-recipient" title="recipient" aria-label="recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)}>
+          <select className="input draft-recipient" title="recipient" aria-label="recipient" value={selected} onChange={(e) => setRecipient(e.target.value)}>
             {emailable.map((c) => (
               <option key={c.id} value={c.id}>
                 {(c.name || c.email) + (c.email ? ` <${c.email}>` : "")}
@@ -472,10 +490,10 @@ function DraftSendControls({
         ) : null}
         <button className="btn draft-sent-btn" title={emailable.length ? "I sent this myself — log it to the chosen contact and arm a follow-up" : "mark this draft sent (no contact to log against)"} onClick={markSent}>
           <IconSend />
-          Mark sent{emailable.length ? " (log it)" : ""}
+          {alreadySent ? "Log send" : `Mark sent${emailable.length ? " (log it)" : ""}`}
         </button>
       </div>
-      {emailable.length ? null : <div className="draft-note dim">Add a contact with an email to log the send + arm a follow-up.</div>}
+      {!alreadySent && !emailable.length ? <div className="draft-note dim">Add a contact with an email to log the send + arm a follow-up.</div> : null}
     </>
   );
 }

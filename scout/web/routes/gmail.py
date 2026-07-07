@@ -209,6 +209,11 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     send with its Gmail ids (the follow-up auto-arms via log_outreach), and mark the
     draft sent. Threads onto the most recent prior send to the same contact.
 
+    An already-sent draft can be reused to reach out to *another* contact (a fresh
+    email on its own thread); the terminal status is left intact and only a contact
+    not already emailed for this posting is accepted (a repeat to the same person is
+    a follow-up, not a duplicate cold email).
+
     Body: {"contact_id": "..."} — defaults to the company's first emailable contact.
     """
     draft_id = _parse_int_id(raw_id)
@@ -217,10 +222,9 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     d = outreach_drafts.get_outreach_draft(con, draft_id)
     if d is None:
         return json_error("not found", 404)
-    if d.status == outreach_drafts.DRAFT_SENT:
-        return json_error("draft already sent", 409)
     if d.status == outreach_drafts.DRAFT_RESEARCHING:
         return json_error("draft is still being written", 409)
+    already_sent = d.status == outreach_drafts.DRAFT_SENT
 
     if not gmail_store.is_connected(con):
         return json_error("connect Gmail first (Settings → Gmail)", 412)
@@ -249,6 +253,11 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
     # mail already went out.
     if contact.company_id != posting.company_id:
         return json_error("that contact belongs to a different company", 400)
+    # Reusing a sent draft: only a contact not already emailed for this posting.
+    if already_sent and any(
+        e.contact_id == contact_id for e in contacts.list_outreach_for_posting(con, d.posting_id)
+    ):
+        return json_error("already emailed that contact — use Send follow-up instead", 409)
 
     draft_text = d.edited if d.edited.strip() else d.draft
     if draft_text.strip() == "":
@@ -270,7 +279,8 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
 
     # Atomically claim the draft (flip to sent) before the network send. A concurrent
     # duplicate POST loses the claim and 409s, so the email goes out exactly once.
-    if not outreach_drafts.claim_for_send(con, draft_id, d.status):
+    # A reused (already-sent) draft has nothing to claim — its status stays sent.
+    if not already_sent and not outreach_drafts.claim_for_send(con, draft_id, d.status):
         return json_error("draft already sent", 409)
 
     try:
@@ -287,10 +297,12 @@ def send_draft_via_gmail(raw_id: str, raw: bytes = Depends(raw_body), con=Depend
             )
             sent = gc.send_message(raw_b64, thread_id=thread_id)
     except oauth.GmailAuthError as e:
-        outreach_drafts.restore_status(con, draft_id, d.status)  # nothing sent — let them retry
+        if not already_sent:
+            outreach_drafts.restore_status(con, draft_id, d.status)  # nothing sent — let them retry
         return json_error(f"Gmail auth failed — reconnect Gmail: {e}", 412)
     except GmailError as e:
-        outreach_drafts.restore_status(con, draft_id, d.status)
+        if not already_sent:
+            outreach_drafts.restore_status(con, draft_id, d.status)
         return json_error(f"Gmail send failed: {e}", 502)
 
     msg_id = sent.get("id", "") or ""
