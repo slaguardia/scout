@@ -11,6 +11,8 @@ import { useJobs } from "../api/jobs";
 import {
   useNotifications,
   markNotifSeen,
+  markAllNotifsSeen,
+  deleteNotif,
   applyNotif,
   linkNotif,
   syncGmailNow,
@@ -22,6 +24,7 @@ export function InboxView() {
   const { data } = useNotifications();
   const notifs = data?.notifications ?? [];
   const fus = data?.followups ?? [];
+  const unread = data?.unread ?? 0;
   const toast = useToast();
   const qc = useQueryClient();
   const [syncing, setSyncing] = useState(false);
@@ -40,6 +43,15 @@ export function InboxView() {
     }
   };
 
+  const markAllRead = async () => {
+    try {
+      await markAllNotifsSeen();
+      void qc.invalidateQueries({ queryKey: ["notifications"] });
+    } catch (e) {
+      toast(`failed: ${(e as Error).message}`);
+    }
+  };
+
   return (
     <div className="main-view" id="inbox-view">
       <div className="settings-page">
@@ -48,9 +60,16 @@ export function InboxView() {
             <h2>Inbox</h2>
             <div className="settings-page-sub">Replies, application updates, and follow-ups due — synced from Gmail.</div>
           </div>
-          <button className="btn" id="notifications-sync" title="check Gmail now for new mail" disabled={syncing} onClick={sync}>
-            {syncing ? "Syncing…" : "Sync now"}
-          </button>
+          <div className="notif-head-acts">
+            {unread > 0 ? (
+              <button className="btn" id="notifications-mark-all" onClick={markAllRead}>
+                Mark all read
+              </button>
+            ) : null}
+            <button className="btn" id="notifications-sync" title="check Gmail now for new mail" disabled={syncing} onClick={sync}>
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+          </div>
         </div>
         <div id="notifications-body">
           {notifs.length === 0 && fus.length === 0 ? (
@@ -115,6 +134,14 @@ function NotifItem({ n }: { n: NotificationItem }) {
       toast(`link failed: ${(e as Error).message}`);
     }
   };
+  const remove = async () => {
+    try {
+      await deleteNotif(n.id);
+      void qc.invalidateQueries({ queryKey: ["notifications"] });
+    } catch (e) {
+      toast(`remove failed: ${(e as Error).message}`);
+    }
+  };
 
   const ctx = n.company || n.role ? [n.company, n.role].filter(Boolean).join(" · ") : null;
   const showApply = n.kind === "app_status" && n.suggested_status && !n.actioned && n.posting_id;
@@ -147,6 +174,16 @@ function NotifItem({ n }: { n: NotificationItem }) {
               ))}
             </select>
           ) : null}
+          <div className="notif-dismiss">
+            {!n.seen ? (
+              <button className="btn btn-sm" title="mark this notification read" onClick={(e) => { e.stopPropagation(); seen(); }}>
+                Mark read
+              </button>
+            ) : null}
+            <button className="btn btn-sm" title="remove this notification" onClick={(e) => { e.stopPropagation(); remove(); }}>
+              Remove
+            </button>
+          </div>
         </div>
       </div>
     </div>

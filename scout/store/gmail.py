@@ -332,6 +332,16 @@ def mark_seen(con: sqlite3.Connection, id: int) -> None:
     )
 
 
+def mark_all_seen(con: sqlite3.Connection) -> None:
+    """Mark every unread notification read (the 'mark all read' control)."""
+    con.execute("UPDATE notifications SET seen_at = CURRENT_TIMESTAMP WHERE seen_at IS NULL")
+
+
+def delete_notification(con: sqlite3.Connection, id: int) -> None:
+    """Remove a notification from the feed (hard delete — no soft-dismiss column)."""
+    con.execute("DELETE FROM notifications WHERE id = ?", (id,))
+
+
 def mark_actioned(con: sqlite3.Connection, id: int) -> None:
     """Stamp a suggestion as acted on (also marks it seen)."""
     con.execute(

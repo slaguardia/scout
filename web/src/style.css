@@ -1110,6 +1110,8 @@
   .notif-when { font-size: 11px; opacity: 0.6; white-space: nowrap; }
   .notif-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
   .notif-acts .notif-link { max-width: 200px; font-size: 12px; }
+  .notif-dismiss { display: flex; gap: 6px; }
+  .notif-head-acts { display: flex; gap: 8px; align-items: center; flex: none; }
   /* "skip research" — a quiet opt-out sitting beside the start button. */
   .draft-skip-research {
     display: inline-flex; align-items: center; gap: 5px;

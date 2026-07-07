@@ -476,6 +476,23 @@ def notification_seen(raw_id: str, con=Depends(get_db)) -> Response:
     return json_response({"unread": gmail_store.unread_count(con)})
 
 
+@router.post("/api/notifications/seen-all")
+def notifications_seen_all(con=Depends(get_db)) -> Response:
+    """Mark every notification read (the 'mark all read' control)."""
+    gmail_store.mark_all_seen(con)
+    return json_response({"unread": gmail_store.unread_count(con)})
+
+
+@router.delete("/api/notifications/{raw_id}")
+def notification_delete(raw_id: str, con=Depends(get_db)) -> Response:
+    """Remove a notification from the feed (hard delete)."""
+    nid = _parse_int_id(raw_id)
+    if nid is None:
+        return json_error("not found", 404)
+    gmail_store.delete_notification(con, nid)
+    return json_response({"unread": gmail_store.unread_count(con)})
+
+
 @router.post("/api/notifications/{raw_id}/apply")
 def notification_apply(raw_id: str, con=Depends(get_db)) -> Response:
     """Apply a suggested application status to the linked posting + stamp the
