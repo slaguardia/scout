@@ -1,7 +1,7 @@
 // Notifications inbox (bell badge + the inbox tab). Polled every 90s to keep the
 // badge fresh as the Gmail poller syncs.
 import { useQuery } from "@tanstack/react-query";
-import { getOrNull, postJSON } from "./client";
+import { getOrNull, postJSON, del } from "./client";
 
 export interface NotificationItem {
   id: string;
@@ -47,6 +47,12 @@ export function useNotifications() {
 
 export function markNotifSeen(id: string): Promise<unknown> {
   return postJSON(`/api/notifications/${id}/seen`);
+}
+export function markAllNotifsSeen(): Promise<unknown> {
+  return postJSON(`/api/notifications/seen-all`);
+}
+export function deleteNotif(id: string): Promise<unknown> {
+  return del(`/api/notifications/${id}`);
 }
 export function applyNotif(id: string): Promise<{ applied?: string }> {
   return postJSON<{ applied?: string }>(`/api/notifications/${id}/apply`);

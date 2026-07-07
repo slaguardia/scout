@@ -44,6 +44,50 @@ def test_notifications_list_and_seen(tmp_path, monkeypatch):
     assert client.get("/api/notifications").json()["notifications"][0]["seen"] is True
 
 
+def test_notifications_mark_all_seen(tmp_path, monkeypatch):
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    n1 = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="reply", posting_id=pid, gmail_message_id="r1", title="A")
+    )
+    n2 = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="reply", posting_id=pid, gmail_message_id="r2", title="B")
+    )
+    con.close()
+
+    assert client.get("/api/notifications").json()["unread"] == 2
+    r = client.post("/api/notifications/seen-all")
+    assert r.status_code == 200 and r.json()["unread"] == 0
+    con = open_db(db_path)
+    assert gmail_store.get_notification(con, n1).seen_at != ""
+    assert gmail_store.get_notification(con, n2).seen_at != ""
+    con.close()
+
+
+def test_notification_delete(tmp_path, monkeypatch):
+    client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
+    _cid2, pid = _seed_posting(db_path)
+    con = open_db(db_path)
+    nid = gmail_store.add_notification(
+        con, gmail_store.Notification(kind="reply", posting_id=pid, gmail_message_id="r1", title="A")
+    )
+    con.close()
+
+    assert client.get("/api/notifications").json()["unread"] == 1
+    r = client.delete(f"/api/notifications/{nid}")
+    assert r.status_code == 200 and r.json()["unread"] == 0
+    assert client.get("/api/notifications").json()["notifications"] == []
+    con = open_db(db_path)
+    assert gmail_store.get_notification(con, nid) is None
+    con.close()
+
+
+def test_notification_delete_bad_id_404(tmp_path, monkeypatch):
+    client, _cid, _db = new_test_app(tmp_path, monkeypatch)
+    assert client.delete("/api/notifications/notanumber").status_code == 404
+
+
 def test_notification_apply_sets_status(tmp_path, monkeypatch):
     client, _cid, db_path = new_test_app(tmp_path, monkeypatch)
     _cid2, pid = _seed_posting(db_path)
