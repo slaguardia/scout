@@ -3,6 +3,7 @@
 // it auto-clears after 2.2s. Exposed via useToast() so any component or mutation
 // can call it, matching the old global `toast()`.
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { emailBodyToHtml, emailBodyToPlain } from "../lib/emailBody";
 
 const ERR_RE = /\b(fail(ed)?|error|disabled|already running)\b/i;
 
@@ -65,4 +66,35 @@ export async function copyToClipboard(text: string, toast: ToastFn, okMsg = "cop
   } catch (e) {
     toast(`copy failed: ${(e as Error).message}`);
   }
+}
+
+/**
+ * copyEmailBody — copy a draft/follow-up body so markdown links [label](url)
+ * paste as real anchors in a rich mail client (a text/html flavor, matching the
+ * Gmail send) and as clean plain text elsewhere — never raw markdown. Falls back
+ * to a plain copy when the rich Clipboard API is unavailable or refused.
+ */
+export async function copyEmailBody(body: string, toast: ToastFn, okMsg = "copied"): Promise<void> {
+  if (!body) {
+    toast("nothing to copy");
+    return;
+  }
+  const plain = emailBodyToPlain(body);
+  const canRich =
+    typeof ClipboardItem !== "undefined" && navigator.clipboard && typeof navigator.clipboard.write === "function" && window.isSecureContext;
+  if (canRich) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+          "text/html": new Blob([emailBodyToHtml(body)], { type: "text/html" }),
+        }),
+      ]);
+      toast(okMsg);
+      return;
+    } catch {
+      // Rich write refused (permissions / unsupported type) — fall through to plain.
+    }
+  }
+  await copyToClipboard(plain, toast, okMsg);
 }
