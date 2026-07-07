@@ -258,9 +258,10 @@
      The star + text-column flex keeps the title AND the company subline aligned
      past the star, so a one-line and a two-line row read the same. */
   .jt-namecell { display: flex; align-items: center; gap: 14px; }
-  /* leading cluster: next-up star + (when due) the follow-up bell badge, kept
-     tight so the two "act on this" signals read as one group at the row's edge */
-  .jt-lead { flex: none; display: flex; align-items: center; gap: 6px; }
+  /* leading cluster: next-up star + (when due) the follow-up bell badge, read as
+     one "act on this" group at the row's edge. Fixed width reserves room for the
+     badge so the name column starts at the same x on every row, badged or not. */
+  .jt-lead { flex: none; width: 54px; display: flex; align-items: center; gap: 6px; }
   .jt-namecol { min-width: 0; }
   /* a touch of air between the title and the company subline */
   .jt-namecol .small.dim { margin-top: 3px; }
