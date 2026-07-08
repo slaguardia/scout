@@ -19,7 +19,7 @@ from scout.store._helpers import tx
 from scout.store.db import connect
 
 from . import match, oauth
-from .client import GmailClient, HistoryExpired
+from .client import GmailClient, GmailError, HistoryExpired
 
 _RELIST_CAP = 50  # bounded re-list size when the cursor has expired
 _STARTUP_DELAY = 20.0  # let the server finish coming up before the first pass
@@ -275,14 +275,27 @@ def sync_once(
                 ids, new_cursor = _bounded_relist(gc)
                 relisted = True
 
-        replies = sends = apps = 0
+        replies = sends = apps = errors = 0
         for mid in ids:
             # Idempotent: skip a message already synced inbound or already a logged send.
             if gmail_store.message_exists(con, mid) or gmail_store.outreach_log_has_message(con, mid):
                 continue
-            full = gc.get_message(mid)
-            parsed = match.parse_message(full)
-            routed = match.route_message(con, parsed, our)
+            # Isolate per-message failures. messages.get commonly 404s when the id
+            # came from history's messagesAdded but the message was since deleted
+            # (spam/promotions purge, manual delete); a burst can also 429. Letting
+            # that abort the pass leaves the cursor un-advanced, so the next pass
+            # re-collects and re-fails the same batch every interval — a wedged
+            # poller that hammers messages.get. Skip the bad message and keep going;
+            # the cursor still advances at the end. (A revoked-grant 401 raises
+            # GmailAuthError, not GmailError, so it still aborts the pass as before.)
+            try:
+                full = gc.get_message(mid)
+                parsed = match.parse_message(full)
+                routed = match.route_message(con, parsed, our)
+            except GmailError as e:
+                errors += 1
+                log(f"gmail: skipping message {mid}: {e}")
+                continue
             if routed.stream == match.STREAM_OUTREACH:
                 _handle_outreach(con, routed, log)
                 if routed.direction == match.DIRECTION_INBOUND:
@@ -299,7 +312,7 @@ def sync_once(
         gmail_store.set_last_sync_at(con, _now_utc())
         return {
             "scanned": len(ids), "replies": replies, "sends": sends,
-            "apps": apps, "relisted": relisted, "cursor": new_cursor,
+            "apps": apps, "errors": errors, "relisted": relisted, "cursor": new_cursor,
         }
 
 
