@@ -146,6 +146,29 @@ def test_history_404_falls_back_to_relist(db, monkeypatch):
     assert db.execute("SELECT 1 FROM gmail_messages WHERE id='r9'").fetchone() is not None
 
 
+def test_get_404_message_is_skipped_not_wedged(db, monkeypatch):
+    # A message id from history whose messages.get 404s (deleted/purged after it
+    # landed in messagesAdded) must not abort the pass: the surrounding messages
+    # still sync and the cursor still advances, so the poller can't wedge into
+    # re-scanning + re-failing the same batch every interval.
+    cid, p, c = _seed(db, cursor="100")
+    r1 = gmail_message("r1", "pat@acme.com", "me@gmail.com", "Re: SE", "first reply")
+    r2 = gmail_message("r2", "pat@acme.com", "me@gmail.com", "Re: SE again", "second reply")
+    # "gone" is in history but absent from messages → the stub returns a 404 on get.
+    fg = FakeGmail(profile_history_id="300", history=["r1", "gone", "r2"], messages={"r1": r1, "r2": r2})
+    with http_server(fg.handle) as base:
+        oauth_env(monkeypatch, base)
+        res = sync.sync_once(db)
+
+    assert res["errors"] == 1
+    assert res["replies"] == 2
+    assert res["cursor"] == "300"
+    assert gmail_store.cursor(db) == "300"  # advanced past the poison message
+    assert db.execute("SELECT 1 FROM gmail_messages WHERE id='r1'").fetchone() is not None
+    assert db.execute("SELECT 1 FROM gmail_messages WHERE id='r2'").fetchone() is not None
+    assert db.execute("SELECT 1 FROM gmail_messages WHERE id='gone'").fetchone() is None
+
+
 def test_application_sender_is_dropped_in_slice3(db, monkeypatch):
     _seed(db)
     ats = gmail_message("a1", "no-reply@greenhouse.io", "me@gmail.com", "Application received", "We got it")
