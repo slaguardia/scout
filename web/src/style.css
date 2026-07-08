@@ -935,15 +935,46 @@
   /* follow-up group — one inline row: the status, then a right-aligned action
      cluster (primary "Copy"/"Send follow-up" + quiet state links). */
   .cc-fu-group { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-  .cc-fu-status { flex: 0 0 auto; color: var(--fg); }
-  .cc-fu-status.is-overdue { color: var(--maybe); font-weight: 600; }
+  .cc-fu-status { flex: 0 0 auto; color: var(--fg-mute); font-size: 12px; }
+  .cc-fu-status.is-overdue {
+    padding: 2px 8px; border-radius: 999px; font-weight: 600;
+    color: var(--maybe); background: color-mix(in srgb, var(--maybe) 16%, transparent);
+  }
   .cc-fu-status.is-quiet { color: var(--fg-dim); }
-  .cc-fu-actions { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 10px; }
-  .cc-fu-link { border: none; background: none; padding: 0; cursor: pointer; font-size: 11.5px; color: var(--link); }
-  .cc-fu-link:hover { text-decoration: underline; }
-  .cc-fu-trynew { color: var(--fg-mute); }
+  .cc-fu-group .amenu { margin-left: auto; }
+
+  /* actions menu (reusable) — a labeled trigger + a floating menu of action rows.
+     Mirrors the .fdrop menu vocabulary so it reads as the same surface family. */
+  .amenu { position: relative; display: inline-flex; }
+  .amenu-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 11px; font: inherit; font-size: 12px; white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    color: var(--fg-mute); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+                background var(--dur-fast) var(--ease);
+  }
+  .amenu-btn:hover { border-color: var(--line-2); color: var(--fg); }
+  .amenu.is-open .amenu-btn { border-color: var(--link); color: var(--fg); }
+  .amenu-chev { width: 9px; height: 9px; color: var(--fg-dim); transition: transform var(--dur-fast) var(--ease); }
+  .amenu.is-open .amenu-chev { transform: rotate(180deg); }
+  .amenu-menu {
+    position: fixed; z-index: 60; padding: 5px;
+    background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg); overflow-y: auto; overscroll-behavior: contain;
+  }
+  .amenu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 6px 8px; font: inherit; font-size: 12.5px; white-space: nowrap;
+    background: none; border: none; border-radius: var(--r-sm);
+    color: var(--fg-mute); cursor: pointer; text-align: left;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .amenu-item:hover { background: var(--panel-3); color: var(--fg); }
+  .amenu-item.is-muted { color: var(--fg-dim); }
+  .amenu-sep { height: 1px; margin: 4px 0; background: var(--line); }
   .cc-rowacts { margin-top: 8px; display: flex; gap: 6px; }
-  .cc-log, .cc-followup { font-size: 12px; padding: 3px 9px; }
+  .cc-log { font-size: 12px; padding: 3px 9px; }
   .cc-logform .cc-l-body {
     flex: 1 0 100%; min-height: 96px; resize: vertical;
     font: 12px/1.5 "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;

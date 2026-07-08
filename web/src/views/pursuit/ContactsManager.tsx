@@ -22,6 +22,7 @@ import {
   deleteOutreachEntry,
 } from "../../api/contacts";
 import { putNextUp, putPostingTracking } from "../../api/postings";
+import { ActionsMenu, ActionItem, ActionSep } from "../../components/ActionsMenu";
 import { renderFollowupTemplate, isoToday } from "../../lib/followup";
 import type { Contact, OutreachLogEntry, Posting } from "../../api/types";
 
@@ -379,33 +380,31 @@ function FollowupGroup({
     }
   };
 
+  const openSend = () =>
+    dispatch({ type: "openModal", modal: { kind: "sendFollowup", postingId: j.posting_id, contact: c, latest } });
+
   let statusLine: React.ReactNode;
-  if (isDue) statusLine = <span className="cc-fu-status is-overdue">follow up — due {due}</span>;
-  else if (due) statusLine = <span className="cc-fu-status">follow up on {due}</span>;
+  if (isDue) statusLine = <span className="cc-fu-status is-overdue">due {due}</span>;
+  else if (due) statusLine = <span className="cc-fu-status">follow up {due}</span>;
   else statusLine = <span className="cc-fu-status is-quiet">no reminder set</span>;
 
   return (
     <>
       {statusLine}
-      <span className="cc-fu-actions">
-        <button className="btn btn-sm cc-followup" type="button" title="copy a follow-up email from your template" onClick={onCopy}>
-          Copy follow-up ⧉
-        </button>
-        {canSend ? (
-          <button className="btn btn-sm btn-primary cc-fu-send" type="button" title="send this follow-up as a reply on the Gmail thread — logs it and re-arms the reminder" onClick={() => dispatch({ type: "openModal", modal: { kind: "sendFollowup", postingId: j.posting_id, contact: c, latest } })}>
-            Send follow-up →
-          </button>
-        ) : null}
-        <button className="cc-fu-link cc-fu-done" type="button" title="you followed up by hand — log it and set the next reminder" onClick={markedFollowedUp}>
-          mark followed up
-        </button>
-        <button className="cc-fu-link cc-fu-reply" type="button" title="they replied — stop the reminders for this job" onClick={gotReply}>
-          got a reply
-        </button>
-        <button className="cc-fu-link cc-fu-trynew" type="button" title="this contact's gone cold — queue this job to find a fresh contact" onClick={trySomeoneNew}>
-          try someone new
-        </button>
-      </span>
+      <ActionsMenu label="Follow up">
+        {(close) => (
+          <>
+            <ActionItem label="Copy follow-up" close={close} onSelect={onCopy} title="copy a follow-up email from your template" />
+            {canSend ? (
+              <ActionItem label="Send via Gmail →" close={close} onSelect={openSend} title="send this follow-up as a reply on the Gmail thread — logs it and re-arms the reminder" />
+            ) : null}
+            <ActionSep />
+            <ActionItem label="Mark followed up" close={close} onSelect={markedFollowedUp} title="you followed up by hand — log it and set the next reminder" />
+            <ActionItem label="Got a reply" close={close} onSelect={gotReply} title="they replied — stop the reminders for this job" />
+            <ActionItem label="Try someone new" close={close} onSelect={trySomeoneNew} muted title="this contact's gone cold — queue this job to find a fresh contact" />
+          </>
+        )}
+      </ActionsMenu>
     </>
   );
 }
