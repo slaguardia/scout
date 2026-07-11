@@ -452,7 +452,7 @@ def followups_due(con: sqlite3.Connection) -> list[FollowupDue]:
         LEFT JOIN contacts ct ON ct.id = ol.contact_id
         WHERE ol.followup_due_at IS NOT NULL
           AND ol.followup_due_at <= DATE('now')
-          AND p.archived_at IS NULL
+          AND COALESCE(p.application_status, '') <> 'archived'
           AND COALESCE(p.outreach_status, '') IN ('', ?)
           AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
                        WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)

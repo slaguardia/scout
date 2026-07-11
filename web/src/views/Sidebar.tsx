@@ -31,6 +31,7 @@ import {
 } from "../components/icons";
 import { useNotifications } from "../api/notifications";
 import { useRuns } from "../api/runs";
+import { isArchived } from "../lib/status";
 import type { Company, Posting, StatusVocab } from "../api/types";
 
 const VERDICT_ITEMS: [string, string, string][] = [
@@ -293,7 +294,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
     let archived = 0;
     for (const j of jobs) {
       // Archived jobs sit out of the active view's filter counts entirely.
-      if (j.archived) {
+      if (isArchived(j)) {
         archived++;
         continue;
       }

@@ -3,6 +3,13 @@
 Stored as JSON string arrays in the generic settings table (singletons). They
 drive the dropdowns in the jobs view; "none" (empty) is always implicitly
 available and is NOT part of either list.
+
+The application axis has protected built-ins: "applied" is a fixed front anchor,
+"rejected" a fixed terminal anchor, and both are always present — only the middle
+stages (screening/interview/offer…) are user-editable. "archived" is a reserved
+status value ("stopped pursuing") that hides the posting from the active jobs
+list and silences its follow-up reminders; it is handled specially (its own
+queue-nav) rather than living in this ordered pipeline list.
 """
 
 from __future__ import annotations
@@ -19,8 +26,18 @@ MAX_STATUS_LABEL_LEN = 40
 
 # The reply axis: where a thread of outreach stands.
 DEFAULT_OUTREACH_STATUSES = ["initial contact", "no response", "replied", "followed up"]
+
 # The application axis: the furthest pipeline stage reached (ordered progression).
-DEFAULT_APPLICATION_STAGES = ["applied", "screening", "interview", "offer", "rejected"]
+# "applied" and "rejected" are protected anchors composed around the user's
+# editable middle; "archived" is a reserved special value handled outside this
+# list (see module docstring).
+ARCHIVED_STAGE = "archived"
+_STAGE_FRONT = ["applied"]
+_STAGE_TERMINAL = ["rejected"]
+_RESERVED_STAGES = {"applied", "rejected", ARCHIVED_STAGE}
+DEFAULT_APPLICATION_STAGES_MIDDLE = ["screening", "interview", "offer"]
+# The effective out-of-the-box vocab, exposed for tests/consumers.
+DEFAULT_APPLICATION_STAGES = _STAGE_FRONT + DEFAULT_APPLICATION_STAGES_MIDDLE + _STAGE_TERMINAL
 
 
 def _sanitize_status_list(lst: list[str]) -> list[str]:
@@ -78,10 +95,53 @@ def set_outreach_statuses(con: sqlite3.Connection, lst: list[str]) -> None:
     _set_status_list(con, OUTREACH_STATUSES_SETTING, lst)
 
 
+def _sanitize_stage_middle(lst: list[str]) -> list[str]:
+    """Trim, drop empties/over-long labels, drop the reserved built-ins
+    (applied/rejected/archived), de-dupe case-insensitively, preserving order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in lst:
+        s = s.strip()
+        if s == "" or len(s) > MAX_STATUS_LABEL_LEN:
+            continue
+        key = s.lower()
+        if key in _RESERVED_STAGES or key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
+def _stage_middle(con: sqlite3.Connection) -> list[str]:
+    """The user's editable middle stages (between the applied/rejected anchors),
+    falling back to the default when unset/unparseable."""
+    v = settings.get_setting(con, APPLICATION_STAGES_SETTING)
+    if v.strip() == "":
+        return list(DEFAULT_APPLICATION_STAGES_MIDDLE)
+    try:
+        lst = json.loads(v)
+    except (json.JSONDecodeError, ValueError):
+        return list(DEFAULT_APPLICATION_STAGES_MIDDLE)
+    if not isinstance(lst, list) or not all(isinstance(x, str) for x in lst):
+        return list(DEFAULT_APPLICATION_STAGES_MIDDLE)
+    # Tolerate a legacy full-list value (with the anchors inline) — the sanitizer
+    # strips the reserved built-ins back down to the middle.
+    return _sanitize_stage_middle(lst)
+
+
 def application_stages(con: sqlite3.Connection) -> list[str]:
-    """The configured application-stage labels (or the default)."""
-    return _status_list(con, APPLICATION_STAGES_SETTING, DEFAULT_APPLICATION_STAGES)
+    """The effective application-stage vocab: the protected "applied" anchor, the
+    user's middle stages, then the protected "rejected" anchor. "archived" is a
+    reserved value handled separately and is NOT included here."""
+    return _STAGE_FRONT + _stage_middle(con) + _STAGE_TERMINAL
 
 
 def set_application_stages(con: sqlite3.Connection, lst: list[str]) -> None:
-    _set_status_list(con, APPLICATION_STAGES_SETTING, lst)
+    """Store the editable middle stages. The applied/rejected/archived built-ins
+    are stripped (composed back in on read); an empty middle is allowed (the
+    pipeline is then just applied → rejected). Errors are prefixed "statuses "
+    so the web layer maps them to a 400."""
+    middle = _sanitize_stage_middle(lst)
+    if len(middle) > MAX_STATUS_LIST_LEN:
+        raise ValueError(f"statuses list is too long (max {MAX_STATUS_LIST_LEN})")
+    settings.set_setting(con, APPLICATION_STAGES_SETTING, json.dumps(middle))

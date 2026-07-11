@@ -47,7 +47,7 @@ export function SettingsView() {
               </>
             ) : grp === "tracking" ? (
               <>
-                <SettingsTextField kind="application-stages" label="Application stages" desc="The application pipeline labels (applied, screening, interview…). One per line." rows={6} list />
+                <SettingsTextField kind="application-stages" label="Application stages" desc="The application pipeline labels. One per line. “applied” and “rejected” are always kept; add your own stages between them. (“archived” is a separate built-in status.)" rows={6} list />
                 <SettingsTextField kind="outreach-statuses" label="Outreach statuses" desc="The outreach reply labels (initial contact, no response, replied…). One per line." rows={6} list />
               </>
             ) : grp === "job-hunting" ? (

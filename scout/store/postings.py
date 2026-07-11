@@ -59,7 +59,6 @@ class Posting:
     next_up: bool = False
     questions_status: str = ""
     questions_at: str = ""
-    archived: bool = False
 
 
 # Shared SELECT list; keep in sync with _scan_posting.
@@ -73,7 +72,7 @@ _POSTING_COLS = """id, company_id, url, COALESCE(title, ''), COALESCE(location, 
        COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = job_postings.id), ''),
        COALESCE(outreach_status, ''),
        COALESCE(notes, ''), next_up_at,
-       COALESCE(questions_status, ''), COALESCE(questions_at, ''), archived_at"""
+       COALESCE(questions_status, ''), COALESCE(questions_at, '')"""
 
 
 def _scan_posting(row) -> Posting:
@@ -102,7 +101,6 @@ def _scan_posting(row) -> Posting:
         next_up=row[21] is not None,
         questions_status=row[22],
         questions_at=row[23],
-        archived=row[24] is not None,
     )
 
 
@@ -343,21 +341,6 @@ def set_posting_next_up(con: sqlite3.Connection, id: str, next_up: bool) -> Post
     return _read_posting(con, id)
 
 
-def set_posting_archived(con: sqlite3.Connection, id: str, archived: bool) -> Posting:
-    """Archive (archived_at = now) or reactivate (NULL) a posting. Archiving is a
-    reversible "stopped pursuing" — the jobs view hides it and its follow-up
-    reminders go silent; reactivating brings it back. Raises NotFound for an
-    unknown posting."""
-    if archived:
-        q = "UPDATE job_postings SET archived_at = CURRENT_TIMESTAMP WHERE id = ?"
-    else:
-        q = "UPDATE job_postings SET archived_at = NULL WHERE id = ?"
-    cur = con.execute(q, (id,))
-    if cur.rowcount == 0:
-        raise errors.NotFound()
-    return _read_posting(con, id)
-
-
 def get_posting(con: sqlite3.Connection, id: str) -> Posting | None:
     """Return one posting by id, or None when absent."""
     row = con.execute(f"SELECT {_POSTING_COLS} FROM job_postings WHERE id = ?", (id,)).fetchone()
@@ -416,7 +399,6 @@ class JobRow:
     followups_due: int = 0
     outreach_draft_status: str = ""
     questions_status: str = ""
-    archived: bool = False
 
 
 def list_job_rows(con: sqlite3.Connection) -> list[JobRow]:
@@ -451,13 +433,13 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE(p.questions_status, ''),
        (SELECT COUNT(*) FROM outreach_log ol
          WHERE ol.posting_id = p.id
-           AND p.archived_at IS NULL
+           AND COALESCE(p.application_status, '') <> 'archived'
            AND COALESCE(p.outreach_status, '') IN ('', ?)
            AND ol.followup_due_at IS NOT NULL
            AND ol.followup_due_at <= DATE('now')
            AND ol.id = (SELECT MAX(ol2.id) FROM outreach_log ol2
                         WHERE ol2.contact_id = ol.contact_id AND ol2.posting_id = ol.posting_id)),
-       COALESCE(p.application_status_at, ''), p.archived_at
+       COALESCE(p.application_status_at, '')
 FROM job_postings p
 JOIN companies c ON c.id = p.company_id
 LEFT JOIN verdicts v ON v.company_id = p.company_id
@@ -497,7 +479,6 @@ ORDER BY p.created_at DESC, p.rowid DESC"""
                 questions_status=r[27],
                 followups_due=r[28],
                 application_status_at=r[29],
-                archived=r[30] is not None,
             )
         )
     return out

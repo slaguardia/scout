@@ -71,6 +71,23 @@ def test_contacts_and_outreach_log(db):
         contacts.log_outreach(db, p.id, "no-such-contact", OutreachInput())
 
 
+def test_archived_status_silences_followups(db):
+    cid = _acme(db)
+    p = postings.add_posting(db, cid, "https://acme.com/jobs/se", "SE")
+    jane = contacts.create_contact(db, cid, ContactInput(name="Jane", email="jane@acme.com"))
+    past = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+    contacts.log_outreach(db, p.id, jane.id, OutreachInput(sent_at=past, followup_due_at=past))
+    assert _job_row(db).followups_due == 1
+
+    # Archiving (application_status = 'archived') silences the reminder.
+    postings.update_posting_tracking(db, p.id, PostingTracking(application_status="archived"))
+    assert _job_row(db).followups_due == 0
+
+    # Reactivating (back to no stage) brings it back.
+    postings.update_posting_tracking(db, p.id, PostingTracking(application_status=""))
+    assert _job_row(db).followups_due == 1
+
+
 # Verbatim INSERT from migration 0051, exercised against seeded legacy data.
 _BACKFILL_CONTACTS = """INSERT OR IGNORE INTO contacts (id, company_id, name, role, email)
 SELECT lower(hex(randomblob(16))), company_id, '', MIN(role), email

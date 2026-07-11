@@ -24,6 +24,7 @@ import {
   postPosting,
 } from "../api/companies";
 import { enrichStatus } from "../lib/enrich";
+import { ARCHIVED_STAGE } from "../lib/status";
 import type { CompanyDetail, PostingSummary, TraceEvent } from "../api/types";
 
 export function CompanyPane() {
@@ -217,7 +218,8 @@ function PostingCard({ p, onOpen }: { p: PostingSummary; onOpen: () => void }) {
     .filter(Boolean)
     .join(" · ");
   const stage = p.application_status || "";
-  const stageDot = stage ? vocabColorClass(stage, stages) : "";
+  const archived = stage === ARCHIVED_STAGE;
+  const stageDot = archived ? "pill-archived" : stage ? vocabColorClass(stage, stages) : "";
   const desc = p.description
     ? p.description.length > 200
       ? p.description.slice(0, 200).trimEnd() + "…"
@@ -246,7 +248,7 @@ function PostingCard({ p, onOpen }: { p: PostingSummary; onOpen: () => void }) {
           </span>
         ) : null}
         <span className={"pill " + (stage ? stageDot || "pill-stage" : "pill-none")}>{stage || "—"}</span>
-        <span className="pt-meta">{stage ? "tracked" : "not applied"}</span>
+        <span className="pt-meta">{archived ? "archived" : stage ? "tracked" : "not applied"}</span>
         <span className="pt-meta">
           {p.outreach_count ? `${p.outreach_count} sent · last ${p.last_outreach_at || "?"}` : "no outreach yet"}
         </span>

@@ -8,10 +8,6 @@ export function putNextUp(id: string, next_up: boolean): Promise<Posting> {
   return putJSON<Posting>(`/api/postings/${id}/next-up`, { next_up });
 }
 
-export function putArchived(id: string, archived: boolean): Promise<Posting> {
-  return putJSON<Posting>(`/api/postings/${id}/archive`, { archived });
-}
-
 /** PUT the posting's lifecycle (current overlaid with the change); server folds. */
 export function putPostingTracking(j: Posting, patch: Record<string, unknown>): Promise<Posting> {
   const body = {

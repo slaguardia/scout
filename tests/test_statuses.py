@@ -22,9 +22,27 @@ def test_status_list_defaults_and_round_trip(db):
     got = statuses.outreach_statuses(db)
     assert len(got) == 3 and got[1] == "ghosted"
 
+    # The editable middle is composed between the protected applied/rejected
+    # anchors; the anchors typed inline are stripped and re-added.
     statuses.set_application_stages(db, ["applied", "phone screen", "onsite", "offer"])
     got = statuses.application_stages(db)
-    assert len(got) == 4 and got[1] == "phone screen"
+    assert got == ["applied", "phone screen", "onsite", "offer", "rejected"]
+
+
+def test_application_stage_builtins_protected(db):
+    # "applied" and "rejected" are always present as front/terminal anchors even
+    # when the user's list omits them; "archived" is reserved and never a stage.
+    statuses.set_application_stages(db, ["screening", "final"])
+    assert statuses.application_stages(db) == ["applied", "screening", "final", "rejected"]
+
+    # Reserved built-ins typed into the middle are dropped (case-insensitively),
+    # not duplicated.
+    statuses.set_application_stages(db, ["Applied", "screening", "ARCHIVED", "rejected"])
+    assert statuses.application_stages(db) == ["applied", "screening", "rejected"]
+
+    # An empty middle is allowed — the pipeline is just applied → rejected.
+    statuses.set_application_stages(db, [])
+    assert statuses.application_stages(db) == ["applied", "rejected"]
 
 
 def test_status_list_sanitize(db):

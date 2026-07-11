@@ -29,7 +29,6 @@ export interface Posting {
   application_status?: string | null;
   outreach_status?: string | null;
   next_up?: boolean;
-  archived?: boolean;
   followups_due?: number | null;
   last_outreach_at?: string | null;
   contacts?: string | null;

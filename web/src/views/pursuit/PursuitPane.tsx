@@ -12,6 +12,7 @@ import { useJobs } from "../../api/jobs";
 import { useVocab, vocabColorClass, useMeta } from "../../api/queries";
 import { useJobTracking } from "../../hooks/useJobTracking";
 import { usePostingActions } from "../../hooks/usePostingActions";
+import { ARCHIVED_STAGE, isArchived } from "../../lib/status";
 import { IconNextUp, IconArchive } from "../../components/icons";
 import { ContactsManager } from "./ContactsManager";
 import { DraftsRegion } from "./DraftsRegion";
@@ -77,10 +78,11 @@ function PursuitBody({ id }: { id: string }) {
           <InlineField className="ie ie-title" id="pursuit-title-input" placeholder="role name" initial={j.title || ""} save={actions.saveDetail(j, "title")} />
         }
         pills={
-          <>
+          isArchived(j) ? (
+            <span className="pill pill-archived" title="you've stopped pursuing this job">archived</span>
+          ) : (
             <span className={"pill " + (stage ? vocabColorClass(stage, stages) || "pill-stage" : "pill-none")}>{stage || "—"}</span>
-            {j.archived ? <span className="pill pill-archived" title="you've stopped pursuing this job">archived</span> : null}
-          </>
+          )
         }
         onChat={meta?.chat ? () => dispatch({ type: "openChat", scope: "posting", scopeId: j.posting_id, title: j.title || j.company }) : undefined}
         chatLabel="Chat about this role"
@@ -131,7 +133,7 @@ function PursuitBody({ id }: { id: string }) {
             <div className="pipeline-row">
               <span className="pl-label">application</span>
               <select className="input pl-appstatus" title="application stage" value={stage} onChange={(e) => saveTracking(j, { application_status: e.target.value })}>
-                {options(stage, stages).map(([v, label]) => (
+                {options(stage, [...stages, ARCHIVED_STAGE]).map(([v, label]) => (
                   <option key={v} value={v}>
                     {label}
                   </option>
@@ -163,16 +165,16 @@ function PursuitBody({ id }: { id: string }) {
             <div className="pipeline-row">
               <span className="pl-label">pursuit</span>
               <button
-                className={"pt-chip pt-archive" + (j.archived ? " is-archived" : "")}
+                className={"pt-chip pt-archive" + (isArchived(j) ? " is-archived" : "")}
                 title={
-                  j.archived
+                  isArchived(j)
                     ? "reactivate — bring this job back into active pursuit"
                     : "stop pursuing — archive this job and silence its reminders (reversible)"
                 }
                 onClick={() => archivePosting(j)}
               >
                 <IconArchive />
-                {j.archived ? "reactivate" : "stop pursuing"}
+                {isArchived(j) ? "reactivate" : "stop pursuing"}
               </button>
             </div>
           </div>
