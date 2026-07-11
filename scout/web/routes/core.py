@@ -122,13 +122,14 @@ def stats(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response
 
 @router.get("/api/facets")
 def facets(con=Depends(get_db)) -> Response:
-    """Distinct funding stages + verticals for the Add-company dropdowns."""
+    """Distinct funding stages + verticals + locations for the dropdowns."""
     from scout.store import companies as companies_store
 
     return json_response(
         {
             "funding_stages": companies_store.distinct_values(con, "funding_stage"),
             "verticals": companies_store.vertical_tags(con),
+            "locations": companies_store.distinct_values(con, "location"),
         }
     )
 

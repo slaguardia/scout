@@ -12,6 +12,7 @@ import { useToast } from "../components/Toast";
 import { useUI, useDispatch } from "../store/ui";
 import { useRun } from "../store/run";
 import { useMeta, useVocab, vocabColorClass } from "../api/queries";
+import { useFacets } from "../api/runs";
 import { useCompanyActions } from "../hooks/useCompanyActions";
 import {
   useCompanyDetail,
@@ -287,6 +288,7 @@ function NotesSection({ d }: { d: CompanyDetail }) {
 function FactsSection({ d }: { d: CompanyDetail }) {
   const qc = useQueryClient();
   const dispatch = useDispatch();
+  const facets = useFacets(true).data;
   const saveField = (key: string) => async (v: string) => {
     await putCompanyField(d, key, v);
     void qc.invalidateQueries({ queryKey: ["companies"] });
@@ -332,7 +334,7 @@ function FactsSection({ d }: { d: CompanyDetail }) {
           <div className="prow">
             <div className="ie-field">
               <label>location</label>
-              <InlineField className="ie" placeholder="—" initial={d.location || ""} save={saveField("location")} />
+              <InlineField className="ie" list="facet-locations" placeholder="—" initial={d.location || ""} save={saveField("location")} />
             </div>
             <div className="ie-field">
               <label>headcount</label>
@@ -341,9 +343,19 @@ function FactsSection({ d }: { d: CompanyDetail }) {
           </div>
           <div className="ie-field">
             <label>stage</label>
-            <InlineField className="ie" placeholder="—" initial={d.funding_stage || ""} save={saveField("funding_stage")} />
+            <InlineField className="ie" list="facet-stages" placeholder="—" initial={d.funding_stage || ""} save={saveField("funding_stage")} />
           </div>
         </div>
+        <datalist id="facet-locations">
+          {(facets?.locations ?? []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+        <datalist id="facet-stages">
+          {(facets?.funding_stages ?? []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
         <dl className="kv facts-ro">
           <dt>source</dt>
           <dd className="small muted">{d.source} · {d.source_id}</dd>

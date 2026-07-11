@@ -305,7 +305,7 @@ def distinct_values(con: sqlite3.Connection, column: str) -> list[str]:
     """Sorted (case-insensitive) distinct non-empty values of a company column.
     The column is validated against a fixed allow-list, never interpolated from
     caller input."""
-    if column not in ("funding_stage", "vertical"):  # allow-list
+    if column not in ("funding_stage", "vertical", "location"):  # allow-list
         raise ValueError(f"distinct values: unsupported column {column!r}")
     rows = con.execute(
         f"SELECT DISTINCT {column} FROM companies "
