@@ -5,6 +5,7 @@
 // and re-anchoring on scroll/resize. Items are plain `menuitem` rows (not the
 // checkbox rows FilterDropdown uses), so it's a sibling, not a reuse.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { IconChevron } from "./icons";
 
 type Pos = { left: number; top: number; minWidth: number; maxHeight: number };
@@ -79,11 +80,17 @@ export function ActionsMenu({
         {label}
         <IconChevron className="amenu-chev" />
       </button>
-      {open && pos ? (
-        <div ref={menuRef} className="amenu-menu" role="menu" style={pos}>
-          {children(() => setOpen(false))}
-        </div>
-      ) : null}
+      {open && pos
+        ? createPortal(
+            // Portal to body: the pursuit pane sets transform: translateX(0) when
+            // open, which would make it the containing block for our position:fixed
+            // menu (mis-positioning + clipping it). Rendering into body escapes that.
+            <div ref={menuRef} className="amenu-menu" role="menu" style={pos}>
+              {children(() => setOpen(false))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
