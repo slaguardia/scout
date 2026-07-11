@@ -150,13 +150,42 @@ function saveJobsFilter(f: JobsFilter, knownStages: string[] | null, knownStatus
   });
 }
 
+// The companies filter persists the same way (minus the ephemeral search box).
+// Simpler than the jobs one: the verdict values are a fixed enum, so there's no
+// vocab to reconcile against.
+const COMPANIES_FILTER_KEY = "scout-companies-filter";
+
+function loadCompaniesFilter(): Pick<CompaniesFilter, "verdict" | "flagOnly" | "enrichedOnly"> {
+  const empty = { verdict: new Set<string>(), flagOnly: false, enrichedOnly: false };
+  try {
+    const raw = localStorage.getItem(COMPANIES_FILTER_KEY);
+    if (!raw) return empty;
+    const p = JSON.parse(raw);
+    const verdict = Array.isArray(p.verdict) && p.verdict.every((x: unknown) => typeof x === "string")
+      ? new Set<string>(p.verdict)
+      : new Set<string>();
+    return { verdict, flagOnly: !!p.flagOnly, enrichedOnly: !!p.enrichedOnly };
+  } catch {
+    return empty;
+  }
+}
+
+function saveCompaniesFilter(f: CompaniesFilter) {
+  persist(COMPANIES_FILTER_KEY, {
+    verdict: [...f.verdict],
+    flagOnly: f.flagOnly,
+    enrichedOnly: f.enrichedOnly,
+  });
+}
+
 export function initialUI(): UIState {
   const jf = loadJobsFilter();
+  const cf = loadCompaniesFilter();
   return {
     view: savedView(),
     companiesSort: { ...DEFAULT_SORT },
     jobsSort: { ...DEFAULT_JSORT },
-    companiesFilter: { q: "", verdict: new Set(), flagOnly: false, enrichedOnly: false },
+    companiesFilter: { q: "", ...cf },
     jobsFilter: {
       q: "",
       stages: jf.stages ? new Set(jf.stages) : null,
@@ -232,8 +261,13 @@ function reducer(state: UIState, action: Action): UIState {
       return { ...state, companiesSort: action.sort };
     case "setJobsSort":
       return { ...state, jobsSort: action.sort };
-    case "setCompaniesFilter":
-      return { ...state, companiesFilter: { ...state.companiesFilter, ...action.patch } };
+    case "setCompaniesFilter": {
+      const companiesFilter = { ...state.companiesFilter, ...action.patch };
+      // The search box is ephemeral; the verdict/flag/enriched narrowing persists.
+      if (!("q" in action.patch) || Object.keys(action.patch).length > 1)
+        saveCompaniesFilter(companiesFilter);
+      return { ...state, companiesFilter };
+    }
     case "setJobsFilter": {
       const jobsFilter = { ...state.jobsFilter, ...action.patch };
       // The search box is ephemeral; everything else the user narrowed to persists.
