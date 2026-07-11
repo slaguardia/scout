@@ -24,7 +24,7 @@ export function useMeta() {
 }
 
 const DEFAULT_VOCAB: StatusVocab = {
-  applicationStages: ["applied", "screening", "interview", "offer", "rejected"],
+  applicationStages: ["applied", "screening", "interview", "offer", "rejected", "archived"],
   outreachStatuses: ["initial contact", "no response", "replied", "followed up"],
   followupInterval: 5,
   followupTemplate: "",

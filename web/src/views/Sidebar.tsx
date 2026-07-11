@@ -50,7 +50,8 @@ export function Sidebar() {
   const ui = useUI();
   const dispatch = useDispatch();
   const meta = useMeta().data;
-  const vocab = useVocab().data;
+  const vocabQuery = useVocab();
+  const vocab = vocabQuery.data;
   const companies = useCompanies().data ?? [];
   const jobs = useJobs().data ?? [];
   const notifs = useNotifications().data;
@@ -59,15 +60,18 @@ export function Sidebar() {
   const { view } = ui;
 
   // Reconcile the jobs stage/status selection whenever the vocab changes (seed to
-  // all on first load; drop removed stages; default new ones to visible).
+  // all on first load; drop removed stages; default new ones to visible). Skip the
+  // placeholder vocab — reconciling against it would seed knownStages without
+  // server-only stages (e.g. "archived"), so when the real vocab arrives they'd
+  // look brand-new and get force-selected, clobbering a persisted deselection.
   useEffect(() => {
-    if (vocab)
+    if (vocab && !vocabQuery.isPlaceholderData)
       dispatch({
         type: "reconcileJobsVocab",
         stages: vocab.applicationStages,
         statuses: vocab.outreachStatuses,
       });
-  }, [vocab, dispatch]);
+  }, [vocab, vocabQuery.isPlaceholderData, dispatch]);
 
   return (
     <aside className="sidebar">
