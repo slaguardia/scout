@@ -16,6 +16,7 @@ export function InlineField({
   placeholder,
   rows,
   id,
+  list,
   onInput,
 }: {
   initial: string;
@@ -25,6 +26,7 @@ export function InlineField({
   placeholder?: string;
   rows?: number;
   id?: string;
+  list?: string;
   onInput?: (v: string) => void;
 }) {
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
@@ -104,6 +106,7 @@ export function InlineField({
       ref={ref as React.RefObject<HTMLInputElement>}
       id={id}
       className={cls}
+      list={list}
       placeholder={placeholder}
       defaultValue={initial}
       onKeyDown={onKeyDown}
