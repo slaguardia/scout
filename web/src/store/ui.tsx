@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CompanyDetail, Posting, Contact, OutreachLogEntry } from "../api/types";
+import type { NotificationItem } from "../api/notifications";
 
 export type View = "companies" | "jobs" | "inbox" | "settings" | "docs";
 
@@ -48,7 +49,7 @@ export type Modal =
   | { kind: "sources" }
   | { kind: "run"; stage: "enrich" | "verdict" }
   | { kind: "relink"; posting: Posting }
-  | { kind: "linkRole"; notifId: string; company?: string | null; role?: string | null }
+  | { kind: "linkRole"; notif: NotificationItem }
   | { kind: "delCompany"; company: CompanyDetail }
   | { kind: "delJob"; posting: Posting }
   | { kind: "delContact"; contactId: string; name: string; count: number }

@@ -1,7 +1,8 @@
 // Link-role modal — attach an unlinked inbox notification to an existing role.
 // Search-as-you-type over the loaded postings, ranked prefix-first; mirrors the
 // RelinkModal pattern (a filtered result list beats a dropdown of every role).
-// Seeded with the notification's company hint so it lands on that company's roles.
+// Shows a preview of the notification up top (you forget which one by the time
+// the modal opens) and seeds the search with its company hint.
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal, ModalNote } from "../../components/Modal";
@@ -9,14 +10,14 @@ import { pillClass } from "../../components/Pill";
 import { useToast } from "../../components/Toast";
 import { useDispatch } from "../../store/ui";
 import { useJobs } from "../../api/jobs";
-import { linkNotif } from "../../api/notifications";
+import { linkNotif, type NotificationItem } from "../../api/notifications";
 
-export function LinkRoleModal({ notifId, company, role }: { notifId: string; company?: string | null; role?: string | null }) {
+export function LinkRoleModal({ notif }: { notif: NotificationItem }) {
   const dispatch = useDispatch();
   const qc = useQueryClient();
   const toast = useToast();
   const { data: jobs } = useJobs();
-  const [q, setQ] = useState(company ?? "");
+  const [q, setQ] = useState(notif.company ?? "");
   const close = () => dispatch({ type: "closeModal" });
 
   const rows = useMemo(() => {
@@ -39,7 +40,7 @@ export function LinkRoleModal({ notifId, company, role }: { notifId: string; com
 
   const choose = async (postingId: string) => {
     try {
-      await linkNotif(notifId, postingId);
+      await linkNotif(notif.id, postingId);
       toast("linked to role");
       void qc.invalidateQueries({ queryKey: ["notifications"] });
       close();
@@ -48,15 +49,21 @@ export function LinkRoleModal({ notifId, company, role }: { notifId: string; com
     }
   };
 
-  const hint = [company, role].filter(Boolean).join(" · ");
+  const ctx = [notif.company, notif.role].filter(Boolean).join(" · ");
+  const when = (notif.created_at || "").replace("T", " ").slice(0, 16);
 
   return (
     <Modal width={520} onClose={close}>
       <div className="modal-head">
         <h2>Link to a role</h2>
-        <span className="ver">{hint ? `from: ${hint}` : ""}</span>
       </div>
       <div className="modal-body">
+        <div className="link-role-preview">
+          <div className="lrp-title">{notif.title}</div>
+          {ctx ? <div className="lrp-ctx">{ctx}</div> : null}
+          {notif.detail ? <div className="lrp-detail">{notif.detail}</div> : null}
+          {when ? <div className="lrp-when">{when}</div> : null}
+        </div>
         <input
           type="text"
           className="key-input link-role-search"

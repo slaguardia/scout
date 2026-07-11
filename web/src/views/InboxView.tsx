@@ -158,7 +158,7 @@ function NotifItem({ n }: { n: NotificationItem }) {
               title="link this to a role"
               onClick={(e) => {
                 e.stopPropagation();
-                dispatch({ type: "openModal", modal: { kind: "linkRole", notifId: n.id, company: n.company, role: n.role } });
+                dispatch({ type: "openModal", modal: { kind: "linkRole", notif: n } });
               }}
             >
               Link to a role

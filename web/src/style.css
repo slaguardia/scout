@@ -1558,6 +1558,18 @@
 
   /* relink search modal — move a job to a different existing company */
   #relink-search, .link-role-search { margin-bottom: 10px; font-family: inherit; }
+  /* preview of the notification being linked — a reminder card above the search */
+  .link-role-preview {
+    padding: 10px 12px; margin-bottom: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+  }
+  .link-role-preview .lrp-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+  .link-role-preview .lrp-ctx { font-size: 12px; color: var(--fg-mute); margin-top: 2px; }
+  .link-role-preview .lrp-detail {
+    font-size: 12px; color: var(--fg-dim); margin-top: 6px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; max-height: 96px; overflow-y: auto;
+  }
+  .link-role-preview .lrp-when { font-size: 11px; color: var(--fg-dim); margin-top: 6px; }
   .relink-results {
     display: flex; flex-direction: column; gap: 4px;
     max-height: 46vh; overflow-y: auto; margin-bottom: 4px;

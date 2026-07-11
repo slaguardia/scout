@@ -26,7 +26,7 @@ export function Modals() {
     case "relink":
       return <RelinkModal posting={modal.posting} />;
     case "linkRole":
-      return <LinkRoleModal notifId={modal.notifId} company={modal.company} role={modal.role} />;
+      return <LinkRoleModal notif={modal.notif} />;
     case "delJob":
       return <DeleteJobModal posting={modal.posting} />;
     case "delContact":
