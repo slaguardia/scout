@@ -7,14 +7,12 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
 import { useDispatch } from "../store/ui";
-import { useJobs } from "../api/jobs";
 import {
   useNotifications,
   markNotifSeen,
   markAllNotifsSeen,
   deleteNotif,
   applyNotif,
-  linkNotif,
   syncGmailNow,
   type NotificationItem,
   type FollowupItem,
@@ -103,7 +101,7 @@ export function InboxView() {
 function NotifItem({ n }: { n: NotificationItem }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const jobs = useJobs().data ?? [];
+  const dispatch = useDispatch();
 
   const seen = async () => {
     if (n.seen) return;
@@ -122,16 +120,6 @@ function NotifItem({ n }: { n: NotificationItem }) {
       void qc.invalidateQueries({ queryKey: ["jobs"] });
     } catch (e) {
       toast(`apply failed: ${(e as Error).message}`);
-    }
-  };
-  const link = async (postingId: string) => {
-    if (!postingId) return;
-    try {
-      await linkNotif(n.id, postingId);
-      toast("linked to role");
-      void qc.invalidateQueries({ queryKey: ["notifications"] });
-    } catch (e) {
-      toast(`link failed: ${(e as Error).message}`);
     }
   };
   const remove = async () => {
@@ -165,14 +153,16 @@ function NotifItem({ n }: { n: NotificationItem }) {
             </button>
           ) : null}
           {!n.posting_id ? (
-            <select className="input notif-link" title="link this to a role" defaultValue="" onChange={(e) => { e.stopPropagation(); link(e.target.value); }} onClick={(e) => e.stopPropagation()}>
-              <option value="">link to role…</option>
-              {jobs.map((j) => (
-                <option key={j.posting_id} value={j.posting_id}>
-                  {(j.company || "") + " — " + (j.title || "(untitled)")}
-                </option>
-              ))}
-            </select>
+            <button
+              className="btn btn-sm notif-link"
+              title="link this to a role"
+              onClick={(e) => {
+                e.stopPropagation();
+                dispatch({ type: "openModal", modal: { kind: "linkRole", notifId: n.id, company: n.company, role: n.role } });
+              }}
+            >
+              Link to a role
+            </button>
           ) : null}
           <div className="notif-dismiss">
             {!n.seen ? (

@@ -1557,7 +1557,7 @@
   #add-scrim { align-items: flex-start; padding-top: 8vh; }
 
   /* relink search modal — move a job to a different existing company */
-  #relink-search { margin-bottom: 10px; font-family: inherit; }
+  #relink-search, .link-role-search { margin-bottom: 10px; font-family: inherit; }
   .relink-results {
     display: flex; flex-direction: column; gap: 4px;
     max-height: 46vh; overflow-y: auto; margin-bottom: 4px;

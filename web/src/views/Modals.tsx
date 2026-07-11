@@ -4,6 +4,7 @@
 import { useUI } from "../store/ui";
 import { DeleteCompanyModal } from "./modals/DeleteCompanyModal";
 import { RelinkModal } from "./modals/RelinkModal";
+import { LinkRoleModal } from "./modals/LinkRoleModal";
 import { DeleteJobModal } from "./modals/DeleteJobModal";
 import { DeleteContactModal } from "./modals/DeleteContactModal";
 import { SendFollowupModal } from "./modals/SendFollowupModal";
@@ -24,6 +25,8 @@ export function Modals() {
       return <DeleteCompanyModal company={modal.company} />;
     case "relink":
       return <RelinkModal posting={modal.posting} />;
+    case "linkRole":
+      return <LinkRoleModal notifId={modal.notifId} company={modal.company} role={modal.role} />;
     case "delJob":
       return <DeleteJobModal posting={modal.posting} />;
     case "delContact":

@@ -48,6 +48,7 @@ export type Modal =
   | { kind: "sources" }
   | { kind: "run"; stage: "enrich" | "verdict" }
   | { kind: "relink"; posting: Posting }
+  | { kind: "linkRole"; notifId: string; company?: string | null; role?: string | null }
   | { kind: "delCompany"; company: CompanyDetail }
   | { kind: "delJob"; posting: Posting }
   | { kind: "delContact"; contactId: string; name: string; count: number }
