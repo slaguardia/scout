@@ -2019,6 +2019,9 @@
     background: var(--panel-2);
     box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
   }
+  /* native datalist chevron: center it in the box — .ie's tight vertical
+     padding leaves the indicator's default margins looking off-center. */
+  .ie::-webkit-calendar-picker-indicator { align-self: center; }
   .ie::placeholder { color: var(--fg-dim); }
   .ie.is-saving { opacity: 0.55; }
   .ie.is-saved { border-color: var(--yes); }
