@@ -493,7 +493,7 @@
     position: fixed; z-index: 60;
     min-width: 210px; max-width: 280px; padding: 5px;
     background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-md);
-    box-shadow: var(--shadow-lg); display: none;
+    box-shadow: var(--shadow-md); display: none;
     overflow-y: auto; overscroll-behavior: contain;
   }
   .fdrop.is-open .fdrop-menu { display: block; }
@@ -961,7 +961,7 @@
   .amenu-menu {
     position: fixed; z-index: 60; padding: 5px;
     background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-md);
-    box-shadow: var(--shadow-lg); overflow-y: auto; overscroll-behavior: contain;
+    box-shadow: var(--shadow-md); overflow-y: auto; overscroll-behavior: contain;
   }
   .amenu-item {
     display: flex; align-items: center; gap: 8px; width: 100%;

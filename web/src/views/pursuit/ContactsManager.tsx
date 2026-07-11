@@ -394,7 +394,7 @@ function FollowupGroup({
       <ActionsMenu label="Follow up">
         {(close) => (
           <>
-            <ActionItem label="Copy follow-up" close={close} onSelect={onCopy} title="copy a follow-up email from your template" />
+            <ActionItem label="Copy follow-up ⧉" close={close} onSelect={onCopy} title="copy a follow-up email from your template" />
             {canSend ? (
               <ActionItem label="Send via Gmail →" close={close} onSelect={openSend} title="send this follow-up as a reply on the Gmail thread — logs it and re-arms the reminder" />
             ) : null}
