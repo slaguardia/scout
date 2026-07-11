@@ -5,7 +5,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
 import { putNextUp, putPostingTracking } from "../api/postings";
-import { ARCHIVED_STAGE, isArchived } from "../lib/status";
 import type { Posting } from "../api/types";
 
 export function useJobTracking() {
@@ -37,18 +36,5 @@ export function useJobTracking() {
     }
   };
 
-  // Archiving is now an application_status value: "stop pursuing" sets it to
-  // "archived" (hidden + reminders off); "reactivate" clears the stage back to none.
-  const archivePosting = async (j: Posting) => {
-    const wasArchived = isArchived(j);
-    try {
-      await putPostingTracking(j, { application_status: wasArchived ? "" : ARCHIVED_STAGE });
-      invalidate();
-      toast(wasArchived ? "pursuit reactivated" : "stopped pursuing — reminders off");
-    } catch (e) {
-      toast(`save failed: ${(e as Error).message}`);
-    }
-  };
-
-  return { toggleNextUp, saveTracking, archivePosting };
+  return { toggleNextUp, saveTracking };
 }

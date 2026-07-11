@@ -27,10 +27,10 @@ def test_status_config_api(tmp_path, monkeypatch):
     assert len(got) == len(statuses.DEFAULT_APPLICATION_STAGES) and got[0] == "applied"
 
     # PUT replaces the editable middle; GET composes it between the protected
-    # applied/rejected anchors.
+    # applied front anchor and the rejected/archived terminal anchors.
     assert put("/api/application-stages", '{"statuses":["applied","onsite","offer"]}') == 200
     got = get("/api/application-stages")
-    assert got == ["applied", "onsite", "offer", "rejected"]
+    assert got == ["applied", "onsite", "offer", "rejected", "archived"]
 
     # Empty list → 400.
     assert put("/api/outreach-statuses", '{"statuses":[]}') == 400

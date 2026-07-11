@@ -27,11 +27,9 @@ import {
   IconGear,
   IconHelp,
   IconNextUp,
-  IconArchive,
 } from "../components/icons";
 import { useNotifications } from "../api/notifications";
 import { useRuns } from "../api/runs";
-import { isArchived } from "../lib/status";
 import type { Company, Posting, StatusVocab } from "../api/types";
 
 const VERDICT_ITEMS: [string, string, string][] = [
@@ -291,13 +289,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
     const statusN: Record<string, number> = {};
     let nextN = 0;
     let due = 0;
-    let archived = 0;
     for (const j of jobs) {
-      // Archived jobs sit out of the active view's filter counts entirely.
-      if (isArchived(j)) {
-        archived++;
-        continue;
-      }
       const st = j.application_status || "";
       stageN[st] = (stageN[st] | 0) + 1;
       const os = j.outreach_status || "";
@@ -305,7 +297,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
       if (j.next_up) nextN++;
       due += j.followups_due | 0;
     }
-    return { stageN, statusN, nextN, due, archived };
+    return { stageN, statusN, nextN, due };
   }, [jobs]);
 
   // Badge counts every active narrowing vs the every-item default.
@@ -324,8 +316,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
   useEffect(() => {
     if (!counts.nextN && f.nextUpOnly) dispatch({ type: "setJobsFilter", patch: { nextUpOnly: false } });
     if (!counts.due && f.dueOnly) dispatch({ type: "setJobsFilter", patch: { dueOnly: false } });
-    if (!counts.archived && f.archivedOnly) dispatch({ type: "setJobsFilter", patch: { archivedOnly: false } });
-  }, [counts.nextN, counts.due, counts.archived, f.nextUpOnly, f.dueOnly, f.archivedOnly, dispatch]);
+  }, [counts.nextN, counts.due, f.nextUpOnly, f.dueOnly, dispatch]);
 
   return (
     <div className="block" id="block-filter-jobs">
@@ -407,7 +398,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
           </FilterDropdown>
         </div>
       </div>
-      {counts.nextN || counts.due || counts.archived ? (
+      {counts.nextN || counts.due ? (
         <div className="filter-row" id="jobs-followup-nav">
           {counts.nextN ? (
             <button
@@ -417,9 +408,7 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
                   ? "showing only these — click to show all jobs"
                   : "show only jobs queued next up for outreach"
               }
-              onClick={() =>
-                dispatch({ type: "setJobsFilter", patch: { nextUpOnly: !f.nextUpOnly, archivedOnly: false } })
-              }
+              onClick={() => dispatch({ type: "setJobsFilter", patch: { nextUpOnly: !f.nextUpOnly } })}
             >
               <span className="fn-icon">
                 <IconNextUp />
@@ -437,38 +426,13 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
                   ? "showing only these — click to show all jobs"
                   : "show only jobs owing a follow-up"
               }
-              onClick={() =>
-                dispatch({ type: "setJobsFilter", patch: { dueOnly: !f.dueOnly, archivedOnly: false } })
-              }
+              onClick={() => dispatch({ type: "setJobsFilter", patch: { dueOnly: !f.dueOnly } })}
             >
               <span className="fn-icon">
                 <IconBell />
               </span>
               <span className="fn-text">
                 <strong>{counts.due}</strong> follow-up{counts.due > 1 ? "s" : ""} due
-              </span>
-            </button>
-          ) : null}
-          {counts.archived ? (
-            <button
-              className={"queue-nav-btn queue-nav-btn--archived" + (f.archivedOnly ? " is-active" : "")}
-              title={
-                f.archivedOnly
-                  ? "showing archived jobs — click to return to active jobs"
-                  : "show jobs you've stopped pursuing (archived)"
-              }
-              onClick={() =>
-                dispatch({
-                  type: "setJobsFilter",
-                  patch: { archivedOnly: !f.archivedOnly, nextUpOnly: false, dueOnly: false },
-                })
-              }
-            >
-              <span className="fn-icon">
-                <IconArchive />
-              </span>
-              <span className="fn-text">
-                <strong>{counts.archived}</strong> archived
               </span>
             </button>
           ) : null}

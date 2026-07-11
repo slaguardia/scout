@@ -22,27 +22,28 @@ def test_status_list_defaults_and_round_trip(db):
     got = statuses.outreach_statuses(db)
     assert len(got) == 3 and got[1] == "ghosted"
 
-    # The editable middle is composed between the protected applied/rejected
-    # anchors; the anchors typed inline are stripped and re-added.
+    # The editable middle is composed between the protected applied front anchor
+    # and the rejected/archived terminal anchors; anchors typed inline are stripped
+    # and re-added.
     statuses.set_application_stages(db, ["applied", "phone screen", "onsite", "offer"])
     got = statuses.application_stages(db)
-    assert got == ["applied", "phone screen", "onsite", "offer", "rejected"]
+    assert got == ["applied", "phone screen", "onsite", "offer", "rejected", "archived"]
 
 
 def test_application_stage_builtins_protected(db):
-    # "applied" and "rejected" are always present as front/terminal anchors even
-    # when the user's list omits them; "archived" is reserved and never a stage.
+    # "applied"/"rejected"/"archived" are always present as anchors even when the
+    # user's list omits them.
     statuses.set_application_stages(db, ["screening", "final"])
-    assert statuses.application_stages(db) == ["applied", "screening", "final", "rejected"]
+    assert statuses.application_stages(db) == ["applied", "screening", "final", "rejected", "archived"]
 
     # Reserved built-ins typed into the middle are dropped (case-insensitively),
     # not duplicated.
     statuses.set_application_stages(db, ["Applied", "screening", "ARCHIVED", "rejected"])
-    assert statuses.application_stages(db) == ["applied", "screening", "rejected"]
+    assert statuses.application_stages(db) == ["applied", "screening", "rejected", "archived"]
 
-    # An empty middle is allowed — the pipeline is just applied → rejected.
+    # An empty middle is allowed — the pipeline is just applied → rejected → archived.
     statuses.set_application_stages(db, [])
-    assert statuses.application_stages(db) == ["applied", "rejected"]
+    assert statuses.application_stages(db) == ["applied", "rejected", "archived"]
 
 
 def test_status_list_sanitize(db):

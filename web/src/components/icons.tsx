@@ -132,13 +132,6 @@ export const IconInfo = svg(
 
 export const IconNextUp = svg(<path d="M8 12.5v-9M4.5 7L8 3.5 11.5 7" />, { strokeWidth: "2" });
 
-export const IconArchive = svg(
-  <>
-    <rect x="2.5" y="3" width="11" height="3" rx="0.6" />
-    <path d="M3.5 6v6.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6M6.5 9h3" />
-  </>,
-);
-
 export const IconRefresh = svg(
   <>
     <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" />

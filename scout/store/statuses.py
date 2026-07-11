@@ -5,11 +5,11 @@ drive the dropdowns in the jobs view; "none" (empty) is always implicitly
 available and is NOT part of either list.
 
 The application axis has protected built-ins: "applied" is a fixed front anchor,
-"rejected" a fixed terminal anchor, and both are always present — only the middle
-stages (screening/interview/offer…) are user-editable. "archived" is a reserved
-status value ("stopped pursuing") that hides the posting from the active jobs
-list and silences its follow-up reminders; it is handled specially (its own
-queue-nav) rather than living in this ordered pipeline list.
+"rejected" and "archived" are fixed terminal anchors, and all are always present
+— only the middle stages (screening/interview/offer…) are user-editable.
+"archived" is an ordinary status the user sets and filters like any other; its
+one special behavior is that a posting in it stops nagging for follow-ups (see
+list_job_rows / contacts.followups_due).
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ MAX_STATUS_LABEL_LEN = 40
 DEFAULT_OUTREACH_STATUSES = ["initial contact", "no response", "replied", "followed up"]
 
 # The application axis: the furthest pipeline stage reached (ordered progression).
-# "applied" and "rejected" are protected anchors composed around the user's
-# editable middle; "archived" is a reserved special value handled outside this
-# list (see module docstring).
+# "applied" (front) plus "rejected" and "archived" (terminal) are protected
+# anchors composed around the user's editable middle — always present, never
+# duplicated into the middle.
 ARCHIVED_STAGE = "archived"
 _STAGE_FRONT = ["applied"]
-_STAGE_TERMINAL = ["rejected"]
+_STAGE_TERMINAL = ["rejected", ARCHIVED_STAGE]
 _RESERVED_STAGES = {"applied", "rejected", ARCHIVED_STAGE}
 DEFAULT_APPLICATION_STAGES_MIDDLE = ["screening", "interview", "offer"]
 # The effective out-of-the-box vocab, exposed for tests/consumers.
@@ -131,8 +131,7 @@ def _stage_middle(con: sqlite3.Connection) -> list[str]:
 
 def application_stages(con: sqlite3.Connection) -> list[str]:
     """The effective application-stage vocab: the protected "applied" anchor, the
-    user's middle stages, then the protected "rejected" anchor. "archived" is a
-    reserved value handled separately and is NOT included here."""
+    user's middle stages, then the protected "rejected" and "archived" anchors."""
     return _STAGE_FRONT + _stage_middle(con) + _STAGE_TERMINAL
 
 

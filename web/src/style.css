@@ -311,10 +311,6 @@
   .pt-chip svg { width: 11px; height: 11px; opacity: 0.35; transition: opacity var(--dur-fast) var(--ease); }
   .pt-chip.is-on { color: var(--yes); background: var(--yes-bg); border-color: transparent; }
   .pt-chip.is-on svg { opacity: 1; }
-  /* stop-pursuing / reactivate chip: plain while active; when archived the chip
-     invites the reactivate (undo) with an accent wash. */
-  .pt-archive.is-archived { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, var(--panel)); border-color: transparent; }
-  .pt-archive.is-archived svg { opacity: 1; }
   /* outreach stepper (pursuit panel) — the − undoes a mis-click */
   .pt-stepper { display: inline-flex; gap: 4px; }
   .pt-stepper .btn { padding: 3px 10px; font-size: 12px; }
@@ -892,7 +888,6 @@
     transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
   }
   .queue-nav-btn--nextup { --qn: var(--accent); }
-  .queue-nav-btn--archived { --qn: var(--fg-mute); }
   .queue-nav-btn:hover { border-color: color-mix(in srgb, var(--qn) 55%, var(--line)); }
   .queue-nav-btn.is-active { background: color-mix(in srgb, var(--qn) 22%, var(--panel)); border-color: var(--qn); }
   .queue-nav-btn .fn-icon { display: inline-flex; flex: none; color: var(--qn); }

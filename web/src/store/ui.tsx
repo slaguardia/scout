@@ -38,7 +38,6 @@ export interface JobsFilter {
   statuses: Set<string> | null;
   nextUpOnly: boolean;
   dueOnly: boolean;
-  archivedOnly: boolean;
 }
 
 // The active modal, as a discriminated union — one field replaces the vanilla
@@ -99,13 +98,72 @@ function savedView(): View {
   }
 }
 
+// The jobs filter (minus the ephemeral search box) persists across refreshes, so
+// a reload keeps whatever the user narrowed to. knownStages/Statuses ride along
+// so a genuinely-new vocab stage still defaults to visible after a reload rather
+// than being treated as an intentional exclusion.
+const JOBS_FILTER_KEY = "scout-jobs-filter";
+interface PersistedJobsFilter {
+  stages: string[] | null;
+  statuses: string[] | null;
+  nextUpOnly: boolean;
+  dueOnly: boolean;
+  knownStages: string[] | null;
+  knownStatuses: string[] | null;
+}
+
+function loadJobsFilter(): PersistedJobsFilter {
+  const empty: PersistedJobsFilter = {
+    stages: null,
+    statuses: null,
+    nextUpOnly: false,
+    dueOnly: false,
+    knownStages: null,
+    knownStatuses: null,
+  };
+  try {
+    const raw = localStorage.getItem(JOBS_FILTER_KEY);
+    if (!raw) return empty;
+    const p = JSON.parse(raw);
+    const arr = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null);
+    return {
+      stages: arr(p.stages),
+      statuses: arr(p.statuses),
+      nextUpOnly: !!p.nextUpOnly,
+      dueOnly: !!p.dueOnly,
+      knownStages: arr(p.knownStages),
+      knownStatuses: arr(p.knownStatuses),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function saveJobsFilter(f: JobsFilter, knownStages: string[] | null, knownStatuses: string[] | null) {
+  persist(JOBS_FILTER_KEY, {
+    stages: f.stages ? [...f.stages] : null,
+    statuses: f.statuses ? [...f.statuses] : null,
+    nextUpOnly: f.nextUpOnly,
+    dueOnly: f.dueOnly,
+    knownStages,
+    knownStatuses,
+  });
+}
+
 export function initialUI(): UIState {
+  const jf = loadJobsFilter();
   return {
     view: savedView(),
     companiesSort: { ...DEFAULT_SORT },
     jobsSort: { ...DEFAULT_JSORT },
     companiesFilter: { q: "", verdict: new Set(), flagOnly: false, enrichedOnly: false },
-    jobsFilter: { q: "", stages: null, statuses: null, nextUpOnly: false, dueOnly: false, archivedOnly: false },
+    jobsFilter: {
+      q: "",
+      stages: jf.stages ? new Set(jf.stages) : null,
+      statuses: jf.statuses ? new Set(jf.statuses) : null,
+      nextUpOnly: jf.nextUpOnly,
+      dueOnly: jf.dueOnly,
+    },
     hiddenCols: loadHidden("scout-hidden-cols"),
     jHiddenCols: loadHidden("scout-hidden-jcols"),
     settingsGroup: "outreach",
@@ -114,8 +172,8 @@ export function initialUI(): UIState {
     chat: null,
     modal: null,
     topPane: null,
-    knownStages: null,
-    knownStatuses: null,
+    knownStages: jf.knownStages,
+    knownStatuses: jf.knownStatuses,
     docsSection: null,
   };
 }
@@ -176,8 +234,13 @@ function reducer(state: UIState, action: Action): UIState {
       return { ...state, jobsSort: action.sort };
     case "setCompaniesFilter":
       return { ...state, companiesFilter: { ...state.companiesFilter, ...action.patch } };
-    case "setJobsFilter":
-      return { ...state, jobsFilter: { ...state.jobsFilter, ...action.patch } };
+    case "setJobsFilter": {
+      const jobsFilter = { ...state.jobsFilter, ...action.patch };
+      // The search box is ephemeral; everything else the user narrowed to persists.
+      if (!("q" in action.patch) || Object.keys(action.patch).length > 1)
+        saveJobsFilter(jobsFilter, state.knownStages, state.knownStatuses);
+      return { ...state, jobsFilter };
+    }
     case "reconcileJobsVocab": {
       const { stages: allStages, statuses: allStatuses } = action;
       const reconcile = (
@@ -193,12 +256,9 @@ function reducer(state: UIState, action: Action): UIState {
       };
       const stages = reconcile(state.jobsFilter.stages, allStages, state.knownStages);
       const statuses = reconcile(state.jobsFilter.statuses, allStatuses, state.knownStatuses);
-      return {
-        ...state,
-        jobsFilter: { ...state.jobsFilter, stages, statuses },
-        knownStages: [...allStages],
-        knownStatuses: [...allStatuses],
-      };
+      const jobsFilter = { ...state.jobsFilter, stages, statuses };
+      saveJobsFilter(jobsFilter, allStages, allStatuses);
+      return { ...state, jobsFilter, knownStages: [...allStages], knownStatuses: [...allStatuses] };
     }
     case "setHiddenCols":
       persist("scout-hidden-cols", [...action.cols]);

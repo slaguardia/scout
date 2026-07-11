@@ -12,8 +12,8 @@ import { useJobs } from "../../api/jobs";
 import { useVocab, vocabColorClass, useMeta } from "../../api/queries";
 import { useJobTracking } from "../../hooks/useJobTracking";
 import { usePostingActions } from "../../hooks/usePostingActions";
-import { ARCHIVED_STAGE, isArchived } from "../../lib/status";
-import { IconNextUp, IconArchive } from "../../components/icons";
+import { ARCHIVED_STAGE } from "../../lib/status";
+import { IconNextUp } from "../../components/icons";
 import { ContactsManager } from "./ContactsManager";
 import { DraftsRegion } from "./DraftsRegion";
 import { AnswersSection } from "./AnswersSection";
@@ -51,7 +51,7 @@ function PursuitBody({ id }: { id: string }) {
   const dispatch = useDispatch();
   const vocab = useVocab().data;
   const meta = useMeta().data;
-  const { toggleNextUp, saveTracking, archivePosting } = useJobTracking();
+  const { toggleNextUp, saveTracking } = useJobTracking();
   const actions = usePostingActions();
 
   const j = (jobs ?? []).find((x) => x.posting_id === id);
@@ -78,11 +78,19 @@ function PursuitBody({ id }: { id: string }) {
           <InlineField className="ie ie-title" id="pursuit-title-input" placeholder="role name" initial={j.title || ""} save={actions.saveDetail(j, "title")} />
         }
         pills={
-          isArchived(j) ? (
-            <span className="pill pill-archived" title="you've stopped pursuing this job">archived</span>
-          ) : (
-            <span className={"pill " + (stage ? vocabColorClass(stage, stages) || "pill-stage" : "pill-none")}>{stage || "—"}</span>
-          )
+          <span
+            className={
+              "pill " +
+              (stage === ARCHIVED_STAGE
+                ? "pill-archived"
+                : stage
+                  ? vocabColorClass(stage, stages) || "pill-stage"
+                  : "pill-none")
+            }
+            title={stage === ARCHIVED_STAGE ? "you've stopped pursuing this job" : undefined}
+          >
+            {stage || "—"}
+          </span>
         }
         onChat={meta?.chat ? () => dispatch({ type: "openChat", scope: "posting", scopeId: j.posting_id, title: j.title || j.company }) : undefined}
         chatLabel="Chat about this role"
@@ -133,7 +141,7 @@ function PursuitBody({ id }: { id: string }) {
             <div className="pipeline-row">
               <span className="pl-label">application</span>
               <select className="input pl-appstatus" title="application stage" value={stage} onChange={(e) => saveTracking(j, { application_status: e.target.value })}>
-                {options(stage, [...stages, ARCHIVED_STAGE]).map(([v, label]) => (
+                {options(stage, stages).map(([v, label]) => (
                   <option key={v} value={v}>
                     {label}
                   </option>
@@ -160,21 +168,6 @@ function PursuitBody({ id }: { id: string }) {
               >
                 <IconNextUp />
                 next up
-              </button>
-            </div>
-            <div className="pipeline-row">
-              <span className="pl-label">pursuit</span>
-              <button
-                className={"pt-chip pt-archive" + (isArchived(j) ? " is-archived" : "")}
-                title={
-                  isArchived(j)
-                    ? "reactivate — bring this job back into active pursuit"
-                    : "stop pursuing — archive this job and silence its reminders (reversible)"
-                }
-                onClick={() => archivePosting(j)}
-              >
-                <IconArchive />
-                {isArchived(j) ? "reactivate" : "stop pursuing"}
               </button>
             </div>
           </div>

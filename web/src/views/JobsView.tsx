@@ -10,7 +10,6 @@ import { useVocab, vocabColorClass } from "../api/queries";
 import { useUI, useDispatch, DEFAULT_JSORT, type Sort } from "../store/ui";
 import { useJobTracking } from "../hooks/useJobTracking";
 import { parseContacts } from "../lib/contacts";
-import { ARCHIVED_STAGE, isArchived } from "../lib/status";
 import { IconNextUp, IconBell } from "../components/icons";
 import type { Posting } from "../api/types";
 
@@ -66,18 +65,11 @@ export function JobsView({ active }: { active: boolean }) {
   const rows = useMemo(() => {
     const q = f.q.trim().toLowerCase();
     const list = (jobs ?? []).filter((j) => {
-      // Archived jobs live in their own view: the archived queue-nav shows only
-      // them, and the normal view never shows them.
-      if (f.archivedOnly) {
-        if (!isArchived(j)) return false;
-      } else {
-        if (isArchived(j)) return false;
-        const stage = j.application_status || "";
-        if (!stageSel.has(stage)) return false;
-        if (f.nextUpOnly && !j.next_up) return false;
-        if (f.dueOnly && !(j.followups_due! | 0)) return false;
-        if (!statusSel.has(j.outreach_status || "")) return false;
-      }
+      const stage = j.application_status || "";
+      if (!stageSel.has(stage)) return false;
+      if (f.nextUpOnly && !j.next_up) return false;
+      if (f.dueOnly && !(j.followups_due! | 0)) return false;
+      if (!statusSel.has(j.outreach_status || "")) return false;
       if (q) {
         const hay = (
           j.title +
@@ -109,8 +101,8 @@ export function JobsView({ active }: { active: boolean }) {
   const sortAttr = (k: string) => (sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {});
 
   const hiddenRej =
-    !f.archivedOnly && f.stages && !stageSel.has("rejected")
-      ? (jobs ?? []).filter((j) => !isArchived(j) && (j.application_status || "") === "rejected").length
+    f.stages && !stageSel.has("rejected")
+      ? (jobs ?? []).filter((j) => (j.application_status || "") === "rejected").length
       : 0;
 
   return (
@@ -256,7 +248,7 @@ function JobRow({
             value={stage}
             onChange={(e) => onStage(e.target.value)}
           >
-            {options(stage, [...stages, ARCHIVED_STAGE]).map(([v, label]) => (
+            {options(stage, stages).map(([v, label]) => (
               <option key={v} value={v}>
                 {label}
               </option>
