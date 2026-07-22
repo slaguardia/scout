@@ -67,6 +67,7 @@ server is up (one LLM-gated exception: `/api/capture`).
 | `PUT`·`POST` | `/api/companies/{id}/reviewed` | Stamp `reviewed_at = now` (no body). | `404` on unknown id. |
 | `GET` | `/api/postings` | All postings across companies — the jobs view (`{rows, count}`). | — |
 | `POST` | `/api/postings` | Manual add one posting from a link (no fetch, no LLM). | Company resolved from the typed name and/or the link host; `400` if neither identifies a company or the url is bad. |
+| `POST` | `/api/postings/bulk` | Move a set of postings to one application stage (`{ids: [...], application_status}`); returns `{updated}`. The jobs view's bulk action — e.g. archive everything still in flight once an offer lands. | Unknown ids are skipped, not fatal. `400` when `ids` isn't a list or the label is over-long. |
 | `PUT`·`POST` | `/api/postings/{id}` | Application-lifecycle update (full tracking state). | `400` on a bad field; `404` on unknown id. |
 | `GET` | `/api/postings/{id}/outreach` | The posting's draft queue, newest first (`{drafts}`). | See **Outreach**. |
 | `POST` | `/api/postings/{id}/outreach` | Start an outreach draft (`202` + the new row). | Needs the **outreach engine** (`503` when absent); `412` w/ `missing_blocks` when context blocks aren't healthy; `409` if a draft is already active. |

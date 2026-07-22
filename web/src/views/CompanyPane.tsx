@@ -162,7 +162,14 @@ function JobsSection({ d }: { d: CompanyDetail }) {
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
-  const ps = d.postings || [];
+  const [showArchived, setShowArchived] = useState(false);
+  // Archived roles are usually stale by the next time this company comes back
+  // around, so they stay folded away behind a count instead of padding the list.
+  const all = d.postings || [];
+  const archivedN = all.filter((p) => (p.application_status || "") === ARCHIVED_STAGE).length;
+  const ps = showArchived
+    ? all
+    : all.filter((p) => (p.application_status || "") !== ARCHIVED_STAGE);
 
   const add = async () => {
     if (!url.trim()) {
@@ -193,12 +200,18 @@ function JobsSection({ d }: { d: CompanyDetail }) {
         Jobs
       </h3>
       <div id="postings-list">
-        {ps.length === 0 ? (
+        {all.length === 0 ? (
           <div className="muted">No job links yet.</div>
         ) : (
           ps.map((p) => <PostingCard key={p.id} p={p} onOpen={() => dispatch({ type: "openPursuit", id: p.id })} />)
         )}
       </div>
+      {archivedN ? (
+        <div className="posting-archived-note">
+          {archivedN} archived —{" "}
+          <a onClick={() => setShowArchived(!showArchived)}>{showArchived ? "hide" : "show"}</a>
+        </div>
+      ) : null}
       <div className="posting-add">
         <input className="input" placeholder="https://… job posting URL" value={url} onChange={(e) => setUrl(e.target.value)} />
         <div className="prow">

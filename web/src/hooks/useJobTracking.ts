@@ -4,7 +4,7 @@
 // queries (the company pane's posting card mirrors the lifecycle).
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
-import { putNextUp, putPostingTracking } from "../api/postings";
+import { bulkApplicationStatus, putNextUp, putPostingTracking } from "../api/postings";
 import type { Posting } from "../api/types";
 
 export function useJobTracking() {
@@ -36,5 +36,19 @@ export function useJobTracking() {
     }
   };
 
-  return { toggleNextUp, saveTracking };
+  /** Move a set of postings to one stage at once. Resolves true when it landed,
+   *  so the caller only clears its selection on success. */
+  const bulkStage = async (ids: string[], stage: string): Promise<boolean> => {
+    try {
+      const { updated } = await bulkApplicationStatus(ids, stage);
+      invalidate();
+      toast(`${updated} job${updated === 1 ? "" : "s"} → ${stage || "not applied"}`);
+      return true;
+    } catch (e) {
+      toast(`bulk update failed: ${(e as Error).message}`);
+      return false;
+    }
+  };
+
+  return { toggleNextUp, saveTracking, bulkStage };
 }

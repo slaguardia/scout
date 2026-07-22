@@ -4,7 +4,7 @@
 // opens the pursuit pane. Faithful port of renderJobs + filteredJobs +
 // compareJobs + the inline-control saves; the queue-nav + filters live in the
 // sidebar (Phase 1).
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useJobs } from "../api/jobs";
 import { useVocab, vocabColorClass } from "../api/queries";
 import { useUI, useDispatch, DEFAULT_JSORT, type Sort } from "../store/ui";
@@ -52,7 +52,8 @@ export function JobsView({ active }: { active: boolean }) {
   const vocab = useVocab().data;
   const ui = useUI();
   const dispatch = useDispatch();
-  const { toggleNextUp, saveTracking } = useJobTracking();
+  const { toggleNextUp, saveTracking, bulkStage } = useJobTracking();
+  const [sel, setSel] = useState<Set<string>>(() => new Set());
   const f = ui.jobsFilter;
   const sort = ui.jobsSort;
   const stages = vocab?.applicationStages ?? [];
@@ -105,11 +106,70 @@ export function JobsView({ active }: { active: boolean }) {
       ? (jobs ?? []).filter((j) => (j.application_status || "") === "rejected").length
       : 0;
 
+  // Selection is pruned to what's on screen: narrowing the filter quietly drops
+  // the hidden rows from the bulk action rather than moving something unseen.
+  const selIds = useMemo(
+    () => rows.filter((j) => sel.has(j.posting_id)).map((j) => j.posting_id),
+    [rows, sel],
+  );
+  const allSel = rows.length > 0 && selIds.length === rows.length;
+  const someSel = selIds.length > 0 && !allSel;
+  const toggleOne = (id: string) =>
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const applyStage = async (stage: string) => {
+    if (await bulkStage(selIds, stage)) setSel(new Set());
+  };
+
   return (
     <div className="table-wrap" id="jobs-view" style={{ display: active ? "" : "none" }}>
+      {selIds.length ? (
+        <div className="bulk-bar" id="jobs-bulk-bar">
+          <span>
+            <strong>{selIds.length}</strong> selected
+          </span>
+          <select
+            className="bulk-stage-sel"
+            title="move the selected jobs to an application stage"
+            value="__pick__"
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v !== "__pick__") void applyStage(v);
+            }}
+          >
+            <option value="__pick__" disabled>
+              Set stage…
+            </option>
+            <option value="">not applied</option>
+            {stages.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-sm" onClick={() => setSel(new Set())}>
+            Clear
+          </button>
+        </div>
+      ) : null}
       <table id="jt">
         <thead>
           <tr>
+            <th className="jt-check">
+              <input
+                type="checkbox"
+                checked={allSel}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSel;
+                }}
+                onChange={() => setSel(allSel ? new Set() : new Set(rows.map((j) => j.posting_id)))}
+                title={allSel ? "clear the selection" : "select every job shown"}
+                aria-label="select every job shown"
+              />
+            </th>
             <th data-jk="company" {...sortAttr("company")} onClick={() => cycleSort("company")}>role · company</th>
             <th data-jk="application" data-col="application" style={colStyle("application")} {...sortAttr("application")} onClick={() => cycleSort("application")}>application</th>
             <th data-jk="followups_due" data-col="outreach" style={colStyle("outreach")} {...sortAttr("followups_due")} onClick={() => cycleSort("followups_due")}>outreach</th>
@@ -126,6 +186,8 @@ export function JobsView({ active }: { active: boolean }) {
               stages={stages}
               statuses={statuses}
               colStyle={colStyle}
+              selected={sel.has(j.posting_id)}
+              onToggleSel={() => toggleOne(j.posting_id)}
               onOpen={() => dispatch({ type: "openPursuit", id: j.posting_id })}
               onToggleNextUp={() => toggleNextUp(j)}
               onStage={(v) => saveTracking(j, { application_status: v })}
@@ -189,6 +251,8 @@ function JobRow({
   stages,
   statuses,
   colStyle,
+  selected,
+  onToggleSel,
   onOpen,
   onToggleNextUp,
   onStage,
@@ -198,6 +262,8 @@ function JobRow({
   stages: string[];
   statuses: string[];
   colStyle: (c: string) => { display: string } | undefined;
+  selected: boolean;
+  onToggleSel: () => void;
   onOpen: () => void;
   onToggleNextUp: () => void;
   onStage: (v: string) => void;
@@ -211,10 +277,18 @@ function JobRow({
     <tr
       data-id={j.posting_id}
       onClick={(e) => {
-        if ((e.target as HTMLElement).closest("a, button, select")) return;
+        if ((e.target as HTMLElement).closest("a, button, select, input")) return;
         onOpen();
       }}
     >
+      <td className="jt-check">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSel}
+          aria-label={`select ${j.title || j.company}`}
+        />
+      </td>
       <td>
         <div className="jt-namecell">
           <div className="jt-lead">

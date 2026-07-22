@@ -338,6 +338,29 @@
     background: var(--bg-2);
     overflow: hidden;
   }
+  /* Bulk-action bar — appears above the jobs table once rows are ticked, and
+     acts on the ticked rows only (mass archive after an offer lands, etc.). */
+  .bulk-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px;
+    font-size: 12px; color: var(--fg-mute);
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .bulk-bar .bulk-stage-sel {
+    font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-dim);
+    text-transform: lowercase; letter-spacing: 0.01em;
+  }
+  .bulk-bar .bulk-stage-sel:hover { border-color: var(--line-2); color: var(--fg); }
+  .bulk-bar .btn { margin-left: auto; }
+
+  /* Selection column: tight, never the row's click target for opening a pursuit. */
+  th.jt-check, td.jt-check { width: 1%; padding-right: 0; cursor: default; }
+  th.jt-check:hover { color: var(--fg-dim); }
+  .jt-check input { cursor: pointer; accent-color: var(--link); margin: 0; }
+
   table { width: 100%; border-collapse: collapse; }
   thead th {
     text-align: left;
@@ -1997,6 +2020,10 @@
     :root { --sidebar-w: 240px; }
     main { padding: 14px 18px 60px; }
   }
+
+  /* archived roles are folded out of the company's job list behind this count */
+  .posting-archived-note { margin-top: 8px; font-size: 12px; color: var(--fg-dim); }
+  .posting-archived-note a { color: var(--link); cursor: pointer; }
 
   /* add-posting form */
   .posting-add { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }

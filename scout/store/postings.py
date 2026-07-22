@@ -269,6 +269,27 @@ def set_application_status(con: sqlite3.Connection, id: str, status: str) -> Pos
     return _read_posting(con, id)
 
 
+def set_application_status_bulk(con: sqlite3.Connection, ids: list[str], status: str) -> int:
+    """Move many postings to one application stage in a single statement (the jobs
+    view's bulk action — e.g. archive everything still in flight once an offer
+    lands). Unknown ids are skipped rather than raising: a bulk move reports how
+    many rows it touched. A bad label → ValueError."""
+    application_status = _clean_status_label("application_status", status)
+    ids = [i.strip() for i in ids if i.strip() != ""]
+    if not ids:
+        return 0
+    placeholders = ",".join("?" * len(ids))
+    cur = con.execute(
+        f"""UPDATE job_postings SET
+            application_status_at = CASE WHEN application_status <> ?
+                THEN CURRENT_TIMESTAMP ELSE application_status_at END,
+            application_status = ?
+         WHERE id IN ({placeholders})""",
+        (application_status, application_status, *ids),
+    )
+    return cur.rowcount
+
+
 @dataclass
 class PostingEdit:
     title: str = ""

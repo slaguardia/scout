@@ -376,6 +376,23 @@ def list_postings(con=Depends(get_db)) -> Response:
     return json_response({"rows": rows, "count": len(rows)})
 
 
+@router.post("/api/postings/bulk")
+def postings_bulk(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """Move a set of postings to one application stage (the jobs view's bulk
+    action). Unknown ids are skipped; returns how many rows moved.
+
+    Declared BEFORE /api/postings/{posting_id} — FastAPI matches in declaration
+    order, so the reverse would swallow "bulk" as a posting id.
+    """
+    body = decode_json(raw)
+    raw_ids = body.get("ids")
+    if not isinstance(raw_ids, list):
+        raise ValueError("ids must be a list of posting ids")
+    ids = [i for i in raw_ids if isinstance(i, str)]
+    n = postings_store.set_application_status_bulk(con, ids, _s(body, "application_status"))
+    return json_response({"updated": n})
+
+
 @router.api_route("/api/postings/{posting_id}", methods=["PUT", "POST"])
 def posting_tracking(
     posting_id: str, raw: bytes = Depends(raw_body), con=Depends(get_db)

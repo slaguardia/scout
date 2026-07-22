@@ -19,6 +19,11 @@ export function putPostingTracking(j: Posting, patch: Record<string, unknown>): 
   return putJSON<Posting>(`/api/postings/${j.posting_id}`, body);
 }
 
+/** Move a set of postings to one application stage; resolves to the rows moved. */
+export function bulkApplicationStatus(ids: string[], application_status: string): Promise<{ updated: number }> {
+  return postJSON<{ updated: number }>("/api/postings/bulk", { ids, application_status });
+}
+
 /** PUT the editable role details (one field changed; server folds the rest). */
 export function putPostingDetails(j: Posting, key: string, val: string): Promise<Posting> {
   const body: Record<string, unknown> = {

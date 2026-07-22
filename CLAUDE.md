@@ -111,7 +111,15 @@ canonical port defeats that safety net — don't.
   `GET/PUT /api/followup-template`. The jobs filters default to **every**
   application stage and reply status selected (rejected included); the "★ Next
   up" filter is a standalone button beside the "N follow-ups due" button (below
-  Filters), not a dropdown item.
+  Filters), not a dropdown item. **Bulk stage moves:** each row carries a select
+  checkbox (the header one ticks every row the filter is currently showing), and
+  a selection reveals a bulk bar above the table that moves them all to one stage
+  in a single call (`POST /api/postings/bulk`) — the "an offer landed, archive
+  the rest" move. Selection is pruned to the visible rows, so narrowing the
+  filter can only ever shrink what a bulk move touches. **Archived postings fold
+  out of the company pane's job list** behind an "N archived — show" toggle
+  (client-side only; the detail payload still carries them), since a role
+  archived months ago is usually gone by the next time that company comes up.
 - **Brain-first, done:** the brain is now a pgvector **document substrate**
   (graphiti is gone) — a librarian whose only consumer call is `GET /recall?q=&k=`,
   returning prose chunks `{heading, text, score, path}` (no polarity/strength
