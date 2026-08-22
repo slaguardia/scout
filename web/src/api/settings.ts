@@ -1,6 +1,6 @@
 // Settings endpoints — text/list artifacts, pipeline prompts, the pre-filter,
 // the company-fit brief/profile, stats, the Anthropic key, Gmail config, and the
-// outreach-knowledge sources. Each editor round-trips to its own route.
+// typed knowledge docs. Each editor round-trips to its own route.
 import { useQuery } from "@tanstack/react-query";
 import { getJSON, putJSON, postJSON, del, getOrNull } from "./client";
 
@@ -87,6 +87,8 @@ export function useFilterOptions() {
 export interface Profile {
   active_source?: string;
   body?: string;
+  configured?: boolean;
+  reachable?: boolean;
 }
 
 export function useProfile() {
@@ -142,20 +144,21 @@ export function gmailDisconnect(): Promise<unknown> {
   return del(`/api/gmail/disconnect`);
 }
 
-/* ---- outreach knowledge sources -------------------------------------------- */
+/* ---- typed knowledge docs (GET/PUT /api/knowledge/<need>) ------------------ */
 
-export interface SourceRow {
+export interface KnowledgePage {
+  page_id: string;
+  title: string;
+  content: string;
+}
+export interface KnowledgeData {
   need: string;
-  title?: string;
-  page_id?: string;
+  content: string; // the typed doc
+  brain: KnowledgePage[]; // what the brain synced for this need (read-only)
 }
-export interface SourcesData {
-  needs?: { Key?: string; key?: string; Hard?: boolean; hard?: boolean }[];
-  sources?: SourceRow[];
-}
-export function useSources() {
+export function useKnowledge(need: string) {
   return useQuery({
-    queryKey: ["outreach-sources"],
-    queryFn: () => getJSON<SourcesData>("/api/outreach/sources"),
+    queryKey: ["knowledge", need],
+    queryFn: () => getJSON<KnowledgeData>(`/api/knowledge/${need}`),
   });
 }

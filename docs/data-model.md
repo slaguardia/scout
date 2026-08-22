@@ -1,12 +1,12 @@
 # Data model
 
 scout's local SQLite working set. For *what* this store is and how it fits the
-brain-first architecture (scout SQLite = disposable working set; the brain is
-the system of record for the user), see [`north-star.md`](./north-star.md). This
-doc is just the schema.
+architecture (scout SQLite = a disposable working set plus the user's typed
+**knowledge store**; the brain is an optional source of record that fills that
+store), see [`north-star.md`](./north-star.md). This doc is just the schema.
 
 SQLite, one file (`scout.db` by default). Migrations live in
-`scout/store/migrations/` (`0001`–`0013`), ship inside the `scout` package,
+`scout/store/migrations/` (`0001`–`0062`), ship inside the `scout` package,
 apply in filename order on every `open_db()`, and are tracked in
 `schema_migrations`.
 
@@ -100,16 +100,18 @@ verdicts (
 
 One row per company — the current verdict. We don't keep verdict history; a
 re-score overwrites the row (`UpsertVerdict`, `ON CONFLICT DO UPDATE`). "What
-did the user think before" lives in the brain. Indexes on `verdict` and
-`taste_version`.
+did the user think before" lives in `verdict_trace` (below). Indexes on
+`verdict` and `taste_version`.
 
 **`taste_version` is the criteria version** (legacy column name; the concept is
-*the user's criteria from the brain* — see north-star's terminology table). It is
-`sha256[:12]` of `playbook + "\n---taste---\n" + criteria text`, where the
-criteria text is the distilled company-fit brief (or the offline `taste.md`
-fallback). When the brain learns something — or the playbook is edited — the
-hash changes, and the next `verdict` run re-scores rows whose stored
-`taste_version` no longer matches. That re-scoring is intended.
+*the user's company-fit criteria* — see north-star's terminology table). It is
+`sha256[:12]` of `playbook + "\n---taste---\n" + criteria version`
+(`criteria.hash_text`), where the criteria version is the hash of the typed
+criteria doc (`criteria_doc`, below) when one is on file, else the brain brief's
+basis hash from `brain_profile_cache`. When the criteria doc is edited, the
+brain learns something, or the playbook is edited, the hash changes, and the
+next `verdict` run re-scores rows whose stored `taste_version` no longer
+matches. That re-scoring is intended.
 
 ---
 
@@ -267,10 +269,13 @@ Migration `0012`. Unlike every other company-scoped table, this one is
 (`score_one` → `write_trace`) via `insert_verdict_trace`. It is the answer to "*why
 did this company get this verdict?*": it records which criteria drove the
 decision (`criteria_source` + `taste_version`), which `model` scored it, and the
-resulting `verdict` + `reason`. There is no per-company brain Q&A here — the
-brain's only contribution to a verdict is the user's criteria, captured by the
-source/version pair. `company_trace(company_id)` reads it oldest-first to power
-the UI's "Decision trail" panel (`GET /api/companies/:id/trace`).
+resulting `verdict` + `reason`. `criteria_source` is the resolved
+`criteria.Block.source` — `local:criteria + playbook` (the typed doc) or
+`brain:brief@<url> + playbook` (the distilled brief). There is no per-company
+brain Q&A here — the brain's only possible contribution to a verdict is the
+user's criteria, captured by the source/version pair. `company_trace(company_id)`
+reads it oldest-first to power the UI's "Decision trail" panel
+(`GET /api/companies/:id/trace`).
 
 Because it appends, it keeps history the `verdicts` snapshot throws away: each
 re-score (new criteria version, or a forced run) adds a row, so you can watch a
@@ -285,27 +290,105 @@ low-thousands of companies × a few re-scores that's single-digit MB.
 
 ---
 
-### `brain_profile_cache` — local cache of the brain profile
+### `criteria_doc` — the typed company-fit criteria
+
+```sql
+criteria_doc (
+    key        TEXT PK,                -- singleton: 'default'
+    content    TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+Migration `0062`. The criteria the user types in Settings → Knowledge →
+Criteria — a DB singleton on the `playbook` pattern (same shape; store
+`scout/store/criteria_doc.py`, `get_criteria_doc` / `put_criteria_doc`). A
+**non-empty doc is the criteria, outright**: `criteria.Resolver.resolve()`
+returns it as a `Block` with `source = "local:criteria"` before any brain call —
+no `/changes` probe, no health check, no distill — and leaves
+`brain_profile_cache` untouched. Empty → the brain cascade under
+`brain_profile_cache` below. Edited via `GET/PUT /api/criteria`; a PUT re-folds
+the active criteria version (`AppState.reload_taste`), so a criteria edit
+changes `taste_version` exactly like a playbook edit does and the next verdict
+run re-scores. This is the user's own writing, not a cache — nuking the DB
+loses it. Standalone — no company FK.
+
+---
+
+### `outreach_sources` — the outreach knowledge store
+
+```sql
+outreach_sources (
+    need        TEXT NOT NULL,         -- 'experience' | 'voice' | 'logistics'
+    page_id     TEXT NOT NULL,         -- brain stable page id, or 'local' for the typed doc
+    title       TEXT NOT NULL DEFAULT '',
+    content     TEXT NOT NULL DEFAULT '',  -- whole-document text
+    version     TEXT NOT NULL DEFAULT '',  -- brain page version; '' for the typed doc
+    resolved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    origin      TEXT NOT NULL DEFAULT 'brain',  -- M61: 'brain' | 'local'
+    PRIMARY KEY (need, page_id)
+)
+```
+
+Migrations `0035` + `0061`. The prose docs the outreach engine and the answers
+drafter reason over, keyed by knowledge need (`outreach.KNOWLEDGE_NEEDS`:
+experience — hard, the honesty checker's ground truth; voice and logistics —
+soft). Two origins share the table:
+
+- **`origin = 'local'`** — the doc typed in Settings → Knowledge, at most one
+  per need, always `page_id = 'local'`. Written by `put_local_source`
+  (`PUT /api/knowledge/{need}`); blank content deletes the row, so "never
+  typed" and "cleared" look the same to every reader.
+- **`origin = 'brain'`** — the pages the discovery pass (`outreach.discover`:
+  Haiku over the brain `/map`, whole-fetched via `/doc`) bound to the need.
+  Re-synced by `outreach.ensure_knowledge` only when the brain's `/changes`
+  moved past the cursor stored in the `outreach_knowledge_cursor` setting.
+
+The one rule: **a sync never touches a local row.** `replace_outreach_sources`
+deletes and re-inserts only the need's `origin = 'brain'` rows, so a typed doc
+survives every sync. The reader `outreach_knowledge(con, need)` concatenates
+the typed doc **first**, then the brain pages by title (`# title` headers,
+`---` separators) — which is how the writer, humanizer, honesty checker and
+answers drafter all get both without code of their own. `ErrNoExperience` is
+raised over that merged bundle at draft/answer time
+(`outreach.require_experience`); an empty experience pick is a valid discovery
+outcome, not an error. `GET /api/knowledge/{need}` returns the typed content
+plus the need's brain rows; `GET /api/outreach/sources` lists every row with its
+`origin`. Standalone — no company FK.
+
+---
+
+### `brain_profile_cache` — local cache of the brain's brief
 
 ```sql
 brain_profile_cache (
     source_url   TEXT PK,              -- the brain base URL the profile came from
-    body         TEXT NOT NULL,        -- the resolved criteria text (fact-derived block)
+    body         TEXT NOT NULL,        -- the distilled company-fit brief
     content_hash TEXT NOT NULL,        -- stable change-detection / version key (distill basis hash, not the body)
-    fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    fetched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    cursor       TEXT NOT NULL DEFAULT '',  -- M37: the brain's opaque /changes stamp at the last confirmed-current check
+    verified_at  TEXT                       -- M37: when the brief was last confirmed current against the brain
 )
 ```
 
-Migration `0013`. One row per brain URL — the last distilled company-fit brief
-scout produced from that brain, cached locally so a verdict run (or the web
-server) doesn't re-distill on every invocation. Read by the `scout/criteria`
-resolver: a row younger than `--brain-cache-ttl` (default 6h) is reused as-is;
-older, the resolver re-distills (recall + synthesis) and overwrites the row, and
-only when the brain is unreachable (or distillation fails) does it fall back to
-the stale cached row (then to offline `taste.md`). This is a **disposable cache,
-not a system-of-record** — the brain
-remains the source of truth; deleting the row just forces a refetch. Like
-`runs`, it is **standalone** — no company FK, no cascade.
+Migrations `0013` + `0037`. One row per brain URL — the last distilled
+company-fit brief scout produced from that brain, cached locally so a verdict
+run (or the web server) doesn't re-distill on every invocation. Read by the
+`scout/criteria` resolver **only when `criteria_doc` is empty** (a typed doc
+returns before any brain call). Then the change-aware cost cascade runs:
+Tier 0 asks the brain's `/changes` whether anything moved since `cursor`
+(nothing → serve the row verbatim, re-stamp `verified_at`); Tier 1 re-runs the
+recall gather and compares the basis hash against `content_hash` (unchanged →
+serve verbatim, advance the cursor); Tier 2 re-synthesizes and overwrites the
+row. No row, or a row without a cursor, is a cold full distill. When the brain
+is unreachable the cached row is served while `verified_at` (else `fetched_at`)
+is within `--brain-cache-ttl` (default 6h); past that ceiling — or with nothing
+usable at all (no brain configured, or a healthy brain with no company-fit
+pages and no cached row) — the resolver raises `criteria.ErrNoCriteria` and the
+verdict run fails loudly rather than scoring against nothing. This is a
+**disposable cache, not a system-of-record** — the brain remains the source of
+truth for its brief; deleting the row just forces a refetch. Like `runs`, it is
+**standalone** — no company FK, no cascade.
 
 ---
 
@@ -326,6 +409,8 @@ companies (1) ─── (0..1) enrichment
           (1) ─── (0..N) verdict_trace   -- append-only; one row per scoring pass
 
 runs                 -- standalone; no FK to companies (run-level history)
+criteria_doc         -- standalone; singleton (the typed company-fit criteria)
+outreach_sources     -- standalone; keyed (need, page_id); origin 'local' | 'brain'
 brain_profile_cache  -- standalone; no FK to companies (one row per brain URL)
 ```
 
@@ -342,17 +427,22 @@ with it. `runs` is independent of any company (the optional
 | postings | none (always inserts a new uuid row) | — |
 | filter | n/a (read-only) | — |
 | enrich | `companies.ingested_at <= enrichment.fetched_at` | re-ingest, or `--force` |
-| verdict | `verdicts.taste_version == current criteria version` | brain learns / playbook edit / `taste.md` edit, or `--force` |
+| verdict | `verdicts.taste_version == current criteria version` | criteria doc edit / playbook edit / brain learns, or `--force` |
 | verdict_trace | n/a — append-only, one row per scoring pass | never deduped; deleted only with its company |
-| brain brief | `brain_profile_cache.fetched_at` within `--brain-cache-ttl` | TTL expiry, or `POST /api/profile/refresh` (re-distill) |
+| criteria doc | n/a — singleton, typed; wins over the brain brief whenever non-empty | blank it (falls through to the brain brief, else `ErrNoCriteria`) |
+| brain brief | `brain_profile_cache.cursor` unchanged per the brain's `/changes` (only consulted when `criteria_doc` is empty) | the brain moves with a changed basis (Tier 2), or `POST /api/profile/refresh` (re-distill); `--brain-cache-ttl` only caps how long an *unverifiable* row is served |
+| outreach knowledge | `outreach_knowledge_cursor` setting unchanged per the brain's `/changes` | the brain moves (re-discover; replaces `origin = 'brain'` rows only — typed rows are never busted) |
 
 ## Why not Postgres / per-stage tables / event sourcing
 
 SQLite is plenty for low-thousand-row company sets. One file is the entire
-working set; nuking it and starting over costs nothing. Per-stage tables would
-add joins for no benefit at this size. Event sourcing would be the right shape
-if scout needed to reconstruct *all* history — but it doesn't; the brain does.
-Scout keeps only the current snapshot plus a thin `runs` log.
+working set; nuking it and starting over costs nothing — except the typed
+knowledge docs (`criteria_doc` + the `origin = 'local'` rows of
+`outreach_sources`), which are the user's own writing, not a rebuildable cache.
+Per-stage tables would add joins for no benefit at this size. Event sourcing
+would be the right shape if scout needed to reconstruct *all* history — but it
+doesn't; `verdict_trace` keeps the one trail that matters. Scout keeps only the
+current snapshot plus a thin `runs` log.
 
 The one scoped exception is `verdict_trace`: an append-only decision trail for
 the *verdict* stage only, added for testing/tuning the scoring (so you can see

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import threading
 
-from scout import anthropic, filter, taste
+from scout import anthropic, criteria, filter
 from scout.store import companies, enrichment, trace, verdicts
 from scout.store.companies import Company
 from scout.verdict import (
@@ -130,7 +130,7 @@ def test_build_user_prompt_keeps_known_stage():
 def _scorer(db, client, **kw):
     return Scorer(
         con=db,
-        taste=taste.from_brain("Hard dealbreakers: avoid crypto.", "brain:brief@test"),
+        taste=criteria.from_text("Hard dealbreakers: avoid crypto.", "brain:brief@test"),
         filter=filter.Taste(),  # enabled=False → passes every company
         client=client,
         **kw,
@@ -159,7 +159,7 @@ def test_run_scores_and_writes_trace(db):
     assert res.cache_creation_tokens == 20
     assert res.cache_read_tokens == 10
 
-    block = taste.from_brain("Hard dealbreakers: avoid crypto.", "brain:brief@test")
+    block = criteria.from_text("Hard dealbreakers: avoid crypto.", "brain:brief@test")
     for cid in ids:
         v = verdicts.get_verdict(db, cid)
         assert v is not None and v.verdict == "yes" and v.reason == "AI dev tools"

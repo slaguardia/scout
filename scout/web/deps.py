@@ -23,8 +23,8 @@ from collections.abc import Iterator
 from fastapi import Request
 
 from scout import anthropic as anthropic_pkg
+from scout import criteria as criteria_pkg
 from scout import playbook as playbook_pkg
-from scout import taste as taste_pkg
 from scout.store import db as db_module
 from scout.store import settings as settings_store
 
@@ -65,30 +65,26 @@ class AppState:
         # taste/playbook cache, recomputed by reload_taste; guarded because
         # /api/stats reads it while an editor PUT (part 2) can reload it.
         self._lock = threading.RLock()
-        self._taste: taste_pkg.Block | None = None
+        self._taste: criteria_pkg.Block | None = None
         self._playbook: str = ""
 
     # --- taste / playbook cache ------------------------------------------------
 
     def reload_taste(self) -> None:
-        """Resolve the criteria block (cached brain brief → taste.md, via the
-        resolver) and fold the playbook into the version, matching `scout
-        verdict`. Runs at startup and after every editor PUT (part 2). Holds a
-        dedicated connection for the duration so it never shares a request's."""
+        """Resolve the criteria block (the typed doc, else the cached brain brief,
+        via the resolver) and fold the playbook into the version, matching `scout
+        verdict`. Runs at startup and after every editor PUT. Holds a dedicated
+        connection for the duration so it never shares a request's. No criteria
+        anywhere leaves the block None — the verdict job reports that loudly."""
         with self._lock:
             con = db_module.connect(self.config.db_path)
             try:
-                tb: taste_pkg.Block | None = None
+                tb: criteria_pkg.Block | None = None
                 if self.resolver is not None:
                     self.resolver.store = con
                     try:
                         tb = self.resolver.resolve()
-                    except Exception:  # noqa: BLE001 - any failure → taste.md fallback
-                        tb = None
-                if tb is None and self.config.taste_md_path:
-                    try:
-                        tb = taste_pkg.load_file(self.config.taste_md_path)
-                    except OSError:
+                    except Exception:  # noqa: BLE001 - ErrNoCriteria or a brain failure → none
                         tb = None
                 pb = playbook_pkg.content_or_default(con)
             finally:
@@ -96,12 +92,12 @@ class AppState:
             if tb is not None and pb:
                 # Stamp each new verdict with the exact criteria (brief + playbook)
                 # it was scored under, recorded in the decision trail.
-                tb.version = taste_pkg.hash(pb + "\n---taste---\n" + tb.version)
+                tb.version = criteria_pkg.hash_text(pb + "\n---taste---\n" + tb.version)
                 tb.source = tb.source + " + playbook"
             self._taste = tb
             self._playbook = pb
 
-    def current_taste(self) -> taste_pkg.Block | None:
+    def current_taste(self) -> criteria_pkg.Block | None:
         with self._lock:
             return self._taste
 

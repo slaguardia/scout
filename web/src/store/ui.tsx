@@ -45,7 +45,6 @@ export interface JobsFilter {
 export type Modal =
   | { kind: "add" }
   | { kind: "editor"; editorKind: string }
-  | { kind: "sources" }
   | { kind: "run"; stage: "enrich" | "verdict" }
   | { kind: "relink"; posting: Posting }
   | { kind: "linkRole"; notif: NotificationItem }
@@ -195,7 +194,7 @@ export function initialUI(): UIState {
     },
     hiddenCols: loadHidden("scout-hidden-cols"),
     jHiddenCols: loadHidden("scout-hidden-jcols"),
-    settingsGroup: "outreach",
+    settingsGroup: "knowledge",
     openCompanyId: null,
     openPursuitId: null,
     chat: null,
@@ -210,6 +209,7 @@ export function initialUI(): UIState {
 export type Action =
   | { type: "setView"; view: View }
   | { type: "gotoDocs"; section: string }
+  | { type: "gotoKnowledge" }
   | { type: "clearDocsSection" }
   | { type: "setSettingsGroup"; group: string }
   | { type: "setCompaniesSort"; sort: Sort }
@@ -255,6 +255,22 @@ function reducer(state: UIState, action: Action): UIState {
       return { ...state, view: "docs", docsSection: action.section };
     case "clearDocsSection":
       return { ...state, docsSection: null };
+    case "gotoKnowledge":
+      // The draft/answers gate's fix: close both slide-in panes (the pursuit pane
+      // may be stacked on a company pane) and land on Knowledge.
+      try {
+        localStorage.setItem("scout-view", "settings");
+      } catch {
+        /* ignore */
+      }
+      return {
+        ...state,
+        view: "settings",
+        settingsGroup: "knowledge",
+        openPursuitId: null,
+        openCompanyId: null,
+        topPane: null,
+      };
     case "setSettingsGroup":
       return { ...state, settingsGroup: action.group };
     case "setCompaniesSort":

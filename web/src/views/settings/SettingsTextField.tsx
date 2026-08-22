@@ -35,7 +35,9 @@ export function SettingsTextField({
   );
 }
 
-function LoadedTextarea({ kind, list, rows, initial }: { kind: string; list: boolean; rows: number; initial: string }) {
+// The blur-to-save textarea on its own, for editors that load their data through
+// a richer query than useField (onSaved lets them invalidate it).
+export function LoadedTextarea({ kind, list, rows, initial, onSaved }: { kind: string; list: boolean; rows: number; initial: string; onSaved?: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const orig = useRef(initial);
@@ -57,6 +59,7 @@ function LoadedTextarea({ kind, list, rows, initial }: { kind: string; list: boo
         void qc.invalidateQueries({ queryKey: ["vocab"] });
         void qc.invalidateQueries({ queryKey: ["jobs"] });
       }
+      onSaved?.();
     } catch (err) {
       toast(`save failed: ${(err as Error).message}`);
     }

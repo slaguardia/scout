@@ -118,10 +118,10 @@ export function AnswersSection({ posting: j }: { posting: Posting }) {
   if (gate) {
     footer = (
       <div className="blocks-gate">
-        <div className="draft-note">{gate.error || "Drafting answers needs an experience page in your brain."}</div>
+        <div className="draft-note">{gate.error || "Drafting answers needs your experience on file."}</div>
         <div className="answers-actions">
-          <button className="btn btn-primary" onClick={() => dispatch({ type: "openModal", modal: { kind: "sources" } })}>
-            View brain knowledge
+          <button className="btn btn-primary" onClick={() => dispatch({ type: "gotoKnowledge" })}>
+            Add your experience
           </button>
           <button className="btn" onClick={start}>
             Retry

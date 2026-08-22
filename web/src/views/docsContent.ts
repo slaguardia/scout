@@ -10,13 +10,13 @@ export const DOCS_HTML = `
           <h4>The core split: knowledge vs. intelligence</h4>
           <p>Two systems, deliberately separated:</p>
           <ul>
-            <li><strong>The brain</strong> owns the <strong>knowledge</strong> — who you are, what you want, your hard rules and exclusions. It's a separate service scout talks to over HTTP. scout reads it <strong>read-only</strong> and never writes back.</li>
-            <li><strong>scout</strong> owns the <strong>intelligence</strong> — it brings its own LLM and a small <code>playbook.md</code> (the procedure for <em>how</em> to judge). It reads the brain's knowledge and reasons over it.</li>
+            <li>The <strong>knowledge</strong> — who you are, what you want, your hard rules and exclusions — lives in scout's own local store as four prose docs (Settings → Knowledge). You type them, or <strong>the brain</strong> fills them: a separate service scout talks to over HTTP, <strong>read-only</strong>, never written back. A doc you typed wins over what the brain synced.</li>
+            <li><strong>scout</strong> owns the <strong>intelligence</strong> — it brings its own LLM and a small <code>playbook.md</code> (the procedure for <em>how</em> to judge). It reads the knowledge and reasons over it.</li>
           </ul>
-          <div class="callout">Verdicts live <strong>only in scout</strong> (its local SQLite). scout makes no external writes — it reads the brain for your criteria and per-company memory, and that's the only contact. If the brain is unreachable, scout falls back to a local <code>taste.md</code> and keeps running.</div>
+          <div class="callout">Verdicts live <strong>only in scout</strong> (its local SQLite). scout makes no external writes — it reads the brain to fill your knowledge docs, and that's the only contact. If the brain is unreachable, or there is no brain at all, scout runs on what you typed.</div>
 
           <h4>The whole system on one map</h4>
-          <p>Both of scout's products — verdicts and outreach drafts — come from the same shape: brain knowledge in at the top, a scout-local config joining on the way down, an LLM engine at the bottom.</p>
+          <p>Both of scout's products — verdicts and outreach drafts — come from the same shape: your knowledge in at the top (typed under Settings → Knowledge, optionally filled from the brain), a scout-local config joining on the way down, an LLM engine at the bottom.</p>
           <div class="sysmap-wrap">
             <div class="sm-legend">
               <div class="sm-legend-h">legend</div>
@@ -27,8 +27,8 @@ export const DOCS_HTML = `
             </div>
             <div class="sysmap">
               <div class="sm-node sm-brain sm-span">
-                <div class="sm-name">the brain</div>
-                <div class="sm-desc">Who you are, what you want, what you've done — your knowledge, kept in a separate service. scout reads it over HTTP and never writes back.</div>
+                <div class="sm-name">your knowledge</div>
+                <div class="sm-desc">Who you are, what you want, what you've done — four docs you type under Settings → Knowledge. The brain (a separate service, read over HTTP, never written) can fill them in; a typed doc always wins.</div>
               </div>
               <div class="sm-lane-h">judging companies</div>
               <div class="sm-lane-h">writing outreach</div>
@@ -40,13 +40,13 @@ export const DOCS_HTML = `
               </div>
               <div class="sm-node sm-llm">
                 <div class="sm-name">discover</div>
-                <div class="sm-desc">An LLM picks your experience, voice, and logistics pages off the brain's map; they're fetched whole and cached.</div>
+                <div class="sm-desc">An LLM picks your experience, voice, and logistics pages off the brain's map; they're fetched whole and stored next to whatever you typed.</div>
               </div>
               <div class="sm-arrow"></div>
               <div class="sm-arrow"></div>
               <div class="sm-node sm-brainy">
                 <div class="sm-name">company-fit brief</div>
-                <div class="sm-desc">The criteria the verdict stage reads — cached locally. If the brain is unreachable, taste.md stands in.</div>
+                <div class="sm-desc">The criteria the verdict stage reads — the doc you typed in Settings → Knowledge, else the brain's brief, cached locally.</div>
               </div>
               <div class="sm-node sm-brainy">
                 <div class="sm-name">outreach knowledge</div>
@@ -78,21 +78,21 @@ export const DOCS_HTML = `
 
         <section id="doc-pipeline">
           <h3 class="dsec"><span class="n">02</span> The pipeline</h3>
-          <p class="lede">Every company moves through five stages. The first three are mechanical and brain-free; the brain is touched only at <strong>verdict</strong>, and only for reads.</p>
+          <p class="lede">Every company moves through five stages. The first three are mechanical and brain-free; the brain is touched only at <strong>verdict</strong> — only when you haven't typed a criteria doc — and only for reads.</p>
           <div class="flow">
             <div class="step"><div class="s-name">ingest</div><div class="s-desc">CSV → companies table</div></div>
             <div class="step"><div class="s-name">filter</div><div class="s-desc">cheap hard gates cull rows</div></div>
             <div class="step"><div class="s-name">enrich</div><div class="s-desc">fetch each company's site</div></div>
-            <div class="step"><div class="s-name">verdict</div><div class="s-desc">LLM scores fit · reads brain</div></div>
+            <div class="step"><div class="s-name">verdict</div><div class="s-desc">LLM scores fit · reads your criteria</div></div>
             <div class="step"><div class="s-name">triage</div><div class="s-desc">you browse &amp; decide</div></div>
           </div>
           <table class="dt">
             <thead><tr><th>Stage</th><th>What it does</th><th>Touches the brain?</th></tr></thead>
             <tbody>
               <tr><td class="field">ingest</td><td>Reads a CSV dump, maps known headers to canonical fields, upserts rows. Pure data.</td><td>No</td></tr>
-              <tr><td class="field">filter</td><td>Applies cheap mechanical gates from <code>taste.toml</code> (location, headcount, vertical, stage) to cull rows before the expensive step.</td><td>No</td></tr>
+              <tr><td class="field">filter</td><td>Applies the cheap mechanical pre-filter gates (location, headcount, vertical, stage; Settings → Job hunting) to cull rows before the expensive step.</td><td>No</td></tr>
               <tr><td class="field">enrich</td><td>Fetches each surviving company's about-page and stores a stripped text summary.</td><td>No</td></tr>
-              <tr><td class="field">verdict</td><td>Sends each enriched survivor to the LLM with your criteria + the playbook, and stores a yes/maybe/no.</td><td><strong>Yes — reads only</strong></td></tr>
+              <tr><td class="field">verdict</td><td>Sends each enriched survivor to the LLM with your criteria + the playbook, and stores a yes/maybe/no.</td><td><strong>Only with no typed criteria doc — reads only</strong></td></tr>
               <tr><td class="field">triage</td><td>You browse the scored table, filter, and open companies to inspect. This is the web UI you're in now.</td><td>No</td></tr>
             </tbody>
           </table>
@@ -132,7 +132,7 @@ export const DOCS_HTML = `
 
         <section id="doc-filter">
           <h3 class="dsec"><span class="n">04</span> The pre-filter</h3>
-          <p class="lede">Before spending an LLM call on a company, scout culls obvious misses with cheap mechanical gates. These live in <code>taste.toml</code> and are <strong>not judgment</strong> — just coarse hard gates. Nuanced fit happens later, at verdict time.</p>
+          <p class="lede">Before spending an LLM call on a company, scout culls obvious misses with cheap mechanical gates. These live in scout's DB (Settings → Job hunting → pre-filter, with a master on/off switch) and are <strong>not judgment</strong> — just coarse hard gates. Nuanced fit happens later, at verdict time.</p>
           <p>Every company is checked against four gates in order. The <strong>first failing check</strong> is recorded as the drop reason, so you can see exactly why rows were culled.</p>
           <table class="dt">
             <thead><tr><th>Gate</th><th>Rule</th></tr></thead>
@@ -144,7 +144,7 @@ export const DOCS_HTML = `
               <tr><td class="field">funding stage</td><td>If a stage allowlist is set, the stage must match one. (Empty = allow all.)</td></tr>
             </tbody>
           </table>
-          <p>Survivors of the filter are the only companies that get enriched and scored. The filter is read-only — it changes no data, and you tune it by editing <code>taste.toml</code> on disk.</p>
+          <p>Survivors of the filter are the only companies that get enriched and scored. The filter is read-only — it changes no data, and you tune it under Settings → Job hunting → pre-filter.</p>
         </section>
 
         <section id="doc-enrich">
@@ -183,8 +183,8 @@ export const DOCS_HTML = `
             <tbody>
               <tr><td class="field">Output contract</td><td>fixed in scout's code</td><td>the required JSON shape — never editable</td></tr>
               <tr><td class="field">Playbook</td><td><code>playbook.md</code></td><td><em>how</em> to decide: rubric, tie-breaking, "default to maybe when unsure"</td></tr>
-              <tr><td class="field">Your criteria</td><td>the <strong>brain</strong> (or <code>taste.md</code>)</td><td><em>what</em> you want + your rules and hard exclusions</td></tr>
-              <tr><td class="field">This company</td><td>scout's DB + the <strong>brain</strong></td><td>Crunchbase fields + the fetched site text + any brain memory about this specific company</td></tr>
+              <tr><td class="field">Your criteria</td><td>your typed criteria doc, else the <strong>brain</strong>'s brief</td><td><em>what</em> you want + your rules and hard exclusions</td></tr>
+              <tr><td class="field">This company</td><td>scout's DB</td><td>Crunchbase fields + the fetched site text</td></tr>
             </tbody>
           </table>
 
@@ -200,8 +200,8 @@ JSON must have exactly two fields:
 <span class="c">--- PLAYBOOK (how to decide) ---</span>
 <span class="c">   ← the full text of playbook.md (or a built-in rubric)</span>
 
-<span class="c">--- TASTE (what the user wants) ---</span>
-<span class="c">   ← your criteria: the company-fit brief, or taste.md offline</span></pre>
+<span class="c">--- CRITERIA (what the user wants) ---</span>
+<span class="c">   ← your criteria: the typed doc, else the company-fit brief</span></pre>
 
           <h4>The user prompt (one per company)</h4>
           <p>The company's own data is sent as the user message — only the fields that exist are included:</p>
@@ -215,32 +215,32 @@ Return the JSON verdict now.</pre>
 
           <h4>Where the brain comes in</h4>
           <ul>
-            <li><strong>Your criteria</strong> are the <strong>company-fit brief</strong> — an LLM distills the brain's fit-relevant pages into one prose brief (hard dealbreakers / strong preferences / context), cached locally and re-distilled on demand from the Settings panel. If the brain is unreachable and the cache is gone, scout falls back to <code>taste.md</code>.</li>
-            <li><strong>No per-company lookup.</strong> Scout reads the brain once for your criteria — it never queries the brain per company. A brain miss is logged and ignored; the verdict still runs on the local fallback.</li>
+            <li><strong>Your criteria</strong> are the doc you type under Settings → Knowledge → Criteria, used as-is. With none typed, an LLM distills the brain's fit-relevant pages into one prose <strong>company-fit brief</strong> (hard dealbreakers / strong preferences / context), cached locally and re-distilled on demand from the Criteria editor. With neither, a verdict run fails loudly — scout never scores against empty criteria.</li>
+            <li><strong>No per-company lookup.</strong> Scout reads the brain once for your criteria — it never queries the brain per company. With a typed criteria doc the brain isn't consulted at all; without one, a brain outage serves the cached brief while it's within its TTL.</li>
           </ul>
 
           <h4>Model, parsing, and re-scoring</h4>
           <ul>
             <li>The first pass runs on <strong>Haiku</strong> (<code>claude-haiku-4-5</code>) — cheap and fast. <strong>Prompt caching</strong> is on: the system block is identical across the run, so it's billed once.</li>
             <li>scout parses <code>{"verdict": …, "reason": …}</code> tolerantly (it copes with stray fences or text) and stores one row per company.</li>
-            <li>A verdict is tagged with the <strong>criteria version</strong> it was scored under — a hash of the playbook + your criteria — recorded as provenance in the company's decision trail. A scored company is <strong>sticky</strong>: editing the playbook, the brief, or <code>taste.md</code> does <em>not</em> re-score it. Re-scoring is always explicit (see <em>Re-running</em> below), so a criteria tweak never silently churns your existing verdicts.</li>
+            <li>A verdict is tagged with the <strong>criteria version</strong> it was scored under — a hash of the playbook + your criteria — recorded as provenance in the company's decision trail. A scored company is <strong>sticky</strong>: editing the playbook or your criteria doc does <em>not</em> re-score it. Re-scoring is always explicit (see <em>Re-running</em> below), so a criteria tweak never silently churns your existing verdicts.</li>
           </ul>
         </section>
 
         <section id="doc-files">
           <h3 class="dsec"><span class="n">07</span> Files scout reads</h3>
-          <p class="lede">scout's behavior comes from a handful of inputs. Two of them are editable right here in the UI; the brain is external and read-only.</p>
+          <p class="lede">scout's behavior comes from a handful of inputs, all editable in Settings; the brain is an optional, read-only source that fills your knowledge docs.</p>
           <table class="dt">
             <thead><tr><th>What</th><th>Holds</th><th>Edit it</th></tr></thead>
             <tbody>
-              <tr><td class="field">taste.toml</td><td>The mechanical pre-filter gates (location, headcount, vertical, stage). Cheap hard culls — not judgment.</td><td>on disk</td></tr>
-              <tr><td class="field">playbook</td><td><em>How</em> scout decides — the rubric and tie-breaking procedure. Scout's own logic, not your data. Stored in scout.db; a compiled-in default seeds it.</td><td><strong>in the UI</strong> ("edit playbook")</td></tr>
-              <tr><td class="field">taste.md</td><td><em>What</em> you want — the offline fallback for your criteria, used only when the brain is unreachable.</td><td><strong>in the UI</strong> ("edit taste.md")</td></tr>
-              <tr><td class="field">the brain</td><td>The primary source of your criteria + per-company memory. A separate HTTP service. <strong>Read-only</strong>: scout never writes it.</td><td>elsewhere (not in scout)</td></tr>
-              <tr><td class="field">scout.db</td><td>The local SQLite working set: companies, enrichment, verdicts, and run history. Disposable — rebuild from a CSV anytime.</td><td>managed by scout</td></tr>
+              <tr><td class="field">knowledge docs</td><td><em>What</em> you want (criteria) and who you are (experience, voice, logistics) — your own words; a typed doc wins over what the brain synced.</td><td><strong>in the UI</strong> (Settings → Knowledge)</td></tr>
+              <tr><td class="field">playbook</td><td><em>How</em> scout decides — the rubric and tie-breaking procedure. Scout's own logic, not your data. Stored in scout.db; a compiled-in default seeds it.</td><td><strong>in the UI</strong> (Settings → Job hunting)</td></tr>
+              <tr><td class="field">pre-filter</td><td>The mechanical gates (location, headcount, vertical, stage). Cheap hard culls — not judgment. Stored in scout.db with a master on/off switch.</td><td><strong>in the UI</strong> (Settings → Job hunting)</td></tr>
+              <tr><td class="field">the brain</td><td>Optional. Fills the knowledge docs — distilled into the criteria brief, experience/voice/logistics pages synced whole. A separate HTTP service. <strong>Read-only</strong>: scout never writes it.</td><td>elsewhere (not in scout)</td></tr>
+              <tr><td class="field">scout.db</td><td>The local SQLite working set (companies, enrichment, verdicts, run history — rebuild from a CSV anytime) plus your typed knowledge docs, which are not rebuildable.</td><td>managed by scout</td></tr>
             </tbody>
           </table>
-          <div class="callout">The in-UI editor writes the <strong>local files only</strong> and never touches the brain — that separation is deliberate. An edit changes the criteria version going forward; existing verdicts stay put until you re-score them.</div>
+          <div class="callout">The in-UI editors write <strong>scout's local DB rows only</strong> and never touch the brain — that separation is deliberate. An edit changes the criteria version going forward; existing verdicts stay put until you re-score them.</div>
         </section>
 
         <section id="doc-triage">
@@ -256,7 +256,6 @@ Return the JSON verdict now.</pre>
             <li><strong>Crunchbase facts</strong> — the structured fields, plus the full original CSV row under "Raw row".</li>
             <li><strong>Verdict</strong> — the call, the reason, the model used, and the criteria version it was scored under.</li>
             <li><strong>Enrichment</strong> — the fetched URL, the fetch status, and the stripped site text the LLM actually read.</li>
-            <li><strong>Brain context</strong> — what the brain remembers about this specific company, if anything (shown only when the brain is reachable).</li>
           </ul>
           <h4>Re-running</h4>
           <p>The <strong>unscored</strong> filter chip carries a live count of companies still awaiting a verdict. A <strong>Verdict</strong> run scores those new arrivals and leaves everything already scored untouched — so re-running is always cheap and never disturbs verdicts you've reviewed. Changing your criteria or playbook doesn't invalidate anything. When you do want a company re-judged against the latest criteria, use the <strong>↻ re-score</strong> button in its detail pane (a single, deliberate call); to refresh the whole set, run <code>scout verdict --force</code>.</p>

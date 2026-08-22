@@ -1,13 +1,14 @@
 # scout
 
 A personal **job-fit scorer**. Ingests company dumps (Crunchbase CSV), enriches
-each from its website, and asks: *given everything the brain knows about the
-user, is this company worth their time?* It reasons with its own LLM and writes
+each from its website, and asks: *given everything it knows about the user, is
+this company worth their time?* It reasons with its own LLM and writes
 the verdict to its local store. Triage happens in a small local web UI, where
 the user browses, sorts, and filters the scored candidates.
 
-Companion to [brainbot](https://github.com/slaguardia/brainbot): **brainbot holds
-the knowledge** (who the user is, what they want); **scout brings the intelligence**
+Companion to [brainbot](https://github.com/slaguardia/brainbot): **scout owns a
+local knowledge store** (who the user is, what they want — typed in the
+dashboard) that **brainbot optionally fills**; **scout brings the intelligence**
 (its LLM + a small playbook for *how* to judge). Scout is brainbot's canonical
 example consumer.
 
@@ -16,9 +17,12 @@ example consumer.
 ## Status
 
 Pipeline + web control surface are built (ingest → filter → enrich → verdict →
-triage, all drivable from the browser). The brain is wired as the primary
-source of the user's criteria over plain HTTP/JSON (`profile`/`recall`, read
-only), with `taste.md` as the offline fallback when the brain is unreachable.
+triage, all drivable from the browser). Scout runs on a local knowledge store —
+company-fit criteria, experience, voice, logistics — typed in the dashboard
+under Settings → Knowledge; scoring, outreach drafting and application answers
+all work with no brain at all. The brain is an optional source that fills that
+store over plain HTTP/JSON (`recall`/`doc`/`map`, read only); a typed doc always
+wins over what it synced.
 
 ## Quickstart
 
@@ -29,8 +33,8 @@ pip install -e ".[dev]"        # installs the `scout` command + pytest
 # Put the key in a gitignored .env (auto-loaded), or export it in your shell.
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 
-# The brain runs at http://127.0.0.1:8100 by default (and is on by default).
-# If it's down, scout logs once and falls back to taste.md.
+# The brain is optional (http://127.0.0.1:8100 by default; `--brainbot ""` disables it).
+# Scout runs on what you typed under Settings → Knowledge; the brain only fills that in.
 scout serve            # the primary interface — drive everything from the browser
                        #   upload a CSV, enrich, verdict, triage at localhost:8765
 ```
@@ -47,7 +51,7 @@ scout/            the Python package (the backend)
   anthropic/      Anthropic Messages API client (httpx, no SDK)
   brainbot/       read-only brain client (recall / doc / map)
   ingest/ capture/ enrich/ verdict/ distill/   the scoring pipeline
-  outreach/ chat/ criteria/ filter/ jobs/ taste/ playbook/   the rest
+  outreach/ chat/ criteria/ filter/ jobs/ playbook/   the rest
   web/            FastAPI app (app.py + routes/, serves the PWA + /api)
   cli.py          the `scout` command (serve, ingest, verdict, outreach, …)
 tests/            pytest suite covering the store, pipeline, and web layers
@@ -59,5 +63,5 @@ web/              Vite/TypeScript PWA (source) → builds to web/dist/
 - **Python · FastAPI** — the API + control surface, on uvicorn
 - **SQLite** — working set, via the stdlib `sqlite3` driver (no ORM)
 - **httpx** — the Anthropic Messages API + brain calls (direct HTTP, no SDK)
-- **the brain** — `recall`/`doc`/`map` over HTTP (read-only) for the user's criteria
+- **the brain** (optional) — `recall`/`doc`/`map` over HTTP (read-only), filling the local knowledge store
 - **Vite/TS PWA** — triage + control surface, served as static files by the API

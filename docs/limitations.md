@@ -117,9 +117,11 @@ All knobs, no blockers.
 
 Wanted but unbuilt. Not blocking; worth being honest about.
 
-- **A guided criteria-edit flow.** The UI editor writes `taste.md`/`playbook.md`
-  (local files only — never the brain) and shows how many verdicts an edit makes
-  stale, but there's no "preview which companies flip verdict" before saving.
+- **A guided criteria-edit flow.** The UI editors write the criteria doc and
+  the playbook as scout-local DB rows (`criteria_doc` / `playbook` singletons —
+  never the brain) and stamp the new criteria version, but there's no "preview
+  which companies flip verdict" before saving; existing verdicts just stay put
+  until re-scored.
 - **A "why was this row dropped" lookup.** Filter reports aggregate drop
   reasons; it can't yet explain a single company's drop. Easy add.
 - **An export command.** `scout export --format csv --filter verdict=yes` for
@@ -128,7 +130,7 @@ Wanted but unbuilt. Not blocking; worth being honest about.
 ## Tests
 
 Scout is no longer untested. Coverage exists across the load-bearing packages:
-`scout/brainbot`, `scout/taste`, `scout/verdict`, `scout/store`,
+`scout/brainbot`, `scout/criteria`, `scout/verdict`, `scout/store`,
 `scout/ingest`, `scout/enrich` (the suite lives in `tests/`, run with `pytest`).
 The thinnest area is end-to-end pipeline coverage on a real Crunchbase CSV; unit
 boundaries are covered.

@@ -2,15 +2,18 @@
 
 > The canonical statement of what scout is and how it's built. If any other
 > doc (or code) disagrees with this, this wins and the other is stale. Written
-> brain-first: **scout has no "taste" of its own — the user's criteria live in
-> the brain.** The word "taste" is retired; see [Terminology](#terminology).
+> knowledge-first: **scout has no "taste" of its own — it has a local knowledge
+> store of the user's own words (criteria, experience, voice, logistics), which
+> the brain optionally fills.** The word "taste" is retired; see
+> [Terminology](#terminology).
 
 ## What scout is, in one line
 
-A **job-fit scorer**: it ingests company dumps and, for each company, asks the
-brain "who is the user and what do they want?" then uses its own LLM to decide
-whether the company is worth the user's time. The brain is read-only for scout —
-verdicts stay in scout, not the brain.
+A **job-fit scorer**: it ingests company dumps and, for each company, asks its
+local knowledge store "who is the user and what do they want?" — the user's
+criteria, typed in the dashboard or filled in from the brain — then uses its own
+LLM to decide whether the company is worth the user's time. The brain is
+optional and read-only for scout — verdicts stay in scout, not the brain.
 
 It is brainbot's canonical example consumer (brainbot's `value-prop.md` names
 the "job-fit scorer" as its #1 demonstration of the pattern).
@@ -22,8 +25,9 @@ similar sources surface thousands of companies; maybe 1% are worth a serious
 look. Manual triage is slow and inconsistent, and keyword filters miss nuance —
 a "Solutions Engineer" role is on- or off-target depending on whether it's
 *building*. An LLM with real personal context can do this in batch, **if** the
-context is real (the brain), the pipeline is cheap to re-run, and the output
-feeds the existing workflow instead of replacing it.
+context is real (the user's own words — typed into scout, or synced from the
+brain), the pipeline is cheap to re-run, and the output feeds the existing
+workflow instead of replacing it.
 
 **Non-goals.** Not a send tool — scout *drafts* cold outreach and application
 answers (the outreach pipeline) but **never sends or submits**, and it doesn't
@@ -39,17 +43,19 @@ run on a fresh dump. Not auto-applying. Not multi-user — it's the user's tool.
 
 ```
                           ┌──────────┐
-                          │ the user │   browses · triages in the UI
-                          └────┬─────┘
+                          │ the user │   browses · triages · types their
+                          └────┬─────┘   knowledge (Settings → Knowledge)
                                │ browser @ localhost
    Crunchbase CSV ──────▶ ┌────┴───────────────────────────┐
                           │            scout                │
                           │  ingest → filter → enrich →     │
                           │  verdict → triage UI            │
-                          │  · SQLite (working set)         │
+                          │  · SQLite (working set +        │
+                          │    knowledge store: criteria,   │
+                          │    experience, voice, logistics)│
                           │  · Haiku (own LLM) + playbook   │
                           └────────────────┬────────────────┘
-                       reads (only)         │ the user's criteria
+                 fills the store (optional) │ reads only; a typed doc wins
                                        ┌────▼────────┐
                                        │  the brain  │
                                        │  knowledge  │
@@ -57,8 +63,9 @@ run on a fresh dump. Not auto-applying. Not multi-user — it's the user's tool.
                                        └─────────────┘
 ```
 
-Scout reads the brain (the user's criteria) but never writes it. Verdicts live
-only in scout's SQLite — scout makes no external writes.
+Scout reads the brain (optional) to fill its knowledge store but never writes
+it, and runs without it once the docs are typed. Verdicts live only in scout's
+SQLite — scout makes no external writes.
 
 ## The core principle: intelligence vs. knowledge
 
@@ -66,37 +73,53 @@ only in scout's SQLite — scout makes no external writes.
         KNOWLEDGE                              INTELLIGENCE
    (who the user is, what                 (how to judge a company
     they want, their rules)                for fit, in this domain)
-            │                                       │
-        ┌───▼────┐    reads the user's criteria  ┌─────▼──────┐
-        │ brain  │ ────────────────────────────▶ │   scout    │
-        │        │      (read-only — scout        │ (own LLM + │
-        └────────┘       never writes back)       │  playbook) │
-                                                 └────────────┘
+            │                                            │
+   ┌────────▼────────┐  reads the user's criteria  ┌─────▼──────┐
+   │ scout's local   │ ──────────────────────────▶ │   scout    │
+   │ knowledge store │                             │ (own LLM + │
+   └────────▲────────┘                             │  playbook) │
+            │ fills it (optional;                  └────────────┘
+        ┌───┴────┐  read-only — scout
+        │ brain  │  never writes back)
+        └────────┘
 ```
 
-- **The brain owns the knowledge.** Everything about the user — preferences,
-  rules, hard exclusions, history — lives there. Scout never stores or
-  duplicates it.
+- **Scout owns a local knowledge store.** Four prose docs in scout's SQLite,
+  typed in the dashboard (Settings → Knowledge): the company-fit **criteria**,
+  plus **experience**, **voice** and **logistics** for the outreach pipeline.
+  Everything about the user that scout reasons over is read from here.
+- **The brain is an optional source of record that fills it.** Scout reads the
+  brain's prose and **distills** it into a company-fit brief; the outreach
+  knowledge auto-syncs whole pages. Per doc, a typed doc always sits in front of
+  what the brain synced — there is no global "standalone mode" switch. Scout
+  never writes the brain.
 - **Scout owns the intelligence.** It brings its own LLM (Haiku) and a small
-  operating *playbook* (how to decide). It reads the brain's prose, **distills**
-  it into a company-fit brief, and reasons over that brief.
+  operating *playbook* (how to decide), and reasons over the criteria — the
+  typed doc, or the distilled brief.
 
-This split is non-negotiable. Anything that pulls the user's preferences into a
-scout-local file (the legacy `taste.md`) is a **fallback for when the brain is
-unreachable**, nothing more — and we don't invest in it.
+This split is non-negotiable. The brain is never a single point of failure: with
+the docs typed, scoring, outreach drafting and application answers all run with
+no brain at all. With nothing on file anywhere — no typed doc and nothing usable
+from the brain — scout fails loudly (`criteria.ErrNoCriteria`,
+`outreach.ErrNoExperience`) rather than scoring or drafting against nothing.
+There is no fallback file.
 
 ## Terminology (retired vs. canonical)
 
 | ❌ Don't say | ✅ Say | Why |
 |---|---|---|
-| "taste" / "taste block" | **the user's criteria** (from the brain) | "taste" implied a local file; the criteria are the brain's |
-| "taste source" | **brain** (with local fallback) | the source is the brain |
-| `taste.md` as the source | **fallback criteria** | local file is offline-only |
-| "the agent's taste" | **the playbook** (how) + **the brain** (what) | two different things, two sources |
+| "taste" / "taste block" | **the user's criteria** (the knowledge store's criteria doc) | "taste" implied a scout-local opinion; the criteria are the user's own words |
+| "taste source" | **typed** or **brain** (per doc; typed wins) | the source is the knowledge store, which the brain optionally fills |
+| `taste.md` / "fallback criteria" | **the criteria doc** (Settings → Knowledge → Criteria) | the file is gone; there is no fallback tier — only the typed doc, else the brain's brief |
+| "the agent's taste" | **the playbook** (how) + **the knowledge store** (what) | two different things, two sources |
 
-The code still uses `taste`-prefixed names (`scout/taste`, `taste.Block`,
-`taste_version`) — that's **legacy naming to be migrated**, not a contradiction
-of this doc. When you touch it, rename toward "criteria"/"brain context."
+`taste` survives in code only as the verdict provenance column
+`verdicts.taste_version` (still sha256[:12] of playbook + `"\n---taste---\n"` +
+the criteria version), the `AppState.reload_taste`/`current_taste` method names,
+and the `taste_filter` pre-filter singleton (`/api/taste-filter`). `scout/taste`,
+`taste.md`, `--taste-md` and `/api/taste` are gone — the package is
+`scout/criteria` (`criteria.Block`, `criteria.hash_text`, `criteria.from_text`)
+and the route is `/api/criteria`.
 
 ## The four inputs to a verdict
 
@@ -106,34 +129,37 @@ A single verdict decision combines four things from three sources:
 |---|---|---|
 | **Output contract** | code constant (fixed) | the required JSON shape `{verdict, reason}` — never editable |
 | **Playbook** | scout repo file (`playbook.md`) | *how* to decide: rubric, tie-breaking, "default to maybe when unsure". Scout's own logic. |
-| **The user's criteria** | **the brain** (`recall` → prose chunks, distilled by scout into a company-fit brief, cached locally) | *what* the user wants + their rules/exclusions |
+| **The user's criteria** | **scout's knowledge store** — the criteria doc typed in Settings → Knowledge, served outright; when it is empty, the brain (`recall` → prose chunks, distilled by scout into a company-fit brief, cached locally) | *what* the user wants + their rules/exclusions |
 | **This company** | scout SQLite | Crunchbase fields + enriched site text |
 
 ```
   output contract (code, fixed) ─┐
   playbook — how to decide ────┤
   the user's criteria ─────────┼──▶  Haiku  ──▶  { verdict, reason }  ──▶  SQLite (verdicts)
-    (brain: recall → distilled │
-     brief, cached locally)    │
+    (knowledge store: the typed│
+     doc, else the brain's     │
+     distilled brief, cached)  │
   this company ────────────────┘
     (scout SQLite only)
 ```
 
 The playbook is the *only* "instructions" file scout owns, and it is
-deliberately **not** user-data — it's procedure. The brain owns the rest.
+deliberately **not** user-data — it's procedure. The rest is the user's: the
+knowledge store holds it, in their own words, and the brain optionally fills it.
 
 ## The stores
 
 | Store | Holds | Disposable? |
 |---|---|---|
 | **scout SQLite** | working set: companies, enrichment, verdicts, runs | yes — rebuild from a CSV anytime |
-| **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — kept current by the change-propagation cascade (`/changes` cursor → distill basis → re-synthesize), served verbatim until the brain actually changes; stale-fallback (within `--brain-cache-ttl`) when the brain is down. See [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md) | yes — a disposable cache; the brain is the source of truth |
-| **the brain** | who the user is + what they want (the knowledge substrate) | no — the system of record for the user |
-| **playbook** (scout-local) | how scout reasons — procedure only | DB singleton, edited in the dashboard (Criteria); compiled-in default |
-| **pre-filter rules** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, vertical, stage). NOT taste/judgment. | DB singleton (`taste_filter`), edited in the dashboard (Criteria → "pre-filter"); compiled-in default ([`scout/filter/taste_default.toml`](../scout/filter/taste_default.toml)) |
+| **knowledge store** (in scout SQLite) | the user's own words, typed in Settings → Knowledge: the **criteria doc** (`criteria_doc` singleton) and the **experience / voice / logistics** docs (`outreach_sources` rows with `origin='local'`, one per need; blank deletes the row). Beside the typed rows sit the brain-synced pages (`origin='brain'`) — a sync replaces only those, a typed row survives every sync, and readers concatenate the typed doc first, then the brain pages | the typed docs: no — the user wrote them. The synced pages: yes — re-synced from the brain |
+| **brain brief cache** (in scout SQLite) | the last distilled company-fit brief, per brain URL — consulted only when the criteria doc is empty; kept current by the change-propagation cascade (`/changes` cursor → distill basis → re-synthesize), served verbatim until the brain actually changes; stale-fallback (within `--brain-cache-ttl`) when the brain is down. See [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md) | yes — a disposable cache; the brain is its source of truth |
+| **the brain** (optional) | who the user is + what they want, as source pages — fills the knowledge store (distilled into the criteria brief; whole pages synced for experience/voice/logistics) | not scout's to dispose of — and scout runs without it once the docs are typed |
+| **playbook** (scout-local) | how scout reasons — procedure only | DB singleton, edited in the dashboard (Settings → Job hunting); compiled-in default |
+| **pre-filter rules** (scout-local) | the mechanical pre-filter — cheap hard gates (location, headcount, vertical, stage). NOT taste/judgment. | DB singleton (`taste_filter`), edited in the dashboard (Settings → Job hunting → "pre-filter"); compiled-in default ([`scout/filter/taste_default.toml`](../scout/filter/taste_default.toml)) |
 
 Scout makes **no external writes**: it never writes the brain (verdicts are
-scout-local), reading it via `recall` only.
+scout-local) — it only reads it.
 
 ## The pipeline, with brain touchpoints
 
@@ -146,13 +172,16 @@ filter    mechanical PRE-FILTER for the bulk verdict:    (no brain, no LLM —
           never deletes data, hides rows from the list,
           or gates ingest/enrich. Rules = the
           `taste_filter` DB singleton, editable in the
-          dashboard (Criteria → "pre-filter") and with a
-          master on/off switch. A targeted re-score
-          BYPASSES it.
+          dashboard (Settings → Job hunting → "pre-filter")
+          and with a master on/off switch. A targeted
+          re-score BYPASSES it.
 enrich    fetch company site → text                    (no brain — company data)
-verdict   reads  the user's criteria  ← brain: recall → distilled brief
-                                         (cached locally; kept current by the
-                                          /changes cost cascade, not a TTL)
+verdict   reads  the user's criteria  ← the knowledge store: the typed criteria
+                                         doc outright (no brain call), else the
+                                         brain's distilled brief (cached locally;
+                                         kept current by the /changes cost
+                                         cascade, not a TTL). Nothing on file →
+                                         the run fails loudly (ErrNoCriteria).
           reasons  with Haiku + playbook
           writes verdict              → scout SQLite (not the brain)
 triage    browse / promote                             (no brain)
@@ -172,26 +201,37 @@ a bulk run scores everything. A targeted per-company re-score skips it entirely
 either way (the explicit ask overrides the bulk cost gate).
 
 The brain is touched in exactly one place — distilling the user's criteria
-(`recall` + a synthesis call) before `verdict`, cached locally. The synthesis
-LLM call and the verdict scoring are scout's. Everything else is brain-free.
+(`recall` + a synthesis call) before `verdict`, cached locally — and only when
+no criteria doc is typed: `criteria.Resolver.resolve()` returns a non-empty
+typed doc before any brain call (no `/changes` probe, no `/health`, no distill;
+the background reconciler keeps running but each pass is then a cheap local
+read). The synthesis LLM call and the verdict scoring are scout's. Everything
+else in the scoring pipeline is brain-free.
 
 ## How scout talks to the brain
 
 Plain **HTTP/JSON** (no MCP — that's for Claude Code). The brain is a pgvector
 **document substrate** (graphiti is gone) — a librarian that returns the prose
-most relevant to a question and never a verdict. Scout reads it through exactly
-one call:
+most relevant to a question and never a verdict. Scout reads it through a
+handful of read-only calls, each filling one part of the knowledge store:
 
 - `GET /recall?q=&k=` — hybrid search; returns the top-k matching sections as
   **prose chunks** `{heading, text, score, path}`. There are no polarity/strength
   tags — the meaning is in the text. Scout fans out a few company-fit recalls and
-  distills the results into a brief (see below).
+  distills the results into a brief (see below) — the criteria path.
+- `GET /map` + `GET /doc?id=` — the outreach knowledge sync
+  (`outreach.ensure_knowledge` → `discover`): a cheap model picks, from the map,
+  the pages that cover experience / voice / logistics; scout whole-fetches each
+  and caches it as an `origin='brain'` row beside the typed doc. An empty pick
+  for a need is a valid outcome (the draft-time gate decides over the merged
+  bundle).
+- `GET /changes?since=` — the change signal both paths key off, so a re-distill
+  or a re-sync only happens when the brain actually moved.
 
-Scout must **not** call `/profile` (now scope-required, owner-only) or `/map`,
-and must never pass a `scope` it had to "know" — `recall(query)` is the whole
-interface; the brain's folder taxonomy is the brain's business. There is no
-write path (no `capture`): the brain is fed only by sources (Notion sync),
-through the human, never by scout.
+Scout must **not** call `/profile` (scope-required, owner-only), and must never
+pass a `scope` it had to "know" — the brain's folder taxonomy is the brain's
+business. There is no write path (no `capture`): the brain is fed only by
+sources (Notion sync), through the human, never by scout.
 
 Authoritative contract: the brain's own `brain/brain/api.py` and the migration
 spec `brainbot/plans/scout-migration.md`. (The old graph reference client
@@ -199,9 +239,11 @@ spec `brainbot/plans/scout-migration.md`. (The old graph reference client
 
 ### Distilling the criteria (recall → brief)
 
-With the user's small corpus, recall is **coarse**: it returns whole pages,
-scored almost flat, mixing the relevant with the irrelevant. So scout adds an
-intelligence layer — the **distiller** (`scout/distill`) — in front of it:
+This is the brain path for the criteria — taken only when the criteria doc is
+empty. With the user's small corpus, recall is **coarse**: it returns whole
+pages, scored almost flat, mixing the relevant with the irrelevant. So scout
+adds an intelligence layer — the **distiller** (`scout/distill`) — in front of
+it:
 
 1. Fan out a few **company-fit** recalls ("what kind of company does the user
    want", "what does the user avoid", stage/size, verticals). *Companies only —
@@ -212,7 +254,11 @@ intelligence layer — the **distiller** (`scout/distill`) — in front of it:
    **synthesize** a concise **company-fit brief** from the COMPANY items only,
    with prose sections scout's LLM writes itself: *Hard dealbreakers*, *Strong
    preferences*, *Context*. Runs on `--distill-model` (default Sonnet).
-3. Cache the brief and judge every company against it.
+3. Cache the brief (`brain_profile_cache`) and judge every company against it —
+   until the user types a criteria doc, which wins outright. The Criteria editor
+   (Settings → Knowledge) shows the brain's brief beneath the typed doc, with
+   Refresh (a forced re-distill) and "Copy to editor" to seed the typed doc from
+   it.
 
 The structure (dealbreakers / preferences / context) is the distiller's
 **output**, written in prose — not tags handed over by the brain. Tagged facts
@@ -226,22 +272,30 @@ The classify + synthesize prompts are shown verbatim in
 [`verdict.md` → *The distiller prompts*](./verdict.md#the-distiller-prompts-classify--synthesize)
 — the place to tune *how* the raw notes become criteria.
 
-> **Rule:** scout gates on the brief's prose — what it states as a dealbreaker is
-> a hard skip, a requirement is a gate, a preference is a weight, context is
-> background.
+> **Rule:** scout gates on the criteria's prose — typed doc or distilled brief —
+> what it states as a dealbreaker is a hard skip, a requirement is a gate, a
+> preference is a weight, context is background.
 
 ## Invariants (don't break these)
 
-1. **Brain = knowledge, scout = intelligence.** No user-preferences baked into
-   scout except the offline fallback. The brain is **read-only** for scout —
-   verdicts are scout-local data and are never written back to the brain.
-2. **Brain is an enhancement, never a single point of failure.** If it's down,
-   scout logs and falls back to local criteria; it never hard-crashes a run.
-3. **Editor isolation.** The UI taste/playbook editor writes local files only
-   and never touches the brain client.
-4. **Gate on the brief's prose.** What the distilled brief states as a
-   dealbreaker is a gate; preferences are weights; context is background. There
-   are no polarity/strength tags — the stance is in the words. (See above.)
+1. **Scout owns a local knowledge store; the brain is an optional source of
+   record that fills it.** Scout = intelligence. The user's knowledge lives in
+   scout's SQLite in their own words (the typed docs), with the brain's synced
+   pages / distilled brief beside them; per doc, the typed doc wins. The brain
+   is **read-only** for scout — verdicts are scout-local data and are never
+   written back to the brain.
+2. **The brain is never a single point of failure.** With the docs typed,
+   scoring, outreach drafting and application answers run with no brain at all;
+   when it's down, the cached brief and the last-synced pages serve. Nothing on
+   file anywhere is a loud error (`ErrNoCriteria` fails the verdict run,
+   `ErrNoExperience` gates a draft/answer with a 412) — never a silent score or
+   draft against nothing.
+3. **Editor isolation.** The Knowledge and playbook editors write scout-local
+   rows only (`criteria_doc`, `outreach_sources`, the playbook singleton) and
+   never touch the brain client.
+4. **Gate on the criteria's prose.** What the criteria state as a dealbreaker is
+   a gate; preferences are weights; context is background. There are no
+   polarity/strength tags — the stance is in the words. (See above.)
 5. **Web-first.** The browser stays the interface; the CLI is the secondary
    automation/debug surface, kept but not primary. The UI is now a **toolkit-built
    PWA** (`web/`, consuming `@brainbot/web-toolkit`); the FastAPI server serves
@@ -256,7 +310,7 @@ The pre-filter **stays, as a purely mechanical gate** — cheap hard gates
 (location, headcount, funding stage, has-domain) that decide which companies the
 expensive verdict step bothers to score. It is **not** taste/judgment: nuanced
 fit ("is this really right for the user") happens only at verdict time, grounded
-in the brain. The name is historical; treat it as the mechanical layer.
+in the user's criteria. The name is historical; treat it as the mechanical layer.
 
 It is a **scoring gate, not a data gate**: it never deletes a company, hides one
 from the list, or gates ingest/enrich — an excluded company is stored and shown
@@ -264,8 +318,8 @@ like any other, just without a verdict until you score it. The rules are the
 `taste_filter` DB singleton (edited in the dashboard, with a master on/off
 switch); there is no longer a `taste.toml` file. Any vertical *judgment* in the
 rules (`verticals.allowed`/`excluded`) should be thinned to coarse cheap gates at
-most, with the real exclusion logic living in the brain (the user's notes),
-surfaced via recall and the distilled brief.
+most, with the real exclusion logic living in the criteria doc (the user's own
+words, or the brain's notes distilled into the brief).
 
 ## Web delivery is moving to the app platform
 
@@ -280,8 +334,8 @@ and the CLI stays the secondary surface. Data does not move to the brain/Postgre
 verdicts stay scout-local (invariant 1). The identity endpoint `GET /api/me` now
 exists (it reads the edge's `X-Auth-Request-Email` header, returning `{email}` or
 `{}`); the optional `/api/brain/*` read proxy is **not implemented** — scout has a
-purpose-built `/api/profile` for its Criteria panel and does not surface generic
-recall/doc/map. The cross-app design and migration order live in the canonical
+purpose-built `/api/profile` (the brain-brief view under Settings → Knowledge →
+Criteria) and does not surface generic recall/doc/map. The cross-app design and migration order live in the canonical
 platform doc: [brainbot/docs/app-platform.md](../../brainbot/docs/app-platform.md).
 
 ## How this relates to the other docs

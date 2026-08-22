@@ -1,12 +1,14 @@
 # scout pre-filter — structured rules for the cheap mechanical gate that runs
-# before the (paid) LLM verdict. Edited from the dashboard (Criteria →
-# "pre-filter"); this file is only the compiled-in default used until you save
-# your own. Narrative taste context for the LLM lives in taste.md; the real
-# judgment lives in the brain-derived company-fit brief.
+# before the (paid) LLM verdict. Edited from the dashboard (Settings → Job
+# hunting → "pre-filter"); this file is only the compiled-in default used until
+# you save your own. The narrative criteria the LLM judges against live in the
+# criteria doc (Settings → Knowledge → Criteria), else the brain's distilled
+# company-fit brief.
 #
 # Be conservative here — this gate is brain-free and judgment-free. Location,
 # headcount, and has-domain are unambiguous facts worth gating on cheaply.
-# Vertical include/exclude is a taste call the brain-informed LLM is better at.
+# Vertical include/exclude is a judgment call the criteria-informed LLM is
+# better at.
 
 [location]
 # Lowercased substrings. A company's free-form `location` matches if it contains

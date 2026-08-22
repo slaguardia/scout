@@ -1,8 +1,8 @@
 """The outreach-side editors: email template, follow-up template, and the
 per-stage pipeline prompts.
 
-This covers only the outreach editors (the taste/playbook/pre-filter editors live
-elsewhere). Each is a DB singleton (a save can't clobber it and git never touches
+This covers only the outreach editors (criteria/playbook/pre-filter live in
+config.py, the knowledge docs in knowledge.py). Each is a DB singleton (a save can't clobber it and git never touches
 it); the engine re-reads at draft time, so there is no reload and no taste_version
 on these.
 """

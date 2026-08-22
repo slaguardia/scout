@@ -85,7 +85,7 @@ class Distiller:
 
     def distill(self) -> tuple[str, str]:
         """Return the brief plus its stable Basis. Raises on an unreachable brain,
-        empty corpus, or LLM failure (the resolver falls back to cache / taste.md)."""
+        empty corpus, or LLM failure (the resolver falls back to the cache)."""
         res = self.run()
         return res.brief, res.basis
 

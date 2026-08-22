@@ -37,7 +37,6 @@ from scout import (
     ingest,
     outreach,
     playbook,
-    taste,
     verdict,
 )
 from scout import filter as filter_pkg
@@ -240,29 +239,24 @@ def cmd_verdict(args) -> None:
     try:
         ft = filter_pkg.taste_from_db(con)
 
-        # Resolve criteria via the shared resolver: a TTL-cached distilled brief
-        # (primary), with taste.md as the offline fallback. One Anthropic client
-        # serves both the distiller and the verdict scorer.
+        # Resolve criteria via the shared resolver: the typed criteria doc, else a
+        # TTL-cached distilled brief from the brain. One Anthropic client serves
+        # both the distiller and the verdict scorer.
         ac = anthropic.new("")
-        resolver = criteria.Resolver(
-            store=con,
-            taste_md_path=args.taste_md,
-            ttl=args.brain_cache_ttl,
-            log=_stderr,
-        )
+        resolver = criteria.Resolver(store=con, ttl=args.brain_cache_ttl, log=_stderr)
         if args.brainbot != "":
             bc = brainbot.new(args.brainbot)
             resolver.brain = bc
             resolver.distiller = distill.Distiller(
                 brain=bc, client=ac, model=args.distill_model, log=_stderr
             )
-        tb = resolver.resolve()
+        tb = resolver.resolve()  # ErrNoCriteria is the loud "nothing to score against"
 
         # Fold the playbook (how-to-decide) into the version, matching `scout
         # verdict`: a playbook edit re-scores everything.
         pb = playbook.content_or_default(con)
         if pb != "":
-            tb.version = taste.hash(pb + "\n---taste---\n" + tb.version)
+            tb.version = criteria.hash_text(pb + "\n---taste---\n" + tb.version)
             tb.source = tb.source + " + playbook"
 
         print(f"taste source={tb.source} version={tb.version}")
@@ -319,32 +313,42 @@ def cmd_distill(args) -> None:
 
 
 def cmd_outreach_sources(args) -> None:
+    from scout.store.outreach_sources import list_outreach_sources, outreach_knowledge
+
     con = store_db.open_db(args.db)
     try:
         bc = brainbot.new(args.brainbot)
         ac = anthropic.new("")
         if args.refresh:
-            try:
-                outreach.discover(bc, ac, con, "")
-            except outreach.ErrNoExperience as e:
-                _stderr(f"warning: {e}")
-            # Any other discovery error propagates.
+            outreach.discover(bc, ac, con, "")  # a discovery error propagates
         else:
             try:
                 outreach.ensure_knowledge(bc, ac, con, "", _stderr)
             except Exception as e:  # noqa: BLE001 - best-effort: warn and continue
                 _stderr(f"warning: {e}")
 
-        from scout.store.outreach_sources import list_outreach_sources
-
         srcs = list_outreach_sources(con)
+        bundles = {n.key: outreach_knowledge(con, n.key) for n in outreach.KNOWLEDGE_NEEDS}
+        # Say so here, not only at draft time: the listing is where you look.
+        try:
+            outreach.require_experience(con)
+        except outreach.ErrNoExperience as e:
+            _stderr(f"warning: {e}")
     finally:
         con.close()
     if not srcs:
-        print("(no sources — add an experience page to your brain; it syncs automatically)")
+        print(
+            "(nothing on file — type your experience in Settings → Knowledge, "
+            "or add an experience page to your brain; it syncs automatically)"
+        )
         return
     for s in srcs:
-        print(f"{s.need:<12} {s.title:<40} {s.page_id}")
+        title = s.title or ("(typed)" if s.origin == "local" else "")
+        print(f"{s.need:<12} {s.origin:<6} {title:<40} {s.page_id}")
+    if args.full:
+        # The merged bundle per need — exactly what the writer + honesty checker get.
+        for need, text in bundles.items():
+            print(f"\n===== {need} =====\n{text if text else '(empty)'}")
 
 
 def cmd_outreach_draft(args) -> None:
@@ -367,12 +371,12 @@ def cmd_outreach_draft(args) -> None:
         except Exception as e:  # noqa: BLE001
             _stderr(f"warning: {e}")
 
-        # Gate on the experience bundle (the honesty ground truth). Voice is soft.
-        if outreach_knowledge(con, "experience").strip() == "":
-            raise RuntimeError(
-                "outreach draft: no experience page found in your brain — "
-                "add one; scout syncs it automatically"
-            )
+        # Gate on the merged experience bundle (the honesty ground truth) — typed
+        # or synced, either satisfies it. Voice is soft.
+        try:
+            outreach.require_experience(con)
+        except outreach.ErrNoExperience as e:
+            raise RuntimeError(f"outreach draft: {e}")
         if outreach_knowledge(con, "voice").strip() == "":
             _stderr("warning: no voice knowledge — drafting a less-voiced email")
 
@@ -484,7 +488,6 @@ def cmd_serve(args) -> None:
     # clients, resolver, taste).
     config = Config(
         db_path=args.db,
-        taste_md_path=args.taste_md,
         ingest_source=args.source,
         distill_model=args.distill_model,
         outreach_model=args.outreach_model,
@@ -540,22 +543,21 @@ def cmd_serve(args) -> None:
 
         def brief_fn() -> str:
             """The company-fit brief for answer generation: resolve criteria over a
-            fresh connection (the shared resolver's store is request-scoped)."""
+            fresh connection (the shared resolver's store is request-scoped). No
+            criteria anywhere degrades to an empty brief — answers don't need it."""
             bcon = connect(db_path)
             try:
-                if state.resolver is not None:
-                    r = criteria.Resolver(
-                        brain=state.resolver.brain,
-                        distiller=state.resolver.distiller,
-                        store=bcon,
-                        taste_md_path=config.taste_md_path,
-                        ttl=config.brain_cache_ttl,
-                        log=_stderr,
-                    )
+                r = criteria.Resolver(
+                    brain=state.resolver.brain,
+                    distiller=state.resolver.distiller,
+                    store=bcon,
+                    ttl=config.brain_cache_ttl,
+                    log=_stderr,
+                )
+                try:
                     return r.resolve().text
-                if config.taste_md_path:
-                    return taste.load_file(config.taste_md_path).text
-                return ""
+                except criteria.ErrNoCriteria:
+                    return ""
             finally:
                 bcon.close()
 
@@ -820,7 +822,6 @@ def build_parser() -> argparse.ArgumentParser:
     # verdict
     sp = sub.add_parser("verdict", help="score enriched survivors")
     sp.add_argument("--db", default="scout.db", help="sqlite path")
-    sp.add_argument("--taste-md", default="taste.md", help="narrative taste block (for the LLM)")
     sp.add_argument(
         "--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables"
     )
@@ -860,10 +861,13 @@ def build_parser() -> argparse.ArgumentParser:
     # outreach
     sp = sub.add_parser("outreach", help="outreach knowledge sources + drafting")
     osub = sp.add_subparsers(dest="outreach_cmd", metavar="<subcommand>")
-    so = osub.add_parser("sources", help="sync + print the brain-discovered knowledge bundle")
+    so = osub.add_parser("sources", help="sync + print the outreach knowledge on file")
     so.add_argument("--db", default="scout.db", help="sqlite path")
     so.add_argument("--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP)")
     so.add_argument("--refresh", action="store_true", help="force a full re-discovery")
+    so.add_argument(
+        "--full", action="store_true", help="also print the merged bundle per need (the LLM input)"
+    )
     so.set_defaults(func=cmd_outreach_sources)
     so = osub.add_parser("draft", help="run the outreach pipeline for one posting")
     so.add_argument("--db", default="scout.db", help="sqlite path")
@@ -902,9 +906,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("serve", help="web control surface + triage UI")
     sp.add_argument("--db", default="scout.db", help="sqlite path")
     sp.add_argument("--addr", default=":8765", help="listen address")
-    sp.add_argument(
-        "--taste-md", default="taste.md", help="narrative taste block (editable in the UI)"
-    )
     sp.add_argument("--source", default="crunchbase", help="source tag for UI CSV uploads")
     sp.add_argument(
         "--brainbot", default=DEFAULT_BRAIN_URL, help="brain base URL (HTTP); empty disables"

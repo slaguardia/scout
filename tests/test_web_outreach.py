@@ -158,8 +158,16 @@ def test_mark_sent_with_contact_logs_and_arms(tmp_path, monkeypatch):
     con = open_db(db_path)
     d = outreach_drafts.create_outreach_draft(con, pid)
     outreach_drafts.set_outreach_draft_result(
-        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "",
-        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex", "[]", "", "", "",
+        con,
+        d.id,
+        outreach_drafts.DRAFT_AWAITING_REVIEW,
+        "{}",
+        "",
+        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex",
+        "[]",
+        "",
+        "",
+        "",
     )
     c = contacts.create_contact(
         con, cid, ContactInput(name="Dana Lee", role="Recruiter", email="dana@acme.com")
@@ -196,8 +204,16 @@ def test_mark_sent_reuse_for_another_contact(tmp_path, monkeypatch):
     con = open_db(db_path)
     d = outreach_drafts.create_outreach_draft(con, pid)
     outreach_drafts.set_outreach_draft_result(
-        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "",
-        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex", "[]", "", "", "",
+        con,
+        d.id,
+        outreach_drafts.DRAFT_AWAITING_REVIEW,
+        "{}",
+        "",
+        "Hi [Recipient],\n\nbody.\n\nThanks,\nAlex",
+        "[]",
+        "",
+        "",
+        "",
     )
     a = contacts.create_contact(con, cid, ContactInput(name="Dana Lee", email="dana@acme.com"))
     b = contacts.create_contact(con, cid, ContactInput(name="Robin Kim", email="robin@acme.com"))
@@ -227,7 +243,16 @@ def test_mark_sent_without_contact_does_not_log(tmp_path, monkeypatch):
     con = open_db(db_path)
     d = outreach_drafts.create_outreach_draft(con, pid)
     outreach_drafts.set_outreach_draft_result(
-        con, d.id, outreach_drafts.DRAFT_AWAITING_REVIEW, "{}", "", "body", "[]", "", "", "",
+        con,
+        d.id,
+        outreach_drafts.DRAFT_AWAITING_REVIEW,
+        "{}",
+        "",
+        "body",
+        "[]",
+        "",
+        "",
+        "",
     )
     con.close()
     assert _post(client, f"/api/outreach/drafts/{d.id}/sent").status_code == 200
@@ -265,6 +290,34 @@ def test_outreach_start_gates(tmp_path, monkeypatch):
     rec = _post(client, f"/api/postings/{pid}/outreach")
     assert rec.status_code == 202, (rec.status_code, rec.text)
     assert "voice" in rec.json()["degraded"]
+
+
+def test_outreach_gate_passes_with_typed_experience(tmp_path, monkeypatch):
+    # No brain, nothing synced: typing experience through the Knowledge editor is
+    # enough to open the draft gate — the standalone path.
+    client, cid, db_path = new_test_app(tmp_path, monkeypatch)
+    con = open_db(db_path)
+    p = postings.add_posting(con, cid, "https://acme.com/jobs/x", "X")
+    con.close()
+    client.app.state.scout.outreach = FakeOutreachRunner()
+
+    rec = _post(client, f"/api/postings/{p.id}/outreach")
+    assert rec.status_code == 412 and "Settings → Knowledge" in rec.json()["error"]
+    rec = client.put(
+        "/api/knowledge/experience",
+        content='{"content":"Five years at Globex, forward-deployed."}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert rec.status_code == 200
+    rec = _post(client, f"/api/postings/{p.id}/outreach")
+    assert rec.status_code == 202, (rec.status_code, rec.text)
+    # Clearing the typed doc closes the gate again.
+    client.put(
+        "/api/knowledge/experience",
+        content='{"content":""}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert _post(client, f"/api/postings/{p.id}/outreach?regenerate=1").status_code == 412
 
 
 def test_outreach_sources_endpoint(tmp_path, monkeypatch):

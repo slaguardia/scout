@@ -7,9 +7,11 @@ import { PromptField } from "./PromptField";
 import { PrefilterForm } from "./PrefilterForm";
 import { IntegrationsSettings } from "./IntegrationsSettings";
 import { JobHuntingSettings } from "./JobHuntingSettings";
+import { KnowledgeSettings } from "./KnowledgeSettings";
 import { OutreachSettings } from "./OutreachSettings";
 
 const GROUPS: [string, string][] = [
+  ["knowledge", "Knowledge"],
   ["outreach", "Outreach"],
   ["pipeline", "Outreach pipeline"],
   ["tracking", "Tracking"],
@@ -25,7 +27,7 @@ const PIPELINE_STAGES: [string, string, string][] = [
 ];
 
 export function SettingsView() {
-  const grp = useUI().settingsGroup || "outreach";
+  const grp = useUI().settingsGroup || "knowledge";
   const dispatch = useDispatch();
   return (
     <div className="main-view" id="settings-view">
@@ -39,7 +41,9 @@ export function SettingsView() {
             ))}
           </nav>
           <div className="settings-content" id="settings-content">
-            {grp === "pipeline" ? (
+            {grp === "knowledge" ? (
+              <KnowledgeSettings />
+            ) : grp === "pipeline" ? (
               <>
                 {PIPELINE_STAGES.map(([key, title, desc]) => (
                   <PromptField key={key} prompt={key} title={title} desc={desc} />

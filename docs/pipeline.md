@@ -9,13 +9,21 @@ are the secondary automation/debug surface. Both drive the same stages:
 ```
 ingest → filter → enrich → verdict → triage
                               │
-                  brain ──────┘  (read-only: the user's criteria, cached locally)
+          knowledge store ────┘  (scout-local: criteria typed in Settings → Knowledge,
+          ▲                       or the brain's distilled brief, cached locally)
+          │
+          brain (optional) ─── read-only source that fills the store
 ```
 
-`ingest`, `filter`, `enrich` are brain-free. The brain is touched only in
-`verdict`, and only for reads — scout recalls the user's criteria and distills
-them into a brief (cached locally) and never writes back (verdicts stay
-scout-local). Default `--brainbot` is `http://127.0.0.1:8100`; empty disables it.
+`ingest`, `filter`, `enrich` are brain-free. **Scout owns a local knowledge
+store** — four prose docs typed under Settings → Knowledge (company-fit
+criteria, experience, voice, logistics) — and the brain is an **optional**
+source that fills it: `verdict` recalls the user's criteria and distills them
+into a brief (cached locally), `outreach`/`questions` discover experience +
+voice + logistics pages. A typed doc always wins over what the brain synced,
+per doc; with the docs typed, everything runs with no brain at all. Reads only —
+scout never writes back (verdicts stay scout-local). Default `--brainbot` is
+`http://127.0.0.1:8100`; empty disables it.
 
 ---
 
@@ -97,7 +105,7 @@ unpinned `kind=other` pages write nothing too.
 
 The pre-filter is a **purely mechanical gate** — cheap hard gates that decide
 which companies the expensive verdict step bothers to score. It is *not*
-judgment; nuanced fit happens at verdict time, grounded in the brain.
+judgment; nuanced fit happens at verdict time, grounded in your criteria.
 
 **It is a scoring gate, not a data gate.** It never deletes a company, never
 hides one from the companies list, and does not run at ingest or gate enrich —
@@ -107,7 +115,7 @@ the filter excludes simply sits there with no verdict yet (`—`), and you can
 open it or [targeted-rescore](#scout-verdict) it (which bypasses the filter).
 
 The rules live in the DB as a singleton (raw TOML), **edited from the dashboard**
-(Criteria → "pre-filter") and with a **master on/off switch** — turn it off and
+(Settings → Job hunting → "pre-filter") and with a **master on/off switch** — turn it off and
 a bulk run scores everything. The compiled-in default is
 [`scout/filter/taste_default.toml`](../scout/filter/taste_default.toml). A
 targeted per-company verdict re-score **bypasses** the pre-filter entirely.
@@ -173,10 +181,11 @@ targeted per-company verdict re-score **bypasses** the pre-filter entirely.
 | **Idempotent** | Yes, by `(company_id, taste_version)`. |
 | **Requires** | `ANTHROPIC_API_KEY`. |
 
-**Flags:** `--db`, `--taste taste.toml`, `--taste-md taste.md`,
-`--playbook playbook.md`, `--brainbot URL` (default `http://127.0.0.1:8100`;
-empty disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
-`--workers 4`, `--force`, `--only-blanks`, `--company id,...`.
+**Flags:** `--db`, `--brainbot URL` (default `http://127.0.0.1:8100`; empty
+disables), `--brain-cache-ttl 6h`, `--model claude-haiku-4-5`,
+`--distill-model`, `--workers 10`, `--force`, `--only-blanks`,
+`--company id,...`. The criteria, pre-filter rules and playbook all come from
+the DB — there are no file flags.
 
 `--company id,...` (web: `company_ids` in the run body) scores exactly those
 companies and always re-scores — even a sticky manual verdict is replaced,
@@ -185,23 +194,32 @@ enrichment row are still required; companies that don't qualify are reported
 in the progress lines, not scored. The UI's per-company **re-score** button
 in the detail pane uses this.
 
-### Resolving the criteria (distilled brief, cached)
+### Resolving the criteria (typed doc, else the distilled brief, cached)
 
-The criteria are **the user's** — they come from the brain, not a scout file.
-Resolution is centralized in `scout/criteria` (`criteria.Resolver`), shared by
-both `cmd_verdict` (the CLI) and the web server, with a local SQLite cache in front of the
-brain:
+The criteria are **the user's** — typed straight into scout, or distilled from
+the brain. Resolution is centralized in `scout/criteria` (`criteria.Resolver`),
+shared by both `cmd_verdict` (the CLI) and the web server, with a local SQLite
+cache in front of the brain:
 
 ```
-fresh cached brief? (age < --brain-cache-ttl) ──yes──▶ use it
+typed criteria doc? (Settings → Knowledge → Criteria) ──yes──▶ use it (brain not consulted)
        │ no
+no brain configured ──────────────────────────────────▶ ErrNoCriteria
+       │ brain configured
+cached brief, brain unchanged since it? (Tier 0/1) ──yes──▶ use it
+       │ no cache / changed
 recall + distill (scout/distill) ──▶ brief ──▶ cache + use
        │ unreachable / distill failed
-stale cached brief? ──yes──▶ use it (brain is down)
+cached brief within --brain-cache-ttl? ──yes──▶ use it (brain is down)
        │ no
-fall back to taste.md (offline criteria)
+ErrNoCriteria — nothing to score against
 ```
 
+- **A typed doc wins outright.** The `criteria_doc` singleton
+  (`scout/store/criteria_doc.py`, edited at Settings → Knowledge → Criteria via
+  `PUT /api/criteria`) is served as-is when non-empty, source `local:criteria` —
+  no `/changes` probe, no health check, no distill, and `brain_profile_cache`
+  is left untouched. Only an empty doc falls through to the brain cascade.
 - The brief comes from the **distiller** (`scout/distill`): it fans out a few
   **company-fit** recalls (`GET /recall`), dedups the prose chunks, then runs a
   two-step pass — classify each excerpt as COMPANY vs ROLE_OR_OTHER, then
@@ -211,22 +229,33 @@ fall back to taste.md (offline criteria)
   `north-star.md` → *Distilling the criteria*.
   `/recall` is the **only** brain call; scout never passes a `scope` and never
   queries per company.
-- A distilled brief is written to `brain_profile_cache` and reused within
-  `--brain-cache-ttl` (default 6h). If the brain is unreachable *or* distillation
-  fails, a *stale* cached brief is used before scout drops to `taste.md`.
-- A brain that's **unreachable with no cache** *or* **healthy-but-empty** falls
-  back to `taste.md`. The fallback is offline-only — scout never invests in it.
-- The resolved block becomes a `taste.Block`: `text`, `source`
-  (`brain:brief@<url>` or `file:taste.md`), and `version`.
+- A distilled brief is written to `brain_profile_cache` and served verbatim
+  while the brain reports nothing moved since it (`GET /changes`, Tier 0) or the
+  re-gathered basis is unchanged (Tier 1); a real change re-synthesizes (Tier 2).
+  If the brain is unreachable *or* distillation fails, the cached brief is used
+  while it is within `--brain-cache-ttl` (default 6h) before scout gives up.
+- **Nothing anywhere** — no typed doc, and no brain / a brain that's
+  **unreachable with no usable cache** / **healthy-but-empty** — raises
+  `criteria.ErrNoCriteria`: the web verdict job fails with *"no criteria on file
+  — type them in Settings → Knowledge → Criteria, or connect a brain with
+  company-fit pages"* and `scout verdict` exits with the same error. Scoring
+  against empty criteria is never silently allowed; there is no file fallback.
+- The resolved block becomes a `criteria.Block`: `text`, `source`
+  (`local:criteria` or `brain:brief@<url>`, each `+ playbook` once the playbook
+  is folded in), and `version`.
+- `scout serve` re-resolves in the background (`criteria.reconcile_loop` →
+  `AppState.reload_taste`, every `--reconcile-interval`, default 2m) so a
+  cached brief converges to the brain on its own; with a typed doc each pass is
+  a cheap local read — `resolve()` returns before any brain call.
 - `scout distill` prints the recalled chunks + the brief without scoring — the
   debug/tuning instrument for the recall → brief step.
 
 ### `taste_version` = criteria + playbook hash
 
 `Version = sha256[:12]` of the playbook text plus the criteria text. When the
-brain learns something new, the criteria text changes → the version changes →
-those companies re-score on the next run. **That re-score is intended.** Editing
-`playbook.md` does the same.
+criteria change — you edit the typed doc, or the brain learns something new —
+the text changes → the version changes → those companies re-score on the next
+run. **That re-score is intended.** Editing the playbook does the same.
 
 ### Scoring each survivor
 
@@ -248,10 +277,10 @@ those companies re-score on the next run. **That re-score is intended.** Editing
 
 | | |
 |---|---|
-| **Input** | a `job_postings` row, the brain (experience + voice, *discovered*), the web (company research), the scout-local **email template**, and the **four pipeline-stage prompts** — each an editable system prompt with a compiled default (researcher · writer · humanizer · honesty). |
+| **Input** | a `job_postings` row, the **knowledge store** (experience + voice + logistics — typed under Settings → Knowledge and/or *discovered* from the brain), the web (company research), the scout-local **email template**, and the **four pipeline-stage prompts** — each an editable system prompt with a compiled default (researcher · writer · humanizer · honesty). |
 | **Output** | a drafted cold email on the posting, in the review queue. Scout never sends — the jobs panel is the review queue; mark-sent bumps tracking. |
-| **Idempotent** | Re-drafting replaces the draft; a regenerate **reuses the prior draft's research** instead of re-searching. Knowledge is cached in `outreach_sources` and **auto-synced** from the brain at run start (`EnsureKnowledge`: a change-aware `GET /changes` check, re-discovering only when the brain moved) — no manual refresh. |
-| **Subcommands** | `scout outreach sources [--refresh]` (sync from the brain + print the experience/voice/logistics bundle; `--refresh` forces a full re-discovery), `scout outreach draft --posting <id>` (research → draft). |
+| **Idempotent** | Re-drafting replaces the draft; a regenerate **reuses the prior draft's research** instead of re-searching. Knowledge lives in `outreach_sources` — the typed doc per need (`origin='local'`, at most one) plus brain-synced pages (`origin='brain'`) — and the brain side **auto-syncs** at run start (`ensure_knowledge`: a change-aware `GET /changes` check, re-discovering only when the brain moved; a sync replaces only `brain` rows, so a typed doc survives every sync) — no manual refresh. |
+| **Subcommands** | `scout outreach sources [--refresh] [--full]` (sync from the brain + print one `need / origin / title / page_id` row per source — a typed doc shows origin `local`, title `(typed)`; `--refresh` forces a full re-discovery; `--full` also dumps the merged bundle per need — exactly the LLM input), `scout outreach draft --posting <id>` (research → draft; works with a typed experience doc and no brain). |
 
 **Four editable LLM stages.** Every stage's system prompt has a compiled default
 in `scout/outreach` (registry in `stages.py`) and is overridable per-stage
@@ -270,10 +299,12 @@ The **email template** (a localized DB singleton) is **mostly the user's fixed
 prose** — verbatim background + closer — with the only generated holes a leashed
 **opener** (reference one real specific thing + a genuine reaction, else a plain
 intro) and a short **closer** (motivation + the ask); `{{role}}` / `{{company}}`
-substitute in. **Brain knowledge** (experience HARD / voice soft) is discovered
-via `/map`+`/doc`, not pinned, and is the honesty checker's ground truth — a thin
-experience doc makes the writer confabulate, so good source pages are the real
-lever.
+substitute in. **Knowledge** (experience HARD / voice + logistics soft) is read
+from the store per need (`outreach_knowledge`: the typed doc first, then the
+brain pages by title — every stage gets both); the brain side is discovered via
+`/map`+`/doc`, not pinned. Experience is the honesty checker's ground truth — a
+thin experience doc makes the writer confabulate, so a good experience doc
+(typed, or a good source page) is the real lever.
 
 **Behavior (engine, Sonnet):** JD pre-fetch → **researcher** (`web_search`;
 ranked *referenceable* hooks — eng/blog posts, founder theses, real launches,
@@ -282,11 +313,18 @@ never funding/taglines; a regenerate reuses the prior research) → one **fill**
 invent / never manufacture a connection; a no-send signal is a valid refusal) →
 **humanizer** (cut generic/hollow + AI tells, keep genuine *specific* warmth;
 never changes a fact) → **honesty check — the only gate** (vetoes any sender
-claim beyond the documented experience; honest → review queue, dishonest twice →
-failed). A disabled stage is skipped. Verbatim template prose is true by
-construction. Discovery fails loud (`ErrNoExperience`) when experience is empty.
-The engine wires into `serve` when `ANTHROPIC_API_KEY` is set; drafting is
-fire-and-forget. Code: `scout/outreach`.
+claim beyond the documented experience + logistics bundle, so a true location /
+work-authorization line in a hole is not flagged as invented; honest → review
+queue, dishonest twice → failed). A disabled stage is skipped. Verbatim template
+prose is true by construction. **The experience gate is at draft time, over the
+merged bundle:** `outreach.require_experience` raises `ErrNoExperience` (*"no
+experience on file — type it in Settings → Knowledge, or add an experience page
+to your brain (scout syncs it automatically)"*) when typed + synced experience
+is empty — discovery itself treats an empty pick as a valid outcome. The web
+endpoints answer `412 {"error", "need": "experience"}`; the UI's gate button
+("Add your experience") opens Settings → Knowledge. The engine wires into
+`serve` when `ANTHROPIC_API_KEY` is set; drafting is fire-and-forget. Code:
+`scout/outreach`.
 
 ---
 
@@ -297,7 +335,7 @@ fire-and-forget. Code: `scout/outreach`.
 | **Input** | a `job_postings` row (its ATS application form), plus — for generation — the same JD + company-fit brief + experience bundle + voice the email pipeline uses. |
 | **Output** | one `posting_answers` row per detected essay question, each independently editable/regenerable from the pursuit panel's "Application" section. **Scout never submits** — it drafts; you copy-paste into the ATS. |
 | **Idempotent** | Re-detect refreshes the question set; per-question Regenerate redraws one answer. |
-| **Subcommands** | `scout questions detect (--posting <id> | --all)`. Generation is on a UI button (`Engine.generate_answers`), gated on a non-empty experience bundle + `ANTHROPIC_API_KEY`. |
+| **Subcommands** | `scout questions detect (--posting <id> | --all)`. Generation is on a UI button (`Engine.generate_answers`), gated on a non-empty experience bundle (typed + synced — the same `ErrNoExperience` / `412` gate as outreach) + `ANTHROPIC_API_KEY`. |
 
 **Detection** runs at capture time (`scout/capture/questions.py`) via
 per-platform resolvers — Greenhouse `?questions=true` (official) and Ashby
@@ -320,7 +358,7 @@ than shipping it. Endpoints mirror outreach (`GET/POST
 |---|---|
 | **Input** | `companies`/`enrichment`/`verdicts`/`runs` + optional brain. |
 | **Output** | `scout triage UI at http://localhost:8765`. |
-| **Flags** | `--db`, `--addr :8765`, `--taste-md`, `--taste`, `--playbook`, `--source`, `--brainbot URL`, `--brain-cache-ttl 6h`. |
+| **Flags** | `--db`, `--addr :8765`, `--source`, `--brainbot URL`, `--brain-cache-ttl 6h`, `--reconcile-interval 2m`, `--gmail-sync-interval`, `--distill-model`, `--outreach-model`. |
 
 A toolkit-built PWA (`web/`, consuming `@brainbot/web-toolkit`, served as static
 files from `web/dist/`) plus a **full control surface** — the whole
@@ -346,8 +384,8 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 | `GET/PUT /api/followup-template` | the copy-paste follow-up template (M53; `{{var}}` substitution) |
 | `POST /api/capture` | **link-capture agent pass**: fetch + classify + extract one pasted URL; optional pinned `kind` + typed `fields` that win over extraction (412 without the key, 422 when unfetchable) |
 | `GET /api/facets` | distinct funding stages + verticals in the set (feeds the Add dialog's pickers) |
-| `GET /api/profile` | **read-only** cached distilled brief + freshness (the active criteria) |
-| `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain |
+| `GET /api/profile` | **read-only** view of the brain's cached distilled brief + freshness, plus the active criteria's source/version (a non-empty typed criteria doc still wins at resolve time) |
+| `POST /api/profile/refresh` | force a re-distill (recall + synthesis) from the brain; `404` with no brain configured, `502` when it is unreachable or empty |
 | `GET /api/stats` | counts + current criteria version/source |
 | `GET /api/meta` | capability flags (control on, brain healthy, verdict/capture key, source) |
 | `GET /healthz` | `ok` |
@@ -365,19 +403,25 @@ pipeline runs from the browser. Graceful shutdown on SIGINT/SIGTERM.
 - The runner allows one job at a time (409 Conflict if busy). Each run is
   recorded in `runs` (verdict runs stamp the criteria version).
 - `verdict` jobs 412 without `ANTHROPIC_API_KEY`. The server resolves criteria
-  through the same `scout/criteria` resolver the CLI uses (cached brief →
-  live recall + distill → stale cache → `taste.md`).
+  through the same `scout/criteria` resolver the CLI uses (typed doc → cached
+  brief → live recall + distill → cache within TTL); with nothing anywhere the
+  job fails with the *"no criteria on file — type them in Settings → Knowledge →
+  Criteria, or connect a brain with company-fit pages"* error.
 
-**Editor — local files only, never the brain**
+**Editor — scout-local rows only, never the brain**
 
 | Route | Does |
 |---|---|
-| `GET`/`PUT /api/taste` | read/write `taste.md` (the offline fallback criteria) |
-| `GET`/`PUT /api/playbook` | read/write `playbook.md` |
+| `GET`/`PUT /api/criteria` | read/write the typed company-fit criteria doc (`criteria_doc` singleton; non-empty wins over the brain's brief). Response `{kind:"criteria", content, taste_version?, taste_source?}` — the stamp only while criteria are active |
+| `GET`/`PUT /api/knowledge/{need}` | `need` ∈ `experience`\|`voice`\|`logistics`: GET → `{kind:"knowledge", need, content, brain:[{page_id,title,content,version,resolved_at}]}` (the typed doc + the brain-synced pages, read-only here); PUT `{content}` saves the typed doc, blank clears it; `404` on an unknown need |
+| `GET`/`PUT /api/playbook` | read/write the playbook (DB singleton) |
 
-A PUT re-resolves criteria + re-folds the playbook into the version (matching
-`scout verdict`). Per the editor-isolation invariant in `north-star.md`, these
-write the **local files only** and never touch the brain client.
+A criteria or playbook PUT re-folds the active criteria version
+(`state.reload_taste`, matching `scout verdict`) so the next verdict run uses
+the edit. Per the editor-isolation invariant in `north-star.md`, these write
+**scout-local rows only** and never touch the brain client — a knowledge PUT
+never touches the brain-synced rows, and a later sync never touches the typed
+row.
 
 ---
 

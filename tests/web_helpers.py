@@ -22,7 +22,7 @@ def new_test_app(tmp_path, monkeypatch):
     con = db_module.open_db(db_path)
     cid = upsert_company(con, Company(source="test", name="Acme", domain="acme.com", raw_json="{}"))
     con.close()
-    config = Config(db_path=db_path, taste_md_path=str(tmp_path / "taste.md"))
+    config = Config(db_path=db_path)
     client = TestClient(create_app(config))
     return client, cid, db_path
 

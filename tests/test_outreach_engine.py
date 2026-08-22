@@ -75,6 +75,39 @@ def test_run_happy_path(db):
     assert fake.calls == 4  # research, fill, humanize, honesty
 
 
+# (a') The honesty checker's ground truth is experience PLUS the logistics bundle
+# (typed or synced) — so a true "I'm in Denver" in a hole isn't flagged as invented.
+# Experience may be typed rather than synced; the engine sees the merged bundle.
+def test_honesty_check_sees_typed_experience_and_logistics(db):
+    from scout.store import outreach_sources
+
+    fake = FakeAnthropic(
+        [
+            RESEARCH_JSON,
+            fill_reply(HOOK_TEXT, CLOSER_TEXT),
+            humanize_reply(HOOK_TEXT, CLOSER_TEXT),
+            HONESTY_PASS,
+        ]
+    )
+    with http_server(fake.handle) as base:
+        eng = make_engine(db, base)
+        outreach_sources.put_local_source(db, "experience", "TYPED: five years at Globex.")
+        outreach_sources.put_local_source(db, "logistics", "Based in Denver, CO; US citizen.")
+        did = seed_posting_draft(db)
+        eng.run(did, False)
+    assert fake.errors == []
+    assert (
+        outreach_drafts.get_outreach_draft(db, did).status == outreach_drafts.DRAFT_AWAITING_REVIEW
+    )
+    honesty_req = json.loads(fake.reqs[3])
+    user_text = json.dumps(honesty_req["messages"])
+    assert "TYPED: five years at Globex." in user_text
+    assert "Applicant profile (biographical & logistics facts)" in user_text
+    assert "Based in Denver, CO" in user_text
+    # The fill step saw the typed experience too (it is the writer's ground truth).
+    assert "TYPED: five years at Globex." in fake.reqs[1]
+
+
 # (b) No-send: the fill declines → no_hook, no draft, no fail.
 def test_run_no_send_means_no_email(db):
     fake = FakeAnthropic([RESEARCH_JSON, NO_SEND_REPLY])

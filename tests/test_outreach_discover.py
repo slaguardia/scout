@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scout import anthropic, brainbot
-from scout.outreach import ErrNoExperience, discover, ensure_knowledge
+from scout.outreach import ErrNoExperience, discover, ensure_knowledge, require_experience
 from scout.store import outreach_sources, settings
 from tests.httpstub import http_server
 from tests.outreach_fakes import FakeAnthropic, FakeBrain
@@ -43,29 +43,73 @@ def test_discover_selects_and_caches(db):
     assert "Plain" in outreach_sources.outreach_knowledge(db, "voice")
 
 
-# An empty experience selection is a loud, blocking error — never a silent empty
-# bundle. Voice still caches.
-def test_discover_fails_loud_when_no_experience(db):
+# An empty experience selection is a valid discovery outcome (voice still
+# caches); the loud block lives at draft time, on the MERGED bundle — so a typed
+# experience doc satisfies it with no brain page at all.
+def test_discover_empty_experience_then_draft_gate(db):
     fb = FakeBrain({"voice": _doc("voice", "Voice", "x", "v1", "plain")})
     fa = FakeAnthropic(['{"experience":[],"voice":["voice"]}'])
     with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
         brain = brainbot.new(burl)
         client = anthropic.Client(api_key="k", endpoint=aurl)
-        with pytest.raises(ErrNoExperience):
-            discover(brain, client, db, "test-model")
+        discover(brain, client, db, "test-model")
     assert outreach_sources.outreach_knowledge(db, "voice") != "", "voice should still cache"
+    with pytest.raises(ErrNoExperience):
+        require_experience(db)
+    outreach_sources.put_local_source(db, "experience", "Five years at Globex.")
+    assert require_experience(db) == "Five years at Globex."
 
 
-# The model may not invent ids: an id absent from the map is ignored, which (for
-# experience) surfaces as ErrNoExperience rather than a bogus cache.
+# The model may not invent ids: an id absent from the map is ignored rather than
+# cached as a bogus experience page.
 def test_discover_ignores_hallucinated_ids(db):
     fb = FakeBrain({"voice": _doc("voice", "Voice", "x", "v1", "plain")})
     fa = FakeAnthropic(['{"experience":["does-not-exist"],"voice":["voice"]}'])
     with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
         brain = brainbot.new(burl)
         client = anthropic.Client(api_key="k", endpoint=aurl)
-        with pytest.raises(ErrNoExperience):
-            discover(brain, client, db, "test-model")
+        discover(brain, client, db, "test-model")
+    assert outreach_sources.outreach_knowledge(db, "experience") == ""
+
+
+# A discovery that finds no experience page is still a successful sync: the
+# cursor advances (no re-discovery until the brain moves again).
+def test_ensure_knowledge_advances_cursor_on_empty_experience(db):
+    fb = FakeBrain({"voice": _doc("voice", "Voice", "x", "v1", "plain")}, cursor="c7")
+    fa = FakeAnthropic(['{"experience":[],"voice":["voice"],"logistics":[]}'])
+    with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
+        brain = brainbot.new(burl)
+        client = anthropic.Client(api_key="k", endpoint=aurl)
+        ensure_knowledge(brain, client, db, "test-model", None)
+        ensure_knowledge(brain, client, db, "test-model", None)  # unchanged → no re-discovery
+    assert fa.errors == [] and fa.calls == 1
+    assert settings.get_setting(db, settings.OUTREACH_CURSOR_SETTING) == "c7"
+    assert outreach_sources.outreach_knowledge(db, "experience") == ""
+
+
+# The one safety property of the store: a sync replaces brain rows and never
+# touches the typed doc — before, a hand-written row was wiped by the next sync.
+def test_sync_never_clobbers_typed_docs(db):
+    outreach_sources.put_local_source(db, "experience", "TYPED: ten years of infra.")
+    outreach_sources.put_local_source(db, "voice", "TYPED: short sentences.")
+    fb = FakeBrain(
+        {"exp": _doc("exp", "Past Experience", "Career", "v1", "Five years at Globex.")},
+        cursor="c1",
+    )
+    fa = FakeAnthropic(['{"experience":["exp"],"voice":[],"logistics":[]}'])
+    with http_server(fb.handle) as burl, http_server(fa.handle) as aurl:
+        brain = brainbot.new(burl)
+        client = anthropic.Client(api_key="k", endpoint=aurl)
+        ensure_knowledge(brain, client, db, "test-model", None)
+    exp = outreach_sources.outreach_knowledge(db, "experience")
+    assert exp.startswith("TYPED: ten years of infra."), "typed doc first"
+    assert "Five years at Globex." in exp, "synced page appended"
+    assert outreach_sources.outreach_knowledge(db, "voice") == "TYPED: short sentences."
+    assert [(s.need, s.origin) for s in outreach_sources.list_outreach_sources(db)] == [
+        ("experience", "local"),
+        ("experience", "brain"),
+        ("voice", "local"),
+    ]
 
 
 # EnsureKnowledge is change-aware: a cold cache discovers, an unchanged brain serves

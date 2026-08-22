@@ -135,7 +135,10 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
             ft = filter_pkg.taste_from_db(con)
             tb = state.current_taste()
             if tb is None:
-                raise RuntimeError(f"no taste loaded (check {state.config.taste_md_path})")
+                raise RuntimeError(
+                    "no criteria on file — type them in Settings → Knowledge → Criteria, "
+                    "or connect a brain with company-fit pages"
+                )
             sc = verdict_pkg.Scorer(
                 con=con,
                 taste=tb,

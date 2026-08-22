@@ -50,15 +50,25 @@ KNOWLEDGE_NEEDS = [
 
 
 class ErrNoExperience(Exception):
-    """Raised by discover() when no brain page is relevant to the (hard)
-    experience need — outreach cannot run without an experience ground truth, so
-    this is a loud, blocking error, never a silent empty bundle."""
+    """Raised by require_experience() when nothing is on file for the (hard)
+    experience need — typed or synced. Outreach cannot run without an experience
+    ground truth, so this is a loud, blocking error, never a silent empty bundle."""
 
     def __init__(self) -> None:
         super().__init__(
-            "no brain page relevant to experience — outreach needs an experience source; "
-            "add experience to the brain and re-discover"
+            "no experience on file — type it in Settings → Knowledge, or add an experience "
+            "page to your brain (scout syncs it automatically)"
         )
+
+
+def require_experience(con: sqlite3.Connection) -> str:
+    """The merged experience bundle — the typed doc plus any brain-synced pages —
+    raising ErrNoExperience when it is empty. The draft-time gate: where the
+    experience came from no longer matters, only that some exists."""
+    exp = outreach_sources.outreach_knowledge(con, "experience").strip()
+    if exp == "":
+        raise ErrNoExperience()
+    return exp
 
 
 @dataclass
@@ -105,9 +115,9 @@ def discover(
 ) -> DiscoveryResult:
     """Run the discovery pass: read the brain /map, have the model select pages per
     need, whole-fetch each selected page via /doc, and cache the result in
-    outreach_sources (replacing the prior set per need). Persists everything it
-    finds, then raises ErrNoExperience if the hard experience need came back empty
-    (the caller surfaces it; the draft gate independently enforces it)."""
+    outreach_sources (replacing the prior brain-synced set per need; typed docs
+    are untouched). An empty experience pick is a valid outcome — the draft-time
+    gate (require_experience) decides over the merged bundle."""
     if model == "":
         model = anthropic.DEFAULT_MODEL  # Haiku — discovery is cheap title-matching
     m = brain.map()
@@ -156,10 +166,6 @@ def discover(
             pages.append(SourcePage(page_id=id, title=doc.title))
         outreach_sources.replace_outreach_sources(con, need.key, sources)
         result.needs.append(NeedResult(need=need.key, hard=need.hard, pages=pages))
-
-    for n in result.needs:
-        if n.hard and len(n.pages) == 0:
-            raise ErrNoExperience()
     return result
 
 
@@ -178,12 +184,11 @@ def ensure_knowledge(
 
     Best-effort by design: when the brain is unreachable or the cheap check fails
     it leaves the last-good cache in place and returns, so drafting proceeds against
-    whatever is cached (the hard-experience gate is enforced separately, at draft
-    time). It raises only when the brain reported a change but the re-discovery
-    itself failed for an unexpected reason; ErrNoExperience is a successful pass
-    that found no experience page, and still advances the cursor."""
+    whatever is on file (the hard-experience gate is enforced separately, at draft
+    time, over typed + synced rows). It raises only when the brain reported a
+    change but the re-discovery itself failed."""
     if brain is None or not brain.enabled():
-        return  # offline → serve the local cache (taste.md fallback handles a cold one)
+        return  # no brain → the store is whatever was typed (plus any earlier sync)
 
     def logf(s: str) -> None:
         if log is not None:
@@ -203,8 +208,6 @@ def ensure_knowledge(
     # Changed (or cold) → re-discover whole pages from the brain.
     try:
         discover(brain, client, con, model)
-    except ErrNoExperience:
-        pass  # a successful pass that found no experience page — still advance the cursor
     except Exception as e:  # noqa: BLE001 - surface a real re-discovery failure
         raise RuntimeError(f"re-discover outreach knowledge: {e}")
     # Store the cursor as of this discovery so the next check goes warm.

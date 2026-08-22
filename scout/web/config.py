@@ -33,12 +33,11 @@ class Config:
     # A path that doesn't exist is tolerated (the SPA handler 404s); the app
     # still boots so the API is usable headless and tests need no assets.
     static_dir: str | None = None
-    taste_md_path: str = "taste.md"
     ingest_source: str = "crunchbase"
     anthropic_api_key: str = ""  # "" → fall back to ANTHROPIC_API_KEY at the client
     distill_model: str = DEFAULT_DISTILL_MODEL
     outreach_model: str = DEFAULT_OUTREACH_MODEL
-    brain_url: str = ""  # "" disables the brain (taste.md fallback)
+    brain_url: str = ""  # "" disables the brain (the typed knowledge docs are all there is)
     brain_cache_ttl: float = DEFAULT_BRAIN_CACHE_TTL
 
     def static_path(self) -> Path | None:

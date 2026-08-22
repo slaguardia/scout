@@ -1,8 +1,9 @@
 # Verdict — the LLM call
 
 The only stage that talks to an LLM. Everything else is plumbing. For the
-architecture (brain owns knowledge, scout owns intelligence; the four inputs to
-a verdict), see [`north-star.md`](./north-star.md) — this doc is the mechanics.
+architecture (scout owns a local knowledge store, the brain is an optional
+source that fills it; the four inputs to a verdict), see
+[`north-star.md`](./north-star.md) — this doc is the mechanics.
 
 ## TL;DR
 
@@ -42,7 +43,7 @@ defaults to 4 (see **Concurrency** — scoring is sequential).
 |---|---|---|---|---|
 | 1 | **Hard contract** | *(none — leads the prompt)* | `HARD_CONTRACT` constant | No — a broken contract breaks the parser |
 | 2 | **Playbook** (how to decide) | `--- PLAYBOOK (how to decide) ---` | `playbook.md`, else `BUILTIN_RUBRIC` | Yes — operator-editable in the UI |
-| 3 | **Criteria** (what the user wants) | `--- CRITERIA (what the user wants) ---` | **the brain** (distilled brief), else `taste.md` | Brain-owned; local file is offline fallback |
+| 3 | **Criteria** (what the user wants) | `--- CRITERIA (what the user wants) ---` | the **typed criteria doc** (`criteria_doc` singleton), else **the brain**'s distilled brief | Yes — Settings → Knowledge → Criteria; the brain's brief fills in only while it's blank |
 
 The hard contract pins the output shape:
 
@@ -54,31 +55,44 @@ no preamble, no markdown fences. The JSON must have exactly two fields:
 ```
 
 The criteria block is appended verbatim — not summarized, paraphrased, or
-trimmed (the distiller already did the summarizing). The block leads with a
+trimmed (a typed doc is the user's own prose; a brain brief was already
+summarized by the distiller). The block leads with a
 short gate rubric (`HARD_GATE_RUBRIC`): the brief states dealbreakers, requirements,
 and preferences in prose, and the rubric tells the LLM to gate on dealbreakers/
 requirements and weigh preferences. (The header text reads `CRITERIA`; the
-concept is the user's criteria, from the brain. See
+concept is the user's criteria — typed, or distilled from the brain. See
 [`north-star.md` Terminology](./north-star.md#terminology-retired-vs-canonical).)
 
-### Where the criteria come from (distilled brief, cached, file-fallback)
+### Where the criteria come from (typed doc, else the brain's cached brief)
 
 Resolved once per run, before scoring, by the shared `scout/criteria`
-resolver (the same path the web server uses) with a local SQLite cache in front
-of the brain:
+resolver (the same path the web server uses). A typed doc short-circuits
+everything; otherwise a local SQLite cache sits in front of the brain:
 
 ```
-fresh cached brief? (age < --brain-cache-ttl) ── yes ──▶ use it
+typed criteria doc? (Settings → Knowledge → Criteria) ── yes ──▶ scoring (brain never consulted)
        │ no
+   brain configured? ── no ──▶ ErrNoCriteria
+       │ yes
+   cached brief (with cursor)? ── yes ──▶ brain changed since the cursor? ── no ──▶ use it
+       │ no                                  │ yes → re-gather; basis unchanged → use it, else re-distill (cache it)
+       │                                     │ unreachable → cached brief within --brain-cache-ttl? yes → use it · no → ErrNoCriteria
    recall + distill ── brief ──▶ scoring (cache it)
-       │ empty ───▶ taste.md (brain knows nothing yet)
-       │                                          unreachable / failed ──▶ stale cached brief?
-       │                                                              │ yes → use it
-       │                                                              │ no  → taste.md
-   distilled brief  ──────────────────────────────────────────────▶ scoring
+       │ unreachable / failed / empty brain ──▶ cached brief within --brain-cache-ttl?
+                                                   │ yes → use it
+                                                   │ no  → ErrNoCriteria
 ```
 
-The criteria are the **distiller's** output (`scout/distill`): a few
+A non-empty typed doc is returned outright (`Block.source = "local:criteria"`)
+— no health probe, no change probe, no distill, and `brain_profile_cache` is left
+untouched. Nothing anywhere — no typed doc, and no brain / an unreachable brain
+with no usable cache / a healthy brain with no company-fit pages — raises
+`criteria.ErrNoCriteria`; there is no empty criteria block and no file fallback.
+The web verdict job then fails with *"no criteria on file — type them in
+Settings → Knowledge → Criteria, or connect a brain with company-fit pages"*,
+and `scout verdict` exits with the same error.
+
+With no typed doc, the criteria are the **distiller's** output (`scout/distill`): a few
 company-fit `GET /recall` calls return prose chunks `{heading, text, score,
 path}`, scout dedups them, then runs a **two-step** pass — (1) **classify** every
 preference in the excerpts as `COMPANY` vs `ROLE_OR_OTHER` (with a verbatim quote
@@ -92,10 +106,15 @@ prose, and the brief states acceptable alternatives explicitly ("any one of: X,
 Y, Z"). Both calls run at `temperature: 0` on the **distiller model**
 (`--distill-model`, default Sonnet — the call is once per run, so fidelity is
 worth more than the cost; verdict scoring stays on Haiku). The brief is cached in
-`brain_profile_cache` and reused within `--brain-cache-ttl` (default 6h); when the
-brain is unreachable or distillation fails the resolver serves a *stale* cached
-brief before dropping to `taste.md`. A healthy-but-empty brain falls back to
-`taste.md` too. Default brain URL: `http://127.0.0.1:8100`.
+`brain_profile_cache` together with the brain's change cursor; a later resolve
+asks the brain whether anything moved since that cursor (`GET /changes`) and only
+re-gathers — and only re-synthesizes when the gathered basis actually changed —
+when it did. When the brain is unreachable the resolver serves the cached brief
+while it is within the `--brain-cache-ttl` ceiling (default 6h); past that it
+raises `ErrNoCriteria` rather than scoring against nothing. Default brain URL:
+`http://127.0.0.1:8100`; `--brainbot ""` disables the brain, which is fine once
+criteria are typed. The web server's background reconciler re-runs this resolve
+periodically; with a typed doc each pass is a cheap local read.
 
 ### The distiller prompts (classify → synthesize)
 
@@ -161,8 +180,9 @@ the brief (reframed as "company traits") even on a stronger model — separating
 written. Tuning study results live in the commit that introduced this.
 
 Inspect a live run with `scout distill` (prints the recalled chunks, the
-classified items, and the brief); the brief is also viewable, and
-re-distillable, in the UI's Criteria panel.
+classified items, and the brief); the brain's brief is also shown read-only
+beneath the Criteria editor in Settings → Knowledge, with **Refresh**
+(re-distill) and **Copy to editor** (seed the typed doc from it, then edit).
 
 ## User prompt
 
@@ -185,7 +205,8 @@ Return the JSON verdict now.
 Fields with no value are omitted (no `Headcount: 0` noise). The user prompt is
 purely the company's own data — Crunchbase fields plus the enriched site text.
 There is **no per-company brain lookup**: the brain's only contribution to a
-verdict is the user's criteria, which live in the cached system block, not here.
+verdict (when one is configured and no criteria are typed) is the criteria
+brief, which lives in the cached system block, not here.
 
 ## Prompt caching
 
@@ -197,18 +218,19 @@ block is amortized across every company. `Result` aggregates
 
 ## The criteria version (cache key)
 
-`verdicts.taste_version` is the cache key — `taste.hash`, the first 12 hex chars
-of sha256:
+`verdicts.taste_version` is the cache key — `criteria.hash_text`, the first 12
+hex chars of sha256:
 
 ```
 # playbook present (the shipped default):
-taste.hash(playbook + "\n---taste---\n" + criteria)
+criteria.hash_text(playbook + "\n---taste---\n" + criteria)
 # no playbook.md:
-taste.hash(criteria)
+criteria.hash_text(criteria)
 ```
 
 It deliberately covers **both** the playbook and the criteria, so editing the
-playbook *or* the brain learning something changes the version. Short for three
+playbook *or* the criteria (a typed-doc edit, or the brain learning something)
+changes the version. Short for three
 reasons: unique enough across realistic edits, readable in logs and DB
 inspections, stable across leading/trailing whitespace. Not content-addressable
 — don't depend on it for anything but cache invalidation.
@@ -225,8 +247,8 @@ if not self.company_ids and (self.only_blanks or not self.force):
         return None  # already scored — leave it untouched
 ```
 
-The skip is by **existence**, not version — editing the playbook or the brain
-learning something does NOT auto-rescore prior verdicts. Re-scoring is always
+The skip is by **existence**, not version — editing the playbook or the criteria
+does NOT auto-rescore prior verdicts. Re-scoring is always
 explicit: a `--force` run (re-scores everything) or a targeted per-company run
 (the `company_ids` path above always re-scores, since you pointed at it on
 purpose). `verdicts.taste_version` is still recorded on each verdict (the cache
@@ -266,9 +288,9 @@ Cost back-of-envelope (verify against current pricing):
 ## Where verdicts go
 
 Verdicts are written to scout's local `verdicts` table and nowhere else. Scout
-**does not** write them back to the brain — the brain is read-only for scout
-(criteria via `profile`, cached locally). Verdict data is scout-local working
-state; rebuild it from a CSV anytime.
+**does not** write them back to the brain — the brain is read-only for scout (an
+optional source for the criteria, distilled and cached locally). Verdict data is
+scout-local working state; rebuild it from a CSV anytime.
 
 ## Concurrency
 
@@ -290,7 +312,8 @@ parallelism.
 | `anthropic HTTP 429` | rate limited | lower `--workers` or wait |
 | `anthropic HTTP 5xx` | API down | retry; next run picks up failed rows |
 | `parse: no valid verdict JSON` | model returned prose | rerun; if persistent, tighten the prompt |
-| `criteria: brain unavailable …` (stderr) | brain unreachable at resolve time | harmless — resolver serves a stale cached profile, else `taste.md`; scoring continues |
+| `criteria: … unreachable …` (stderr) | brain unreachable at resolve time (never logged while a criteria doc is typed — the brain isn't consulted) | harmless while a cached brief is within the TTL ceiling — it's served stale and scoring continues; past it the run fails with the row below |
+| `no criteria on file — type them in Settings → Knowledge → Criteria, or connect a brain with company-fit pages` | `ErrNoCriteria`: no typed doc, and no brain / unreachable brain with no usable cache / brain with no company-fit pages | type criteria in Settings → Knowledge → Criteria (works with no brain at all), or point `--brainbot` at a brain that has them |
 | `considered=0`, work expected | survivors lack `ok` enrichment, or all are scored at the current version | run `scout enrich`, check `scout stats`, or `--force` |
 
 ## What this stage deliberately doesn't do

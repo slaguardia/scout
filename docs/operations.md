@@ -9,9 +9,11 @@ sideways. For *what scout is* and the brain/scout split, see
 - Python 3.12+.
 - `ANTHROPIC_API_KEY` for scoring (the `verdict` stage, including UI-triggered
   runs).
-- The brain on `http://127.0.0.1:8100` if you want live criteria (read-only).
-  **Optional** — scout caches the last profile it fetched and falls back to
-  `taste.md` when the brain is unreachable and the cache is gone.
+- The brain on `http://127.0.0.1:8100` if you want it to fill scout's knowledge
+  store (read-only). **Optional** — with the four docs typed under Settings →
+  Knowledge (criteria, experience, voice, logistics), scoring, outreach drafting
+  and application answers all run with no brain at all; a typed doc always wins
+  over what the brain synced, per doc.
 
 ## First-run
 
@@ -22,6 +24,12 @@ pip install -e .
 
 The migrations ship inside the `scout` package; the first `scout <anything>`
 call creates `scout.db` and runs them (currently through `0013`).
+
+A fresh clone with no brain is set up entirely from the browser: `scout serve`,
+then type the four docs under **Settings → Knowledge** — company-fit
+**criteria**, **experience**, **voice**, **logistics**. They live in `scout.db`
+(no file on disk); criteria alone unblocks scoring, experience alone unblocks
+outreach drafts + application answers.
 
 ## Building the web UI
 
@@ -73,8 +81,9 @@ section + the copy-paste appendix). This note is just the scout-side pointer.
 
 `scout serve` is the primary interface. Everything below the CSV — ingest,
 enrich, verdict — runs from there as background jobs with live progress, plus
-triage and the Criteria panel (view/refresh the brain profile, or edit the
-`taste.md` fallback) with the always-editable playbook.
+triage and Settings → Knowledge (the four typed docs, each with whatever the
+brain synced shown read-only beneath it; the Criteria editor also shows the
+brain's distilled brief with Refresh) with the always-editable playbook.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -84,7 +93,7 @@ scout serve
 
 Then in the browser: upload a CSV, run the stages, triage the results. The
 brain defaults to `http://127.0.0.1:8100`; pass `--brainbot ""` to disable it
-(criteria fall back to `taste.md`).
+(the typed docs are then all there is).
 
 ## Gmail integration (send + read-sync)
 
@@ -160,10 +169,11 @@ scout filter
 scout enrich
 # considered=87 fetched=87 ok=71 failed=16
 
-# 4. Score with Haiku. Criteria come from the brain (@127.0.0.1:8100) when
-#    healthy (cached locally), else taste.md.
+# 4. Score with Haiku. Criteria are the typed doc (Settings → Knowledge →
+#    Criteria) when there is one, else the brain's distilled brief
+#    (@127.0.0.1:8100, cached locally). Neither → the run fails loudly.
 scout verdict
-# taste source=brain:profile@http://127.0.0.1:8100 version=b4cd783174d6
+# taste source=local:criteria + playbook version=b4cd783174d6
 # considered=71 scored=71 skipped=0 failed=0
 #   maybe 18
 #   no    35
@@ -178,7 +188,10 @@ Re-running any stage is safe. Each stage skips work it's already done.
 
 ## How scoring resolves criteria
 
-Resolution follows the **change-propagation cost cascade** — each tier only pays
+A typed criteria doc (Settings → Knowledge → Criteria, the `criteria_doc`
+singleton) is served **outright** — no brain call, no distill, the brain cache
+untouched. Only with that doc empty does the brain's brief get resolved, and that
+resolution follows the **change-propagation cost cascade** — each tier only pays
 for the next when something genuinely changed — not a dumb TTL. The cascade is
 canonical in
 [`brainbot/docs/change-propagation.md`](../../brainbot/docs/change-propagation.md);
@@ -188,7 +201,10 @@ the `/changes` contract scout consumes is in
 ```
 scout verdict (criteria resolved once per run)
    │
-   ├─ cached brief WITH a stored cursor? → the cascade:
+   ├─ typed criteria doc on file? → served VERBATIM as local:criteria — done,
+   │     the brain is never called (the reconciler's passes are a local read too)
+   │
+   ├─ else, cached brief WITH a stored cursor? → the cascade:
    │     ├─ Tier 0  GET /changes since the cursor — one cheap call, no LLM
    │     │            └─ nothing moved → serve the cached brief VERBATIM, stamp verified_at
    │     ├─ Tier 1  brain moved → re-run recall, compare the distill basis
@@ -200,7 +216,9 @@ scout verdict (criteria resolved once per run)
    │     stored WITH the current cursor so the next run goes warm
    │
    ├─ brain unreachable → serve the cached brief while it is within the TTL
-   │     ceiling (--brain-cache-ttl); past it (or no cache) → taste.md  (logged)
+   │     ceiling (--brain-cache-ttl); past it (or no cache), or no brain
+   │     configured, or a healthy brain with no company-fit pages → ErrNoCriteria:
+   │     the run fails loudly, nothing is scored against empty criteria
    │
    └─ score with Haiku + playbook → write {verdict, reason} to SQLite
 ```
@@ -211,15 +229,15 @@ touched only for distilling the user's criteria (`recall` + one synthesis call),
 cached locally; `recall(query)` and `/changes` are the only brain calls, there is
 no per-company brain query, and scout never passes a `scope`. The TTL is no longer
 the re-distill trigger — it survives only as the ceiling above for serving an
-unverifiable cached brief, and as an input to the Criteria panel's
-**current / unverified / changed** badge (which replaced the old age-based
-"stale" pill).
+unverifiable cached brief, and as an input to the `criteria_state`
+(**current / unverified / changed**) field of `GET /api/profile`.
 
 Verdicts are written to scout's SQLite and nowhere else — the brain is
 read-only for scout. The **criteria version** (`taste_version` in the schema) is
-`sha256[:12]` of the playbook + criteria text. When the brain learns something,
-the criteria change, the version changes, and the next run re-scores. That's
-intended.
+`sha256[:12]` of the playbook + criteria text. When you edit the typed doc (or,
+with none typed, the brain learns something), the criteria change, the version
+changes, and the next run re-scores. That's intended. The active source is
+stamped as `local:criteria` or `brain:brief@<url>` (+ ` + playbook` once folded).
 
 ## Flag reference
 
@@ -240,7 +258,7 @@ Every subcommand accepts `--db <path>`, default `scout.db`.
 | `--db` | `scout.db` | SQLite path. |
 
 The pre-filter rules come from the `taste_filter` DB singleton (edited in the
-dashboard, Criteria → "pre-filter"), falling back to the compiled-in default —
+dashboard, Settings → Job hunting → "pre-filter"), falling back to the compiled-in default —
 there is no longer a `--taste` file flag.
 
 ### `scout enrich`
@@ -255,10 +273,9 @@ there is no longer a `--taste` file flag.
 
 | Flag | Default | What |
 |---|---|---|
-| `--taste-md` | `taste.md` | Offline criteria fallback, used only when the brain is unreachable or empty. |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual. Folded into the criteria version, so editing it re-scores. Optional. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the user's criteria (`recall`, distilled into a brief). **Empty disables** → `taste.md` fallback. |
-| `--brain-cache-ttl` | `6h` | Ceiling for serving a cached brief while the brain is unreachable (NOT a re-distill trigger — re-distilling is driven by the `/changes` cascade). Also feeds the Criteria panel's current/unverified state. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (HTTP). Read-only source of the criteria brief (`recall`, distilled) — consulted only when no criteria doc is typed. **Empty disables** → the typed criteria doc is all there is (none → the run fails with `ErrNoCriteria`). |
+| `--brain-cache-ttl` | `6h` | Ceiling for serving a cached brief while the brain is unreachable (NOT a re-distill trigger — re-distilling is driven by the `/changes` cascade). Also feeds `criteria_state` in `GET /api/profile`. |
 | `--model` | `claude-haiku-4-5` | Anthropic model for per-company scoring. |
 | `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 | `--workers` | `4` | Parallel API calls. |
@@ -269,10 +286,9 @@ there is no longer a `--taste` file flag.
 | Flag | Default | What |
 |---|---|---|
 | `--addr` | `:8765` | Listen address. |
-| `--taste-md` | `taste.md` | Offline criteria fallback; editable in the UI (writes the **local file only**, never the brain). |
 | `--playbook` | `playbook.md` | Scout's how-to-decide manual; editable in the UI (local file only). |
 | `--source` | `crunchbase` | Source tag for UI CSV uploads. |
-| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Primary criteria source (`recall` → distilled brief), viewable/refreshable in the UI's Criteria panel. Empty disables → `taste.md` fallback. |
+| `--brainbot` | `http://127.0.0.1:8100` | Brain base URL (read-only). Fills the knowledge store behind the typed docs: the distilled criteria brief (`recall` → brief, viewable/refreshable under Settings → Knowledge → Criteria) and the auto-synced experience / voice / logistics pages. Empty disables → the typed docs are all there is. |
 | `--brain-cache-ttl` | `6h` | How long a cached brief stays fresh before a re-distill (shared resolver). |
 | `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
 
@@ -304,7 +320,7 @@ aliases live in `scout/ingest/csv.py`. If your CSV uses an exotic
 header, either rename it or add an alias.
 
 **Filter says `total=0 survivors=0` but the CSV ingested fine**
-Sanity-check the pre-filter rules (dashboard → Criteria → "pre-filter"). Common gotchas:
+Sanity-check the pre-filter rules (Settings → Job hunting → "pre-filter"). Common gotchas:
 - `verticals.allowed` is non-empty AND your CSV uses different vertical names → nothing matches.
 - `verticals.excluded` substring is too broad — e.g. `"law"` also matches "Law Enforcement" (substring, case-insensitive).
 - `location.allowed` doesn't include "remote" but `remote_ok = false` → everyone with a remote location is dropped.
@@ -316,13 +332,25 @@ Each failure carries a `fetch_status`: `low_content`, `challenge`, `no_domain`,
 sqlite3 scout.db "SELECT company_id, fetch_status, fetch_error FROM enrichment WHERE fetch_status != 'ok'"
 ```
 
-**`brain unreachable at http://127.0.0.1:8100 ... falling back`**
-Expected when the brain is down — the resolver serves a *stale* cached profile
-if it has one, else `taste.md`, and scoring proceeds. If you want fresh criteria,
-start the brain (or `POST /api/profile/refresh` from the UI); if you don't want
-the brain at all, pass `--brainbot ""` to silence the probe. A *healthy but
-empty* brain logs `no criteria captured yet` and also falls back to `taste.md`
-until the user captures something.
+**`criteria: brain unreachable at http://127.0.0.1:8100 ...`**
+Only possible with no criteria doc typed — a typed doc is served before any
+brain call. With the brain down the resolver serves the cached brief while it's
+within the `--brain-cache-ttl` ceiling (`serving cached brief within ttl
+ceiling`) and scoring proceeds; past the ceiling, or with no cache, the run
+fails with `no criteria on file — type them in Settings → Knowledge → Criteria,
+or connect a brain with company-fit pages` — nothing is ever scored against
+empty criteria. Fix: type the criteria (no brain needed), start the brain (or
+Refresh under Settings → Knowledge → Criteria = `POST /api/profile/refresh`), or
+pass `--brainbot ""` to silence the probe. A *healthy but empty* brain (`healthy
+but has no criteria captured yet`) ends the same way until it has company-fit
+pages or you type the doc.
+
+**`no experience on file — type it in Settings → Knowledge, ...`**
+The outreach-draft / application-answer gate (`ErrNoExperience`, HTTP 412 from
+the UI): the *merged* experience bundle — the typed doc plus any brain-synced
+pages — is empty. Type it under Settings → Knowledge → Experience, or give the
+brain an experience page (it syncs on the next draft). `scout outreach sources
+--full` prints exactly what's on file per need.
 
 **Verdict says `considered=0`**
 Either no survivors (check `scout filter`), or no `ok` enrichment for the
@@ -361,12 +389,13 @@ sqlite3 scout.db
 > SELECT fetch_status, COUNT(*) FROM enrichment GROUP BY fetch_status;
 > SELECT taste_version, COUNT(*) FROM verdicts GROUP BY taste_version;   -- criteria version
 > SELECT * FROM runs ORDER BY started_at DESC LIMIT 10;                  -- run history
+> SELECT need, origin, page_id, title FROM outreach_sources;             -- knowledge store (typed = origin 'local')
 ```
 
 ## Tearing down
 
 ```bash
-rm scout.db scout.db-wal scout.db-shm   # nukes the working set
+rm scout.db scout.db-wal scout.db-shm   # nukes the working set — typed knowledge docs included
 ```
 
 The brain is untouched (scout only ever reads it).

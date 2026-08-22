@@ -6,16 +6,23 @@ project and a real tool they use — both audiences matter.
 ## Architecture — read this first
 
 **[`docs/north-star.md`](./docs/north-star.md) is canonical.** The one-line
-model: the **brain** owns the knowledge (who the user is, what they want, their
-rules); **scout** brings the intelligence (its own LLM + a `playbook.md` for
-*how* to judge). Scout reads the user's criteria from the brain (read-only) and
-reasons over them; verdicts stay scout-local and are never written back to the
-brain. There is **no scout-local "taste"** — `taste.md` is an offline fallback
-only; the **pre-filter** is a purely mechanical gate (location, headcount,
+model: **scout owns a local knowledge store** — four prose docs typed in the
+dashboard (Settings → Knowledge): company-fit **criteria**, **experience**,
+**voice**, **logistics** — and the **brain** is an *optional* source of record
+that fills it (read-only; verdicts stay scout-local and are never written back
+to the brain). **Scout** brings the intelligence (its own LLM + a `playbook.md`
+for *how* to judge). Per doc, a typed doc wins over whatever the brain synced —
+a typed criteria doc is used outright and the brain's distilled brief only when
+it is blank — and scoring, outreach drafting and application answers all run
+with **no brain at all** once the docs are typed (no "standalone mode" switch).
+There is no file fallback: nothing on file anywhere fails loudly
+(`criteria.ErrNoCriteria`, `outreach.ErrNoExperience`), never silently.
+Separately, the **pre-filter** is a purely mechanical gate (location, headcount,
 vertical, stage) that runs before the LLM verdict on a bulk run. Its rules live
 in the DB as a singleton (`taste_filter`, with a master on/off switch), edited
-from the dashboard (Criteria → "pre-filter"), with a compiled-in default in
-`scout/filter/taste_default.toml` — there is no longer a `taste.toml` file.
+from the dashboard (Settings → Job hunting → "pre-filter"), with a compiled-in
+default in `scout/filter/taste_default.toml` — there is no longer a `taste.toml`
+file.
 It gates only which companies a **bulk** verdict run scores; it never deletes
 data, hides rows, or gates ingest/enrich. Disable it (or run a targeted
 per-company re-score, which bypasses it) to score everything.
@@ -128,10 +135,13 @@ canonical port defeats that safety net — don't.
   vs ROLE_OR_OTHER (quarantines role/career leak), then synthesize a
   **company-fit brief** (Hard dealbreakers / Strong preferences / Context, in
   prose) from the COMPANY items — on `--distill-model` (default Sonnet; verdict
-  scoring stays on Haiku). The verdict engine reasons over that brief. The brief is cached locally in SQLite
+  scoring stays on Haiku). The verdict engine reasons over that brief — unless a
+  criteria doc is typed (Settings → Knowledge → Criteria), which
+  `criteria.Resolver.resolve` returns outright with no brain call. The brief is cached locally in SQLite
   (table `brain_profile_cache`, freshness via `--brain-cache-ttl`, manual
-  re-distill from the UI's Criteria panel); `taste.md` is the offline fallback
-  when the brain is unreachable and the cache is gone. The consumer surface is
+  re-distill via the Criteria editor's Refresh / `POST /api/profile/refresh`);
+  there is no file fallback — no typed doc and no usable brain or cache raises
+  `criteria.ErrNoCriteria` and the verdict run fails loudly. The consumer surface is
   `recall` + `doc` + `map` (amended 2026-06-04): `GET /doc?id=` fetches whole
   documents verbatim by stable page id, `GET /map` is the discovery surface;
   `/profile` stays owner-only and scout never passes a `scope`. Distillation is
@@ -139,6 +149,67 @@ canonical port defeats that safety net — don't.
   distill` prints the chunks + brief for tuning. Verdicts stay scout-local —
   never written to the brain. Default brain URL is `http://127.0.0.1:8100`. See
   `brainbot/plans/scout-migration.md` for the migration spec.
+- **Local knowledge store (2026-08):** four typed prose docs — **criteria ·
+  experience · voice · logistics** — under Settings → **Knowledge** (the default
+  Settings group): each a blur-to-save textarea with a provenance chip ("typed by
+  you" / "synced from the brain (N pages)" / both / "nothing on file …") and the
+  brain-synced content read-only in a collapsible beneath; the Criteria editor
+  also shows the brain's distilled brief with Refresh (re-distill) + "Copy to
+  editor". A typed doc wins per doc; the brain is an optional importer. Storage:
+  experience/voice/logistics are `outreach_sources` rows with an `origin` column
+  (`'brain'` | `'local'`, M61) — the typed doc is the one `page_id='local'` row
+  per need, written by `store.outreach_sources.put_local_source` (blank deletes
+  it); the brain sync (`ensure_knowledge` → `discover` →
+  `replace_outreach_sources`) only deletes/re-inserts `origin='brain'` rows, so a
+  typed row survives every sync; the reader `outreach_knowledge(con, need)`
+  concatenates typed first, then the brain pages (by title), so writer,
+  humanizer, honesty checker and answers drafter get both with no code change.
+  Criteria is a singleton `criteria_doc` table (M62, `scout/store/criteria_doc.py`,
+  playbook pattern): `criteria.Resolver.resolve` returns a non-empty typed doc
+  outright (`Block.source = "local:criteria"`; no `/changes`, no distill,
+  `brain_profile_cache` untouched), else the existing brain cost cascade, else
+  raises `criteria.ErrNoCriteria` (the web verdict job fails with "no criteria on
+  file — type them in Settings → Knowledge → Criteria, or connect a brain with
+  company-fit pages"; `scout verdict` exits with it). The reconciler
+  (`criteria.reconcile_loop` → `AppState.reload_taste`) keeps running but is a
+  cheap local read once a doc is typed. **Gone:** `scout/taste`, `taste.md` (+
+  its Dockerfile COPY), `--taste-md`, `Config.taste_md_path`, `GET/PUT
+  /api/taste`; renamed `taste.Block` → `criteria.Block`, `taste.hash` →
+  `criteria.hash_text`, `taste.from_brain` → `criteria.from_text`. **Unchanged:**
+  `verdicts.taste_version` (still sha256[:12] of playbook + `"\n---taste---\n"` +
+  criteria version; `Block.source` is `local:criteria` or `brain:brief@<url>`),
+  the `taste_filter` pre-filter + `/api/taste-filter`, `brain_profile_cache`,
+  and `/api/profile` + `POST /api/profile/refresh` (the brain cache view + a
+  forced re-distill; 404 with no brain configured) — "taste" survives only as
+  those names. Endpoints: `GET/PUT /api/criteria` (replaces `/api/taste`;
+  `scout/web/routes/config.py`; `{kind:"criteria", content, taste_version?,
+  taste_source?}` — the stamp only while criteria are active; a PUT re-folds via
+  `state.reload_taste` so the next verdict run uses it) and `GET/PUT
+  /api/knowledge/{need}` (`scout/web/routes/knowledge.py`, need ∈
+  experience|voice|logistics; GET → `{kind:"knowledge", need, content,
+  brain:[{page_id,title,content,version,resolved_at}]}`, PUT `{content}` saves
+  the typed doc, blank clears; 404 on an unknown need); `GET /api/outreach/sources`
+  rows carry `origin`. **`ErrNoExperience` moved to draft/answer time:**
+  discovery no longer raises it (an empty experience pick is valid);
+  `outreach.require_experience(con)` raises it over the merged bundle ("no
+  experience on file — type it in Settings → Knowledge, or add an experience page
+  to your brain (scout syncs it automatically)"), the engine's `_require_experience`
+  delegates to it, and the web gate keeps its shape — 412 `{"error", "need":
+  "experience"}` on `POST /api/postings/{id}/outreach` and the answers endpoints
+  (after one sync attempt). The **email honesty check now sees the logistics
+  bundle** (`_fill_route` passes `self._knowledge("logistics")` to
+  `_honesty_check_text`; it used to pass `""` while the answers path already
+  passed it), so a true location / work-authorization claim in a filled hole is
+  no longer flagged as invented. UI: the old read-only "Company-fit brief" pane,
+  the taste.md editor, and the "View brain knowledge" sources modal are gone
+  (Job hunting keeps Playbook + the pre-filter form); the draft/answers gate
+  button is "Add your experience" → Settings → Knowledge; `/api/meta.brain`
+  gates nothing. CLI: `scout outreach sources [--refresh] [--full]` prints
+  need / origin / title / page_id rows (typed rows: origin `local`, title
+  "(typed)"); `--full` also dumps the merged bundle per need — exactly the LLM
+  input. `scout outreach draft --posting <id>` works with a typed experience doc
+  and no brain; with nothing on file it fails loudly with the `ErrNoExperience`
+  message.
 - **Outreach pipeline — editable stage prompts + a mostly-fixed template (2026-06-13):**
   [`docs/pipeline.md`](./docs/pipeline.md) (`scout outreach`) is the reference.
   The pipeline is **four editable LLM stages — researcher · writer (fill) ·
@@ -159,18 +230,22 @@ canonical port defeats that safety net — don't.
   per user) is **mostly the user's fixed prose** — verbatim background + closer —
   with the only generated holes a leashed **opener** (reference one real specific
   thing + a genuine reaction, else a plain intro) and a short **closer**
-  (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Brain
-  knowledge** (experience + voice + logistics) is *discovered* not pinned (`discover.py`:
-  Haiku over `/map`, fetched via `/doc`, cached in `outreach_sources` (M35);
-  fail-loud `ErrNoExperience`) and **auto-syncs** — there is no manual "Refresh
-  sources" button: every draft/answer run first calls `outreach.EnsureKnowledge`,
+  (motivation + the ask); `{{role}}`/`{{company}}` substitute in. **Knowledge**
+  (experience + voice + logistics) is the local store's typed docs plus, when a
+  brain is configured, pages *discovered* not pinned (`discover.py`: Haiku over
+  `/map`, fetched via `/doc`, cached as `origin='brain'` rows in
+  `outreach_sources` (M35)) that **auto-sync** — there is no manual "Refresh
+  sources" button: every draft/answer run first calls `outreach.ensure_knowledge`,
   a change-aware sync that asks the brain `GET /changes` since the cursor stored
   in settings (`outreach_knowledge_cursor`) and only re-discovers when the brain
   actually moved (cheap no-op otherwise; serves last-good cache when the brain is
-  down). The UI's "outreach knowledge" entry is a read-only peek. It is the
+  down; never touches the typed rows). An empty discovery is a valid outcome —
+  `ErrNoExperience` is raised at draft/answer time by `outreach.require_experience`
+  over the *merged* bundle. The docs are typed under Settings → Knowledge, with
+  the synced pages shown read-only beneath. The bundle is the
   honesty checker's ground truth — a thin
   experience doc makes the writer confabulate, so the real lever is good source
-  pages. The **engine** (Sonnet): JD pre-fetch → researcher (`web_search`, ranked
+  text (typed or in the brain). The **engine** (Sonnet): JD pre-fetch → researcher (`web_search`, ranked
   *referenceable* hooks — never funding/taglines; a regenerate reuses the prior
   draft's research instead of re-searching) → fill (writes the holes; never
   invent / never manufacture a connection — honesty-checked) → humanize (cut
@@ -191,14 +266,16 @@ canonical port defeats that safety net — don't.
   `questions_status` (ok|none|unsupported|unreachable). **Generation** is on a
   button (`Engine.GenerateAnswers`, Sonnet): per question it assembles JD +
   company-fit brief + the **experience bundle** + voice + a **logistics/profile
-  bundle** (the same discovered `outreach_sources` the email pipeline uses — no
+  bundle** (the same `outreach_sources` bundles — typed + brain-synced — the
+  email pipeline uses; no
   more `PAST_EXPERIENCE_FULL` block), drafts once, then routes through the same
   outreach **honesty checker** (a false claim to a recruiter is worse than a thin
   answer); a second honesty fail keeps the answer flagged `needs_review` rather
   than shipping it. **Biographical/logistics facts** (current location, work
   authorization, comp, availability, relocation) come ONLY from the **logistics**
-  knowledge need — a soft, brain-discovered bundle that is both a grounded card
-  for the drafter and extra honesty ground truth; with no logistics page the
+  knowledge need — a soft bundle (typed in Settings → Knowledge and/or
+  brain-discovered) that is both a grounded card
+  for the drafter and extra honesty ground truth; with no logistics on file the
   drafter writes a `[fill-in]` placeholder instead of confabulating (e.g. it used
   to invent a US state), and the honesty checker now vetoes any biographical claim
   absent from the cards. One row
@@ -217,9 +294,11 @@ canonical port defeats that safety net — don't.
 
 ## What's next
 
-**Outreach go-live:** ingest the experience + voice pages into the brain (the
-knowledge then auto-syncs on the first draft — no Refresh step), and **localize
-the template** (Criteria → email template editor — your real name, sign-off, and
+**Outreach go-live:** get experience + voice (+ logistics) on file — either
+**type them under Settings → Knowledge** (the zero-brain path; drafting works
+with no brain at all) or ingest the pages into the brain (the knowledge then
+auto-syncs on the first draft — no Refresh step) — and **localize the
+template** (Settings → Outreach → email body — your real name, sign-off, and
 any verbatim prose you want in every email; it's a DB row, never committed).
 Then run the first real draft via `scout outreach draft
 --posting <id>`. The same experience bundle also unblocks

@@ -12,11 +12,10 @@ COPY pyproject.toml ./
 COPY scout ./scout
 RUN pip install --no-cache-dir .
 
-# The built PWA (Vite output, committed) served at / by the app, and the
-# criteria narrative fallback (the live DB is on /data; the playbook + pre-filter
-# defaults ship inside the scout package).
+# The built PWA (Vite output, committed) served at / by the app. The live DB —
+# including the typed knowledge docs — is on /data; the playbook + pre-filter
+# defaults ship inside the scout package.
 COPY web/dist ./web/dist
-COPY taste.md ./
 
 RUN mkdir -p /data
 EXPOSE 8765

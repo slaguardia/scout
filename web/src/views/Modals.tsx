@@ -9,7 +9,6 @@ import { DeleteJobModal } from "./modals/DeleteJobModal";
 import { DeleteContactModal } from "./modals/DeleteContactModal";
 import { SendFollowupModal } from "./modals/SendFollowupModal";
 import { EditorModal } from "./modals/EditorModal";
-import { SourcesModal } from "./modals/SourcesModal";
 import { AddDialog } from "./modals/AddDialog";
 import { RunConfirmModal } from "./modals/RunConfirmModal";
 
@@ -35,8 +34,6 @@ export function Modals() {
       return <SendFollowupModal postingId={modal.postingId} contact={modal.contact} latest={modal.latest} />;
     case "editor":
       return <EditorModal editorKind={modal.editorKind} />;
-    case "sources":
-      return <SourcesModal />;
     default:
       return null;
   }

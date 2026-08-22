@@ -14,9 +14,10 @@ Contract (verified against the brain's api.py):
     GET  /map                       -> {sources:[{id,title,path,parent_id,version}]}
     GET  /changes?since=            -> {cursor,changed}
 
-The brain is an enhancement, never a hard dependency: when it is unreachable
-callers fall back to local criteria (taste.md). If the base URL isn't configured,
-every call raises a "not configured" error.
+The brain is an enhancement, never a hard dependency: callers run on the typed
+knowledge docs (and the cached brief) without it, and fail loudly (ErrNoCriteria
+/ ErrNoExperience) only when nothing is on file. If the base URL isn't
+configured, every call raises a "not configured" error.
 """
 
 from __future__ import annotations

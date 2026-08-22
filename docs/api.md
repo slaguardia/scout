@@ -7,7 +7,8 @@ JSON API on localhost (`scout serve`, default `:8765`).
 **Source of truth: the FastAPI routers in [`scout/web/`](../scout/web/)** —
 `app.py::create_app` auto-includes one `APIRouter` per module under `routes/`,
 and the route table is the `@router` declarations across those files (`core.py`,
-`run.py`, `capture.py`, `outreach.py`, `editor.py`, `profile.py`, …). If this doc
+`run.py`, `capture.py`, `outreach.py`, `config.py`, `knowledge.py`, `editor.py`,
+`profile.py`, …). If this doc
 and the code disagree, the code wins; fix this doc. For *what scout is* and the
 brain/scout split see [`./north-star.md`](./north-star.md); for *how to run it*
 (flags, env, the `ANTHROPIC_API_KEY` requirement) see
@@ -28,15 +29,25 @@ returns. The gates, and the status code each absent capability returns:
 |---|---|---|---|
 | **Control surface** (`Runner`) | `scout serve` always wires it; nil only in tests | `/api/run/`, `/api/jobs/`, `/api/ingest` | `503` "control surface disabled" |
 | **Scoring / capture LLM** (`ANTHROPIC_API_KEY`) | key present in the server env | `POST /api/run/verdict`, LLM path of `POST /api/capture` | `412` "needs ANTHROPIC_API_KEY…" |
-| **Editor paths** | `--taste-md` / `--playbook` configured | `/api/taste`, `/api/playbook` | `503` "&lt;kind&gt; path not configured" |
+| **Editors** | always — scout-local DB rows, no flag | `/api/criteria`, `/api/knowledge/{need}`, `/api/playbook` | — (never gated) |
 | **Outreach engine** | engine wired (set when `ANTHROPIC_API_KEY` is present) | `POST /api/postings/{id}/outreach` | `503` "outreach pipeline not wired…" |
-| **Brain** (`--brainbot`, reachable) | brain configured and healthy | `POST /api/profile/refresh`, `POST /api/outreach/sync` | `404`/`412` "brain not configured" |
+| **Brain** (`--brainbot`, reachable) | brain configured and healthy | `POST /api/profile/refresh` | `404` "brain not configured" |
 
 Note the split: scoring/capture (the LLM stages) return **412 Precondition
-Failed** when the API key is missing; the control surface, editor, and outreach
-engine return **503 Service Unavailable** when their capability is absent. A
-client should treat 412 as "the server is up but this action needs a key" and
-503 as "this build doesn't have this capability."
+Failed** when the API key is missing; the control surface and outreach engine
+return **503 Service Unavailable** when their capability is absent. A client
+should treat 412 as "the server is up but this action needs a key" and 503 as
+"this build doesn't have this capability."
+
+The brain gates almost nothing. Scout owns a local knowledge store (criteria,
+experience, voice, logistics — typed under Settings → Knowledge, read and written
+through `/api/criteria` and `/api/knowledge/{need}`); the brain is an optional
+source that fills it. Scoring, drafting, and answers all run with no brain once
+the docs are typed. The one knowledge gate is **experience**: drafting and
+answers return `412 {"error": …, "need": "experience"}` when nothing is on file
+for it (neither a typed doc nor a brain-synced page); a verdict run fails with
+"no criteria on file" when neither a typed criteria doc nor a brain brief is
+available.
 
 ---
 
@@ -70,7 +81,7 @@ server is up (one LLM-gated exception: `/api/capture`).
 | `POST` | `/api/postings/bulk` | Move a set of postings to one application stage (`{ids: [...], application_status}`); returns `{updated}`. The jobs view's bulk action — e.g. archive everything still in flight once an offer lands. | Unknown ids are skipped, not fatal. `400` when `ids` isn't a list or the label is over-long. |
 | `PUT`·`POST` | `/api/postings/{id}` | Application-lifecycle update (full tracking state). | `400` on a bad field; `404` on unknown id. |
 | `GET` | `/api/postings/{id}/outreach` | The posting's draft queue, newest first (`{drafts}`). | See **Outreach**. |
-| `POST` | `/api/postings/{id}/outreach` | Start an outreach draft (`202` + the new row). | Needs the **outreach engine** (`503` when absent); `412` w/ `missing_blocks` when context blocks aren't healthy; `409` if a draft is already active. |
+| `POST` | `/api/postings/{id}/outreach` | Start an outreach draft (`202` + the new row). | Needs the **outreach engine** (`503` when absent); `412` `{error, need:"experience"}` when the merged experience bundle (typed doc + brain-synced pages) is empty — a configured brain is synced once before blocking; `409` if a draft is already active. |
 | `PUT`·`POST` | `/api/postings/{id}/next-up` | Toggle the "next up for outreach" queue mark (`{next_up: bool}`). | `404` on unknown id. |
 | `PUT`·`POST` | `/api/postings/{id}/company` | Re-link the posting to a different **existing** company (`{company_id}`); returns `{posting, company_id, company_name}`. Fixes a wrong-twin capture — drafts/answers/tracking travel with the row. | `400` on unknown/blank company (never a silent create); `404` on unknown posting. |
 | `POST` | `/api/capture` | Link-capture agent pass on one pasted URL (`{url, kind?, fields?}`). | ATS posting links resolve via public JSON, **no LLM, no key**. Any other link needs `ANTHROPIC_API_KEY` → `412`. Unfetchable page → `422` with `{error, fetch_status}` (JSON). `400` on a bad url/kind. |
@@ -92,9 +103,12 @@ All gated on the **Runner** — `503` "control surface disabled" when nil.
 
 ## Brain profile (read-only distilled company-fit brief)
 
-The locally-cached company-fit brief the verdict stage feeds the LLM. The brain
-is **read-only** for scout — refresh only re-reads the brain and updates the
-local cache; it never writes the brain.
+The locally-cached company-fit brief distilled from the brain
+(`brain_profile_cache`). It is what the verdict stage feeds the LLM **only when
+no criteria doc is typed** — a non-empty `PUT /api/criteria` wins outright at
+resolve time and leaves this cache untouched. The brain is **read-only** for
+scout — refresh only re-reads the brain and updates the local cache; it never
+writes the brain.
 
 | Method | Path | Purpose | Gating / Notes |
 |---|---|---|---|
@@ -104,13 +118,14 @@ local cache; it never writes the brain.
 ## Outreach
 
 The draft queue lives per-posting under `/api/postings/{id}/outreach` (above);
-`/api/outreach/*` is the shared block + draft surface. The draft-start path needs
-the outreach engine; block sync needs the brain.
+`/api/outreach/*` is the shared sources + draft surface. The draft-start path
+needs the outreach engine. There is no sync route: the brain-synced knowledge
+refreshes itself at draft/answer time (change-aware, a no-op when the brain
+hasn't moved or isn't configured).
 
 | Method | Path | Purpose | Gating / Notes |
 |---|---|---|---|
-| `GET` | `/api/outreach/blocks` | Cached context-block statuses (no brain call) (`{blocks}`). | — |
-| `POST` | `/api/outreach/sync` | Refresh the context blocks from the brain (`{blocks}`). | `412` "brain not configured"; `502` on a brain error. |
+| `GET` | `/api/outreach/sources` | The knowledge sources without their content (`{sources:[{need,page_id,title,version,resolved_at,origin}], needs}`) — `origin` is `local` for a typed doc (`page_id` `local`) or `brain` for a synced page. Read-only; typed docs are edited via `/api/knowledge/{need}`. | — |
 | `GET` | `/api/outreach/drafts/{id}` | One draft. | `404` unknown id. |
 | `PUT` | `/api/outreach/drafts/{id}` | Save the user's edit (re-lints) (`{edited}`). | `409` if the draft isn't `awaiting_review`/`no_hook` (only those are editable). |
 | `POST` | `/api/outreach/drafts/{id}/sent` | Mark the draft sent (bumps posting tracking). | `404` unknown id. |
@@ -126,16 +141,19 @@ edited from the dashboard. The engine re-reads them at draft time — no restart
 | `GET` | `/api/outreach-prompts` | List the editable pipeline stages (`{prompts:[{stage,title,description,enabled,skippable,is_overridden}]}`). | — |
 | `GET`·`PUT` | `/api/outreach-prompts/{stage}` | One stage's system prompt + on/off. `PUT {content}` saves an override; `{enabled}` toggles the stage (the `fill`/Writer stage can't be disabled); `{reset:true}` reverts to the compiled default. Stages: `researcher`·`fill`·`humanizer`·`honesty`·`judge`. | `404` unknown stage. |
 
-## Editor (taste / playbook — brain-isolated, local files only)
+## Editor (criteria / knowledge / playbook — brain-isolated, scout-local rows)
 
-These read and write **only** the local instruction files; nothing here touches
-the brain (enforced by construction — the editor handler imports no brain
-client). Gated on the path being configured.
+These read and write **only** scout-local DB rows — the typed knowledge store
+behind Settings → Knowledge plus the playbook; nothing here touches the brain
+(enforced by construction — the handlers import no brain client). A typed doc
+sits in front of whatever the brain synced for that doc and survives every sync.
+Never gated.
 
 | Method | Path | Purpose | Gating / Notes |
 |---|---|---|---|
-| `GET`·`PUT` | `/api/taste` | Read / write `taste.md` (the offline criteria fallback) + report the folded criteria version. | `503` "taste path not configured" when `--taste-md` is unset. |
-| `GET`·`PUT` | `/api/playbook` | Read / write `playbook.md` (scout's how-to-decide manual). | `503` "playbook path not configured" when `--playbook` is unset. |
+| `GET`·`PUT` | `/api/criteria` | Read / write the typed company-fit criteria doc (`criteria_doc` singleton). `PUT {content}`; response `{kind:"criteria", content, taste_version?, taste_source?}` — the stamp is present only when criteria are active. A non-empty doc is used **outright** for scoring (source `local:criteria`, no brain call); blank falls back to the brain's cached brief. A `PUT` re-folds the active criteria so the next verdict run uses it. | — |
+| `GET`·`PUT` | `/api/knowledge/{need}` | Read / write one typed knowledge doc, `need` ∈ `experience`·`voice`·`logistics`. `GET` → `{kind:"knowledge", need, content, brain:[{page_id,title,content,version,resolved_at}]}` (`content` is the typed doc; `brain` the synced pages, read-only here). `PUT {content}` saves the typed doc (blank clears it) and returns the same payload. | `404` unknown need. |
+| `GET`·`PUT` | `/api/playbook` | Read / write the playbook (scout's how-to-decide manual; a DB singleton, compiled default when blank) + report the folded criteria version. | — |
 
 ---
 
@@ -180,13 +198,14 @@ accordingly.
   (no edge) `/api/me` returns `{}` and the PWA shows an anonymous/dev state.
 - **The brain reads go through scout's proxy** *(target)*. Today the only brain
   exposure to the client is the distilled-brief view (`/api/profile`) and the
-  outreach block sync — scout calls the brain server-side; the client never talks
-  to the brain directly. The platform's toolkit `recall()`/`doc()`/`map()` client
-  reaches the brain through a per-app **proxy** on the app's own backend (so the
-  edge auth header rides along and the brain never publishes a public port). For
-  scout that means a future `/api/brain/*` proxy — it **does not exist yet**;
-  there is currently no `/api/brain/*` route. Until then the brain stays
-  server-side behind `/api/profile` and `/api/outreach/sync`.
+  brain-synced pages echoed by `/api/knowledge/{need}` — scout calls the brain
+  server-side; the client never talks to the brain directly. The platform's
+  toolkit `recall()`/`doc()`/`map()` client reaches the brain through a per-app
+  **proxy** on the app's own backend (so the edge auth header rides along and
+  the brain never publishes a public port). For scout that means a future
+  `/api/brain/*` proxy — it **does not exist yet**; there is currently no
+  `/api/brain/*` route. Until then the brain stays server-side behind
+  `/api/profile` and the draft-time knowledge sync.
 - **Data stays local.** Scout's working set (companies, enrichment, verdicts,
-  runs, drafts) lives in local SQLite and stays there through the re-home — the
-  brain is read-only and is not a data store for scout.
+  runs, drafts, the typed knowledge docs) lives in local SQLite and stays there
+  through the re-home — the brain is read-only and is not a data store for scout.

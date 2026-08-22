@@ -1,15 +1,15 @@
 # scout — docs
 
 Start with **[north-star.md](./north-star.md)** — it's the canonical
-architecture (what scout is, the brain-as-knowledge / scout-as-intelligence
-split, the diagrams, the stores, the invariants). Everything else is reference
+architecture (what scout is, the knowledge-store / scout-as-intelligence split —
+the brain optionally fills the store — the diagrams, the stores, the invariants). Everything else is reference
 and links back to it.
 
 | Doc | What it covers |
 |---|---|
 | [north-star.md](./north-star.md) | **Canonical. Start here.** Architecture, diagrams, the four verdict inputs, the stores, invariants. |
 | [pipeline.md](./pipeline.md) | Each command in detail (ingest → filter → enrich → verdict, plus `scout outreach` / `scout questions` / `serve`): inputs, behavior, idempotency. The web UI is the primary interface. |
-| [verdict.md](./verdict.md) | The LLM call: prompt assembly, brain-primary criteria, prompt caching. |
+| [verdict.md](./verdict.md) | The LLM call: prompt assembly, criteria resolution (typed doc, else the brain's brief), prompt caching. |
 | [enrichment.md](./enrichment.md) | About-page fetch, HTML strip, fetch-status taxonomy. |
 | [data-model.md](./data-model.md) | SQLite schema — every table and why it exists. |
 | [api.md](./api.md) | The HTTP `/api/*` contract clients build against. |

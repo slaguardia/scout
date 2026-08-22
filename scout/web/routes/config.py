@@ -1,12 +1,12 @@
-"""The criteria editors that live outside the outreach pipeline: the taste.md
-narrative fallback (a file), the structured pre-filter rules (a DB singleton),
-the verdict playbook (a DB singleton), and the read-only filter-options
-vocabularies.
+"""The criteria editors that live outside the outreach pipeline: the typed
+company-fit criteria doc (a DB singleton that wins over the brain's brief), the
+structured pre-filter rules (a DB singleton), the verdict playbook (a DB
+singleton), and the read-only filter-options vocabularies.
 
-None of these touch the
-brain. A taste.md or playbook save re-folds the active criteria version
-(state.reload_taste) so new verdicts use the edit immediately; the pre-filter is a
-mechanical gate the verdict provenance hash doesn't track, so it has no version.
+None of these touch the brain. A criteria or playbook save re-folds the active
+criteria version (state.reload_taste) so new verdicts use the edit immediately;
+the pre-filter is a mechanical gate the verdict provenance hash doesn't track,
+so it has no version.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from starlette.responses import Response
 
 from scout import filter as filter_pkg
 from scout import playbook as playbook_pkg
+from scout.store import criteria_doc as criteria_store
 from scout.store import playbook as playbook_store
 from scout.store import taste_filter as taste_filter_store
 
@@ -36,44 +37,23 @@ def _criteria_stamp(state: AppState, out: dict) -> dict:
     return out
 
 
-# --- taste.md (the narrative fallback, a file) -------------------------------
+# --- criteria doc (DB singleton; non-empty wins over the brain) ---------------
 
 
-@router.get("/api/taste")
-def get_taste(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
-    path = state.config.taste_md_path
-    if path == "":
-        return json_error("taste path not configured", 503)
-    content = ""
-    try:
-        with open(path, encoding="utf-8") as f:
-            content = f.read()
-    except FileNotFoundError:
-        content = ""
-    except OSError as e:
-        return json_error(str(e), 500)
-    return json_response(
-        _criteria_stamp(state, {"kind": "taste", "path": path, "content": content})
-    )
+@router.get("/api/criteria")
+def get_criteria(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+    content = criteria_store.get_criteria_doc(con)
+    return json_response(_criteria_stamp(state, {"kind": "criteria", "content": content}))
 
 
-@router.put("/api/taste")
-def put_taste(
+@router.put("/api/criteria")
+def put_criteria(
     raw: bytes = Depends(raw_body), con=Depends(get_db), state: AppState = Depends(get_state)
 ) -> Response:
-    path = state.config.taste_md_path
-    if path == "":
-        return json_error("taste path not configured", 503)
     content = _s(decode_json(raw), "content")
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-    except OSError as e:
-        return json_error("write taste: " + str(e), 500)
+    criteria_store.put_criteria_doc(con, content)
     state.reload_taste()  # adopt the edited criteria for new scores immediately
-    return json_response(
-        _criteria_stamp(state, {"kind": "taste", "path": path, "content": content})
-    )
+    return json_response(_criteria_stamp(state, {"kind": "criteria", "content": content}))
 
 
 # --- playbook (DB singleton) -------------------------------------------------

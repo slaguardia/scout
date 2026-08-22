@@ -22,7 +22,7 @@ from scout import anthropic, brainbot
 from scout.store import companies, enrichment, outreach_drafts, outreach_sources, postings
 
 from .answers import _AnswersMixin, format_violations
-from .discover import ensure_knowledge
+from .discover import ensure_knowledge, require_experience
 from .jdfetch import JD_MAX_CHARS, JDResult, fetch_jd, trunc
 from .jsonutil import extract_json_object
 from .stages import _StagesMixin
@@ -104,8 +104,8 @@ class Engine(_StagesMixin, _AnswersMixin):
             self._log(f"outreach: draft {draft_id} set stage {stage}: {e}")
 
     def _knowledge(self, need: str) -> str:
-        """The cached whole-fetched bundle for a need (experience / voice /
-        logistics), or "" when discovery has resolved no source for it."""
+        """The bundle on file for a need (experience / voice / logistics) — the
+        typed doc plus any brain-synced pages — or "" when there is nothing."""
         try:
             s = outreach_sources.outreach_knowledge(self.con, need)
         except Exception as e:  # noqa: BLE001
@@ -114,14 +114,10 @@ class Engine(_StagesMixin, _AnswersMixin):
         return s.strip()
 
     def _require_experience(self) -> str:
-        """The experience bundle, erroring loud when it is empty. Experience is the
-        honesty checker's ground truth, so an empty bundle must block drafting."""
-        exp = self._knowledge("experience")
-        if exp != "":
-            return exp
-        raise RuntimeError(
-            "no experience page found in your brain — add one; scout syncs it automatically"
-        )
+        """The experience bundle, erroring loud (ErrNoExperience) when it is empty.
+        Experience is the honesty checker's ground truth, so an empty bundle must
+        block drafting."""
+        return require_experience(self.con)
 
     def _ensure_knowledge(self) -> None:
         """Auto-sync the outreach knowledge cache from the brain before a run reads
@@ -263,6 +259,10 @@ class Engine(_StagesMixin, _AnswersMixin):
         user's own, true by construction)."""
         vars = {"role": role, "company": company}
         holes = tmpl.holes(vars)
+        # The honesty checker's ground truth is experience plus the logistics
+        # bundle (location, work authorization…) — without it a true "I'm in
+        # Denver" in a hole is flagged as invented.
+        logistics = self._knowledge("logistics")
         if not holes:
             email = tmpl.render(vars, None)
             outreach_drafts.set_outreach_draft_result(
@@ -318,7 +318,7 @@ class Engine(_StagesMixin, _AnswersMixin):
             verdict, honest, violations = "pass", True, []
             if self.stage_enabled("honesty"):
                 self._set_stage(draft_id, STAGE_HONESTY)
-                verdict, violations = self._honesty_check_text(exp, "", holes_text)
+                verdict, violations = self._honesty_check_text(exp, logistics, holes_text)
                 honest = verdict == "pass"
 
             self._log(f"outreach: draft {draft_id} attempt {attempt + 1} — honesty {verdict}")

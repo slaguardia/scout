@@ -10,6 +10,7 @@ from web_helpers import new_test_app, open_db
 
 from scout import anthropic, jobs
 from scout.store import companies as companies_store
+from scout.store import criteria_doc
 from scout.store import enrichment as enrichment_store
 from scout.store import verdicts as verdicts_store
 from scout.web.routes.run import _needs_ok_enrichment
@@ -92,10 +93,10 @@ def test_verdict_run_autoenriches_first(tmp_path, monkeypatch):
     # re-fetch.
     client, acme, db_path = new_test_app(tmp_path, monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # satisfy the verdict gate
-    (tmp_path / "taste.md").write_text("Prefer AI dev-tooling companies.\n")
     client.app.state.scout.runner = jobs.Runner()
 
     con = open_db(db_path)
+    criteria_doc.put_criteria_doc(con, "Prefer AI dev-tooling companies.\n")
     # Acme already enriched -> scored, not re-fetched. A second company with no
     # domain can't be fetched -> auto-enrich is a no-op for it, score skips it.
     enrichment_store.upsert_enrichment(

@@ -18,6 +18,7 @@ from .discover import (
     SourcePage,
     discover,
     ensure_knowledge,
+    require_experience,
 )
 from .engine import Engine
 from .jdfetch import JD_MAX_CHARS, JDResult, fetch_jd, strip_tags, trunc
@@ -45,6 +46,7 @@ __all__ = [
     "Engine",
     "discover",
     "ensure_knowledge",
+    "require_experience",
     "ErrNoExperience",
     "Need",
     "NeedResult",

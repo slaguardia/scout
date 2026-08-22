@@ -124,7 +124,7 @@ export function DraftsRegion({ posting: j }: { posting: Posting }) {
         ) : null}
       </div>
       {gate ? (
-        <InputGate gate={gate} onFix={() => (gate.need === "template" ? dispatch({ type: "openModal", modal: { kind: "editor", editorKind: "outreach-template" } }) : dispatch({ type: "openModal", modal: { kind: "sources" } }))} onRetry={() => start(false, skipResearch)} />
+        <InputGate gate={gate} onFix={() => (gate.need === "template" ? dispatch({ type: "openModal", modal: { kind: "editor", editorKind: "outreach-template" } }) : dispatch({ type: "gotoKnowledge" }))} onRetry={() => start(false, skipResearch)} />
       ) : !suppressStart ? (
         <div className="draft-actions">
           <button className="btn btn-primary" id="draft-start-btn" disabled={busy} onClick={() => start(false, skipResearch)}>
@@ -153,7 +153,7 @@ export function DraftsRegion({ posting: j }: { posting: Posting }) {
 }
 
 function InputGate({ gate, onFix, onRetry }: { gate: GateState; onFix: () => void; onRetry: () => void }) {
-  const label = gate.need === "template" ? "Write email template" : "View brain knowledge";
+  const label = gate.need === "template" ? "Write email template" : "Add your experience";
   return (
     <div className="blocks-gate">
       <div className="draft-note">{gate.error || "Outreach isn't set up yet."}</div>

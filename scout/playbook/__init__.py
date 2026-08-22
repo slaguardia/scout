@@ -1,8 +1,8 @@
 """Package playbook loads the verdict agent's operating manual.
 
 The playbook is the *how* of triage — procedural instructions for making the call
-(handling ambiguity, weak signal, tie-breaking) — as opposed to taste (the *what*:
-the user's preferences) and the brain (memory).
+(handling ambiguity, weak signal, tie-breaking) — as opposed to the criteria (the
+*what*: the user's preferences, from the knowledge store).
 
 It lives in the DB (a singleton row) so a dashboard save can't clobber it and git
 never touches it, same as the outreach template. An empty/absent row means "use

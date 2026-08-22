@@ -18,7 +18,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from scout import anthropic, taste
+from scout import anthropic, criteria
 from scout.filter import Survivor, Taste
 from scout.store.trace import VerdictTrace, insert_verdict_trace
 from scout.store.verdicts import Verdict, VerdictCandidate, get_verdict, upsert_verdict
@@ -43,7 +43,7 @@ class Scorer:
     def __init__(
         self,
         con=None,
-        taste: taste.Block | None = None,
+        taste: criteria.Block | None = None,
         filter: Taste | None = None,
         client: anthropic.Client | None = None,
         model: str = "",
@@ -216,7 +216,7 @@ FROM companies WHERE id IN """,
                     system=system,
                     max_tokens=256,
                     messages=[anthropic.Message("user", user)],
-                    cached=True,  # taste + rubric are identical across all calls in a run
+                    cached=True,  # criteria + rubric are identical across all calls in a run
                     timeout=45.0,
                 )
             )

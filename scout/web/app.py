@@ -47,16 +47,14 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     # 2. Process-lifetime singletons.
     ac = anthropic_pkg.new(config.anthropic_api_key)  # key falls back to env
+    # The resolver always exists (it serves the typed criteria doc); the brain +
+    # distiller are optional imports behind it.
     bc = None
-    resolver = None
+    resolver = criteria_pkg.Resolver(ttl=config.brain_cache_ttl)
     if config.brain_url:
         bc = brainbot_pkg.new(config.brain_url)  # shared with the health probes
-        resolver = criteria_pkg.Resolver(
-            brain=bc,
-            distiller=distill_pkg.Distiller(brain=bc, client=ac, model=config.distill_model),
-            taste_md_path=config.taste_md_path,
-            ttl=config.brain_cache_ttl,
-        )
+        resolver.brain = bc
+        resolver.distiller = distill_pkg.Distiller(brain=bc, client=ac, model=config.distill_model)
 
     state = AppState(config, anthropic_client=ac, brainbot=bc, resolver=resolver)
     # Seed the shared client's key from the DB-over-env resolver, then load

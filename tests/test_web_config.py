@@ -1,4 +1,4 @@
-"""Smoke coverage for the criteria editors: taste.md, the
+"""Smoke coverage for the criteria editors: the typed criteria doc, the
 structured pre-filter, the playbook, and the filter-options vocabularies."""
 
 from __future__ import annotations
@@ -17,18 +17,53 @@ def _put(client, path, body):
     return client.put(path, content=body, headers=_JSON)
 
 
-def test_taste_file_round_trip(tmp_path, monkeypatch):
+def test_criteria_doc_round_trip(tmp_path, monkeypatch):
     client, _cid, _db_path = new_test_app(tmp_path, monkeypatch)
 
-    # GET an unwritten taste.md -> empty content, with the kind/path stamped.
-    rec = client.get("/api/taste")
+    # GET with nothing saved -> empty content, and (no brain) no active criteria.
+    rec = client.get("/api/criteria")
     assert rec.status_code == 200
     body = rec.json()
-    assert body["kind"] == "taste" and body["content"] == ""
+    assert body["kind"] == "criteria" and body["content"] == ""
+    assert "taste_source" not in body
 
-    # PUT writes the file; GET reads it back.
-    assert _put(client, "/api/taste", '{"content":"only US, remote-friendly"}').status_code == 200
-    assert client.get("/api/taste").json()["content"] == "only US, remote-friendly"
+    # PUT saves; GET reads it back; the typed doc becomes the active criteria
+    # immediately (stamped with its source + folded version).
+    rec = _put(client, "/api/criteria", '{"content":"only US, remote-friendly"}')
+    assert rec.status_code == 200
+    assert rec.json()["taste_source"] == "local:criteria + playbook"
+    assert rec.json()["taste_version"]
+    assert client.get("/api/criteria").json()["content"] == "only US, remote-friendly"
+    assert client.get("/api/stats").json()["taste_source"] == "local:criteria + playbook"
+
+    # Clearing it drops the active criteria again.
+    assert _put(client, "/api/criteria", '{"content":""}').status_code == 200
+    assert "taste_source" not in client.get("/api/criteria").json()
+
+
+def test_knowledge_docs_round_trip(tmp_path, monkeypatch):
+    client, _cid, _db_path = new_test_app(tmp_path, monkeypatch)
+
+    for need in ("experience", "voice", "logistics"):
+        rec = client.get(f"/api/knowledge/{need}")
+        assert rec.status_code == 200, need
+        assert rec.json() == {"kind": "knowledge", "need": need, "content": "", "brain": []}
+
+    rec = _put(client, "/api/knowledge/experience", '{"content":"Five years at Globex."}')
+    assert rec.status_code == 200
+    assert rec.json()["content"] == "Five years at Globex."
+    assert client.get("/api/knowledge/experience").json()["content"] == "Five years at Globex."
+    # The typed doc is a 'local' row in the sources listing.
+    srcs = client.get("/api/outreach/sources").json()["sources"]
+    assert [(s["need"], s["origin"], s["page_id"]) for s in srcs] == [
+        ("experience", "local", "local")
+    ]
+
+    # Blank clears it; an unknown need is a 404.
+    assert _put(client, "/api/knowledge/experience", '{"content":"  "}').status_code == 200
+    assert client.get("/api/knowledge/experience").json()["content"] == ""
+    assert client.get("/api/knowledge/hobbies").status_code == 404
+    assert _put(client, "/api/knowledge/hobbies", '{"content":"x"}').status_code == 404
 
 
 def test_playbook_round_trip(tmp_path, monkeypatch):

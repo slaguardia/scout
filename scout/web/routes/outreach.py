@@ -41,23 +41,22 @@ def _ensure_outreach_knowledge(con, state: AppState) -> None:
 
 
 def _experience_gate(con, state: AppState) -> Response | None:
-    """The shared draft/answer honesty gate: an empty experience bundle triggers a
-    one-shot brain sync, then (still empty) a 412 with need=experience. Returns the
-    412 Response to send, or None when the gate passes."""
-    exp = outreach_sources.outreach_knowledge(con, "experience")
-    if exp.strip() != "":
+    """The shared draft/answer honesty gate: an empty experience bundle (typed +
+    synced) triggers a one-shot brain sync, then (still empty) a 412 with
+    need=experience. Returns the 412 Response to send, or None when the gate
+    passes."""
+    try:
+        outreach_pkg.require_experience(con)
         return None
-    # Cold cache: sync from the brain once, then re-check before blocking.
+    except outreach_pkg.ErrNoExperience:
+        pass
+    # Nothing on file: sync from the brain once, then re-check before blocking.
     _ensure_outreach_knowledge(con, state)
-    if outreach_sources.outreach_knowledge(con, "experience").strip() != "":
+    try:
+        outreach_pkg.require_experience(con)
         return None
-    return json_response(
-        {
-            "error": "no experience page found in your brain — add one; scout syncs it automatically",
-            "need": "experience",
-        },
-        412,
-    )
+    except outreach_pkg.ErrNoExperience as e:
+        return json_response({"error": str(e), "need": "experience"}, 412)
 
 
 # --- the draft queue on one posting: /api/postings/{id}/outreach -------------
@@ -118,8 +117,9 @@ def start_posting_outreach(
 
 @router.get("/api/outreach/sources")
 def outreach_sources_endpoint(con=Depends(get_db)) -> Response:
-    """The cached knowledge sources without their (large) content — the per-need
-    pointers the UI renders. Read-only: the bundle auto-syncs from the brain."""
+    """The knowledge sources without their (large) content — the per-need
+    pointers, typed ('local') and brain-synced alike. Read-only: the typed docs
+    are edited through /api/knowledge/{need}; the rest auto-syncs from the brain."""
     srcs = outreach_sources.list_outreach_sources(con)
     lite = [
         {
@@ -128,6 +128,7 @@ def outreach_sources_endpoint(con=Depends(get_db)) -> Response:
             "title": s.title,
             "version": s.version,
             "resolved_at": s.resolved_at,
+            "origin": s.origin,
         }
         for s in srcs
     ]
