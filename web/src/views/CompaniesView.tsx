@@ -29,7 +29,7 @@ const SKEL_COLS: [string | null, string][] = [
 ];
 
 export function CompaniesView({ active }: { active: boolean }) {
-  const { data: rows, isLoading } = useCompanies();
+  const { data: rows, isLoading, isError, error, refetch } = useCompanies();
   const ui = useUI();
   const dispatch = useDispatch();
   const { toggleFlag } = useCompanyActions();
@@ -61,7 +61,20 @@ export function CompaniesView({ active }: { active: boolean }) {
   };
 
   const colStyle = (col: string) => (hidden.has(col) ? { display: "none" } : undefined);
-  const sortAttr = (k: string) => (sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {});
+  const sortAttr = (k: string) => ({
+    ...(sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {}),
+    tabIndex: 0,
+    "aria-sort": (sort.k === k ? (sort.dir < 0 ? "descending" : "ascending") : "none") as
+      | "descending"
+      | "ascending"
+      | "none",
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        cycleSort(k);
+      }
+    },
+  });
 
   return (
     <div className="table-wrap" id="companies-view" style={{ display: active ? "" : "none" }}>
@@ -86,7 +99,7 @@ export function CompaniesView({ active }: { active: boolean }) {
                 <tr key={i} className="skel-row">
                   {SKEL_COLS.map(([col, w], j) => (
                     <td key={j} data-col={col ?? undefined} style={col ? colStyle(col) : undefined}>
-                      <span className="skel-bar" style={{ width: w }}></span>
+                      <span className="skel" style={{ width: w }}></span>
                     </td>
                   ))}
                 </tr>
@@ -95,8 +108,17 @@ export function CompaniesView({ active }: { active: boolean }) {
                 <tr
                   key={r.company_id}
                   data-id={r.company_id}
+                  tabIndex={0}
+                  aria-label={`open ${r.name}`}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      dispatch({ type: "openCompany", id: r.company_id });
+                    }
+                  }}
                   onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("a, .flag-btn")) return;
+                    if ((e.target as HTMLElement).closest("a, button")) return;
                     dispatch({ type: "openCompany", id: r.company_id });
                   }}
                 >
@@ -113,11 +135,13 @@ export function CompaniesView({ active }: { active: boolean }) {
                     <span className={pillClass(r.verdict)}>{r.verdict || "—"}</span>
                   </td>
                   <td>
-                    <span className="row-name" data-id={r.company_id}>
+                    <span className="row-name" data-id={r.company_id} title={r.name}>
                       {r.name}
                     </span>
                   </td>
-                  <td className="reason" data-col="reason" style={colStyle("reason")}>{r.reason || ""}</td>
+                  <td className="reason" data-col="reason" style={colStyle("reason")} title={r.reason || ""}>
+                    <span className="reason-clamp">{r.reason || ""}</span>
+                  </td>
                   <td data-col="vertical" style={colStyle("vertical")}>{r.vertical || ""}</td>
                   <td data-col="location" style={colStyle("location")}>{r.location || ""}</td>
                   <td data-col="hc" style={colStyle("hc")}>{r.headcount || ""}</td>
@@ -134,14 +158,29 @@ export function CompaniesView({ active }: { active: boolean }) {
               ))}
         </tbody>
       </table>
-      <div id="empty" className="empty" style={{ display: !isLoading && filtered.length === 0 ? "" : "none" }}>
+      <div id="empty" className="empty" style={{ display: !isLoading && !isError && filtered.length === 0 ? "" : "none" }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="7" />
           <path d="M21 21l-4.5-4.5" />
         </svg>
-        <div className="t">No companies match the current filters.</div>
+        <div className="t">{(rows ?? []).length ? "No companies match the current filters." : "No companies yet."}</div>
         <div className="small dim">
-          Clear a filter, or run <code>scout ingest &lt;csv&gt;</code>.
+          {(rows ?? []).length ? (
+            <>Clear a filter, or add one with <strong>Add…</strong>.</>
+          ) : (
+            <>Add one with <strong>Add…</strong> — it takes a link, or a CSV.</>
+          )}
+        </div>
+      </div>
+      <div className="empty" style={{ display: isError ? "" : "none" }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5M12 15.7v.4" />
+        </svg>
+        <div className="t">Couldn't load your companies.</div>
+        <div className="small dim">
+          {(error as Error | null)?.message || "the server didn't answer"} —{" "}
+          <button type="button" className="linkbtn" onClick={() => void refetch()}>retry</button>
         </div>
       </div>
     </div>

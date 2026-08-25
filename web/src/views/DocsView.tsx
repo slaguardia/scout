@@ -70,9 +70,16 @@ export function DocsView() {
         <div className="docs-grid">
           <nav className="docs-nav" id="docs-nav">
             {NAV.map(([sec, label], i) => (
-              <a key={sec} data-sec={sec} className={active === sec ? "active" : ""} onClick={() => scrollTo(sec)}>
+              <button
+                key={sec}
+                type="button"
+                data-sec={sec}
+                className={active === sec ? "active" : ""}
+                aria-current={active === sec ? "true" : undefined}
+                onClick={() => scrollTo(sec)}
+              >
                 <span className="nav-num">{i + 1}</span> {label}
-              </a>
+              </button>
             ))}
           </nav>
           <div className="docs-body" id="docs-body" ref={bodyRef} dangerouslySetInnerHTML={{ __html: DOCS_HTML }} />

@@ -27,7 +27,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={toast}>
       {children}
-      <div id="toast" className={"toast" + (show ? " show" : "") + (err ? " err" : "")}>
+      <div
+        id="toast"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={"toast" + (show ? " show" : "") + (err ? " err" : "")}
+      >
         {msg}
       </div>
     </ToastCtx.Provider>

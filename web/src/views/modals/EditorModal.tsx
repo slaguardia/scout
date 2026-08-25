@@ -38,7 +38,9 @@ export function EditorModal({ editorKind }: { editorKind: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const [text, setText] = useState("loading…");
+  const [text, setText] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [loadErr, setLoadErr] = useState("");
   const [ver, setVer] = useState("");
   const [busy, setBusy] = useState(false);
   const close = () => dispatch({ type: "closeModal" });
@@ -51,8 +53,9 @@ export function EditorModal({ editorKind }: { editorKind: string }) {
         if (!live) return;
         setText(isStatusList(editorKind) ? (d.statuses || []).join("\n") : d.content || "");
         if (d.taste_version) setVer("version " + d.taste_version);
+        setLoaded(true);
       } catch (e) {
-        if (live) setText("failed to load: " + (e as Error).message);
+        if (live) setLoadErr((e as Error).message);
       }
     })();
     return () => {
@@ -78,7 +81,7 @@ export function EditorModal({ editorKind }: { editorKind: string }) {
   };
 
   return (
-    <Modal onClose={close}>
+    <Modal scrimId="editor-scrim" onClose={close}>
       <div className="modal-head">
         <h2 id="editor-title">edit {editorLabel(editorKind)}</h2>
         <span className="ver" id="editor-ver">
@@ -86,17 +89,29 @@ export function EditorModal({ editorKind }: { editorKind: string }) {
         </span>
       </div>
       <div className="modal-body">
-        <textarea id="editor-text" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} ref={taRef} />
-        <ModalNote>
-          Edits write the local file only — never the brain. Existing verdicts are left as-is; the new criteria apply to
-          companies you score or re-score from here on.
-        </ModalNote>
+        <textarea
+          id="editor-text"
+          spellCheck={false}
+          value={loaded ? text : ""}
+          disabled={!loaded}
+          placeholder={loadErr ? "" : "loading…"}
+          onChange={(e) => setText(e.target.value)}
+          ref={taRef}
+        />
+        {loadErr ? (
+          <ModalNote danger>Couldn't load it: {loadErr}. Close and reopen — saving now would overwrite what's stored.</ModalNote>
+        ) : (
+          <ModalNote>
+            This is the fixed prose in every outreach email — your background and sign-off. Only the opener and closer
+            are generated. Saved to the database, never committed.
+          </ModalNote>
+        )}
       </div>
       <div className="modal-foot">
         <button className="btn" id="editor-cancel" onClick={close}>
           Cancel
         </button>
-        <button className="btn btn-primary" id="editor-save" disabled={busy} onClick={save}>
+        <button className="btn btn-primary" id="editor-save" disabled={busy || !loaded} onClick={save}>
           Save
         </button>
       </div>

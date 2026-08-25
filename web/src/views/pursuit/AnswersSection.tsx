@@ -4,7 +4,7 @@
 // offers bulk "Draft all blank" + Re-detect. Faithful port of
 // renderAnswersSection/answerCardHTML/wireAnswers + the start/redetect/regenerate/
 // remove handlers; the generating poll is the useAnswers refetchInterval.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast, copyToClipboard } from "../../components/Toast";
 import { useDispatch } from "../../store/ui";
@@ -182,15 +182,23 @@ function AnswerCard({
   setDevNote: (s: string) => void;
 }) {
   const toast = useToast();
-  const [count, setCount] = useState(answerText(a).length);
-  const liveRef = useState(() => ({ v: answerText(a) }))[0];
   const busy = a.status === "generating";
   const text = answerText(a);
+  const [live, setLive] = useState(text);
+  const [regenBusy, setRegenBusy] = useState(false);
+  // resync when the row changes underneath us (a generate/regenerate landing)
+  useEffect(() => setLive(text), [text]);
+  const count = live.length;
   const edited = a.edited && a.edited.trim();
   const drafted = !!text;
   const over = !!a.max_length && count > a.max_length;
 
   const regen = async () => {
+    // A hand-written answer is destroyed outright by a regenerate — answers have
+    // no history, unlike outreach drafts. Only prompt where the loss is real.
+    if (edited && !window.confirm("Regenerate? Your edited answer will be replaced and can't be recovered.")) return;
+    if (regenBusy) return;
+    setRegenBusy(true);
     try {
       const resp = await regenerateAnswerRequest(a.id);
       if (resp.status === 503) {
@@ -210,6 +218,8 @@ function AnswerCard({
       onInvalidate();
     } catch (e) {
       toast(`regenerate failed: ${(e as Error).message}`);
+    } finally {
+      setRegenBusy(false);
     }
   };
 
@@ -253,10 +263,7 @@ function AnswerCard({
           rows={5}
           placeholder="Generate an answer to this question, or write your own."
           initial={text}
-          onInput={(v) => {
-            liveRef.v = v;
-            setCount(v.length);
-          }}
+          onInput={(v) => setLive(v)}
           save={async (v) => {
             await saveAnswerEdit(a.id, v);
           }}
@@ -273,20 +280,22 @@ function AnswerCard({
           <span className={"answer-count" + (over ? " over" : "")}>{a.max_length ? `${count} / ${a.max_length}` : `${count} chars`}</span>
         )}
         {busy ? null : (
-          <button className={"btn " + (drafted ? "" : "btn-primary ") + "answer-regen-btn"} title={drafted ? "re-draft this answer (discards the current text)" : "draft an answer to just this question"} onClick={regen}>
+          <button className={"btn " + (drafted ? "" : "btn-primary ") + "answer-regen-btn"} title={drafted ? "re-draft this answer (discards the current text)" : "draft an answer to just this question"} onClick={regen} disabled={regenBusy}>
             {drafted ? "Regenerate" : "Generate"}
           </button>
         )}
         {busy || !drafted ? null : (
-          <button className="answer-copy-btn dh-copy" title="copy this answer to the clipboard" aria-label="copy answer" onClick={() => copyToClipboard(liveRef.v, toast, "answer copied")}>
+          <button className="answer-copy-btn dh-copy" title="copy this answer to the clipboard" aria-label="copy answer" onClick={() => copyToClipboard(live, toast, "answer copied")}>
             <IconCopy />
           </button>
         )}
-        {busy ? null : (
-          <button className="answer-remove-btn" title="remove this question" aria-label="remove question" onClick={remove}>
-            ×
-          </button>
-        )}
+        {/* stays available while generating: if the background thread dies the row
+            sits in `generating` forever and blocks "Draft all blank" for every
+            other question, and removing it is the only escape short of a
+            restart (a re-detect puts the question back). */}
+        <button className="answer-remove-btn" title="remove this question" aria-label="remove question" onClick={remove}>
+          ×
+        </button>
       </div>
       {a.status === "needs_review" ? (
         <div className="answer-note answer-review">Flagged by the honesty check — confirm it doesn't overstate your experience before sending.</div>

@@ -35,9 +35,16 @@ export function SettingsView() {
         <div className="settings-shell">
           <nav className="settings-nav">
             {GROUPS.map(([id, label]) => (
-              <a key={id} data-grp={id} className={id === grp ? "active" : ""} onClick={() => dispatch({ type: "setSettingsGroup", group: id })}>
+              <button
+                key={id}
+                type="button"
+                data-grp={id}
+                className={id === grp ? "active" : ""}
+                aria-current={id === grp ? "page" : undefined}
+                onClick={() => dispatch({ type: "setSettingsGroup", group: id })}
+              >
                 {label}
-              </a>
+              </button>
             ))}
           </nav>
           <div className="settings-content" id="settings-content">

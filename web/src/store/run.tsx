@@ -51,6 +51,22 @@ const StateCtx = createContext<RunState | null>(null);
 const ApiCtx = createContext<RunApi | null>(null);
 
 const DRAWER_TTL_MS = 6000;
+
+/** Pull the server's own {"error": "..."} message out of a non-2xx, else fall back. */
+async function serverMessage(resp: Response, fallback: string): Promise<string> {
+  try {
+    const raw = (await resp.text()).trim();
+    if (!raw) return fallback;
+    try {
+      const b = JSON.parse(raw) as { error?: string };
+      return (b.error || "").trim() || fallback;
+    } catch {
+      return raw;
+    }
+  } catch {
+    return fallback;
+  }
+}
 const VERDICT_RE = /^(.+?)\s*→\s*(yes|maybe|no)\s*—\s*([\s\S]*)$/i;
 
 function classifyLine(text: string, isErr: boolean): DrawerLine {
@@ -137,7 +153,17 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
       es.onerror = () => {
         es.close();
+        // only treat it as a drop if we hadn't already seen the clean `end`
+        const dropped = esRef.current === es;
         esRef.current = null;
+        if (!dropped) return;
+        activeJob.current = null;
+        setState((s) => ({
+          ...s,
+          running: false,
+          lines: [...s.lines, classifyLine("lost the connection to this run — it may still be finishing; reopen scout to check", true)],
+        }));
+        armTTL();
       };
     },
     [qc, toast, clearTTL, armTTL],
@@ -157,8 +183,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (resp.status === 409) return toast("a job is already running");
-      if (resp.status === 412) return toast((await resp.text()).trim());
-      if (!resp.ok) return toast(`run failed: HTTP ${resp.status}`);
+      if (!resp.ok) return toast(await serverMessage(resp, `run failed: HTTP ${resp.status}`));
       const { job_id } = (await resp.json()) as { job_id: string };
       streamJob(stage, job_id, opts);
     },
@@ -177,7 +202,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (resp.status === 409) return toast("a job is already running");
-      if (!resp.ok) return toast(`upload failed: HTTP ${resp.status}`);
+      if (!resp.ok) return toast(await serverMessage(resp, `upload failed: HTTP ${resp.status}`));
       const { job_id } = (await resp.json()) as { job_id: string };
       streamJob("ingest", job_id);
     },

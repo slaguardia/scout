@@ -48,7 +48,7 @@ function options(current: string, vocab: string[]): [string, string][] {
 }
 
 export function JobsView({ active }: { active: boolean }) {
-  const { data: jobs } = useJobs();
+  const { data: jobs, isLoading, isError, error, refetch } = useJobs();
   const vocab = useVocab().data;
   const ui = useUI();
   const dispatch = useDispatch();
@@ -67,10 +67,11 @@ export function JobsView({ active }: { active: boolean }) {
     const q = f.q.trim().toLowerCase();
     const list = (jobs ?? []).filter((j) => {
       const stage = j.application_status || "";
-      if (!stageSel.has(stage)) return false;
+      if ((stage === "" || stages.includes(stage)) && !stageSel.has(stage)) return false;
       if (f.nextUpOnly && !j.next_up) return false;
       if (f.dueOnly && !(j.followups_due! | 0)) return false;
-      if (!statusSel.has(j.outreach_status || "")) return false;
+      const ostat = j.outreach_status || "";
+      if ((ostat === "" || statuses.includes(ostat)) && !statusSel.has(ostat)) return false;
       if (q) {
         const hay = (
           j.title +
@@ -99,7 +100,20 @@ export function JobsView({ active }: { active: boolean }) {
     dispatch({ type: "setJobsSort", sort: next });
   };
   const colStyle = (col: string) => (hidden.has(col) ? { display: "none" } : undefined);
-  const sortAttr = (k: string) => (sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {});
+  const sortAttr = (k: string) => ({
+    ...(sort.k === k ? { "data-sort": sort.dir < 0 ? "desc" : "asc" } : {}),
+    tabIndex: 0,
+    "aria-sort": (sort.k === k ? (sort.dir < 0 ? "descending" : "ascending") : "none") as
+      | "descending"
+      | "ascending"
+      | "none",
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        cycleSort(k);
+      }
+    },
+  });
 
   const hiddenRej =
     f.stages && !stageSel.has("rejected")
@@ -204,27 +218,40 @@ export function JobsView({ active }: { active: boolean }) {
           ))}
         </tbody>
       </table>
-      <div id="jobs-empty" className="empty" style={{ display: rows.length ? "none" : "block" }}>
+      <div id="jobs-empty" className="empty" style={{ display: !isLoading && !isError && !rows.length ? "block" : "none" }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2m-13 0h18a1 1 0 011 1v11a1 1 0 01-1 1H3a1 1 0 01-1-1V8a1 1 0 011-1z" />
         </svg>
-        <div className="t">No jobs match the current filters.</div>
+        <div className="t">{(jobs ?? []).length ? "No jobs match the current filters." : "No jobs tracked yet."}</div>
         <div className="small dim">
           Paste a posting URL via <strong>Add…</strong> — the agent pass fills in the rest.
+        </div>
+      </div>
+      <div className="empty" style={{ display: isError ? "block" : "none" }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5M12 15.7v.4" />
+        </svg>
+        <div className="t">Couldn't load your jobs.</div>
+        <div className="small dim">
+          {(error as Error | null)?.message || "the server didn't answer"} —{" "}
+          <button type="button" className="linkbtn" onClick={() => void refetch()}>retry</button>
         </div>
       </div>
       <div className="hidden-note" id="jobs-hidden-note" style={{ display: hiddenRej ? "" : "none" }}>
         {hiddenRej ? (
           <>
             {hiddenRej} rejected application{hiddenRej > 1 ? "s" : ""} hidden —{" "}
-            <a
+            <button
+              type="button"
+              className="linkbtn"
               id="show-rejected-link"
               onClick={() =>
                 dispatch({ type: "setJobsFilter", patch: { stages: new Set([...stageSel, "rejected"]) } })
               }
             >
               show
-            </a>
+            </button>
           </>
         ) : null}
       </div>
@@ -284,6 +311,15 @@ function JobRow({
   return (
     <tr
       data-id={j.posting_id}
+      tabIndex={0}
+      aria-label={`open ${j.title || "role"}`}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("a, button, select, input")) return;
         onOpen();
@@ -376,18 +412,19 @@ function JobRow({
   );
 }
 
-function ContactsCell({ contacts }: { contacts: { position: string; email: string }[] }) {
+function ContactsCell({ contacts }: { contacts: { name: string; position: string; email: string }[] }) {
   if (!contacts.length) return <span className="dim">—</span>;
   return (
     <>
       {contacts.map((c, i) => {
-        const label = c.position || c.email;
+        const label = c.name || c.position || c.email;
+        const title = [c.name, c.position, c.email].filter(Boolean).join(" — ");
         const node = c.email ? (
-          <a href={`mailto:${c.email}`} title={c.position ? `${c.position} — ${c.email}` : c.email}>
+          <a href={`mailto:${c.email}`} title={title}>
             {label}
           </a>
         ) : (
-          <span>{label}</span>
+          <span title={title}>{label}</span>
         );
         return (
           <span key={i}>

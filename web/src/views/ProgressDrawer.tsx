@@ -33,7 +33,7 @@ export function ProgressDrawer() {
           close
         </button>
       </div>
-      <div className="drawer-log" ref={logRef}>
+      <div className="drawer-log" role="log" aria-live="polite" ref={logRef}>
         {state.lines.map((ln, i) =>
           ln.verdict ? (
             <div key={i} className={ln.cls}>

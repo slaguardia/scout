@@ -2,7 +2,7 @@
 // changed), flashing "saved ✓". list=true treats it as a one-label-per-line
 // status vocabulary. Faithful port of settingsTextFieldHTML + loadTextField +
 // saveTextField.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../../components/Toast";
 import { useField, putField } from "../../api/settings";
@@ -42,11 +42,21 @@ export function LoadedTextarea({ kind, list, rows, initial, onSaved }: { kind: s
   const toast = useToast();
   const orig = useRef(initial);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const flash = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const onBlur = async (e: React.FocusEvent<HTMLTextAreaElement>) => {
-    const val = e.currentTarget.value;
+    const el = e.currentTarget;
+    const val = el.value;
     if (val === orig.current) return;
+    if (orig.current.trim() !== "" && val.trim() === "") {
+      if (!window.confirm("Clear the saved text? This deletes the typed doc — there is no undo.")) {
+        el.value = orig.current;
+        return;
+      }
+    }
+    setSaving(true);
     try {
       await putField(kind, list, val);
       orig.current = val;
@@ -62,14 +72,34 @@ export function LoadedTextarea({ kind, list, rows, initial, onSaved }: { kind: s
       onSaved?.();
     } catch (err) {
       toast(`save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
     }
   };
 
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const foot = saving ? "saving…" : dirty ? "unsaved — click away to save" : "saved ✓";
   return (
     <>
-      <textarea className="set-textarea" rows={rows} spellCheck={false} defaultValue={initial} onBlur={onBlur} />
+      <textarea
+        className="set-textarea"
+        rows={rows}
+        spellCheck={false}
+        defaultValue={initial}
+        onInput={(e) => setDirty(e.currentTarget.value !== orig.current)}
+        onBlur={async (e) => {
+          await onBlur(e);
+          setDirty(false);
+        }}
+      />
       <div className="set-field-foot">
-        <span className={"set-saved" + (saved ? " show" : "")}>saved ✓</span>
+        <span className={"set-saved" + (saved || saving || dirty ? " show" : "")}>{foot}</span>
       </div>
     </>
   );

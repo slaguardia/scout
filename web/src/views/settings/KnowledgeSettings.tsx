@@ -86,6 +86,9 @@ function CriteriaField() {
   };
 
   const copyToEditor = async () => {
+    // This replaces the typed criteria outright. Only warn when there is
+    // something to lose — a blank editor is the intended one-click path.
+    if (doc.trim() && !window.confirm("Replace your typed criteria with the brain's brief? Your current text is overwritten.")) return;
     try {
       await putField("criteria", false, brainBody);
       qc.setQueryData(["settings", "criteria"], brainBody);

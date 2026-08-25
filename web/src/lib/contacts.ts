@@ -5,6 +5,8 @@
 const RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
 export interface ParsedContact {
+  /** the person's name; "" for legacy free-form rows, which only carried a position */
+  name: string;
   position: string;
   email: string;
 }
@@ -18,10 +20,11 @@ export function parseContacts(s?: string | null): ParsedContact[] {
       if (Array.isArray(a)) {
         return a
           .map((c) => ({
+            name: String(c?.name || "").trim(),
             position: String(c?.position || "").trim(),
             email: String(c?.email || "").trim(),
           }))
-          .filter((c) => c.position || c.email);
+          .filter((c) => c.name || c.position || c.email);
       }
     } catch {
       /* fall through to legacy parse */
@@ -36,6 +39,6 @@ export function parseContacts(s?: string | null): ParsedContact[] {
       const email = m ? m[0] : "";
       let position = email ? part.replace(email, "") : part;
       position = position.replace(/[<>()]/g, "").replace(/[\s:–—-]+$/, "").trim();
-      return { position, email };
+      return { name: "", position, email };
     });
 }

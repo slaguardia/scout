@@ -444,7 +444,8 @@ SELECT p.id, p.company_id, c.name, p.url, COALESCE(p.title, ''), COALESCE(p.loca
        COALESCE((SELECT MAX(COALESCE(date(ol.followup_done_at), ol.sent_at)) FROM outreach_log ol WHERE ol.posting_id = p.id), ''),
        COALESCE(p.outreach_status, ''),
        COALESCE((SELECT json_group_array(json_object(
-                  'position', CASE WHEN ct.role <> '' THEN ct.role ELSE ct.name END,
+                  'name', ct.name,
+                  'position', ct.role,
                   'email', ct.email))
                 FROM contacts ct
                 WHERE ct.company_id = p.company_id AND ct.archived_at IS NULL AND ct.email <> ''), ''),

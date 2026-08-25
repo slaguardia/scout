@@ -310,7 +310,12 @@ function JobsFilterBlock({ jobs, vocab }: { jobs: Posting[]; vocab: StatusVocab 
   const statusDef = ["", ...statuses];
   const statusDefault =
     statusSel.size === statusDef.length && statusDef.every((s) => statusSel.has(s));
-  const badge = (appDefault ? 0 : stageSel.size) + (statusDefault ? 0 : statusSel.size);
+  // Count what's *excluded*, not what's selected: with everything deselected the
+  // old form read 0 ("nothing filtered") while the table was empty, and
+  // deselecting one of six stages read "6".
+  const badge =
+    (appDefault ? 0 : stageDef.length - stageSel.size) +
+    (statusDefault ? 0 : statusDef.length - statusSel.size);
 
   const allStagesOn = stageDef.every((s) => stageSel.has(s));
   const allStatusesOn = statusDef.every((s) => statusSel.has(s));

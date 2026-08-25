@@ -3,7 +3,7 @@
 // the verdict block + manual override, enrichment, the decision trail, and the
 // danger-zone delete. Faithful port of openDetail/renderDetail + its handlers,
 // with query invalidation replacing the vanilla's manual loadList/loadJobs calls.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { SlidePane, PaneHead } from "../components/Pane";
 import { InlineField } from "../components/InlineField";
@@ -209,7 +209,9 @@ function JobsSection({ d }: { d: CompanyDetail }) {
       {archivedN ? (
         <div className="posting-archived-note">
           {archivedN} archived —{" "}
-          <a onClick={() => setShowArchived(!showArchived)}>{showArchived ? "hide" : "show"}</a>
+          <button type="button" className="linkbtn" onClick={() => setShowArchived(!showArchived)}>
+            {showArchived ? "hide" : "show"}
+          </button>
         </div>
       ) : null}
       <div className="posting-add">
@@ -408,8 +410,14 @@ function VerdictSection({ d }: { d: CompanyDetail }) {
   const { startRun } = useRun();
   const manual = d.model === "manual";
   const [picked, setPicked] = useState<string>(d.has_verdict && d.verdict ? d.verdict : "");
-  const [reason, setReason] = useState<string>(manual ? d.reason || "" : "");
+  const [reason, setReason] = useState<string>(d.reason || "");
   const [saving, setSaving] = useState(false);
+
+  // resync when the verdict changes underneath us (a re-score landing)
+  useEffect(() => {
+    setPicked(d.has_verdict && d.verdict ? d.verdict : "");
+    setReason(d.reason || "");
+  }, [d.verdict, d.reason, d.scored_at, d.model, d.has_verdict]);
 
   const canControl = !meta || meta.control !== false;
   const showRescore = canControl && meta && meta.verdict;
@@ -459,7 +467,7 @@ function VerdictSection({ d }: { d: CompanyDetail }) {
             {manual ? <span className="small muted"> · set by hand</span> : null}
           </dd>
           <dt>reason</dt>
-          <dd>{d.reason || ""}</dd>
+          <dd>{d.reason || "—"}</dd>
           <dt>model</dt>
           <dd className="small muted">{d.model || ""}</dd>
           <dt>taste version</dt>

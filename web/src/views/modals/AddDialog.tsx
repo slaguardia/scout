@@ -5,7 +5,7 @@
 // submitAdd + the vertical chips.
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Modal } from "../../components/Modal";
+import { Modal, ModalNote } from "../../components/Modal";
 import { useToast } from "../../components/Toast";
 import { useUI, useDispatch } from "../../store/ui";
 import { useMeta } from "../../api/queries";
@@ -18,6 +18,20 @@ type Kind = "company" | "job";
 type Mode = "single" | "csv";
 
 const httpsURL = (u: string) => (/^https?:\/\//i.test(u) ? u : "https://" + u);
+
+/** Turn a capture fetch_status token into one sentence a human can act on. */
+function humanizeAddError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes("challenge"))
+    return "That page is behind a bot check (LinkedIn does this). Untick \u201cfill in the blanks\u201d and type what you know.";
+  if (m.includes("http_403") || m.includes("http_401"))
+    return "That site refused the request. Untick \u201cfill in the blanks\u201d and type what you know.";
+  if (m.includes("http_404")) return "That link 404s \u2014 check the URL.";
+  if (m.includes("low_content"))
+    return "There wasn't enough text on that page to read. Untick \u201cfill in the blanks\u201d and type what you know.";
+  if (m.includes("timeout") || m.includes("timed out")) return "That site took too long to answer. Try again, or add it without the fetch.";
+  return msg;
+}
 
 export function AddDialog() {
   const ui = useUI();
@@ -42,6 +56,7 @@ export function AddDialog() {
   const [vertFilter, setVertFilter] = useState("");
   const [vertSel, setVertSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [addErr, setAddErr] = useState("");
   const [enrich, setEnrich] = useState(!!meta?.capture);
 
   const captureOn = !!meta?.capture && enrich;
@@ -90,12 +105,13 @@ export function AddDialog() {
       body = { url: httpsURL(url.trim()), title: title.trim(), company: jobCompany.trim() };
     }
 
+    setAddErr("");
     try {
       const res = await postJSON<Record<string, unknown>>(endpoint, body);
       setBusy(false);
       // The agent pass can decline to write (unidentifiable) — reported honestly.
       if (captureOn && !res.company_id) {
-        toast((res.note as string) || "couldn't classify that page");
+        setAddErr((res.note as string) || "couldn't work out which company that page belongs to — type a company name and retry.");
         return;
       }
       close();
@@ -122,7 +138,7 @@ export function AddDialog() {
         toast(err.message || "That company is already in the list.");
         return;
       }
-      toast(`add failed: ${err.message}`);
+      setAddErr(humanizeAddError(err.message));
     }
   };
 
@@ -134,7 +150,7 @@ export function AddDialog() {
   };
 
   return (
-    <Modal width={560} onClose={close}>
+    <Modal width={560} scrimId="add-scrim" onClose={close}>
       <div className="modal-head">
         <h2>Add</h2>
         <div className="kind-toggle" id="add-kind">
@@ -146,7 +162,16 @@ export function AddDialog() {
           </button>
         </div>
       </div>
-      <div className="modal-body">
+      <div
+        className="modal-body"
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.shiftKey) return;
+          const t = e.target as HTMLElement;
+          if (t.tagName === "TEXTAREA" || t.tagName === "BUTTON") return;
+          e.preventDefault();
+          if (!busy) void submit();
+        }}
+      >
         {kind === "company" ? (
           <div className="subtabs" id="add-cmode">
             <button type="button" className={"subtab" + (mode === "single" ? " is-on" : "")} onClick={() => setMode("single")}>
@@ -287,6 +312,11 @@ export function AddDialog() {
           </>
         ) : null}
       </div>
+      {addErr ? (
+        <div className="modal-body add-err-note">
+          <ModalNote danger>{addErr}</ModalNote>
+        </div>
+      ) : null}
       <div className="modal-foot">
         <button className="btn" id="add-cancel" onClick={close}>
           Cancel

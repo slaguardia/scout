@@ -2,7 +2,7 @@
 // the CSS enter/leave transition plays on the `.open` toggle. Used by the company
 // detail pane, the pursuit pane, and the chat pane. z-index is passed in so two
 // panes can stack (raisePane's ordering); the scrim click closes.
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { IconClose } from "./icons";
 
 export function SlidePane({
@@ -26,6 +26,24 @@ export function SlidePane({
   ariaLabel?: string;
   children: ReactNode;
 }) {
+  const paneRef = useRef<HTMLElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+
+  // Move focus into the pane when it opens and hand it back to the row that
+  // opened it on close. Without this, Tab from an open pane walks the table
+  // behind the scrim (visually covered and click-blocked), and closing drops
+  // focus to <body> so the next Tab restarts at the top of the page.
+  useEffect(() => {
+    if (open) {
+      opener.current = document.activeElement as HTMLElement | null;
+      paneRef.current?.focus();
+      return;
+    }
+    const back = opener.current;
+    opener.current = null;
+    if (back && document.contains(back)) back.focus();
+  }, [open]);
+
   return (
     <>
       <div
@@ -37,6 +55,10 @@ export function SlidePane({
       <aside
         className={"pane" + (variant ? " " + variant : "") + (open ? " open" : "")}
         id={paneId}
+        ref={paneRef}
+        role="dialog"
+        aria-modal={open ? true : undefined}
+        tabIndex={-1}
         style={paneZ ? { zIndex: paneZ } : undefined}
         aria-hidden={!open}
         aria-label={ariaLabel}

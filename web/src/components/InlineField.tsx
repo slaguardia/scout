@@ -47,7 +47,11 @@ export function InlineField({
     const el = ref.current;
     if (!el) return;
     if (e.key === "Escape") {
+      // stopPropagation so Escape peels the edit before App's global handler
+      // closes the whole pane out from under the user (ActionsMenu and
+      // FilterDropdown do the same).
       e.preventDefault();
+      e.stopPropagation();
       el.value = committed.current;
       el.blur();
     } else if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
