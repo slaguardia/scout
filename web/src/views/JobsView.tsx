@@ -158,7 +158,16 @@ export function JobsView({ active }: { active: boolean }) {
       <table id="jt">
         <thead>
           <tr>
-            <th className="jt-check">
+            <th
+              className="jt-check"
+              title={allSel ? "clear the selection" : "select every job shown"}
+              onClick={(e) => {
+                // The whole cell toggles; a click on the input itself already
+                // toggled via onChange, so only the surrounding area acts here.
+                if ((e.target as HTMLElement).closest("input")) return;
+                setSel(allSel ? new Set() : new Set(rows.map((j) => j.posting_id)));
+              }}
+            >
               <input
                 type="checkbox"
                 checked={allSel}
@@ -166,7 +175,6 @@ export function JobsView({ active }: { active: boolean }) {
                   if (el) el.indeterminate = someSel;
                 }}
                 onChange={() => setSel(allSel ? new Set() : new Set(rows.map((j) => j.posting_id)))}
-                title={allSel ? "clear the selection" : "select every job shown"}
                 aria-label="select every job shown"
               />
             </th>
@@ -281,7 +289,16 @@ function JobRow({
         onOpen();
       }}
     >
-      <td className="jt-check">
+      <td
+        className="jt-check"
+        onClick={(e) => {
+          // The whole cell is the target: never fall through to the row click
+          // (which opens the panel), and don't double-toggle a direct input click.
+          e.stopPropagation();
+          if ((e.target as HTMLElement).closest("input")) return;
+          onToggleSel();
+        }}
+      >
         <input
           type="checkbox"
           checked={selected}
