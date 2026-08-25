@@ -85,6 +85,27 @@ canonical port defeats that safety net — don't.
   as identities), and a captured company page seeds the enrichment row from
   the fetched text. Unfetchable pages report their honest fetch status and
   write nothing.
+- **A job link resolves the company's own domain, then enriches it (2026-08-25):**
+  a posting almost never sits on the hiring company's host, and a company with no
+  domain is unenrichable (`fetch_status = no_domain`) and therefore unscoreable —
+  so capture works to find one. In order: **Ashby's board page** states it outright
+  (`window.__appData.organization.publicWebsite`, read by `ats.fetch_board_org`,
+  which now also supplies the display name — the one ATS that identifies the
+  company's site; Greenhouse/Lever/Rippling/Dover expose nothing, verified against
+  their live APIs); else the **JD body**, mined by `capture.company_domain_from_text`
+  — a URL is accepted only when its registrable label reads as the company name
+  (`domain_reads_as_name`: "withpersona.com" for Persona, "applied.co" for Applied
+  Intuition), because a JD links the investor, e-verify.gov and its own LinkedIn
+  too, and a wrong domain is a wrong *identity*. That mined domain also **overrides
+  the page's own host when the host reads as no company at all** (`_company_domain`)
+  — a recruiting marketplace like paraform.com must not become the company. It
+  never *demotes* a stated domain: nothing corroborated leaves the host standing
+  ("about.google" survives). Then `Capturer._autoenrich` fetches the about-page
+  inline for a company that has a domain and no enrichment row — best-effort, after
+  the posting write, so a slow site never costs the posting. `auto_enrich=False` in
+  tests keeps captures off the open internet. `_ATS_HOSTS` also grew
+  gem.com / kula.ai / careers-page.com / paraform.com, each of which had shown up
+  as (or in place of) a company identity.
 - **The jobs view is the application tracker** (replaced the user's Notion
   tracker): a lean table — company name, application stage, outreach (the reply
   status + a ⏰ follow-ups-due badge), last outreach, and contacts (mailto links)

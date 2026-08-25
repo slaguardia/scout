@@ -10,6 +10,7 @@ the generic fetch + Haiku path in `Capturer.run`.
 from __future__ import annotations
 
 import html
+import json
 import re
 import urllib.parse
 from dataclasses import dataclass
@@ -49,11 +50,14 @@ class ATSError(Exception):
 class ATSJob:
     """A posting as the platform's own API states it. company_name is the board's
     name when the API provides one (Greenhouse/Rippling/Dover) and a slug-derived
-    fallback otherwise — user-typed input still wins over both."""
+    fallback otherwise — user-typed input still wins over both. company_domain is
+    the company's OWN site when the board states it (Ashby only) — never the ATS
+    host; "" everywhere else."""
 
     ats: str = ""  # "ashby" | "greenhouse" | "lever" | "rippling" | "dover"
     url: str = ""  # canonical posting URL
     company_name: str = ""
+    company_domain: str = ""
     title: str = ""
     location: str = ""
     department: str = ""
@@ -196,18 +200,20 @@ def resolve_ashby(httpc: httpx.Client, api_base: str, org: str, job_id: str) -> 
         dept = j.get("department", "") or ""
         if dept == "":
             dept = j.get("team", "") or ""
-        # The posting API states no company name. A hyphen/underscore slug
-        # de-slugs cleanly; a run-together slug doesn't, so read the real name
-        # off the public board page's title. Best-effort.
+        # The posting API states neither the company name nor its site — both
+        # live in the board page's embedded state, so read it. Best-effort: a
+        # failed read leaves the de-slugged name and no domain.
         name = slug_name(org)
-        if "-" not in org and "_" not in org:
-            n = fetch_board_name(httpc, ashby_board_base + "/" + urllib.parse.quote(org, safe=""))
-            if n:
-                name = n
+        board_name, website = fetch_board_org(
+            httpc, ashby_board_base + "/" + urllib.parse.quote(org, safe="")
+        )
+        if board_name:
+            name = board_name
         return ATSJob(
             ats="ashby",
             url=j.get("jobUrl", "") or "",
             company_name=name,
+            company_domain=website,
             title=j.get("title", "") or "",
             location=j.get("location", "") or "",
             department=dept,
@@ -451,8 +457,11 @@ def fetch_ats_json(httpc: httpx.Client, url: str) -> dict:
     return resp.json()
 
 
-# Board-page title parsing: ATS boards title their index "{Company} Jobs", so the
-# company name is recoverable even when the posting API omits it.
+# Board-page parsing. Ashby ships the whole board state as a JSON blob, which
+# names the org AND states its public website — the one ATS that identifies the
+# company's own domain. Everywhere else only the title is recoverable: boards
+# title their index "{Company} Jobs".
+_re_board_app_data = re.compile(r"window\.__appData\s*=\s*(\{.*?\});", re.S)
 _re_board_og_title = re.compile(r"<meta[^>]+og:title[^>]+content=[\"']([^\"']*)[\"']", re.I | re.S)
 _re_board_title = re.compile(r"<title[^>]*>([^<]*)</title>", re.I | re.S)
 _re_board_suffix = re.compile(
@@ -460,31 +469,42 @@ _re_board_suffix = re.compile(
 )
 
 
-def fetch_board_name(httpc: httpx.Client, page_url: str) -> str:
-    """Read an ATS board page's company display name from its og:title (or
-    <title>): "Chai Discovery Jobs" → "Chai Discovery". Best-effort — "" on any
-    fetch/parse failure, so the caller keeps its slug fallback."""
+def fetch_board_org(httpc: httpx.Client, page_url: str) -> tuple[str, str]:
+    """Read an ATS board page's company display name and public website. The name
+    comes from Ashby's embedded board state when present, else the og:title (or
+    <title>): "Chai Discovery Jobs" → "Chai Discovery". The website is stated only
+    by Ashby. Best-effort — ("", "") on any fetch/parse failure, so the caller
+    keeps its slug fallback."""
     try:
         resp = httpc.get(
             page_url, headers={"User-Agent": "Mozilla/5.0 (scout)"}, timeout=ATS_CALL_TIMEOUT
         )
     except httpx.HTTPError:
-        return ""
+        return "", ""
     if resp.status_code != 200:
-        return ""
-    body = resp.text[: 64 << 10]
+        return "", ""
+    body = resp.text[: 256 << 10]  # __appData sits after the head; give it room
 
-    def name(rex: re.Pattern) -> str:
-        m = rex.search(body)
-        if m is None:
+    name, website = "", ""
+    m = _re_board_app_data.search(body)
+    if m is not None:
+        try:
+            org = (json.loads(m.group(1)) or {}).get("organization") or {}
+            name = (org.get("name") or "").strip()
+            website = (org.get("publicWebsite") or "").strip()
+        except (ValueError, AttributeError):
+            pass
+
+    def titled(rex: re.Pattern) -> str:
+        t = rex.search(body)
+        if t is None:
             return ""
-        s = html.unescape(m.group(1)).strip()
+        s = html.unescape(t.group(1)).strip()
         return _re_board_suffix.sub("", s).strip()
 
-    n = name(_re_board_og_title)
-    if n != "":
-        return n
-    return name(_re_board_title)
+    if name == "":
+        name = titled(_re_board_og_title) or titled(_re_board_title)
+    return name, website
 
 
 def slug_name(slug: str) -> str:

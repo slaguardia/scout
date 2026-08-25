@@ -81,7 +81,7 @@ def test_run_resolves_ashby_without_llm(db, monkeypatch):
         _tripwire() as (llm_url, llm_calls),
     ):
         monkeypatch.setattr(ats, "ashby_api_base", board_url)
-        monkeypatch.setattr(ats, "ashby_board_base", board_page)  # hyphenated slug → must not fetch
+        monkeypatch.setattr(ats, "ashby_board_base", board_page)  # states the org's name + site
         # graphql detection (best-effort) goes to the board server's 404.
         from scout.capture import questions
 
@@ -89,6 +89,7 @@ def test_run_resolves_ashby_without_llm(db, monkeypatch):
         from scout import anthropic
 
         c = capture.Capturer(
+            auto_enrich=False,
             db=db,
             client=anthropic.Client(api_key="k", endpoint=llm_url),
             http=_client(),
@@ -111,11 +112,13 @@ def test_run_resolves_ashby_without_llm(db, monkeypatch):
         assert p.comp_range == "$150K – $200K"
         assert p.source == "capture"
         assert "core clinical platform" in p.description
-        # The ATS host never identifies the company — keyed by name only.
+        # The ATS host never identifies the company, and this board page states no
+        # website — so the row stays keyed by name, with no domain.
         assert res.company_id == companies.company_id("", "Foresight Health")
-        # The LLM and the board page were never fetched.
+        # The board page is read (it carries the org's public website); the LLM
+        # still isn't — that's what makes this path keyless.
         assert llm_calls == []
-        assert board_calls == []
+        assert board_calls == [("GET", "/foresight-health")]
 
         # Same link again → refresh in place, not a duplicate.
         res2 = c.run(Request(url=pasted))
@@ -126,7 +129,7 @@ def test_capture_ats_posting_keyless(db, monkeypatch):
     with _ashby_board_server() as board_url, _tripwire() as (board_page, _):
         monkeypatch.setattr(ats, "ashby_api_base", board_url)
         monkeypatch.setattr(ats, "ashby_board_base", board_page)
-        c = capture.Capturer(db=db, http=_client())  # no Anthropic client at all
+        c = capture.Capturer(db=db, http=_client(), auto_enrich=False)  # no Anthropic client
 
         res = c.capture_ats_posting(
             Request(
@@ -152,7 +155,7 @@ def test_capture_ats_posting_for_company_pins_company(db, monkeypatch):
         cid = companies.upsert_company(
             db, Company(source="test", name="Acme Inc", domain="acme.com", raw_json="{}")
         )
-        c = capture.Capturer(db=db, http=_client())  # keyless
+        c = capture.Capturer(db=db, http=_client(), auto_enrich=False)  # keyless
 
         res = c.capture_ats_posting_for_company(
             cid,
@@ -188,6 +191,7 @@ def test_run_ats_user_fields_win(db, monkeypatch):
         from scout import anthropic
 
         c = capture.Capturer(
+            auto_enrich=False,
             db=db,
             client=anthropic.Client(api_key="k", endpoint=llm_url),
             http=_client(),
@@ -254,12 +258,12 @@ def test_resolve_ashby_reads_board_name(monkeypatch):
         ("<title>whatever</title>", 500, ""),
     ],
 )
-def test_fetch_board_name(head, status, want):
+def test_fetch_board_org_name(head, status, want):
     def handle(req):
         return status, {"Content-Type": "text/html"}, f"<html><head>{head}</head></html>"
 
     with http_server(handle) as url:
-        assert ats.fetch_board_name(_client(), url) == want
+        assert ats.fetch_board_org(_client(), url)[0] == want
 
 
 def test_resolve_greenhouse():
@@ -572,3 +576,82 @@ def test_ats_target_for():
         assert (got.ats, got.base, got.org, got.id) == (want_ats, want_base, want_org, want_id), url
         assert capture.is_ats_posting(url)
     assert not capture.is_ats_posting("https://acme.com/careers/123")
+
+
+def test_ashby_board_page_states_the_company_website(db, monkeypatch):
+    """Ashby is the one ATS whose board page names the company's own site. Reading
+    it is what lets a keyless capture land a domain-keyed, enrichable company
+    instead of a name-keyed row nothing can ever fetch."""
+    app_data = json.dumps(
+        {
+            "organization": {
+                "name": "Foresight Health",
+                "publicWebsite": "https://www.foresighthealth.ai/",
+            }
+        }
+    )
+
+    def board_page(req):
+        return (
+            200,
+            {"Content-Type": "text/html"},
+            "<html><head><title>Foresight Health Jobs</title></head><body>"
+            f"<script>window.__appData = {app_data};</script></body></html>",
+        )
+
+    with _ashby_board_server() as api_url, http_server(board_page) as page_url:
+        monkeypatch.setattr(ats, "ashby_api_base", api_url)
+        monkeypatch.setattr(ats, "ashby_board_base", page_url)
+
+        name, website = ats.fetch_board_org(_client(), page_url)
+        assert (name, website) == ("Foresight Health", "https://www.foresighthealth.ai/")
+
+        job = ats.resolve_ashby(_client(), api_url, "foresight-health", ASHBY_JOB_ID)
+        assert job.company_name == "Foresight Health"
+        assert job.company_domain == "https://www.foresighthealth.ai/"
+
+        # End to end, with no Anthropic client at all: domain-keyed, not name-keyed.
+        c = capture.Capturer(db=db, http=_client(), auto_enrich=False)
+        res = c.capture_ats_posting(
+            Request(url=f"https://jobs.ashbyhq.com/foresight-health/{ASHBY_JOB_ID}", kind=KIND_JOB)
+        )
+        assert res is not None and res.company_created
+        assert res.company_id == companies.company_id("foresighthealth.ai", "Foresight Health")
+
+
+def test_ashby_falls_back_to_the_job_body_for_the_company_site(db, monkeypatch):
+    """No __appData (or a board that states no site) — the description still names
+    the company often enough to be worth reading."""
+
+    def board_page(req):
+        return 200, {"Content-Type": "text/html"}, "<html><head><title>Acme Jobs</title></head></html>"
+
+    def api(req):
+        if req.path == "/posting-api/job-board/acme":
+            return (
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "id": ASHBY_JOB_ID,
+                                "title": "Engineer",
+                                "location": "Remote",
+                                "descriptionPlain": "Acme builds things. Read more at https://acme.com/about.",
+                            }
+                        ]
+                    }
+                ),
+            )
+        return 404, {}, "not found"
+
+    with http_server(api) as api_url, http_server(board_page) as page_url:
+        monkeypatch.setattr(ats, "ashby_api_base", api_url)
+        monkeypatch.setattr(ats, "ashby_board_base", page_url)
+        c = capture.Capturer(db=db, http=_client(), auto_enrich=False)
+        res = c.capture_ats_posting(
+            Request(url=f"https://jobs.ashbyhq.com/acme/{ASHBY_JOB_ID}", kind=KIND_JOB)
+        )
+        assert res is not None
+        assert res.company_id == companies.company_id("acme.com", "Acme")

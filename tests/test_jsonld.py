@@ -100,6 +100,7 @@ def test_run_resolves_jsonld_without_llm(tmp_path):
         con = db_module.open_db(str(tmp_path / "scout.db"))
         try:
             c = capture.Capturer(
+        auto_enrich=False,
                 db=con, http=httpx.Client(timeout=5, follow_redirects=True)
             )  # no Client: keyless
             res = c.run(Request(url=page_url + "/careers/eng"))

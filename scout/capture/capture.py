@@ -135,9 +135,47 @@ class Capturer:
     client: anthropic.Client | None = None
     model: str = ""
     http: httpx.Client | None = None
+    # auto_enrich fetches a newly-resolved company's about-page inline. On in
+    # production; tests turn it off so a capture never reaches the open internet.
+    auto_enrich: bool = True
 
     def _httpc(self) -> httpx.Client:
         return self.http if self.http is not None else enrich.new_http_client(0)
+
+    def _company_domain(self, host_domain: str, description: str, name: str) -> str:
+        """The hiring company's own domain for a posting. host_domain is what the
+        link and the page already imply; it wins whenever it reads as the company,
+        because plenty of companies host at a name that only they would guess
+        ("Pulse" at runpulse.com). When it does NOT — a recruiting marketplace we
+        haven't blocklisted, say — a domain the description itself corroborates
+        beats it, since a wrong domain is a wrong identity AND the wrong site to
+        enrich. Nothing corroborated leaves host_domain standing: an unrecognizable
+        host is weak evidence, not counter-evidence."""
+        if host_domain != "" and domain_reads_as_name(host_domain, name):
+            return host_domain
+        return company_domain_from_text(description, name) or host_domain
+
+    def _autoenrich(self, company_id: str, domain: str) -> None:
+        """Fetch the company's about-page right after the capture wrote it, so a
+        company that arrives through a job link lands scoreable instead of waiting
+        for a verdict run to notice it was never enriched. Only for a company with
+        a domain and no enrichment row yet. Best-effort: a capture never fails
+        because a company's site didn't load."""
+        if not self.auto_enrich or company_id == "" or domain == "":
+            return
+        if enrichment.get_enrichment(self.db, company_id) is not None:
+            return
+        e = enrich.Enricher(
+            con=self.db, company_ids=[company_id], workers=1, client=self._httpc()
+        )
+        # Mirror the enrich stage: a usable key turns on the fact-extraction pass
+        # so headcount/stage/vertical fill in too.
+        if self.client is not None and self.client.has_key():
+            e.llm = self.client
+        try:
+            e.run(force=True)
+        except Exception:  # noqa: BLE001 - enrichment is a bonus, never the point
+            pass
 
     # --- the main capture flow ------------------------------------------------
 
@@ -198,6 +236,10 @@ class Capturer:
 
         name = ext.company_name.strip()
         domain = resolve_company_domain(ext.company_domain, raw_url, final_url)
+        if ext.kind == KIND_JOB and name != "":
+            # A posting rarely sits on the hiring company's own host — it sits on
+            # an ATS, a job board, or a recruiting marketplace. Let the body speak.
+            domain = self._company_domain(domain, text, name)
         if name == "" and domain == "":
             res.note = (
                 "couldn't identify the company behind the page — type a company name and retry"
@@ -253,6 +295,7 @@ class Capturer:
             res.posting = p
             res.posting_updated = updated
             self._detect_and_store(p.id, final_url)
+            self._autoenrich(cid, domain)
         return res
 
     def capture_ats_posting(self, req: Request) -> Result | None:
@@ -374,7 +417,8 @@ class Capturer:
     def _run_ats(self, raw_url: str, req: Request, job: ATSJob) -> Result:
         """The same writes a captured job posting makes, from the platform-stated
         fields. The ATS host never identifies the company, so its identity is the
-        user-typed name or the board's — never a domain."""
+        user-typed name or the board's; a domain only when the board states the
+        company's own site (Ashby) or the description names it."""
         res = Result(kind=KIND_JOB, fetch_status="ok", url=job.url)
         name = req.fields.name.strip()
         if name == "":
@@ -384,10 +428,15 @@ class Capturer:
                 "couldn't identify the company behind the page — type a company name and retry"
             )
             return res
+        # The board's stated site (Ashby) is the company itself — authoritative.
+        domain = resolve_company_domain(job.company_domain, "", "")
+        if domain == "":
+            domain = company_domain_from_text(job.description, name)
         cid, created = ingest.ensure_company(
             self.db,
             CapturedCompany(
                 name=name,
+                domain=domain,
                 location=req.fields.location,
                 vertical=req.fields.vertical,
                 source_url=job.url,
@@ -403,6 +452,7 @@ class Capturer:
         res.posting = p
         res.posting_updated = updated
         res.note = "details from the " + job.ats + " posting API — no LLM pass needed"
+        self._autoenrich(cid, domain)
         return res
 
     def _run_job_posting_ld(
@@ -417,6 +467,10 @@ class Capturer:
         if name == "":
             name = jp.company_name.strip()
         domain = resolve_company_domain(jp.company_url, raw_url, final_url)
+        if name != "":
+            # The host a posting sits on may not be the company at all — see
+            # _company_domain, which only ever yields to a corroborated domain.
+            domain = self._company_domain(domain, jp.description, name)
         if name == "" and domain == "":
             res.note = (
                 "couldn't identify the company behind the page — type a company name and retry"
@@ -463,6 +517,7 @@ class Capturer:
         res.posting_updated = updated
         res.note = "details from the page's embedded job-posting data — no LLM pass needed"
         self._detect_and_store(p.id, final_url)
+        self._autoenrich(cid, domain)
         return res
 
     def _write_ats_posting(
@@ -643,6 +698,10 @@ _ATS_HOSTS = {
     "simplify.jobs",
     "hired.com",
     "dover.com",
+    "gem.com",
+    "kula.ai",
+    "careers-page.com",
+    "paraform.com",
 }
 
 
@@ -666,6 +725,55 @@ def company_domain_from_url(raw_url: str) -> str:
     d = ingest.identity_domain(netloc)
     if d != "" and not is_ats_host(d):
         return d
+    return ""
+
+
+# URLs as they appear in prose: a full http(s) link, or a bare "www.host.tld".
+# Trailing punctuation is stripped by the character class, not a lookbehind.
+_re_prose_url = re.compile(r"https?://[^\s<>\"')\]]+|(?<![\w@.])www\.[\w-]+(?:\.[\w-]+)+")
+_re_name_slug = re.compile(r"[^a-z0-9]")
+
+
+def domain_reads_as_name(domain: str, name: str) -> bool:
+    """Whether a host's registrable label reads as the company's name —
+    "runpulse.com" for Pulse, "applied.co" for Applied Intuition. The test is
+    deliberately loose in both directions and deliberately blind to a host that
+    shares nothing with the name: it decides only whether a domain CORROBORATES
+    the company, never whether one is wrong."""
+    slug = _re_name_slug.sub("", name.lower())
+    labels = domain.split(".")
+    if slug == "" or len(labels) < 2:
+        return False
+    root = _re_name_slug.sub("", labels[-2])
+    if root == "":
+        return False
+    # Either direction: "withpersona" contains "persona"; "applied" sits inside
+    # "appliedintuition". Short roots ("ai", "hq") match too loosely.
+    return slug in root or (len(root) >= 4 and root in slug)
+
+
+def company_domain_from_text(text: str, name: str) -> str:
+    """Mine a job description for the hiring company's OWN site. Only a host that
+    reads as the company name is accepted — a JD links plenty of other things (the
+    investor, a customer, e-verify.gov), and a wrong domain is a wrong identity, so
+    an unverifiable candidate is no candidate. "" when nothing in the text matches
+    the name."""
+    if name.strip() == "" or text == "":
+        return ""
+    seen: set[str] = set()
+    for m in _re_prose_url.finditer(text):
+        raw = m.group(0)
+        if not raw.startswith("http"):
+            raw = "https://" + raw
+        d = ingest.identity_domain(urllib.parse.urlparse(raw).netloc)
+        if d == "" or d in seen or is_ats_host(d):
+            continue
+        seen.add(d)
+        if not domain_reads_as_name(d, name):
+            continue
+        # A JD usually links the blog or the docs, not the root. The company's
+        # identity is the registrable domain, so drop the content subdomain.
+        return ".".join(d.split(".")[-2:])
     return ""
 
 

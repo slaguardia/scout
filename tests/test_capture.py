@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import json
+from urllib.parse import urlparse
 
 import httpx
 import pytest
 from httpstub import http_server
 
-from scout import anthropic, capture
+from scout import anthropic, capture, ingest
+from scout import enrich as enrich_pkg
 from scout.capture.capture import (
     DESC_CAP_RUNES,
     KIND_COMPANY,
@@ -18,6 +20,8 @@ from scout.capture.capture import (
     MAX_PAGE_RUNES,
     Fields,
     Request,
+    company_domain_from_text,
+    domain_reads_as_name,
     parse_extraction,
     resolve_company_domain,
 )
@@ -130,6 +134,7 @@ def _job_page():
 
 def _capturer(db, llm_url) -> capture.Capturer:
     return capture.Capturer(
+        auto_enrich=False,
         db=db,
         client=anthropic.Client(api_key="test-key", endpoint=llm_url),
         http=httpx.Client(timeout=5, follow_redirects=True),
@@ -201,7 +206,11 @@ def test_capture_job_for_company_pins_company(db):
             and res2.posting.title == "Forward-Deployed Engineer"
         )
 
-        no_key = capture.Capturer(db=db, http=httpx.Client(timeout=5, follow_redirects=True))
+        no_key = capture.Capturer(
+            db=db,
+            http=httpx.Client(timeout=5, follow_redirects=True),
+            auto_enrich=False,
+        )
         assert no_key.capture_job_for_company(cid, Request(url=page + "/jobs/1")) is None
 
 
@@ -367,3 +376,140 @@ def test_run_bad_url(db):
             with pytest.raises(ValueError) as ei:
                 c.run(Request(url=bad))
             assert str(ei.value).startswith("url "), bad
+
+
+# --- the hiring company's own domain, when the posting isn't on its site ------
+
+
+def test_company_domain_from_text():
+    cases = [
+        # The plain case: the JD links the company's own site.
+        ("We're hiring. See https://ramp.com/careers for more.", "Ramp", "ramp.com"),
+        # A bare "www." host in prose, no scheme.
+        ("Read more at www.palantir.com today.", "Palantir", "palantir.com"),
+        # The JD links the blog, not the root — the identity is the registrable domain.
+        ("Our writeup: https://blog.roboflow.com/vlm", "Roboflow", "roboflow.com"),
+        # A name the domain only partly contains, in both directions.
+        ("Apply at https://withpersona.com/careers", "Persona", "withpersona.com"),
+        ("See https://applied.co/about", "Applied Intuition", "applied.co"),
+        # Everything a JD links that ISN'T the company: the investor, a compliance
+        # site, the ATS it's posted on, its own LinkedIn.
+        (
+            "Backed by https://lsvp.com. E-Verify: https://e-verify.gov. "
+            "Apply: https://jobs.lever.co/acme/1 or https://linkedin.com/company/acme",
+            "Acme",
+            "",
+        ),
+        # A marketplace host that shares nothing with the name is not the company.
+        ("Posted via https://www.paraform.com/share/palantir/x", "Palantir", ""),
+        # Too short a root matches too loosely — "ai" must not claim "Skild AI".
+        ("Docs at https://ai.dev/guide", "Skild AI", ""),
+        # A bare host with neither scheme nor "www." is not read as a link at all —
+        # prose is full of "Node.js" and "e.g." and none of them are domains.
+        ("We are Ramp. Find us at ramp.com.", "Ramp", ""),
+        # No name to verify against means no candidate can be verified.
+        ("https://ramp.com", "", ""),
+    ]
+    for text, name, want in cases:
+        assert company_domain_from_text(text, name) == want, (name, text)
+
+
+def test_domain_reads_as_name():
+    assert domain_reads_as_name("runpulse.com", "Pulse")
+    assert domain_reads_as_name("secondfront.com", "Second Front Systems")
+    assert domain_reads_as_name("applied.co", "Applied Intuition")
+    assert not domain_reads_as_name("paraform.com", "Palantir")
+    assert not domain_reads_as_name("acme.com", "")
+
+
+def test_job_on_a_marketplace_host_takes_the_domain_the_body_names(db):
+    """A posting hosted somewhere that is not the hiring company: the page's own
+    host must not become the company's identity when the body names the real one.
+    The stub serves on 127.0.0.1, which reads as no company at all — exactly the
+    recruiting-marketplace shape."""
+    body = "<p>Palantir builds decision platforms. See www.palantir.com. </p>" * 20
+
+    def handle(req):
+        return 200, {"Content-Type": "text/html"}, f"<html><body>{body}</body></html>"
+
+    with http_server(handle) as page, _fake_anthropic(
+        _ext(kind=KIND_JOB, company_name="Palantir", job_title="FDE")
+    ) as llm:
+        res = _capturer(db, llm).run(Request(url=page + "/share/palantir/1"))
+        assert res.company_name == "Palantir"
+        assert res.company_id == companies.company_id("palantir.com", "Palantir")
+
+
+def test_extracted_domain_survives_when_it_reads_as_nothing(db):
+    """The fallback must never DEMOTE a stated domain. "about.google" reads as no
+    company, and nothing in the body corroborates one — so it stands."""
+    body = "<p>Google builds search. </p>" * 40
+
+    def handle(req):
+        return 200, {"Content-Type": "text/html"}, f"<html><body>{body}</body></html>"
+
+    with http_server(handle) as page, _fake_anthropic(
+        _ext(kind=KIND_JOB, company_name="Google", company_domain="about.google", job_title="SWE")
+    ) as llm:
+        res = _capturer(db, llm).run(Request(url=page + "/jobs/1"))
+        assert res.company_id == companies.company_id("about.google", "Google")
+
+
+# --- auto-enrich a company that arrived through a job link -------------------
+
+
+def test_autoenrich_fetches_a_new_company_about_page(db, monkeypatch):
+    """A company that arrives through a job link lands enriched, instead of waiting
+    for a verdict run to notice it was never fetched."""
+    paths = []
+
+    def handle(req):
+        paths.append(req.path)
+        if req.path != "/about":
+            return 404, {}, "not found"
+        return (
+            200,
+            {"Content-Type": "text/html"},
+            "<html><body><p>Acme builds AI infrastructure for ML teams. </p>"
+            + "<p>We are hiring across the whole stack. </p>" * 30
+            + "</body></html>",
+        )
+
+    with http_server(handle) as site:
+        host = urlparse(site).netloc
+        # The enricher fetches over https in production; point it at the stub.
+        real = enrich_pkg.Enricher
+        monkeypatch.setattr(
+            enrich_pkg, "Enricher", lambda **kw: real(scheme="http", **kw)
+        )
+
+        # Insert directly: a host:port isn't a valid identity domain, so the normal
+        # capture path would drop it. The enrich tests bind their stub the same way.
+        cid = "c-autoenrich"
+        db.execute(
+            "INSERT INTO companies (id, source, name, domain, raw_json) "
+            "VALUES (?, 'test', 'Acme', ?, '{}')",
+            (cid, host),
+        )
+        assert enrichment.get_enrichment(db, cid) is None
+
+        c = capture.Capturer(db=db, http=httpx.Client(timeout=5, follow_redirects=True))
+        c._autoenrich(cid, host)
+
+        rec = enrichment.get_enrichment(db, cid)
+        assert rec is not None and rec.fetch_status == "ok"
+        assert "/about" in paths
+
+        # Already enriched → a later capture of the same company re-fetches nothing.
+        paths.clear()
+        c._autoenrich(cid, host)
+        assert paths == []
+
+
+def test_autoenrich_skips_a_company_with_no_domain(db):
+    """No domain is the whole reason enrichment used to be impossible — it stays a
+    no-op rather than writing a "no_domain" row the capture flow can't act on."""
+    c = capture.Capturer(db=db, http=httpx.Client(timeout=5))
+    cid, _ = ingest.ensure_company(db, ingest.CapturedCompany(name="Stealth Co"))
+    c._autoenrich(cid, "")
+    assert enrichment.get_enrichment(db, cid) is None
