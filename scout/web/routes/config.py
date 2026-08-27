@@ -146,6 +146,37 @@ def put_taste_filter(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Res
     )
 
 
+@router.post("/api/taste-filter/preview")
+def preview_taste_filter(raw: bytes = Depends(raw_body), con=Depends(get_db)) -> Response:
+    """How many companies the given rules would keep — without saving them.
+
+    The pre-filter decides which companies a paid bulk run ever scores, and the
+    form had no way to show its blast radius: you found out by launching a run.
+    The engine already produces the numbers (`Result.total` / `dropped_by`);
+    this just runs it against unsaved rules.
+    """
+    body = decode_json(raw)
+    try:
+        if body.get("rules") is not None:
+            ft = _taste_from_rules(body["rules"])
+        else:
+            ft = filter_pkg.parse_taste(_s(body, "content") or filter_pkg.DEFAULT_TASTE_TOML)
+    except Exception as e:  # noqa: BLE001
+        return json_error("invalid pre-filter rules: " + str(e), 400)
+
+    # The master switch lives in the DB, not in the rules being previewed; a
+    # preview always evaluates the rules themselves, so force it on.
+    ft.enabled = True
+    res = ft.apply(con)
+    return json_response(
+        {
+            "total": res.total,
+            "kept": len(res.survivors),
+            "dropped_by": res.dropped_by,
+        }
+    )
+
+
 # --- filter-options vocabularies (read-only) ---------------------------------
 
 

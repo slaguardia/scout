@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "../../components/Toast";
 import { getTasteFilter, putTasteFilter, useFilterOptions } from "../../api/settings";
+import { postJSON } from "../../api/client";
 
 interface Rules {
   location: { allowed: string[]; remote_ok: boolean };
@@ -225,10 +226,53 @@ export function PrefilterForm() {
         <button className="btn btn-primary" id="pf-save" onClick={save}>
           Save pre-filter
         </button>
+        <PrefilterPreview rules={rules} />
         <button className="btn" id="pf-reset" title="discard your edits and restore the built-in default rules" onClick={() => load(true)}>
           Reset to default
         </button>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * "N of M companies pass" for the rules currently in the form — recomputed
+ * (debounced) as you edit, without saving. Turns a blind setting into a visible
+ * one: tightening headcount or adding a vertical allowlist used to silently
+ * shrink what the next bulk run would score.
+ */
+function PrefilterPreview({ rules }: { rules: Rules }) {
+  const [res, setRes] = useState<{ total: number; kept: number } | null>(null);
+  const [err, setErr] = useState(false);
+  const key = JSON.stringify(rules);
+
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => {
+      postJSON<{ total: number; kept: number }>("/api/taste-filter/preview", { rules })
+        .then((r) => {
+          if (live) {
+            setRes(r);
+            setErr(false);
+          }
+        })
+        .catch(() => {
+          if (live) setErr(true);
+        });
+    }, 350);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  if (err || !res) return null;
+  return (
+    <span className={"pf-preview" + (res.kept === 0 ? " is-none" : "")}>
+      <b>{res.kept}</b> of {res.total} companies pass
+      {res.kept === 0 ? " — a bulk run would score nothing" : ""}
+    </span>
   );
 }

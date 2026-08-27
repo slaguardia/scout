@@ -19,6 +19,7 @@ from scout import enrich as enrich_pkg
 from scout import filter as filter_pkg
 from scout import ingest, jobs
 from scout import verdict as verdict_pkg
+from scout.store import verdicts as verdicts_store
 from scout.store.db import connect
 
 from ..deps import AppState, get_db, get_state
@@ -26,6 +27,51 @@ from ..responses import json_error, json_response
 from .core import decode_json, raw_body
 
 router = APIRouter()
+
+
+@router.get("/api/run/verdict/plan")
+def verdict_plan(con=Depends(get_db), state: AppState = Depends(get_state)) -> Response:
+    """What a bulk verdict run would actually do, before it spends anything.
+
+    A run funnels through three gates that were previously all silent — the
+    pre-filter, the enrichment requirement, and the skip-already-scored rule —
+    so a 300-company list could report "scoring 41" with no account of the other
+    259. This returns the whole funnel plus the per-scope counts behind the run
+    dialog's picker.
+    """
+    tb = state.current_taste()
+    live_version = tb.version if tb is not None else ""
+
+    ft = filter_pkg.taste_from_db(con)
+    fres = ft.apply(con)
+    survivor_ids = [sv.id for sv in fres.survivors]
+
+    enriched = 0
+    if survivor_ids:
+        q, args = verdict_pkg.build_in_query(
+            "SELECT COUNT(1) FROM enrichment WHERE fetch_status = 'ok' AND company_id IN ",
+            survivor_ids,
+        )
+        enriched = con.execute(q, args).fetchone()[0]
+
+    counts = verdicts_store.scope_counts(con, live_version)
+    return json_response(
+        {
+            "total": fres.total,
+            "prefilter_enabled": ft.enabled,
+            "passes_prefilter": len(survivor_ids),
+            "dropped_by": fres.dropped_by,
+            "enriched": enriched,
+            "unenriched": max(len(survivor_ids) - enriched, 0),
+            # scope counts are over the whole verdicts table, not just survivors:
+            # they answer "what is on file", which is what the picker offers.
+            "scored": counts.scored,
+            "stale": counts.stale,
+            "current": counts.current,
+            "manual": counts.manual,
+            "taste_version": live_version,
+        }
+    )
 
 
 def _workers_or(req: int, default: int) -> int:
@@ -61,6 +107,10 @@ def run_stage(
     opts = _run_opts(raw)
     force = bool(opts.get("force"))
     only_blanks = bool(opts.get("only_blanks"))
+    # redo_stale re-scores only what a criteria edit invalidated; include_manual
+    # opts a bulk re-score into overwriting hand-set verdicts (off by default).
+    redo_stale = bool(opts.get("redo_stale"))
+    include_manual = bool(opts.get("include_manual"))
     company_ids = opts.get("company_ids") or None
     if company_ids is not None and not isinstance(company_ids, list):
         company_ids = None
@@ -78,7 +128,9 @@ def run_stage(
                 "in the server environment)",
                 412,
             )
-        fn = _verdict_job(state, db_path, force, only_blanks, company_ids, workers)
+        fn = _verdict_job(
+            state, db_path, force, only_blanks, redo_stale, include_manual, company_ids, workers
+        )
     else:
         return json_error("unknown stage: " + stage, 400)
 
@@ -117,7 +169,9 @@ def _enrich_job(state, db_path, force, only_blanks, company_ids, workers):
     return fn
 
 
-def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
+def _verdict_job(
+    state, db_path, force, only_blanks, redo_stale, include_manual, company_ids, workers
+):
     def fn(ctx, run_id, emit):  # noqa: ANN001
         # Re-resolve criteria first so the Resolver re-checks its TTL and refreshes
         # the cached brain profile; otherwise a long-lived server scores against
@@ -148,6 +202,8 @@ def _verdict_job(state, db_path, force, only_blanks, company_ids, workers):
                 run_id=run_id,
                 force=force,
                 only_blanks=only_blanks,
+                redo_stale=redo_stale,
+                include_manual=include_manual,
                 company_ids=company_ids,
                 workers=_workers_or(workers, 10),
                 progress=emit,

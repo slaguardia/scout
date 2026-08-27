@@ -270,6 +270,8 @@ def cmd_verdict(args) -> None:
             playbook=pb,
             force=args.force,
             only_blanks=args.only_blanks,
+            redo_stale=args.stale,
+            include_manual=args.include_manual,
             company_ids=split_ids(args.company),
             workers=args.workers,
         )
@@ -841,6 +843,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="re-score even if taste_version matches")
     sp.add_argument(
         "--only-blanks", action="store_true", help="only companies with no verdict row yet"
+    )
+    sp.add_argument(
+        "--stale",
+        action="store_true",
+        help="re-score only verdicts scored against different criteria (plus unscored)",
+    )
+    sp.add_argument(
+        "--include-manual",
+        action="store_true",
+        help="let a re-score overwrite hand-set verdicts (they are kept by default)",
     )
     sp.add_argument(
         "--company", default="", help="comma-separated company IDs; re-score exactly these"

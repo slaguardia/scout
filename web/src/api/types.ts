@@ -16,6 +16,10 @@ export interface Company {
   website_url?: string | null;
   flagged?: boolean;
   enriched?: boolean;
+  /** criteria+playbook hash this verdict was scored against; compare with
+      stats.current_taste to spot a verdict a criteria edit invalidated */
+  taste_version?: string | null;
+  verdict_model?: string | null;
 }
 
 /** A saved job posting / application-tracker row (GET /api/postings). Expanded in Phase 4. */

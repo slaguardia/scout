@@ -1,5 +1,9 @@
 # QA review — proposed new functionality (awaiting approval)
 
+> **Status (2026-08-27):** items **1 · 2 · 3** are BUILT — the criteria→verdict
+> loop shipped as one feature (run funnel + new/stale/everything scope picker +
+> stale markers + pre-filter live preview). Items 4–8 are still proposals.
+
 From an adversarial UI/UX/QA pass on 2026-08-25 (six parallel reviewers across
 the jobs tracker, pursuit pane, companies/verdict surface, settings, modals and
 inbox, and the CSS/a11y layer — plus a headless-browser run against a seeded

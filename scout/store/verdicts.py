@@ -72,3 +72,37 @@ def count_verdicts_by_verdict(con: sqlite3.Connection) -> dict[str, int]:
     """A histogram for stats."""
     rows = con.execute("SELECT verdict, COUNT(1) FROM verdicts GROUP BY verdict").fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+@dataclass
+class ScopeCounts:
+    """How the scored set breaks down against the live criteria version — the
+    numbers behind the run dialog's scope picker.
+
+    `stale` counts verdicts scored against a different taste_version, i.e. the
+    ones a criteria edit invalidated. Manual verdicts are counted separately
+    because a bulk re-score leaves them alone unless asked not to.
+    """
+
+    scored: int = 0
+    stale: int = 0
+    current: int = 0
+    manual: int = 0
+
+
+def scope_counts(con: sqlite3.Connection, current_taste_version: str) -> ScopeCounts:
+    """Break the verdicts table down into current / stale / manual."""
+    c = ScopeCounts()
+    rows = con.execute(
+        "SELECT COALESCE(taste_version, ''), COALESCE(model, ''), COUNT(1) "
+        "FROM verdicts GROUP BY 1, 2"
+    ).fetchall()
+    for version, model, n in rows:
+        c.scored += n
+        if model == MANUAL_MODEL:
+            c.manual += n
+        elif version == current_taste_version and current_taste_version != "":
+            c.current += n
+        else:
+            c.stale += n
+    return c

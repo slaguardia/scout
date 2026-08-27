@@ -5,6 +5,7 @@
 // companyRowCells + the sort/skeleton helpers.
 import { useMemo } from "react";
 import { useCompanies } from "../api/companies";
+import { useStats } from "../api/settings";
 import { useUI, useDispatch, DEFAULT_SORT, type Sort } from "../store/ui";
 import { useCompanyActions } from "../hooks/useCompanyActions";
 import { pillClass } from "../components/Pill";
@@ -30,6 +31,10 @@ const SKEL_COLS: [string | null, string][] = [
 
 export function CompaniesView({ active }: { active: boolean }) {
   const { data: rows, isLoading, isError, error, refetch } = useCompanies();
+  // A bulk run skips already-scored companies, so editing your criteria leaves
+  // every existing verdict in place and silently out of date. Compare each
+  // verdict's stamp with the live one so the staleness is visible.
+  const liveTaste = (useStats().data as { current_taste?: string } | undefined)?.current_taste || "";
   const ui = useUI();
   const dispatch = useDispatch();
   const { toggleFlag } = useCompanyActions();
@@ -133,6 +138,14 @@ export function CompaniesView({ active }: { active: boolean }) {
                   </td>
                   <td data-col="verdict" style={colStyle("verdict")}>
                     <span className={pillClass(r.verdict)}>{r.verdict || "—"}</span>
+                    {r.verdict && liveTaste && r.verdict_model !== "manual" && r.taste_version !== liveTaste ? (
+                      <span
+                        className="v-stale"
+                        title="scored against criteria you've since changed — re-run Verdict with the 'stale' scope to refresh it"
+                      >
+                        stale
+                      </span>
+                    ) : null}
                   </td>
                   <td>
                     <span className="row-name" data-id={r.company_id} title={r.name}>

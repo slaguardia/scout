@@ -13,6 +13,7 @@ import { useUI, useDispatch } from "../store/ui";
 import { useRun } from "../store/run";
 import { useMeta, useVocab, vocabColorClass } from "../api/queries";
 import { useFacets } from "../api/runs";
+import { useStats } from "../api/settings";
 import { useCompanyActions } from "../hooks/useCompanyActions";
 import {
   useCompanyDetail,
@@ -409,6 +410,9 @@ function VerdictSection({ d }: { d: CompanyDetail }) {
   const meta = useMeta().data;
   const { startRun } = useRun();
   const manual = d.model === "manual";
+  // A bulk run skips already-scored companies, so a criteria edit silently
+  // leaves this verdict behind. Say which side of that line it's on.
+  const liveTaste = (useStats().data as { current_taste?: string } | undefined)?.current_taste || "";
   const [picked, setPicked] = useState<string>(d.has_verdict && d.verdict ? d.verdict : "");
   const [reason, setReason] = useState<string>(d.reason || "");
   const [saving, setSaving] = useState(false);
@@ -472,7 +476,21 @@ function VerdictSection({ d }: { d: CompanyDetail }) {
           <dd className="small muted">{d.model || ""}</dd>
           <dt>taste version</dt>
           <dd className="small muted">
-            <span className="tooltip" title={`scored ${d.scored_at} · model ${d.model}`}>{d.taste_version || ""}</span>
+            <span
+              className="tooltip"
+              title="the criteria + playbook hash this verdict was scored against"
+            >
+              {d.taste_version || "—"}
+            </span>
+            {liveTaste && !manual ? (
+              d.taste_version === liveTaste ? (
+                <span className="small dim"> · current</span>
+              ) : (
+                <span className="v-stale" title="re-run Verdict with the 'stale' scope to refresh it">
+                  stale
+                </span>
+              )
+            ) : null}
           </dd>
           <dt>scored at</dt>
           <dd className="small muted">{d.scored_at || ""}</dd>

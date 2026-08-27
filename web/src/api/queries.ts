@@ -74,3 +74,33 @@ export function vocabColorClass(value: string, list: string[]): string {
   const i = list.indexOf(value);
   return i < 0 ? "" : "sc-" + (i % VOCAB_COLORS);
 }
+
+/**
+ * What a bulk verdict run would actually do, fetched fresh when the run dialog
+ * opens. A run funnels through three gates that used to be silent — the
+ * pre-filter, the enrichment requirement, and the skip-already-scored rule — so
+ * the dialog can show the whole funnel plus the counts behind the scope picker.
+ */
+export interface VerdictPlan {
+  total: number;
+  prefilter_enabled: boolean;
+  passes_prefilter: number;
+  dropped_by: Record<string, number>;
+  enriched: number;
+  unenriched: number;
+  scored: number;
+  stale: number;
+  current: number;
+  manual: number;
+  taste_version: string;
+}
+
+export function useVerdictPlan(enabled: boolean) {
+  return useQuery({
+    queryKey: ["verdict-plan"],
+    queryFn: async (): Promise<VerdictPlan | null> =>
+      getOrNull<VerdictPlan>("/api/run/verdict/plan"),
+    enabled,
+    staleTime: 0,
+  });
+}

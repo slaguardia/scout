@@ -21,7 +21,13 @@ from dataclasses import dataclass, field
 from scout import anthropic, criteria
 from scout.filter import Survivor, Taste
 from scout.store.trace import VerdictTrace, insert_verdict_trace
-from scout.store.verdicts import Verdict, VerdictCandidate, get_verdict, upsert_verdict
+from scout.store.verdicts import (
+    MANUAL_MODEL,
+    Verdict,
+    VerdictCandidate,
+    get_verdict,
+    upsert_verdict,
+)
 
 
 @dataclass
@@ -49,6 +55,8 @@ class Scorer:
         model: str = "",
         force: bool = False,
         only_blanks: bool = False,
+        redo_stale: bool = False,
+        include_manual: bool = False,
         company_ids: list[str] | None = None,
         playbook: str = "",
         run_id: str = "",
@@ -64,6 +72,14 @@ class Scorer:
         # only_blanks limits the run to companies with no verdict row at all. Takes
         # precedence over force.
         self.only_blanks = only_blanks
+        # redo_stale re-scores a company whose verdict was scored against a
+        # different criteria version, and leaves up-to-date ones alone — "re-judge
+        # what my criteria edit invalidated", without paying for the rest.
+        self.redo_stale = redo_stale
+        # A hand-set verdict is a deliberate decision, so a bulk re-score leaves
+        # it alone unless explicitly included. (A targeted per-company run always
+        # re-scores, override or not — you pointed at that company.)
+        self.include_manual = include_manual
         # company_ids limits the run to exactly these companies and always
         # re-scores them, bypassing the static taste filter. Overrides force/only_blanks.
         self.company_ids = company_ids
@@ -74,6 +90,8 @@ class Scorer:
         self.run_id = run_id
         self.workers = workers
         self.progress = progress
+        # Set by score_one so run() can say *why* a row was skipped.
+        self._skip_reason = ""
 
     def emit(self, line: str) -> None:
         if self.progress is not None:
@@ -108,7 +126,7 @@ class Scorer:
                 continue
             if v is None:
                 res.skipped += 1
-                self.emit(f"{c.name} — skipped (up to date)")
+                self.emit(f"{c.name} — skipped ({self._skip_reason or 'up to date'})")
                 continue
             res.scored += 1
             res.by_verdict[v.verdict] = res.by_verdict.get(v.verdict, 0) + 1
@@ -134,6 +152,13 @@ class Scorer:
             fres = self.filter.apply(self.con)
             by_id = {sv.id: sv for sv in fres.survivors}
             ids = [sv.id for sv in fres.survivors]
+            dropped = sum(fres.dropped_by.values())
+            if dropped:
+                why = ", ".join(f"{k}: {n}" for k, n in sorted(fres.dropped_by.items()))
+                self.emit(
+                    f"pre-filter: {dropped} of {fres.total} gated out ({why}) — "
+                    "turn it off in Settings → Job hunting to score everything"
+                )
         if not ids:
             return []
 
@@ -146,6 +171,11 @@ WHERE fetch_status = 'ok' AND company_id IN """,
             ids,
         )
         rows = self.con.execute(q, args).fetchall()
+        if len(rows) < len(ids):
+            self.emit(
+                f"enrichment: {len(ids) - len(rows)} of {len(ids)} have no readable "
+                "website yet — run Enrich to score them"
+            )
 
         out: list[VerdictCandidate] = []
         for r in rows:
@@ -192,6 +222,28 @@ FROM companies WHERE id IN """,
             for r in rows
         ]
 
+    def _skip_existing(self, existing: Verdict) -> str:
+        """Why an already-scored company is left alone on this bulk run, or "" to
+        re-score it. The reason is surfaced per row so a skip never reads as a
+        silent drop."""
+        # only_blanks means exactly what it says, and takes precedence.
+        if self.only_blanks:
+            return "already scored"
+        # A hand-set verdict survives a bulk re-score unless explicitly included.
+        if existing.model == MANUAL_MODEL and not self.include_manual:
+            return "your manual verdict, kept"
+        if self.force:
+            return ""
+        if self.redo_stale:
+            live = self.taste.version if self.taste is not None else ""
+            # An unknown version reads as stale: it predates version stamping, so
+            # we can't claim it matches the criteria in force now.
+            if existing.taste_version == live and live != "":
+                return "already scored against these criteria"
+            return ""
+        # Default run: already scored is already done.
+        return "already scored"
+
     def score_one(self, c: VerdictCandidate) -> tuple[Verdict | None, int, int, Exception | None]:
         """Score one company. Returns (verdict|None, cache_creation, cache_read,
         err) — None verdict + None err means skipped (already up to date). The
@@ -199,12 +251,13 @@ FROM companies WHERE id IN """,
         still aggregate them."""
         # A targeted run always re-scores — the user pointed at this company on
         # purpose, so even a sticky manual verdict is fair game.
-        if not self.company_ids and (self.only_blanks or not self.force):
+        if not self.company_ids:
             existing = get_verdict(self.con, c.company_id)
             if existing is not None:
-                # Any already-scored company is left untouched on a default or
-                # blanks-only run.
-                return None, 0, 0, None
+                why = self._skip_existing(existing)
+                if why != "":
+                    self._skip_reason = why
+                    return None, 0, 0, None
 
         system = build_system_prompt(self.playbook, self.taste.text)
         user = build_user_prompt(c)

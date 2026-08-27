@@ -22,13 +22,19 @@ class TriageRow:
     enriched: bool = False  # enrichment fetched cleanly (fetch_status='ok')
     flagged: bool = False  # hand-set bookmark
     reviewed_at: str = ""  # last-reviewed stamp; "" = never
+    # The criteria+playbook hash this verdict was scored against. Compared with
+    # the live version so the UI can mark a verdict stale after a criteria edit
+    # (a bulk run skips already-scored companies, so editing criteria leaves
+    # every existing verdict untouched and silently out of date).
+    taste_version: str = ""
+    verdict_model: str = ""  # 'manual' for a hand-set verdict; else the scoring model
 
 
 def triage_rows(con: sqlite3.Connection) -> list[TriageRow]:
     """Every company joined with optional enrichment and verdict."""
     q = """
 SELECT c.id, c.name, c.domain, c.location, c.vertical, c.headcount, c.funding_stage,
-       v.verdict, v.reason,
+       v.verdict, v.reason, COALESCE(v.taste_version, ''), COALESCE(v.model, ''),
        e.website_url, e.website_summary, e.fetch_status,
        c.flagged_at, c.reviewed_at
 FROM companies c
@@ -55,11 +61,13 @@ ORDER BY
                 stage=r[6] or "",
                 verdict=r[7] or "",
                 reason=r[8] or "",
-                website_url=r[9] or "",
-                website_summary=r[10] or "",
-                enriched=(r[11] == "ok"),
-                flagged=r[12] is not None,
-                reviewed_at=r[13] or "",
+                taste_version=r[9],
+                verdict_model=r[10],
+                website_url=r[11] or "",
+                website_summary=r[12] or "",
+                enriched=(r[13] == "ok"),
+                flagged=r[14] is not None,
+                reviewed_at=r[15] or "",
             )
         )
     return out
