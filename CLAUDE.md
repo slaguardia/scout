@@ -104,8 +104,10 @@ canonical port defeats that safety net — don't.
   inline for a company that has a domain and no enrichment row — best-effort, after
   the posting write, so a slow site never costs the posting. `auto_enrich=False` in
   tests keeps captures off the open internet. `_ATS_HOSTS` also grew
-  gem.com / kula.ai / careers-page.com / paraform.com, each of which had shown up
-  as (or in place of) a company identity.
+  gem.com / kula.ai / careers-page.com / paraform.com — hosts that carry postings
+  in the working set but are not companies. Only gem.com had actually become an
+  identity (Charta Health is still on file as `jobs.gem.com`, and enriches 404);
+  the rest are blocked pre-emptively.
 - **The jobs view is the application tracker** (replaced the user's Notion
   tracker): a lean table — company name, application stage, outreach (the reply
   status + a ⏰ follow-ups-due badge), last outreach, and contacts (mailto links)
