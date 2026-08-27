@@ -17,6 +17,7 @@ import {
   type NotificationItem,
   type FollowupItem,
 } from "../api/notifications";
+import { isoToday } from "../lib/followup";
 
 export function InboxView() {
   const { data } = useNotifications();
@@ -182,12 +183,17 @@ function NotifItem({ n }: { n: NotificationItem }) {
 
 function FollowupItemRow({ f }: { f: FollowupItem }) {
   const dispatch = useDispatch();
+  // every row here is due — say which ones are *late*, in the same amber the
+  // contact panel's overdue reminder uses
+  const overdue = !!f.due_at && f.due_at < isoToday();
   return (
     <div className="notif-item notif-followup">
       <div className="notif-main">
         <div className="notif-title">Follow up: {f.contact_name || "contact"}</div>
         <div className="notif-ctx">{[f.company, f.role].filter(Boolean).join(" · ")}</div>
-        <div className="notif-detail dim">due {f.due_at || ""}</div>
+        <div className={"notif-detail " + (overdue ? "is-overdue" : "dim")}>
+          {overdue ? `overdue — was due ${f.due_at}` : `due ${f.due_at || ""}`}
+        </div>
       </div>
       <div className="notif-side">
         <button

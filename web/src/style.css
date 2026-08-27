@@ -54,22 +54,35 @@
 
   ::selection { background: rgba(139, 109, 255, 0.35); }
 
+  /* Every disclosure in the app draws its own affordance (a ▸ / › in ::before, or
+     the label alone). Several summaries only killed the Chromium marker and so
+     leaked a native triangle in Firefox — kill both, once. */
+  summary { list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+
   /* themed scrollbars on the remaining scroll containers — the detail pane,
      summary box, docs body, and code blocks set their own below; these bring
      the sidebar, progress drawer, editor, and docs nav in line so none falls
      back to the chunky default OS bar. */
-  aside.sidebar, .drawer-log, .modal-body, .docs-nav {
+  aside.sidebar, .drawer-log, .modal-body, .docs-nav,
+  .fdrop-menu, .amenu-menu, .pselect-menu {
     scrollbar-width: thin;
     scrollbar-color: var(--line-2) transparent;
   }
   aside.sidebar::-webkit-scrollbar,
   .drawer-log::-webkit-scrollbar,
   .modal-body::-webkit-scrollbar,
-  .docs-nav::-webkit-scrollbar { width: 10px; }
+  .docs-nav::-webkit-scrollbar,
+  .fdrop-menu::-webkit-scrollbar,
+  .amenu-menu::-webkit-scrollbar,
+  .pselect-menu::-webkit-scrollbar { width: 10px; }
   aside.sidebar::-webkit-scrollbar-thumb,
   .drawer-log::-webkit-scrollbar-thumb,
   .modal-body::-webkit-scrollbar-thumb,
-  .docs-nav::-webkit-scrollbar-thumb {
+  .docs-nav::-webkit-scrollbar-thumb,
+  .fdrop-menu::-webkit-scrollbar-thumb,
+  .amenu-menu::-webkit-scrollbar-thumb,
+  .pselect-menu::-webkit-scrollbar-thumb {
     background: var(--line-2); border-radius: 999px;
   }
 
@@ -150,7 +163,7 @@
   /* filter inputs */
   .filter-row { margin-bottom: 8px; }
   .filter-row:last-child { margin-bottom: 0; }
-  .input, aside.sidebar input, aside.sidebar select {
+  .input, aside.sidebar input {
     width: 100%;
     background: var(--panel);
     color: var(--fg);
@@ -163,14 +176,65 @@
                 box-shadow var(--dur-fast) var(--ease),
                 background var(--dur-fast) var(--ease);
   }
-  .input:hover, aside.sidebar input:hover, aside.sidebar select:hover {
+  .input:hover, aside.sidebar input:hover {
     border-color: var(--line-2);
   }
-  .input:focus, aside.sidebar input:focus, aside.sidebar select:focus {
+  .input:focus, aside.sidebar input:focus {
     border-color: var(--link);
     box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
     background: var(--panel-2);
   }
+  /* Checkboxes. The jobs table, the filter menus and the Add dialog each drew
+     their own box; everything else (drafts, settings, the run modal) fell back to
+     the native widget — a bright grey square that reads as a different app on
+     this ground. This is that same box, applied once to every bare checkbox; the
+     three bespoke treatments still out-specify it where they need to. */
+  input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    flex: none; width: 16px; height: 16px; margin: 0; vertical-align: -3px;
+    background: var(--panel); border: 1.5px solid var(--line-2); border-radius: 5px;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease),
+                border-color var(--dur-fast) var(--ease),
+                box-shadow var(--dur-fast) var(--ease);
+  }
+  input[type="checkbox"]:hover { border-color: var(--fg-dim); }
+  input[type="checkbox"]:checked {
+    background-color: var(--link); border-color: var(--link);
+    background-repeat: no-repeat; background-position: center;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='8' viewBox='0 0 10 8'><path d='M1 4.2 3.8 7 9 1.2' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  }
+  input[type="checkbox"]:focus-visible {
+    outline: none; box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
+  }
+  input[type="checkbox"]:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Radios, same story: `accent-color` only tints the *checked* dot, so the
+     unchecked ones stayed the browser's light-grey circle on a dark panel. */
+  input[type="radio"] {
+    appearance: none; -webkit-appearance: none;
+    flex: none; width: 16px; height: 16px; margin: 0; vertical-align: -3px;
+    background: var(--panel); border: 1.5px solid var(--line-2); border-radius: 50%;
+    cursor: pointer; position: relative;
+    transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  }
+  input[type="radio"]:hover { border-color: var(--fg-dim); }
+  input[type="radio"]:checked { border-color: var(--link); }
+  input[type="radio"]:checked::after {
+    content: ""; position: absolute; inset: 3px;
+    border-radius: 50%; background: var(--link);
+  }
+  input[type="radio"]:focus-visible {
+    outline: none; box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
+  }
+  input[type="radio"]:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Number spinners. Chromium draws its stepper in its own light chrome, which
+     no author style reaches; arrow keys still step the value. */
+  input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
   /* keyboard focus ring on buttons — mirrors the input treatment above so
      tabbing through the controls is visible and consistent. */
   .run-btn:focus-visible, .btn:focus-visible, .doc-btn:focus-visible,
@@ -180,16 +244,6 @@
     border-color: var(--link);
     box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
   }
-  aside.sidebar select,
-  select.input {
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%239099a8' d='M0 0l5 6 5-6z'/></svg>");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    padding-right: 28px;
-  }
-
   /* search input gets an icon — selector must out-specify `aside.sidebar input`
      (0,1,2) or the padding shorthand there collapses the left padding and the
      icon overlaps the placeholder. */
@@ -286,21 +340,67 @@
      The select takes its natural (widest-option) width so it does NOT resize when
      the value changes — its color comes from the per-value .sc-N palette below. */
   .jt-stage { display: flex; flex-direction: column; align-items: center; gap: 4px; width: fit-content; }
-  .jt-stage-sel, .jt-ostatus {
-    font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
-    padding: 2px 9px; border-radius: 999px;
-    border: 1px solid var(--line); background: var(--panel); color: var(--fg-dim);
-    text-transform: lowercase; letter-spacing: 0.01em;
-    text-align: center; text-align-last: center;
-    -webkit-appearance: none; appearance: none;
+
+  /* ---- PillSelect (components/PillSelect.tsx) --------------------------------
+     The app's own single-choice dropdown, replacing the native <select> that used
+     to sit in the jobs rows, the bulk bar and the pursuit pipeline. Two triggers
+     share one menu: `--pill` (an inline row control that reads as the colored
+     stage pill it sets) and `--box` (a form field, like `.input`). The menu
+     mirrors the `.fdrop` / `.amenu` surface so every floating list in the app is
+     the same object. */
+  .pselect { display: inline-flex; max-width: 100%; }
+  .pselect-btn {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+    font: inherit; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim);
+    transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                box-shadow var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease);
   }
-  .jt-stage-sel:hover, .jt-ostatus:hover { filter: brightness(1.1); border-color: var(--line-2); }
-  /* The `.sc-N` palette gives these pills a translucent background, which
-     Firefox propagates to the option popup (Chromium ignores author styling
-     there) — light text on no opaque ground. Give the options their own pair. */
-  .jt-stage-sel option, .jt-ostatus option, .bulk-stage-sel option {
-    background: var(--panel-2); color: var(--fg);
+  .pselect-btn--pill {
+    padding: 2px 7px 2px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; text-transform: lowercase;
   }
+  /* matches `.input` metrics so a box trigger lines up with the fields around it */
+  .pselect-btn--box { padding: 7px 10px 7px 12px; border-radius: var(--r-md); color: var(--fg); }
+  /* in a form the trigger is a field: full width, like the inputs beside it */
+  .form-field > .pselect, .form-field > .pselect > .pselect-btn { width: 100%; }
+  /* hover must not set `color` — the `.sc-N` palette class would lose to it and a
+     colored stage pill would go grey under the cursor */
+  .pselect-btn:hover { border-color: var(--line-2); filter: brightness(1.12); }
+  .pselect-btn.is-empty .pselect-val { color: var(--fg-dim); }
+  .pselect-btn:focus-visible, .pselect.is-open .pselect-btn {
+    outline: none; border-color: var(--link); box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.15);
+  }
+  .pselect-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* the chevron is the affordance the native pill never had: always drawn, quiet
+     until the control is hovered or open */
+  .pselect-chev {
+    width: 8px; height: 8px; flex: none; opacity: 0.5; margin-left: auto;
+    transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+  }
+  .pselect-btn:hover .pselect-chev { opacity: 1; }
+  .pselect.is-open .pselect-chev { transform: rotate(180deg); opacity: 1; }
+  .pselect-menu {
+    position: fixed; z-index: 95; padding: 5px; max-width: 320px;
+    background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-md);
+    box-shadow: var(--shadow-md); overflow-y: auto; overscroll-behavior: contain;
+  }
+  .pselect-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 6px 8px; font: inherit; font-size: 12.5px;
+    background: none; border: none; border-radius: var(--r-sm);
+    color: var(--fg-mute); cursor: pointer; text-align: left;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .pselect-item.is-active { background: var(--panel-3); color: var(--fg); }
+  .pselect-item.is-current { color: var(--fg); }
+  .pselect-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  /* out-specify the `.sc-N` palette's translucent background: on a menu row the
+     palette class only supplies the dot's color */
+  .pselect-item .pselect-dot { background: currentColor; }
+  .pselect-dot--none { color: var(--fg-dim); }
+  .pselect-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pselect-tick { width: 11px; height: 11px; flex: none; color: var(--link); }
   .jt-stepper { display: inline-flex; align-items: center; gap: 7px; }
   .jt-oc { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
   .jt-dec, .jt-inc {
@@ -366,13 +466,9 @@
     background: var(--panel);
     border-bottom: 1px solid var(--line);
   }
-  .bulk-bar .bulk-stage-sel {
-    font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
-    padding: 3px 10px; border-radius: 999px;
-    border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-dim);
-    text-transform: lowercase; letter-spacing: 0.01em;
-  }
-  .bulk-bar .bulk-stage-sel:hover { border-color: var(--line-2); color: var(--fg); }
+  /* the bar sits on --panel, so its trigger takes the darker ground to stay
+     legible as a control rather than dissolving into the bar */
+  .bulk-bar .pselect-btn { background: var(--bg-2); }
   .bulk-bar .btn { margin-left: auto; }
 
   /* Selection column: tight, never the row's click target for opening a pursuit. */
@@ -968,6 +1064,9 @@
     font-size: 12px; font-weight: 500;
   }
   .pipeline-row .input { width: auto; padding: 5px 10px; font-size: 13px; }
+  /* the pipeline's stage pills sit beside 13px labels — give them a touch more
+     presence than the tighter jobs-row pill */
+  .pipeline-row .pselect-btn { font-size: 12.5px; padding: 4px 9px 4px 12px; }
   .pipeline-row input[type="date"].input { color-scheme: dark; }
   .pl-at { color: var(--fg-mute); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
@@ -1221,6 +1320,7 @@
      sent" (both log + arm a follow-up; only Gmail actually delivers). */
   .draft-gmail-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
   .draft-gmail-row .draft-recipient { flex: 1 1 180px; min-width: 140px; max-width: 320px; }
+  .draft-gmail-row .draft-recipient .pselect, .draft-gmail-row .draft-recipient .pselect-btn { width: 100%; }
   .draft-gmail-row .draft-gmail-btn, .draft-gmail-row .draft-sent-btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font-size: 12.5px; }
   .draft-gmail-row .draft-gmail-btn svg, .draft-gmail-row .draft-sent-btn svg { width: 13px; height: 13px; flex: none; opacity: 0.9; }
   /* Gmail tracking bar at the top of the contacts panel: on/off + Sync now. */
@@ -1250,6 +1350,9 @@
   .notif-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent, #d94c4c); flex: none; }
   .notif-ctx { font-size: 12px; opacity: 0.75; margin-top: 2px; }
   .notif-detail { font-size: 12px; opacity: 0.85; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+  /* a follow-up past its date — same amber the contact panel's overdue reminder
+     uses, so "late" reads the same in both places */
+  .notif-detail.is-overdue { color: var(--maybe); opacity: 1; font-weight: 600; }
   .notif-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
   .notif-when { font-size: 11px; opacity: 0.6; white-space: nowrap; }
   .notif-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
@@ -1398,10 +1501,8 @@
   /* "follow-up due" badge on the jobs row — a posting awaiting a reply past the
      cadence. Accent "needs action" family, distinct from the amber/blue draft
      states (which share the row's name cell). */
-  /* inline outreach reply-status select (jobs row, stacked above the +N stepper).
-     Pill styling is shared with the application-stage select (.jt-stage-sel) so
-     the two pills are identical; inline-flex shrinks the cell to the stepper's
-     width so the pill centers over the stepper rather than stranding left. */
+  /* inline outreach reply-status cell (jobs row) — the same PillSelect the
+     application-stage cell uses, so the two pills read identically. */
   .jt-out { display: inline-flex; flex-direction: column; gap: 5px; align-items: center; }
 
   /* stage pill fallback (an out-of-vocab / removed value, which gets no .sc-N) */
@@ -1901,7 +2002,7 @@
   }
   .rs-opt:hover { border-color: var(--line-2); }
   .rs-opt.is-on { border-color: var(--link); background: var(--panel-2); }
-  .rs-opt input { accent-color: var(--link); margin: 0; flex: none; }
+  .rs-opt input { margin: 0; flex: none; }
   .rs-main { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
   .rs-label { font-size: 13px; color: var(--fg); }
   .rs-hint { font-size: 11.5px; color: var(--fg-dim); }

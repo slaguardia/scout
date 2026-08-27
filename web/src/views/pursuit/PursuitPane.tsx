@@ -9,7 +9,8 @@ import { InlineField } from "../../components/InlineField";
 import { LoadingRow, pillClass } from "../../components/Pill";
 import { useUI, useDispatch } from "../../store/ui";
 import { useJobs } from "../../api/jobs";
-import { useVocab, vocabColorClass, useMeta } from "../../api/queries";
+import { useVocab, vocabColorClass, vocabOptions, useMeta } from "../../api/queries";
+import { PillSelect } from "../../components/PillSelect";
 import { useJobTracking } from "../../hooks/useJobTracking";
 import { usePostingActions } from "../../hooks/usePostingActions";
 import { ARCHIVED_STAGE } from "../../lib/status";
@@ -37,13 +38,6 @@ export function PursuitPane() {
       {id !== null ? <PursuitBody key={id} id={id} /> : <PaneHead title="—" onClose={() => dispatch({ type: "closePursuit" })} />}
     </SlidePane>
   );
-}
-
-function options(current: string, vocab: string[]): [string, string][] {
-  const opts: [string, string][] = [["", "none"]];
-  for (const s of vocab) opts.push([s, s]);
-  if (current && !vocab.includes(current)) opts.push([current, current + " (removed)"]);
-  return opts;
 }
 
 function PursuitBody({ id }: { id: string }) {
@@ -140,24 +134,26 @@ function PursuitBody({ id }: { id: string }) {
           <div className="pipeline-grid">
             <div className="pipeline-row">
               <span className="pl-label">application</span>
-              <select className="input pl-appstatus" title="application stage" value={stage} onChange={(e) => saveTracking(j, { application_status: e.target.value })}>
-                {options(stage, stages).map(([v, label]) => (
-                  <option key={v} value={v}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <PillSelect
+                value={stage}
+                options={vocabOptions(stage, stages)}
+                valueClass={stage === ARCHIVED_STAGE ? "pill-archived" : vocabColorClass(stage, stages)}
+                onChange={(v) => saveTracking(j, { application_status: v })}
+                title="application stage"
+                ariaLabel="application stage"
+              />
               {stage && j.application_status_at ? <span className="pl-at" title="stage last changed">since {j.application_status_at.slice(0, 10)}</span> : null}
             </div>
             <div className="pipeline-row">
               <span className="pl-label">outreach</span>
-              <select className="input pl-ostatus" title="outreach reply status — separate from the application stage" value={j.outreach_status || ""} onChange={(e) => saveTracking(j, { outreach_status: e.target.value })}>
-                {options(j.outreach_status || "", statuses).map(([v, label]) => (
-                  <option key={v} value={v}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <PillSelect
+                value={j.outreach_status || ""}
+                options={vocabOptions(j.outreach_status || "", statuses)}
+                valueClass={vocabColorClass(j.outreach_status || "", statuses)}
+                onChange={(v) => saveTracking(j, { outreach_status: v })}
+                title="outreach reply status — separate from the application stage"
+                ariaLabel="outreach reply status"
+              />
             </div>
             <div className="pipeline-row">
               <span className="pl-label">queue</span>

@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast, copyEmailBody } from "../../components/Toast";
+import { PillSelect } from "../../components/PillSelect";
 import { useDispatch } from "../../store/ui";
 import { useGmail } from "../../api/gmail";
 import { useContacts, useOutreachLog } from "../../api/contacts";
@@ -474,13 +475,19 @@ function DraftSendControls({
       {alreadySent ? <div className="draft-note dim draft-reuse-hd">Reach out to another contact</div> : null}
       <div className="draft-gmail-row">
         {emailable.length ? (
-          <select className="input draft-recipient" title="recipient" aria-label="recipient" value={selected} onChange={(e) => setRecipient(e.target.value)}>
-            {emailable.map((c) => (
-              <option key={c.id} value={c.id}>
-                {(c.name || c.email) + (c.email ? ` <${c.email}>` : "")}
-              </option>
-            ))}
-          </select>
+          <div className="draft-recipient">
+            <PillSelect
+              variant="box"
+              value={selected}
+              options={emailable.map((c) => ({
+                value: c.id,
+                label: (c.name || c.email) + (c.email ? ` <${c.email}>` : ""),
+              }))}
+              onChange={setRecipient}
+              title="recipient"
+              ariaLabel="recipient"
+            />
+          </div>
         ) : null}
         {connected && emailable.length ? (
           <button className="btn btn-primary draft-gmail-btn" disabled={sending} title="send this email from your Gmail now, log it, and arm a follow-up" onClick={sendGmail}>

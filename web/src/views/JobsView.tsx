@@ -6,11 +6,12 @@
 // sidebar (Phase 1).
 import { useMemo, useState } from "react";
 import { useJobs } from "../api/jobs";
-import { useVocab, vocabColorClass } from "../api/queries";
+import { useVocab, vocabColorClass, vocabOptions } from "../api/queries";
 import { useUI, useDispatch, DEFAULT_JSORT, type Sort } from "../store/ui";
 import { useJobTracking } from "../hooks/useJobTracking";
 import { parseContacts } from "../lib/contacts";
 import { IconNextUp, IconBell } from "../components/icons";
+import { PillSelect } from "../components/PillSelect";
 import type { Posting } from "../api/types";
 
 function stageOrder(j: Posting, stages: string[]): number {
@@ -38,13 +39,6 @@ function compareJobs(a: Posting, b: Posting, k: string, dir: number, stages: str
   return String((a as unknown as Record<string, unknown>)[k] ?? "").localeCompare(
     String((b as unknown as Record<string, unknown>)[k] ?? ""),
   );
-}
-
-function options(current: string, vocab: string[]): [string, string][] {
-  const opts: [string, string][] = [["", "none"]];
-  for (const s of vocab) opts.push([s, s]);
-  if (current && !vocab.includes(current)) opts.push([current, current + " (removed)"]);
-  return opts;
 }
 
 export function JobsView({ active }: { active: boolean }) {
@@ -145,25 +139,17 @@ export function JobsView({ active }: { active: boolean }) {
           <span>
             <strong>{selIds.length}</strong> selected
           </span>
-          <select
-            className="bulk-stage-sel"
+          <PillSelect
+            value={null}
+            placeholder="Set stage…"
+            options={[
+              { value: "", label: "not applied", dot: "pselect-dot--none" },
+              ...stages.map((s) => ({ value: s, label: s, dot: vocabColorClass(s, stages) })),
+            ]}
+            onChange={(v) => void applyStage(v)}
             title="move the selected jobs to an application stage"
-            value="__pick__"
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v !== "__pick__") void applyStage(v);
-            }}
-          >
-            <option value="__pick__" disabled>
-              Set stage…
-            </option>
-            <option value="">not applied</option>
-            {stages.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            ariaLabel="move the selected jobs to an application stage"
+          />
           <button className="btn btn-sm" onClick={() => setSel(new Set())}>
             Clear
           </button>
@@ -369,34 +355,26 @@ function JobRow({
       </td>
       <td data-col="application" style={colStyle("application")}>
         <div className="jt-stage">
-          <select
-            className={"jt-stage-sel " + vocabColorClass(stage, stages)}
-            title="application stage"
+          <PillSelect
             value={stage}
-            onChange={(e) => onStage(e.target.value)}
-          >
-            {options(stage, stages).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={vocabOptions(stage, stages)}
+            valueClass={vocabColorClass(stage, stages)}
+            onChange={onStage}
+            title="application stage"
+            ariaLabel="application stage"
+          />
         </div>
       </td>
       <td className="small" data-col="outreach" style={colStyle("outreach")}>
         <div className="jt-out">
-          <select
-            className={"jt-ostatus " + vocabColorClass(ostatus, statuses)}
-            title="outreach reply status"
+          <PillSelect
             value={ostatus}
-            onChange={(e) => onStatus(e.target.value)}
-          >
-            {options(ostatus, statuses).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={vocabOptions(ostatus, statuses)}
+            valueClass={vocabColorClass(ostatus, statuses)}
+            onChange={onStatus}
+            title="outreach reply status"
+            ariaLabel="outreach reply status"
+          />
         </div>
       </td>
       <td className="small" data-col="last_outreach" style={colStyle("last_outreach")}>

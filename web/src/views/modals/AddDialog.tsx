@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal, ModalNote } from "../../components/Modal";
+import { PillSelect } from "../../components/PillSelect";
 import { useToast } from "../../components/Toast";
 import { useUI, useDispatch } from "../../store/ui";
 import { useMeta } from "../../api/queries";
@@ -229,15 +230,17 @@ export function AddDialog() {
                 <input className="input" id="add-headcount" inputMode="numeric" placeholder="e.g. 250" autoComplete="off" value={headcount} onChange={(e) => setHeadcount(e.target.value.replace(/[^0-9]/g, ""))} />
               </div>
               <div className="form-field">
-                <label htmlFor="add-stage">Funding stage</label>
-                <select className="input" id="add-stage" value={fundingStage} onChange={(e) => setFundingStage(e.target.value)}>
-                  <option value="">—</option>
-                  {(facets?.funding_stages ?? []).map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                <label>Funding stage</label>
+                <PillSelect
+                  variant="box"
+                  value={fundingStage}
+                  options={[
+                    { value: "", label: "—" },
+                    ...(facets?.funding_stages ?? []).map((s) => ({ value: s, label: s })),
+                  ]}
+                  onChange={setFundingStage}
+                  ariaLabel="funding stage"
+                />
               </div>
             </div>
             <div className="form-field">

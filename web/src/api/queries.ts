@@ -104,3 +104,16 @@ export function useVerdictPlan(enabled: boolean) {
     staleTime: 0,
   });
 }
+
+/** The option list for a vocab-backed PillSelect: "none", the vocabulary in
+ *  order, and — only when the row still carries it — a value dropped from the
+ *  vocabulary since, so an existing stage never silently vanishes. */
+export function vocabOptions(
+  current: string,
+  vocab: string[],
+): { value: string; label: string; dot?: string }[] {
+  const opts = [{ value: "", label: "none", dot: "pselect-dot--none" }];
+  for (const s of vocab) opts.push({ value: s, label: s, dot: vocabColorClass(s, vocab) });
+  if (current && !vocab.includes(current)) opts.push({ value: current, label: current + " (removed)", dot: "" });
+  return opts;
+}
