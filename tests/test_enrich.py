@@ -284,3 +284,29 @@ def test_run_emits_parallel_progress(db):
     assert "enriching 3 companies · 2 workers in parallel" in joined, joined
     for name in names:
         assert f"· {name}…" in joined, joined
+
+
+def test_run_fetches_in_parallel(db):
+    """The fetches genuinely overlap: the stub holds each request until all three
+    are in flight at once, which a sequential loop can never reach (its lone
+    request times out into a 500 and the company records a failed fetch)."""
+    barrier = threading.Barrier(3, timeout=5)
+
+    def handle(req):
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            return 500, {"Content-Type": "text/html"}, "not concurrent"
+        return 200, {"Content-Type": "text/html"}, "<html><body>" + REAL_CONTENT + "</body></html>"
+
+    with http_server(handle) as base:
+        domain = base[len("http://") :]
+        for i, name in enumerate(["Acme", "Beta", "Gamma"]):
+            db.execute(
+                "INSERT INTO companies (id, source, name, domain, raw_json) VALUES (?, 'test', ?, ?, '{}')",
+                (f"c{i}", name, domain),
+            )
+        e = enrich.Enricher(con=db, client=enrich.new_http_client(), scheme="http", workers=3)
+        res = e.run(force=True)
+
+    assert res.fetched == 3 and res.ok == 3, res

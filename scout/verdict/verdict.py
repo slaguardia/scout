@@ -5,9 +5,10 @@ Results are persisted to verdicts. A scored company is sticky: a default run ski
 any company that already has a verdict (criteria or playbook edits do not re-score
 it). Re-scoring is always explicit — a targeted per-company run, or a force run.
 
-Concurrency note: scoring runs sequentially because the single shared sqlite3
-connection is not thread-safe. Result accounting, the verdict + trace writes, and
-the progress emissions are unaffected — only wall-clock parallelism.
+Concurrency: the API calls fan out over `workers` threads (jobs.bounded_map), but
+the skip check, the verdict + trace writes, and the accounting all stay on the
+calling thread — the single sqlite3 connection is never shared. Progress lines
+arrive in completion order.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 
 from scout import anthropic, criteria
 from scout.filter import Survivor, Taste
+from scout.jobs import bounded_map
 from scout.store.trace import VerdictTrace, insert_verdict_trace
 from scout.store.verdicts import (
     MANUAL_MODEL,
@@ -90,8 +92,6 @@ class Scorer:
         self.run_id = run_id
         self.workers = workers
         self.progress = progress
-        # Set by score_one so run() can say *why* a row was skipped.
-        self._skip_reason = ""
 
     def emit(self, line: str) -> None:
         if self.progress is not None:
@@ -114,19 +114,29 @@ class Scorer:
         workers = min(self.workers, len(cands))
         self.emit(f"scoring {len(cands)} companies · {workers} workers in parallel")
 
-        for c in cands:
-            self.emit(f"· {c.name}…")  # picked up
-            v, cache_create, cache_read, err = self.score_one(c)
+        # The skip check reads the DB, so it runs here as each company is pulled for
+        # submission — only the companies that need a call reach the pool.
+        def picked_up():
+            for c in cands:
+                why = self.skip_reason(c)
+                if why != "":
+                    res.skipped += 1
+                    self.emit(f"{c.name} — skipped ({why})")
+                    continue
+                self.emit(f"· {c.name}…")
+                yield c
+
+        for c, fut in bounded_map(self.call_one, picked_up(), workers):
+            verdict, reason, cache_create, cache_read, err = fut.result()
             res.cache_creation_tokens += cache_create
             res.cache_read_tokens += cache_read
+            v = None
+            if err is None:
+                v, err = self.persist(c, verdict, reason)
             if err is not None:
                 res.failed += 1
                 print(f"verdict {c.company_id} ({c.name}) error: {err}")
                 self.emit(f"{c.name} — error: {err}")
-                continue
-            if v is None:
-                res.skipped += 1
-                self.emit(f"{c.name} — skipped ({self._skip_reason or 'up to date'})")
                 continue
             res.scored += 1
             res.by_verdict[v.verdict] = res.by_verdict.get(v.verdict, 0) + 1
@@ -244,21 +254,20 @@ FROM companies WHERE id IN """,
         # Default run: already scored is already done.
         return "already scored"
 
-    def score_one(self, c: VerdictCandidate) -> tuple[Verdict | None, int, int, Exception | None]:
-        """Score one company. Returns (verdict|None, cache_creation, cache_read,
-        err) — None verdict + None err means skipped (already up to date). The
-        cache token counts are returned even on a parse/write error so run() can
-        still aggregate them."""
+    def skip_reason(self, c: VerdictCandidate) -> str:
+        """Why this run leaves c alone, or "" to score it. Reads the DB."""
         # A targeted run always re-scores — the user pointed at this company on
         # purpose, so even a sticky manual verdict is fair game.
-        if not self.company_ids:
-            existing = get_verdict(self.con, c.company_id)
-            if existing is not None:
-                why = self._skip_existing(existing)
-                if why != "":
-                    self._skip_reason = why
-                    return None, 0, 0, None
+        if self.company_ids:
+            return ""
+        existing = get_verdict(self.con, c.company_id)
+        return self._skip_existing(existing) if existing is not None else ""
 
+    def call_one(self, c: VerdictCandidate) -> tuple[str, str, int, int, Exception | None]:
+        """The API call + parse for one company — no DB access, so it is safe on a
+        worker thread. Returns (verdict, reason, cache_creation, cache_read, err);
+        the cache token counts come back even on a parse error so run() can still
+        aggregate them."""
         system = build_system_prompt(self.playbook, self.taste.text)
         user = build_user_prompt(c)
 
@@ -274,15 +283,21 @@ FROM companies WHERE id IN """,
                 )
             )
         except Exception as e:  # noqa: BLE001 - surface as the run's per-company failure
-            return None, 0, 0, e
+            return "", "", 0, 0, e
 
         cc = resp.usage.cache_creation_input_tokens
         cr = resp.usage.cache_read_input_tokens
         try:
             verdict, reason = parse_verdict(resp.text())
         except ValueError as e:
-            return None, cc, cr, ValueError(f"parse: {e} (raw={truncate(resp.text(), 200)!r})")
+            return "", "", cc, cr, ValueError(f"parse: {e} (raw={truncate(resp.text(), 200)!r})")
+        return verdict, reason, cc, cr, None
 
+    def persist(
+        self, c: VerdictCandidate, verdict: str, reason: str
+    ) -> tuple[Verdict | None, Exception | None]:
+        """Write the verdict and its decision-trail row. Touches the DB, so call it
+        on the coordinating thread."""
         v = Verdict(
             company_id=c.company_id,
             verdict=verdict,
@@ -293,9 +308,9 @@ FROM companies WHERE id IN """,
         try:
             upsert_verdict(self.con, v)
         except Exception as e:  # noqa: BLE001
-            return None, cc, cr, e
+            return None, e
         self.write_trace(c, self.model, verdict, reason)
-        return v, cc, cr, None
+        return v, None
 
     def write_trace(self, c: VerdictCandidate, model: str, verdict: str, reason: str) -> None:
         """Append one decision-trail row. Best-effort — a failure is logged but

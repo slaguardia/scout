@@ -278,7 +278,7 @@ there is no longer a `--taste` file flag.
 | `--brain-cache-ttl` | `6h` | Ceiling for serving a cached brief while the brain is unreachable (NOT a re-distill trigger — re-distilling is driven by the `/changes` cascade). Also feeds `criteria_state` in `GET /api/profile`. |
 | `--model` | `claude-haiku-4-5` | Anthropic model for per-company scoring. |
 | `--distill-model` | `claude-sonnet-4-6` | Anthropic model for the once-per-run distiller (classify + synthesize). |
-| `--workers` | `4` | Parallel API calls. |
+| `--workers` | `10` | Parallel API calls. |
 | `--force` | `false` | Re-score every survivor even if the criteria version matches. |
 
 ### `scout serve`

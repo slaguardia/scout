@@ -50,11 +50,11 @@ until residue actually corrupts verdicts.
 
 ### SQLite single-writer
 
-Enrich and verdict run sequentially over a single SQLite connection (one shared
-`sqlite3` connection isn't thread-safe to share across threads). WAL helps, but
-there's still a serial write point. Invisible at low thousands of rows; visible at
-hundreds of thousands. The fix (a per-request/pooled connection layer) is
-straightforward when the scale arrives.
+Enrich and verdict fan their network calls out over a thread pool, but every DB
+write funnels back through the run's one SQLite connection on one thread. That is
+a serial write point by design — writes are milliseconds against seconds of
+network, so it doesn't bind until hundreds of thousands of rows. The fix then (a
+pooled connection layer) is straightforward when the scale arrives.
 
 ### No stage-level API retry/backoff
 

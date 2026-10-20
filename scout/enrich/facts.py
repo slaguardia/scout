@@ -5,6 +5,9 @@ Fills the name (when it's just the domain placeholder from a bare "Add by
 website"), vertical, location, headcount, and funding stage. Fill-only-blanks: a
 value the CSV or the user already supplied is never overwritten. Runs only when
 the Enricher has an Anthropic client and the fetch came back "ok".
+
+Split for the enrich fan-out: vocab_for (DB read) and apply_facts (DB write) run
+on the coordinating thread; extract_facts (the LLM call) runs on a worker.
 """
 
 from __future__ import annotations
@@ -104,29 +107,36 @@ def name_placeholder(name: str, domain: str) -> bool:
     return name == "" or name.strip().casefold() == domain.casefold()
 
 
-def fill_facts(e, t, page_text: str) -> bool:
-    """Run the extraction call for one fetched company and write any extracted
-    values into the blank columns. Best-effort: an API or parse error is reported
-    on the progress stream but never fails the enrichment row. Returns True if
-    anything was written."""
-    need_name = name_placeholder(t.name, t.domain)
-    need_other = t.headcount == 0 or t.funding_stage == "" or t.location == "" or t.vertical == ""
-    if (not need_name and not need_other) or page_text == "":
-        return False
+def needs_facts(t) -> bool:
+    """Whether the company has any blank a fact pass could fill."""
+    return (
+        name_placeholder(t.name, t.domain)
+        or t.headcount == 0
+        or t.funding_stage == ""
+        or t.location == ""
+        or t.vertical == ""
+    )
 
-    # Vocabulary steering: when the vertical is among the blanks, hand the
-    # extractor the tags already in the set. Best-effort — a read failure just
-    # means no steering.
-    user = page_text
-    if t.vertical == "":
-        try:
-            tags = vertical_tags(e.con)
-            vocab = vertical_vocab(tags)
-            if vocab != "":
-                user = vocab + "\n\n" + page_text
-        except Exception:  # noqa: BLE001 - steering is best-effort
-            pass
 
+def vocab_for(e, t) -> str:
+    """The vocabulary-steering prompt line for t: the tags already in the set
+    when the vertical is among the blanks, else "". Best-effort — a read failure
+    just means no steering. Reads the DB, so call it on the coordinating thread."""
+    if t.vertical != "":
+        return ""
+    try:
+        return vertical_vocab(vertical_tags(e.con))
+    except Exception:  # noqa: BLE001 - steering is best-effort
+        return ""
+
+
+def extract_facts(e, t, page_text: str, vocab: str = "") -> tuple[_Facts | None, str]:
+    """The extraction call alone — no DB access, so it is safe on a worker thread.
+    Returns (facts, "") or (None, note) where note is the progress line to report
+    ("" when there was nothing to extract)."""
+    if not needs_facts(t) or page_text == "":
+        return None, ""
+    user = vocab + "\n\n" + page_text if vocab != "" else page_text
     try:
         resp = e.llm.send(
             anthropic.Request(
@@ -138,14 +148,19 @@ def fill_facts(e, t, page_text: str) -> bool:
             )
         )
     except anthropic.AnthropicError as err:
-        e.emit(f"facts {t.name} — extract failed: {err}")
-        return False
+        return None, f"facts {t.name} — extract failed: {err}"
     try:
-        f = parse_facts(resp.text())
+        return parse_facts(resp.text()), ""
     except ValueError as err:
-        e.emit(f"facts {t.name} — {err}")
-        return False
+        return None, f"facts {t.name} — {err}"
 
+
+def apply_facts(e, t, f: _Facts) -> bool:
+    """Write extracted facts into t's blank columns (fill-only-blanks). Touches the
+    DB, so call it on the coordinating thread. Returns True if anything was
+    written."""
+    need_name = name_placeholder(t.name, t.domain)
+    need_other = t.headcount == 0 or t.funding_stage == "" or t.location == "" or t.vertical == ""
     filled = False
     if need_name and f.name != "":
         try:

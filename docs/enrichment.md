@@ -75,12 +75,12 @@ call site to rewrite — it's a single function (`extract_text`) in
 
 ## Concurrency
 
-`--workers` defaults to 8, but fetches run **sequentially** over the single shared
-`sqlite3` connection (not thread-safe across threads), so there is no parallel
-worker pool — the progress header still prints the worker count, but only one
-fetch runs at a time and DB writes go through that one connection. The observable
-contract is Result counts, writes, and progress lines; the flag affects only the
-reported count, not wall-clock parallelism.
+Fetches fan out over `--workers` threads (default 8), and the fact-extraction
+call for a good fetch rides on the same worker. Everything that touches the DB —
+the vocabulary read before submission, the enrichment upsert, the fact backfill —
+stays on the run's own thread, so the single shared `sqlite3` connection (not
+thread-safe) is never used concurrently (`jobs.bounded_map`). Progress lines
+arrive in completion order, not input order.
 
 ## Idempotency
 

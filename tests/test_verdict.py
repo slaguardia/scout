@@ -178,6 +178,29 @@ def test_run_scores_and_writes_trace(db):
     assert "Company:" in body["messages"][0]["content"]
 
 
+def test_run_calls_in_parallel(db):
+    """The API calls genuinely overlap: the stub holds each request until all
+    three are in flight at once, which a sequential loop can never reach (its
+    lone request times out into a 400 and the company fails)."""
+    ids = _seed(db, [(n, f"{n.lower()}.com", f"{n} builds AI dev tools") for n in ("A", "B", "C")])
+    stub = _VerdictStub()
+    barrier = threading.Barrier(3, timeout=5)
+
+    def handle(req):
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            return 400, {"Content-Type": "application/json"}, '{"error":"not concurrent"}'
+        return stub.handle(req)
+
+    with http_server(handle) as url:
+        res = _scorer(db, _client(url), workers=3).run()
+
+    assert res.scored == 3 and res.failed == 0, res
+    for cid in ids:
+        assert verdicts.get_verdict(db, cid).verdict == "yes"
+
+
 def test_run_is_sticky(db):
     _seed(db, [("Acme", "acme.com", "Acme builds AI dev tools")])
     with http_server(_VerdictStub().handle) as url:

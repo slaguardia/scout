@@ -10,6 +10,7 @@ results — the DB has those.
 Concurrency model: each job runs on a threading.Thread; cancellation rides on a
 Context wrapping a threading.Event; an SSE subscriber is a queue.Queue closed by
 enqueuing a None sentinel. The work Func returns its summary and raises on failure.
+Within a job, a stage fans its slow I/O out over bounded_map.
 """
 
 from __future__ import annotations
@@ -18,7 +19,8 @@ import queue
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
 # Status values for a job.
 STATUS_RUNNING = "running"
@@ -45,6 +47,39 @@ class Context:
 # callback for progress lines, and returns a summary dict (raising on failure). id
 # is the job's id, so work can tag any durable rows it writes (e.g. the run uuid).
 Func = Callable[[Context, str, Callable[[str], None]], "dict | None"]
+
+
+def bounded_map[T, R](
+    fn: Callable[[T], R], items: Iterable[T], workers: int
+) -> Iterator[tuple[T, Future[R]]]:
+    """Run fn over items on a pool of `workers` threads, yielding (item, future)
+    in completion order; future.result() returns fn's value or re-raises.
+
+    Only fn runs on the pool. items is pulled lazily on the CALLING thread, at most
+    `workers` ahead, and only after the caller has handled the completions already
+    yielded. So a generator for items can read the DB and emit "picked up" lines,
+    and the loop body can write the results, all on one thread — the single sqlite3
+    connection is never touched concurrently, and each submission sees the writes
+    of everything that finished before it."""
+    it = iter(items)
+    workers = max(1, workers)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending: dict[Future[R], T] = {}
+
+        def fill() -> None:
+            while len(pending) < workers:
+                try:
+                    x = next(it)
+                except StopIteration:
+                    return
+                pending[pool.submit(fn, x)] = x
+
+        fill()
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for f in done:
+                yield pending.pop(f), f
+            fill()
 
 
 class ErrBusy(Exception):

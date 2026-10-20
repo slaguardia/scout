@@ -4,11 +4,10 @@ Strategy: try a small set of candidate URLs (/about, /about-us, /, ...), take th
 first one that returns 2xx HTML, strip tags, collapse whitespace, truncate. Errors
 are recorded so we don't retry hot loops on permanently broken sites.
 
-Concurrency note: enrichment runs sequentially. The store is built around a single
-sqlite3 connection (not safe to share across threads), so the work can't be spread
-across a worker pool without a per-thread connection layer the store doesn't have.
-Result accounting, DB writes, and progress emissions (the header still names the
-worker count) are unaffected — only wall-clock parallelism.
+Concurrency: the fetches and fact extractions fan out over `workers` threads
+(jobs.bounded_map), but every DB read and write stays on the calling thread — the
+store's single sqlite3 connection is never shared. Progress lines arrive in
+completion order.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from dataclasses import dataclass, replace
 
 import httpx
 
+from scout.jobs import bounded_map
 from scout.store._helpers import null
 from scout.store.enrichment import (
     Enrichment,
@@ -28,7 +28,7 @@ from scout.store.enrichment import (
     upsert_enrichment,
 )
 
-from .facts import fill_facts
+from .facts import apply_facts, extract_facts, vocab_for
 
 DEFAULT_WORKERS = 8
 DEFAULT_TIMEOUT = 12.0  # seconds
@@ -127,10 +127,15 @@ class Enricher:
         # Header up front so the parallelism is legible.
         workers = min(self.workers, len(targets))
         self.emit(f"enriching {len(targets)} companies · {workers} workers in parallel")
+        self._client()  # build the shared client now, so workers never race its lazy init
 
-        for t in targets:
-            self.emit(f"· {t.name}…")  # picked up
-            rec = self.fetch_one(t)
+        def picked_up():
+            for t in targets:
+                self.emit(f"· {t.name}…")
+                yield t, (vocab_for(self, t) if self.llm is not None else "")
+
+        for (t, _vocab), fut in bounded_map(self._fetch_and_extract, picked_up(), workers):
+            rec, facts, note = fut.result()
             try:
                 upsert_enrichment(self.con, rec)
             except Exception as e:  # noqa: BLE001 - DB failure is bad; surface but keep going
@@ -138,9 +143,9 @@ class Enricher:
                 continue
             # Fact extraction rides on a good fetch: fill blank company columns
             # from the page text. Best-effort, never fails the row.
-            filled = False
-            if self.llm is not None and rec.fetch_status == "ok":
-                filled = fill_facts(self, t, rec.website_summary or "")
+            if note != "":
+                self.emit(note)
+            filled = facts is not None and apply_facts(self, t, facts)
             res.fetched += 1
             if rec.fetch_status == "ok":
                 res.ok += 1
@@ -152,6 +157,16 @@ class Enricher:
             status = rec.fetch_status + (" +facts" if filled else "")
             self.emit(f"[{done}/{res.considered}] {t.name} — {status}")
         return res
+
+    def _fetch_and_extract(self, job: tuple[EnrichmentTarget, str]):
+        """One company's network work, run on a worker thread: the page fetch,
+        then the fact extraction on a good one. Touches no DB — run() persists."""
+        t, vocab = job
+        rec = self.fetch_one(t)
+        if self.llm is None or rec.fetch_status != "ok":
+            return rec, None, ""
+        facts, note = extract_facts(self, t, rec.website_summary or "", vocab)
+        return rec, facts, note
 
     def fetch_one(self, t: EnrichmentTarget) -> Enrichment:
         rec = Enrichment(company_id=t.company_id)
