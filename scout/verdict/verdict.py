@@ -43,6 +43,7 @@ class Result:
     by_verdict: dict[str, int] = field(default_factory=dict)
     cache_creation_tokens: int = 0  # sum of cache_creation_input_tokens across all calls
     cache_read_tokens: int = 0  # sum of cache_read_input_tokens (the saving)
+    canceled: bool = False  # stopped early: the rest were never started
 
 
 class Scorer:
@@ -64,6 +65,7 @@ class Scorer:
         run_id: str = "",
         workers: int = 0,
         progress: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ):
         self.con = con
         self.taste = taste
@@ -92,6 +94,10 @@ class Scorer:
         self.run_id = run_id
         self.workers = workers
         self.progress = progress
+        # cancelled, if set, is polled before each company starts; once true the
+        # run stops starting new ones, lets the in-flight calls land (they're paid
+        # for), and returns with res.canceled.
+        self.cancelled = cancelled
 
     def emit(self, line: str) -> None:
         if self.progress is not None:
@@ -117,7 +123,11 @@ class Scorer:
         # The skip check reads the DB, so it runs here as each company is pulled for
         # submission — only the companies that need a call reach the pool.
         def picked_up():
-            for c in cands:
+            for i, c in enumerate(cands):
+                if self.cancelled is not None and self.cancelled():
+                    res.canceled = True
+                    self.emit(f"canceled — {len(cands) - i} not started")
+                    return
                 why = self.skip_reason(c)
                 if why != "":
                     res.skipped += 1

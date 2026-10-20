@@ -82,6 +82,15 @@ def bounded_map[T, R](
             fill()
 
 
+class Canceled(Exception):
+    """Raised by a work Func that stopped early because ctx.cancelled(). Carries
+    the partial summary, so the run record keeps what did finish."""
+
+    def __init__(self, summary: dict | None = None):
+        super().__init__("canceled")
+        self.summary = summary
+
+
 class ErrBusy(Exception):
     """Raised by Runner.start when another job is already running."""
 
@@ -197,6 +206,9 @@ class Runner:
             err_msg = ""
             try:
                 summary = fn(ctx, job.id, job.emit)
+            except Canceled as e:
+                status = STATUS_CANCELED
+                summary = e.summary
             except Exception as e:  # noqa: BLE001 - any work failure is a terminal status
                 if ctx.cancelled():
                     status = STATUS_CANCELED

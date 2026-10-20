@@ -54,6 +54,7 @@ class Result:
     failed: int = 0
     skipped: int = 0
     filled: int = 0  # companies whose blank fact columns got filled (see facts.py)
+    canceled: bool = False  # stopped early: the rest were never started
 
 
 def new_http_client(timeout: float = 0.0) -> httpx.Client:
@@ -83,6 +84,7 @@ class Enricher:
         llm=None,
         model: str = "",
         scheme: str = "https",
+        cancelled: Callable[[], bool] | None = None,
     ):
         self.con = con
         self.workers = workers
@@ -101,6 +103,10 @@ class Enricher:
         self.llm = llm
         self.model = model  # extraction model; empty = anthropic.DEFAULT_MODEL
         self.scheme = scheme
+        # cancelled, if set, is polled before each company starts; once true the
+        # run stops starting new ones, lets the in-flight ones land, and returns
+        # with res.canceled.
+        self.cancelled = cancelled
 
     def emit(self, line: str) -> None:
         if self.progress is not None:
@@ -130,7 +136,11 @@ class Enricher:
         self._client()  # build the shared client now, so workers never race its lazy init
 
         def picked_up():
-            for t in targets:
+            for i, t in enumerate(targets):
+                if self.cancelled is not None and self.cancelled():
+                    res.canceled = True
+                    self.emit(f"canceled — {len(targets) - i} not started")
+                    return
                 self.emit(f"· {t.name}…")
                 yield t, (vocab_for(self, t) if self.llm is not None else "")
 

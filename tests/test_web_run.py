@@ -4,6 +4,7 @@ job stream/cancel, runs, and a real multipart CSV ingest end-to-end."""
 from __future__ import annotations
 
 import json
+import threading
 
 from httpstub import http_server
 from web_helpers import new_test_app, open_db
@@ -36,6 +37,41 @@ def test_run_gating(tmp_path, monkeypatch):
     # Unknown job -> 404 stream; cancel of an unknown job is a no-op false.
     assert client.get("/api/jobs/nope/stream").status_code == 404
     assert client.post("/api/jobs/nope/cancel").json() == {"canceled": False}
+
+
+def test_runner_cancel_keeps_partial_summary():
+    """A Func that honors the cancel ends `canceled` with its partial summary
+    recorded; one that ignores it (ingest) still ends `done` — a cancel never
+    mislabels work that actually ran to completion."""
+    r = jobs.Runner()
+    finished: list[tuple[str, dict | None]] = []
+    r.on_finish = lambda _id, status, summary, _err: finished.append((status, summary))
+
+    canceled = threading.Event()  # set once the test's cancel has landed
+
+    def honors(ctx, _id, _emit):
+        canceled.wait(5)
+        assert ctx.cancelled()
+        raise jobs.Canceled({"scored": 1})
+
+    job = r.start("verdict", honors)
+    assert r.cancel(job.id) is True
+    canceled.set()
+    assert job._done.wait(5)
+    assert job.current_status() == jobs.STATUS_CANCELED
+    assert finished[-1] == (jobs.STATUS_CANCELED, {"scored": 1})
+
+    def ignores(_ctx, _id, _emit):
+        canceled.wait(5)
+        return {"read": 1}
+
+    canceled.clear()
+    job = r.start("ingest", ignores)
+    assert r.cancel(job.id) is True
+    canceled.set()
+    assert job._done.wait(5)
+    assert job.current_status() == jobs.STATUS_DONE
+    assert finished[-1] == (jobs.STATUS_DONE, {"read": 1})
 
 
 def test_ingest_csv_end_to_end(tmp_path, monkeypatch):

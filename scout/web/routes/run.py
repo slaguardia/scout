@@ -151,18 +151,22 @@ def _enrich_job(state, db_path, force, only_blanks, company_ids, workers):
                 only_blanks=only_blanks,
                 company_ids=company_ids,
                 workers=_workers_or(workers, 8),
+                cancelled=ctx.cancelled,
             )
             # Fact extraction needs a key; without it enrichment is purely mechanical.
             if state.ensure_anthropic_key(con) != "":
                 e.llm = state.anthropic
             res = e.run(force)
-            return {
+            summary = {
                 "considered": res.considered,
                 "fetched": res.fetched,
                 "ok": res.ok,
                 "failed": res.failed,
                 "filled": res.filled,
             }
+            if res.canceled:
+                raise jobs.Canceled(summary)
+            return summary
         finally:
             con.close()
 
@@ -185,7 +189,7 @@ def _verdict_job(
             # 'ok' enrichment row. Bulk runs keep the explicit enrich → verdict
             # ordering.
             if company_ids:
-                _autoenrich_for_score(state, con, company_ids, workers, emit)
+                _autoenrich_for_score(state, con, company_ids, workers, emit, ctx.cancelled)
             ft = filter_pkg.taste_from_db(con)
             tb = state.current_taste()
             if tb is None:
@@ -207,15 +211,19 @@ def _verdict_job(
                 company_ids=company_ids,
                 workers=_workers_or(workers, 10),
                 progress=emit,
+                cancelled=ctx.cancelled,
             )
             res = sc.run()
-            return {
+            summary = {
                 "considered": res.considered,
                 "scored": res.scored,
                 "skipped": res.skipped,
                 "failed": res.failed,
                 "by_verdict": res.by_verdict,
             }
+            if res.canceled:
+                raise jobs.Canceled(summary)
+            return summary
         finally:
             con.close()
 
@@ -238,7 +246,7 @@ def _needs_ok_enrichment(con, company_ids: list[str]) -> list[str]:
     return [cid for cid in company_ids if cid not in have_ok]
 
 
-def _autoenrich_for_score(state, db_con, company_ids, workers, emit) -> None:  # noqa: ANN001
+def _autoenrich_for_score(state, db_con, company_ids, workers, emit, cancelled) -> None:  # noqa: ANN001
     """Fetch any requested company that lacks an 'ok' about-page before scoring, so
     a never-enriched company scores in one click. Best-effort: a company with no
     domain (or a site that still won't fetch) just stays unscored, same as before."""
@@ -251,6 +259,7 @@ def _autoenrich_for_score(state, db_con, company_ids, workers, emit) -> None:  #
         progress=emit,
         company_ids=need,
         workers=_workers_or(workers, 8),
+        cancelled=cancelled,
     )
     # Mirror the enrich stage: a present key turns on the fact-extraction pass so
     # the verdict sees filled-in headcount/stage; absent, enrichment stays mechanical.

@@ -96,7 +96,7 @@ All gated on the **Runner** — `503` "control surface disabled" when nil.
 |---|---|---|---|
 | `POST` | `/api/run/{stage}` | Start a pipeline stage as a background job. Stages: `enrich`, `verdict`. Optional JSON body `{force, only_blanks, company_ids, workers}`. Returns `202 {job_id, stage}`. | `503` if no Runner. `verdict` needs `ANTHROPIC_API_KEY` → `412`. `enrich` runs keyless (mechanical) and richer with a key. `400` unknown stage; `409` if a stage is already running. |
 | `GET` | `/api/jobs/{id}/stream` | **Server-Sent Events** live progress for a running job. | See **Special transports**. `503` if no Runner; `404` unknown job. |
-| `POST` | `/api/jobs/{id}/cancel` | Cancel a running job (`{canceled: bool}`). | `503` if no Runner. |
+| `POST` | `/api/jobs/{id}/cancel` | Cancel a running job (`{canceled: bool}`). Enrich/verdict stop starting new companies, let the in-flight ones land, and end `canceled` with the partial summary; ingest is a single step and runs to `done`. | `503` if no Runner. |
 | `GET` | `/api/runs` | Which stage (if any) is currently running (`{busy_stage}`). | `busy_stage` is `""` when idle / no Runner. |
 | `GET` | `/api/meta` | Capabilities for client gating: `{control, brain, verdict, capture, source}`. | `control` = Runner present; `verdict`/`capture` = API key present; `brain` = brain configured & reachable. |
 | `POST` | `/api/ingest` | Upload a CSV (**multipart/form-data**, field `csv`) and run ingest as a job. Returns `202 {job_id, stage:"ingest"}`. | See **Special transports**. `503` if no Runner; `400` on a bad form / missing field. |

@@ -310,3 +310,34 @@ def test_run_fetches_in_parallel(db):
         res = e.run(force=True)
 
     assert res.fetched == 3 and res.ok == 3, res
+
+
+def test_run_cancel_stops_starting_new_companies(db):
+    """Once cancelled() flips, no further company is started; the one in flight
+    still lands, and the result says canceled."""
+    hits: list[str] = []
+
+    def handle(req):
+        hits.append(req.path)
+        return 200, {"Content-Type": "text/html"}, "<html><body>" + REAL_CONTENT + "</body></html>"
+
+    with http_server(handle) as base:
+        domain = base[len("http://") :]
+        for i, name in enumerate(["Acme", "Beta", "Gamma"]):
+            db.execute(
+                "INSERT INTO companies (id, source, name, domain, raw_json) VALUES (?, 'test', ?, ?, '{}')",
+                (f"c{i}", name, domain),
+            )
+        lines: list[str] = []
+        e = enrich.Enricher(
+            con=db,
+            client=enrich.new_http_client(),
+            scheme="http",
+            workers=1,
+            progress=lines.append,
+            cancelled=lambda: len(hits) > 0,  # cancel lands after the first fetch
+        )
+        res = e.run(force=True)
+
+    assert res.canceled and res.fetched == 1 and len(hits) == 1, (res, hits)
+    assert "canceled — 2 not started" in lines, lines

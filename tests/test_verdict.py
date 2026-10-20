@@ -201,6 +201,25 @@ def test_run_calls_in_parallel(db):
         assert verdicts.get_verdict(db, cid).verdict == "yes"
 
 
+def test_run_cancel_stops_starting_new_calls(db):
+    """Once cancelled() flips, no further call is sent; the one in flight is still
+    written (it was paid for), and the result says canceled."""
+    _seed(db, [(n, f"{n.lower()}.com", f"{n} builds AI dev tools") for n in ("A", "B", "C")])
+    stub = _VerdictStub()
+    lines: list[str] = []
+    with http_server(stub.handle) as url:
+        res = _scorer(
+            db,
+            _client(url),
+            workers=1,
+            progress=lines.append,
+            cancelled=lambda: len(stub.bodies) > 0,  # cancel lands after the first call
+        ).run()
+
+    assert res.canceled and res.scored == 1 and len(stub.bodies) == 1, res
+    assert "canceled — 2 not started" in lines, lines
+
+
 def test_run_is_sticky(db):
     _seed(db, [("Acme", "acme.com", "Acme builds AI dev tools")])
     with http_server(_VerdictStub().handle) as url:
