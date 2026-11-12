@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>scout</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- use-credentials: browsers fetch the manifest without cookies otherwise, and the login edge redirects it -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="theme-color" content="#0b0d12" />
   </head>
